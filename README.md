@@ -4,9 +4,8 @@
 
 <p>
   <img src="https://img.shields.io/badge/version-1.0.0-blue.svg" alt="Version">
-  <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green.svg" alt="License">
+  <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/build-passing-brightgreen.svg" alt="Build">
-  <img src="https://img.shields.io/badge/coverage-95%25-success.svg" alt="Coverage">
 </p>
 
 <p align="center">
@@ -556,14 +555,6 @@ enable_tracing = true
 
 ## 🧪 测试
 
-<div align="center">
-
-### 🎯 测试覆盖率
-
-![Coverage](https://img.shields.io/badge/coverage-95%25-success?style=for-the-badge)
-
-</div>
-
 ```bash
 # 运行所有测试
 cargo test --all-features
@@ -577,20 +568,6 @@ cargo test --test integration_tests
 # 运行基准测试
 cargo bench
 ```
-
-<details>
-<summary><b>📊 测试统计</b></summary>
-
-<br>
-
-| 类别 | 测试数量 | 覆盖率 |
-|----------|-------|----------|
-| 单元测试 | 43 | 95% |
-| 集成测试 | 3 | 100% |
-| 并发测试 | 3 | 100% |
-| **总计** | **49** | **95%** |
-
-</details>
 
 ---
 

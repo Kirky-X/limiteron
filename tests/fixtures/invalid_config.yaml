@@ -1,0 +1,130 @@
+# 无效配置文件 - 用于测试配置验证
+
+# 测试1: 空规则列表
+version: "1.0"
+global:
+  enable_metrics: true
+rules: []
+
+# 测试2: 重复规则ID
+# rules:
+#   - id: "duplicate_rule"
+#     name: "规则1"
+#     priority: 100
+#     enabled: true
+#     matchers: []
+#     limiters: []
+#     action: {}
+#   - id: "duplicate_rule"
+#     name: "规则2"
+#     priority: 90
+#     enabled: true
+#     matchers: []
+#     limiters: []
+#     action: {}
+
+# 测试3: 无效优先级
+# rules:
+#   - id: "invalid_priority"
+#     name: "无效优先级"
+#     priority: -1
+#     enabled: true
+#     matchers: []
+#     limiters: []
+#     action: {}
+
+# 测试4: 无效时间格式
+# rules:
+#   - id: "invalid_time"
+#     name: "无效时间"
+#     priority: 100
+#     enabled: true
+#     matchers: []
+#     limiters:
+#       - type: "sliding_window"
+#         window_size: "invalid"
+#         max_requests: 100
+#     action: {}
+
+# 测试5: 缺少必需字段
+# rules:
+#   - id: "missing_fields"
+#     name: "缺少字段"
+#     priority: 100
+#     enabled: true
+#     # 缺少 matchers 和 limiters
+#     action: {}
+
+# 测试6: 负数限制值
+# rules:
+#   - id: "negative_limit"
+#     name: "负数限制"
+#     priority: 100
+#     enabled: true
+#     matchers: []
+#     limiters:
+#       - type: "sliding_window"
+#         window_size: "60s"
+#         max_requests: -100
+#     action: {}
+
+# 测试7: 无效的配额类型
+# rules:
+#   - id: "invalid_quota_type"
+#     name: "无效配额类型"
+#     priority: 100
+#     enabled: true
+#     matchers: []
+#     limiters:
+#       - type: "quota"
+#         quota_type: "invalid_type"
+#         limit: 1000
+#         window_size: "24h"
+#     action: {}
+
+# 测试8: 透支超过100%
+# rules:
+#   - id: "invalid_overdraft"
+#     name: "无效透支"
+#     priority: 100
+#     enabled: true
+#     matchers: []
+#     limiters:
+#       - type: "quota"
+#         quota_type: "token"
+#         limit: 1000
+#         window_size: "24h"
+#         overdraft:
+#           enabled: true
+#           max_overdraft: 2000
+#     action: {}
+
+# 测试9: 无效的封禁配置
+# rules:
+#   - id: "invalid_ban"
+#     name: "无效封禁"
+#     priority: 100
+#     enabled: true
+#     matchers: []
+#     limiters:
+#       - type: "sliding_window"
+#         window_size: "60s"
+#         max_requests: 100
+#     action:
+#       on_exceed: "reject"
+#       ban:
+#         threshold: -1
+#         initial_duration: "5m"
+#         backoff_multiplier: -2.0
+#         max_duration: "24h"
+
+# 测试10: 无效的限流器类型
+# rules:
+#   - id: "invalid_limiter_type"
+#     name: "无效限流器"
+#     priority: 100
+#     enabled: true
+#     matchers: []
+#     limiters:
+#       - type: "invalid_limiter"
+#     action: {}

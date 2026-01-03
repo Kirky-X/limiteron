@@ -1,0 +1,102 @@
+# 有效配置文件 - 用于测试
+version: "1.0"
+
+global:
+  enable_metrics: true
+  enable_tracing: false
+  default_action: "reject"
+
+rules:
+  - id: "api_rate_limit"
+    name: "API限流规则"
+    priority: 100
+    enabled: true
+    matchers:
+      - type: "path"
+        pattern: "/api/*"
+    limiters:
+      - type: "sliding_window"
+        window_size: "60s"
+        max_requests: 100
+    action:
+      on_exceed: "reject"
+      response_code: 429
+      response_message: "Rate limit exceeded"
+
+  - id: "user_quota"
+    name: "用户配额规则"
+    priority: 90
+    enabled: true
+    matchers:
+      - type: "user"
+        user_tier: "premium"
+    limiters:
+      - type: "quota"
+        quota_type: "token"
+        limit: 1000000
+        window_size: "24h"
+        overdraft:
+          enabled: true
+          max_overdraft: 100000
+    action:
+      on_exceed: "reject"
+      ban:
+        threshold: 5
+        initial_duration: "5m"
+        backoff_multiplier: 2.0
+        max_duration: "24h"
+
+  - id: "vip_protection"
+    name: "VIP用户保护"
+    priority: 80
+    enabled: true
+    matchers:
+      - type: "composite"
+        op: "AND"
+        conditions:
+          - type: "user"
+            user_tier: "vip"
+          - type: "geo"
+            countries: ["CN", "US"]
+    limiters:
+      - type: "token_bucket"
+        capacity: 1000
+        refill_rate: 100
+    action:
+      on_exceed: "allow"
+      log_only: true
+
+  - id: "ddos_protection"
+    name: "DDoS防护"
+    priority: 10
+    enabled: true
+    matchers:
+      - type: "ip"
+        ip_ranges: ["0.0.0.0/0"]
+    limiters:
+      - type: "fixed_window"
+        window_size: "1s"
+        max_requests: 1000
+    action:
+      on_exceed: "reject"
+      ban:
+        threshold: 3
+        initial_duration: "10m"
+        backoff_multiplier: 2.0
+        max_duration: "24h"
+        scope: "ip"
+
+  - id: "concurrency_limit"
+    name: "并发限制"
+    priority: 50
+    enabled: true
+    matchers:
+      - type: "path"
+        pattern: "/heavy/*"
+    limiters:
+      - type: "concurrency"
+        max_concurrent: 10
+    action:
+      on_exceed: "reject"
+      response_code: 503
+      response_message: "Service busy"

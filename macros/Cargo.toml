@@ -1,0 +1,22 @@
+[package]
+name = "flowguard-macros"
+version = "0.1.0"
+edition = "2021"
+authors = ["Kirky.X"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kirkyx/limiteron"
+description = "Procedural macros for flowguard rate limiting"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+darling = "0.20"
+
+[dev-dependencies]
+limiteron = { path = ".." }
+tokio = { version = "1.35", features = ["rt-multi-thread", "macros"] }
+trybuild = "1.0"

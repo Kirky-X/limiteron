@@ -715,13 +715,13 @@ gantt
     title Limiteron 路线图
     dateFormat  YYYY-MM
     section 第一阶段
-    核心功能           :done, 2024-01, 2024-03
+    核心功能           :done, 2026-01, 2026-03
     section 第二阶段
-    功能扩展           :active, 2024-03, 2024-06
+    功能扩展           :active, 2026-03, 2026-06
     section 第三阶段
-    性能优化 :2024-06, 2024-09
+    性能优化 :2026-06, 2026-09
     section 第四阶段
-    生产就绪      :2024-09, 2024-12
+    生产就绪      :2026-09, 2026-12
 ```
 
 <table>
@@ -844,12 +844,9 @@ gantt
 
 <div align="center">
 
-本项目采用双重许可证：
+本项目采用 Apache 2.0 许可证：
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE-MIT)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE-APACHE)
-
-你可以选择任一许可证使用。
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 </div>
 
@@ -962,6 +959,6 @@ gantt
 
 ---
 
-<sub>© 2024 Kirky.X. 保留所有权利。</sub>
+<sub>© 2026 Kirky.X. 保留所有权利。</sub>
 
 </div>

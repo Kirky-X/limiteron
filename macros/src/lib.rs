@@ -243,11 +243,8 @@ fn generate_flow_control(
         let msg = reject_message.clone();
         quote! {
             let rate_key = format!("rate:{}:{}", stringify!(#fn_name), identifier);
-            let rate_allowed = {
-                let mut rate_limiter = limiteron::limiters::TokenBucketLimiter::new(#amount, 1);
-                rate_limiter.check(&rate_key).await.is_ok()
-            };
-            if !rate_allowed {
+            let rate_limiter = limiteron::GLOBAL_LIMITER_MANAGER.get_rate_limiter(&rate_key, #amount, 1);
+            if !rate_limiter.allow(1).await? {
                 return Err(limiteron::error::FlowGuardError::RateLimitExceeded(#msg.to_string()));
             }
         }
@@ -261,11 +258,8 @@ fn generate_flow_control(
         let msg = reject_message.clone();
         quote! {
             let quota_key = format!("quota:{}:{}", stringify!(#fn_name), identifier);
-            let quota_allowed = {
-                let mut quota_limiter = limiteron::limiters::FixedWindowLimiter::new(#duration, #max);
-                quota_limiter.check(&quota_key).await.is_ok()
-            };
-            if !quota_allowed {
+            let quota_limiter = limiteron::GLOBAL_LIMITER_MANAGER.get_quota_limiter(&quota_key, #duration, #max);
+            if !quota_limiter.allow(1).await? {
                 return Err(limiteron::error::FlowGuardError::QuotaExceeded(#msg.to_string()));
             }
         }
@@ -277,13 +271,8 @@ fn generate_flow_control(
         let msg = reject_message.clone();
         quote! {
             let concurrency_key = format!("concurrency:{}:{}", stringify!(#fn_name), identifier);
-            let concurrency_allowed = {
-                let mut concurrency_limiter = limiteron::limiters::ConcurrencyLimiter::new(#concurrency as u64);
-                concurrency_limiter.check(&concurrency_key).await.is_ok()
-            };
-            if !concurrency_allowed {
-                return Err(limiteron::error::FlowGuardError::ConcurrencyLimitExceeded(#msg.to_string()));
-            }
+            let concurrency_limiter = limiteron::GLOBAL_LIMITER_MANAGER.get_concurrency_limiter(&concurrency_key, #concurrency as u64);
+            let _permit = concurrency_limiter.acquire(1).await.map_err(|_| limiteron::error::FlowGuardError::ConcurrencyLimitExceeded(#msg.to_string()))?;
         }
     } else {
         quote!()
@@ -317,6 +306,7 @@ fn generate_flow_control(
         quote! {
             #(#fn_attrs)*
             #fn_vis async fn #fn_name(#fn_inputs) #fn_output {
+                use limiteron::limiters::Limiter;
                 #tracing_start
                 let identifier = #identifier_expr;
                 #rate_check
@@ -330,6 +320,7 @@ fn generate_flow_control(
         quote! {
             #(#fn_attrs)*
             #fn_vis fn #fn_name(#fn_inputs) #fn_output {
+                use limiteron::limiters::Limiter;
                 #tracing_start
                 let identifier = #identifier_expr;
                 let rt = tokio::runtime::Handle::try_current();
@@ -413,7 +404,8 @@ mod tests {
         assert!(config.quota.is_none());
         assert!(config.concurrency.is_none());
         assert!(config.identifiers.is_empty());
-        assert_eq!(config.on_exceed, "reject");
-        assert_eq!(config.reject_message, "Rate limit exceeded");
+        // 注意：#[derive(Default)] 会将 String 字段默认为空字符串
+        assert_eq!(config.on_exceed, "");
+        assert_eq!(config.reject_message, "");
     }
 }

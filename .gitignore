@@ -28,6 +28,7 @@ cobertura.xml
 
 # Test
 test-results/
+temp/
 
 # Documentation
 docs/prd.md

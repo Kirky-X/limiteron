@@ -1,35 +1,36 @@
 <div align="center">
 
-# 📘 API Reference
+# 📘 API 参考
 
-### Complete API Documentation
+### 完整 API 文档
 
-[🏠 Home](../README.md) • [📖 User Guide](USER_GUIDE.md) • [🏗️ Architecture](ARCHITECTURE.md)
+[🏠 首页](../README.md) • [📖 用户指南](USER_GUIDE.md) • [❓ 常见问题](FAQ.md)
 
 ---
 
 </div>
 
-## 📋 Table of Contents
+## 📋 目录
 
-- [Overview](#overview)
-- [Core API](#core-api)
-  - [Initialization](#initialization)
-  - [Configuration](#configuration)
-  - [Cipher Operations](#cipher-operations)
-  - [Key Management](#key-management)
-- [Algorithms](#algorithms)
-- [Error Handling](#error-handling)
-- [Type Definitions](#type-definitions)
-- [Examples](#examples)
+- [概述](#概述)
+- [核心 API](#核心-api)
+  - [限流器](#限流器)
+  - [封禁管理](#封禁管理)
+  - [配额控制](#配额控制)
+  - [熔断器](#熔断器)
+  - [Governor](#governor)
+- [匹配器](#匹配器)
+- [错误处理](#错误处理)
+- [类型定义](#类型定义)
+- [示例](#示例)
 
 ---
 
-## Overview
+## 概述
 
 <div align="center">
 
-### 🎯 API Design Principles
+### 🎯 API 设计原则
 
 </div>
 
@@ -37,161 +38,55 @@
 <tr>
 <td width="25%" align="center">
 <img src="https://img.icons8.com/fluency/96/000000/easy.png" width="64"><br>
-<b>Simple</b><br>
-Intuitive and easy to use
+<b>简单</b><br>
+直观易用
 </td>
 <td width="25%" align="center">
 <img src="https://img.icons8.com/fluency/96/000000/security-checked.png" width="64"><br>
-<b>Safe</b><br>
-Type-safe and secure by default
+<b>安全</b><br>
+类型安全，默认安全
 </td>
 <td width="25%" align="center">
 <img src="https://img.icons8.com/fluency/96/000000/module.png" width="64"><br>
-<b>Composable</b><br>
-Build complex workflows easily
+<b>可组合</b><br>
+轻松构建复杂工作流
 </td>
 <td width="25%" align="center">
 <img src="https://img.icons8.com/fluency/96/000000/documentation.png" width="64"><br>
-<b>Well-documented</b><br>
-Comprehensive documentation
+<b>文档完善</b><br>
+全面的文档
 </td>
 </tr>
 </table>
 
 ---
 
-## Core API
+## 核心 API
 
-### Initialization
+### 限流器
 
 <div align="center">
 
-#### 🚀 Getting Started
+#### 🚀 限流器接口
 
 </div>
 
 ---
 
-#### `init()`
+#### `TokenBucketLimiter`
 
-Initialize the library with default configuration.
-
-<table>
-<tr>
-<td width="30%"><b>Signature</b></td>
-<td width="70%">
-
-```rust
-pub fn init() -> Result<(), Error>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>Description</b></td>
-<td>Initializes the library with default settings. Must be called before using any other API.</td>
-</tr>
-<tr>
-<td><b>Returns</b></td>
-<td><code>Result&lt;(), Error&gt;</code> - Ok on success, Error on failure</td>
-</tr>
-<tr>
-<td><b>Errors</b></td>
-<td>
-
-- `Error::AlreadyInitialized` - Library already initialized
-- `Error::InitializationFailed` - Initialization failed
-
-</td>
-</tr>
-</table>
-
-**Example:**
-
-```rust
-use project_name::init;
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize the library
-    init()?;
-    
-    println!("✅ Library initialized successfully");
-    Ok(())
-}
-```
-
----
-
-#### `init_with_config()`
-
-Initialize the library with custom configuration.
+令牌桶限流器。
 
 <table>
 <tr>
-<td width="30%"><b>Signature</b></td>
+<td width="30%"><b>类型</b></td>
 <td width="70%">
 
 ```rust
-pub fn init_with_config(config: Config) -> Result<(), Error>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>Parameters</b></td>
-<td>
-
-- `config: Config` - Configuration options
-
-</td>
-</tr>
-<tr>
-<td><b>Returns</b></td>
-<td><code>Result&lt;(), Error&gt;</code></td>
-</tr>
-</table>
-
-**Example:**
-
-```rust
-use project_name::{init_with_config, Config};
-
-let config = Config::builder()
-    .thread_pool_size(8)
-    .cache_size(2048)
-    .build()?;
-
-init_with_config(config)?;
-```
-
----
-
-### Configuration
-
-<div align="center">
-
-#### ⚙️ Configuration Builder
-
-</div>
-
----
-
-#### `Config`
-
-Configuration struct for customizing library behavior.
-
-<table>
-<tr>
-<td width="30%"><b>Type</b></td>
-<td width="70%">
-
-```rust
-pub struct Config {
-    pub thread_pool_size: usize,
-    pub cache_size: usize,
-    pub log_level: LogLevel,
-    pub enable_metrics: bool,
-    // ... more fields
+pub struct TokenBucketLimiter {
+    capacity: u64,
+    refill_rate: u64,
+    // 内部字段
 }
 ```
 
@@ -201,81 +96,119 @@ pub struct Config {
 
 ---
 
-#### `Config::builder()`
+#### `TokenBucketLimiter::new()`
 
-Create a new configuration builder.
+创建新的令牌桶限流器。
 
 <table>
 <tr>
-<td width="30%"><b>Signature</b></td>
+<td width="30%"><b>签名</b></td>
 <td width="70%">
 
 ```rust
-pub fn builder() -> ConfigBuilder
+pub fn new(capacity: u64, refill_rate: u64) -> Self
 ```
 
 </td>
 </tr>
 <tr>
-<td><b>Returns</b></td>
-<td><code>ConfigBuilder</code> - Configuration builder instance</td>
+<td><b>参数</b></td>
+<td>
+
+- `capacity: u64` - 桶容量（最大令牌数）
+- `refill_rate: u64` - 每秒补充的令牌数
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Self</code> - 新的限流器实例</td>
 </tr>
 </table>
 
-**Builder Methods:**
-
-<details>
-<summary><b>View All Methods</b></summary>
-
-| Method | Type | Default | Description |
-|--------|------|---------|-------------|
-| `thread_pool_size(usize)` | usize | 4 | Number of worker threads |
-| `cache_size(usize)` | usize | 1024 | Cache size in MB |
-| `log_level(LogLevel)` | LogLevel | Info | Logging verbosity |
-| `enable_metrics(bool)` | bool | false | Enable metrics collection |
-| `enable_audit(bool)` | bool | true | Enable audit logging |
-| `build()` | - | - | Build the configuration |
-
-</details>
-
-**Example:**
+**示例:**
 
 ```rust
-use project_name::{Config, LogLevel};
+use limiteron::limiters::TokenBucketLimiter;
 
-let config = Config::builder()
-    .thread_pool_size(8)
-    .cache_size(2048)
-    .log_level(LogLevel::Debug)
-    .enable_metrics(true)
-    .build()?;
+let limiter = TokenBucketLimiter::new(10, 1); // 10 个令牌，每秒补充 1 个
 ```
 
 ---
 
-### Cipher Operations
+#### `TokenBucketLimiter::check()`
+
+检查是否允许通过。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn check(&mut self, key: &str) -> Result<(), FlowGuardError>
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `key: &str` - 限流键（通常为用户ID或IP）
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Result&lt;(), FlowGuardError&gt;</code> - Ok 表示允许，Err 表示被限流</td>
+</tr>
+<tr>
+<td><b>错误</b></td>
+<td>
+
+- `FlowGuardError::RateLimitExceeded` - 超过速率限制
+
+</td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+let limiter = TokenBucketLimiter::new(10, 1);
+let key = "user123";
+
+match limiter.check(key).await {
+    Ok(_) => println!("✅ 请求允许"),
+    Err(_) => println!("❌ 请求被限流"),
+}
+```
+
+---
+
+### 封禁管理
 
 <div align="center">
 
-#### 🔐 Encryption and Decryption
+#### 🔐 封禁管理器
 
 </div>
 
 ---
 
-#### `Cipher`
+#### `BanManager`
 
-Main cipher struct for encryption/decryption operations.
+封禁管理器，用于管理 IP 和用户封禁。
 
 <table>
 <tr>
-<td width="30%"><b>Type</b></td>
+<td width="30%"><b>类型</b></td>
 <td width="70%">
 
 ```rust
-pub struct Cipher {
-    algorithm: Algorithm,
-    // internal fields
+pub struct BanManager {
+    // 内部字段
 }
 ```
 
@@ -285,303 +218,139 @@ pub struct Cipher {
 
 ---
 
-#### `Cipher::new()`
+#### `BanManager::new()`
 
-Create a new cipher instance.
+创建新的封禁管理器。
 
 <table>
 <tr>
-<td width="30%"><b>Signature</b></td>
+<td width="30%"><b>签名</b></td>
 <td width="70%">
 
 ```rust
-pub fn new(algorithm: Algorithm) -> Result<Self, Error>
+pub async fn new() -> Result<Self, FlowGuardError>
 ```
 
 </td>
 </tr>
 <tr>
-<td><b>Parameters</b></td>
-<td>
-
-- `algorithm: Algorithm` - Cryptographic algorithm to use
-
-</td>
-</tr>
-<tr>
-<td><b>Returns</b></td>
-<td><code>Result&lt;Cipher, Error&gt;</code></td>
-</tr>
-<tr>
-<td><b>Errors</b></td>
-<td>
-
-- `Error::AlgorithmNotSupported` - Algorithm not available
-- `Error::InitializationFailed` - Failed to initialize cipher
-
-</td>
+<td><b>返回</b></td>
+<td><code>Result&lt;BanManager, FlowGuardError&gt;</code></td>
 </tr>
 </table>
 
-**Example:**
+**示例:**
 
 ```rust
-use project_name::{Cipher, Algorithm};
+use limiteron::BanManager;
 
-let cipher = Cipher::new(Algorithm::AES256GCM)?;
+let ban_manager = BanManager::new().await?;
 ```
 
 ---
 
-#### `Cipher::encrypt()`
+#### `BanManager::ban()`
 
-Encrypt data using the specified key.
-
-<table>
-<tr>
-<td width="30%"><b>Signature</b></td>
-<td width="70%">
-
-```rust
-pub fn encrypt(
-    &self,
-    key_manager: &KeyManager,
-    key_id: &str,
-    plaintext: &[u8]
-) -> Result<Vec<u8>, Error>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>Parameters</b></td>
-<td>
-
-- `key_manager: &KeyManager` - Key manager instance
-- `key_id: &str` - ID of the encryption key
-- `plaintext: &[u8]` - Data to encrypt
-
-</td>
-</tr>
-<tr>
-<td><b>Returns</b></td>
-<td><code>Result&lt;Vec&lt;u8&gt;, Error&gt;</code> - Encrypted ciphertext</td>
-</tr>
-<tr>
-<td><b>Errors</b></td>
-<td>
-
-- `Error::KeyNotFound` - Key ID not found
-- `Error::InvalidKeyState` - Key not in active state
-- `Error::EncryptionFailed` - Encryption operation failed
-
-</td>
-</tr>
-</table>
-
-**Example:**
-
-```rust
-use project_name::{Cipher, KeyManager, Algorithm};
-
-let km = KeyManager::new()?;
-let key_id = km.generate_key(Algorithm::AES256GCM)?;
-let cipher = Cipher::new(Algorithm::AES256GCM)?;
-
-let plaintext = b"Secret message";
-let ciphertext = cipher.encrypt(&km, &key_id, plaintext)?;
-```
-
-<details>
-<summary><b>📝 Notes</b></summary>
-
-- The returned ciphertext includes authentication tag
-- A random nonce/IV is generated for each encryption
-- The same plaintext will produce different ciphertexts (IND-CPA security)
-
-</details>
-
----
-
-#### `Cipher::decrypt()`
-
-Decrypt data using the specified key.
+封禁指定标识符。
 
 <table>
 <tr>
-<td width="30%"><b>Signature</b></td>
+<td width="30%"><b>签名</b></td>
 <td width="70%">
 
 ```rust
-pub fn decrypt(
-    &self,
-    key_manager: &KeyManager,
-    key_id: &str,
-    ciphertext: &[u8]
-) -> Result<Vec<u8>, Error>
+pub async fn ban(&self, identifier: &str, reason: &str, duration_secs: u64) -> Result<(), FlowGuardError>
 ```
 
 </td>
 </tr>
 <tr>
-<td><b>Parameters</b></td>
+<td><b>参数</b></td>
 <td>
 
-- `key_manager: &KeyManager` - Key manager instance
-- `key_id: &str` - ID of the decryption key
-- `ciphertext: &[u8]` - Data to decrypt
+- `identifier: &str` - 要封禁的标识符（IP、用户ID等）
+- `reason: &str` - 封禁原因
+- `duration_secs: u64` - 封禁时长（秒）
 
 </td>
 </tr>
 <tr>
-<td><b>Returns</b></td>
-<td><code>Result&lt;Vec&lt;u8&gt;, Error&gt;</code> - Decrypted plaintext</td>
-</tr>
-<tr>
-<td><b>Errors</b></td>
-<td>
-
-- `Error::KeyNotFound` - Key ID not found
-- `Error::DecryptionFailed` - Decryption or authentication failed
-- `Error::InvalidCiphertext` - Malformed ciphertext
-
-</td>
+<td><b>返回</b></td>
+<td><code>Result&lt;(), FlowGuardError&gt;</code></td>
 </tr>
 </table>
 
-**Example:**
+**示例:**
 
 ```rust
-let plaintext = cipher.decrypt(&km, &key_id, &ciphertext)?;
-assert_eq!(plaintext, b"Secret message");
+ban_manager.ban("192.168.1.100", "恶意请求", 3600).await?;
 ```
 
 ---
 
-#### `Cipher::sign()`
+#### `BanManager::is_banned()`
 
-Create a digital signature.
+检查标识符是否被封禁。
 
 <table>
 <tr>
-<td width="30%"><b>Signature</b></td>
+<td width="30%"><b>签名</b></td>
 <td width="70%">
 
 ```rust
-pub fn sign(
-    &self,
-    key_manager: &KeyManager,
-    key_id: &str,
-    message: &[u8]
-) -> Result<Vec<u8>, Error>
+pub async fn is_banned(&self, identifier: &str) -> Result<bool, FlowGuardError>
 ```
 
 </td>
 </tr>
 <tr>
-<td><b>Parameters</b></td>
+<td><b>参数</b></td>
 <td>
 
-- `key_manager: &KeyManager` - Key manager instance
-- `key_id: &str` - ID of the signing key
-- `message: &[u8]` - Data to sign
+- `identifier: &str` - 要检查的标识符
 
 </td>
 </tr>
 <tr>
-<td><b>Returns</b></td>
-<td><code>Result&lt;Vec&lt;u8&gt;, Error&gt;</code> - Digital signature</td>
-</tr>
-<tr>
-<td><b>Applicable Algorithms</b></td>
-<td>ECDSA, RSA, Ed25519, SM2</td>
+<td><b>返回</b></td>
+<td><code>Result&lt;bool, FlowGuardError&gt;</code> - true 表示被封禁</td>
 </tr>
 </table>
 
-**Example:**
+**示例:**
 
 ```rust
-use project_name::{Cipher, KeyManager, Algorithm};
-
-let km = KeyManager::new()?;
-let key_id = km.generate_key(Algorithm::ECDSAP256)?;
-let signer = Cipher::new(Algorithm::ECDSAP256)?;
-
-let message = b"Important message";
-let signature = signer.sign(&km, &key_id, message)?;
+if ban_manager.is_banned("user123").await? {
+    return Err(FlowGuardError::Banned("User is banned".into()));
+}
 ```
 
 ---
 
-#### `Cipher::verify()`
-
-Verify a digital signature.
-
-<table>
-<tr>
-<td width="30%"><b>Signature</b></td>
-<td width="70%">
-
-```rust
-pub fn verify(
-    &self,
-    key_manager: &KeyManager,
-    key_id: &str,
-    message: &[u8],
-    signature: &[u8]
-) -> Result<bool, Error>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>Parameters</b></td>
-<td>
-
-- `key_manager: &KeyManager` - Key manager instance
-- `key_id: &str` - ID of the verification key
-- `message: &[u8]` - Original message
-- `signature: &[u8]` - Signature to verify
-
-</td>
-</tr>
-<tr>
-<td><b>Returns</b></td>
-<td><code>Result&lt;bool, Error&gt;</code> - true if valid, false otherwise</td>
-</tr>
-</table>
-
-**Example:**
-
-```rust
-let is_valid = signer.verify(&km, &key_id, message, &signature)?;
-assert!(is_valid);
-```
-
----
-
-### Key Management
+### 配额控制
 
 <div align="center">
 
-#### 🔑 Key Lifecycle Operations
+#### 📊 配额控制器
 
 </div>
 
 ---
 
-#### `KeyManager`
+#### `QuotaController`
 
-Manages cryptographic keys throughout their lifecycle.
+配额控制器，用于管理配额分配和消费。
 
 <table>
 <tr>
-<td width="30%"><b>Type</b></td>
+<td width="30%"><b>类型</b></td>
 <td width="70%">
 
 ```rust
-pub struct KeyManager {
-    // internal fields
+pub struct QuotaController {
+    limit: u64,
+    window_secs: u64,
+    // 内部字段
 }
 ```
 
@@ -591,164 +360,70 @@ pub struct KeyManager {
 
 ---
 
-#### `KeyManager::new()`
+#### `QuotaController::new()`
 
-Create a new key manager instance.
+创建新的配额控制器。
 
 <table>
 <tr>
-<td width="30%"><b>Signature</b></td>
+<td width="30%"><b>签名</b></td>
 <td width="70%">
 
 ```rust
-pub fn new() -> Result<Self, Error>
+pub fn new(limit: u64, window_secs: u64) -> Self
 ```
 
 </td>
 </tr>
 <tr>
-<td><b>Returns</b></td>
-<td><code>Result&lt;KeyManager, Error&gt;</code></td>
+<td><b>参数</b></td>
+<td>
+
+- `limit: u64` - 配额限制
+- `window_secs: u64` - 时间窗口（秒）
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Self</code> - 新的配额控制器</td>
 </tr>
 </table>
 
-**Example:**
+**示例:**
 
 ```rust
-use project_name::KeyManager;
+use limiteron::quota_controller::QuotaController;
 
-let km = KeyManager::new()?;
+let quota = QuotaController::new(10000, 60); // 10000 次/分钟
 ```
 
 ---
 
-#### `KeyManager::generate_key()`
-
-Generate a new cryptographic key.
-
-<table>
-<tr>
-<td width="30%"><b>Signature</b></td>
-<td width="70%">
-
-```rust
-pub fn generate_key(&self, algorithm: Algorithm) -> Result<String, Error>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>Parameters</b></td>
-<td>
-
-- `algorithm: Algorithm` - Algorithm for the key
-
-</td>
-</tr>
-<tr>
-<td><b>Returns</b></td>
-<td><code>Result&lt;String, Error&gt;</code> - Unique key ID</td>
-</tr>
-<tr>
-<td><b>Errors</b></td>
-<td>
-
-- `Error::AlgorithmNotSupported` - Algorithm not available
-- `Error::KeyGenerationFailed` - Failed to generate key
-
-</td>
-</tr>
-</table>
-
-**Example:**
-
-```rust
-use project_name::{KeyManager, Algorithm};
-
-let km = KeyManager::new()?;
-let key_id = km.generate_key(Algorithm::AES256GCM)?;
-println!("Generated key: {}", key_id);
-```
-
----
-
-#### `KeyManager::generate_key_with_alias()`
-
-Generate a key with a human-readable alias.
-
-<table>
-<tr>
-<td width="30%"><b>Signature</b></td>
-<td width="70%">
-
-```rust
-pub fn generate_key_with_alias(
-    &self,
-    algorithm: Algorithm,
-    alias: &str
-) -> Result<String, Error>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>Parameters</b></td>
-<td>
-
-- `algorithm: Algorithm` - Algorithm for the key
-- `alias: &str` - Human-readable name
-
-</td>
-</tr>
-<tr>
-<td><b>Returns</b></td>
-<td><code>Result&lt;String, Error&gt;</code> - Key ID</td>
-</tr>
-</table>
-
-**Example:**
-
-```rust
-let key_id = km.generate_key_with_alias(
-    Algorithm::AES256GCM,
-    "database-encryption-key"
-)?;
-```
-
----
-
-## Algorithms
+### 熔断器
 
 <div align="center">
 
-#### 🔐 Supported Cryptographic Algorithms
+#### 🔌 熔断器
 
 </div>
 
-### `Algorithm` Enum
+---
+
+#### `CircuitBreaker`
+
+熔断器，用于在系统故障时自动熔断。
 
 <table>
 <tr>
-<td width="30%"><b>Definition</b></td>
+<td width="30%"><b>类型</b></td>
 <td width="70%">
 
 ```rust
-pub enum Algorithm {
-    // Symmetric Encryption
-    AES128GCM,
-    AES192GCM,
-    AES256GCM,
-    SM4GCM,
-    
-    // Asymmetric Signatures
-    ECDSAP256,
-    ECDSAP384,
-    ECDSAP521,
-    RSA2048,
-    RSA3072,
-    RSA4096,
-    Ed25519,
-    SM2,
+pub struct CircuitBreaker {
+    failure_threshold: u32,
+    timeout_secs: u64,
+    // 内部字段
 }
 ```
 
@@ -756,163 +431,302 @@ pub enum Algorithm {
 </tr>
 </table>
 
-### Algorithm Details
+---
 
-<details open>
-<summary><b>🔐 Symmetric Encryption</b></summary>
+#### `CircuitBreaker::new()`
 
-<table>
-<tr>
-<th>Algorithm</th>
-<th>Key Size</th>
-<th>Security Level</th>
-<th>Performance</th>
-<th>Use Case</th>
-</tr>
-<tr>
-<td><b>AES-128-GCM</b></td>
-<td>128-bit</td>
-<td>🟢 High</td>
-<td>⚡⚡⚡ Very Fast</td>
-<td>General purpose</td>
-</tr>
-<tr>
-<td><b>AES-192-GCM</b></td>
-<td>192-bit</td>
-<td>🟢 High</td>
-<td>⚡⚡ Fast</td>
-<td>Extra security</td>
-</tr>
-<tr>
-<td><b>AES-256-GCM</b></td>
-<td>256-bit</td>
-<td>🟢 Very High</td>
-<td>⚡⚡ Fast</td>
-<td>Maximum security</td>
-</tr>
-<tr>
-<td><b>SM4-GCM</b></td>
-<td>128-bit</td>
-<td>🟢 High</td>
-<td>⚡ Moderate</td>
-<td>Chinese standards</td>
-</tr>
-</table>
-
-</details>
-
-<details>
-<summary><b>✍️ Digital Signatures</b></summary>
+创建新的熔断器。
 
 <table>
 <tr>
-<th>Algorithm</th>
-<th>Key Size</th>
-<th>Security Level</th>
-<th>Signature Size</th>
-<th>Use Case</th>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn new(failure_threshold: u32, timeout_secs: u64) -> Self
+```
+
+</td>
 </tr>
 <tr>
-<td><b>ECDSA-P256</b></td>
-<td>256-bit</td>
-<td>🟢 High</td>
-<td>~64 bytes</td>
-<td>Modern standard</td>
+<td><b>参数</b></td>
+<td>
+
+- `failure_threshold: u32` - 失败阈值
+- `timeout_secs: u64` - 超时时长（秒）
+
+</td>
 </tr>
 <tr>
-<td><b>ECDSA-P384</b></td>
-<td>384-bit</td>
-<td>🟢 Very High</td>
-<td>~96 bytes</td>
-<td>High security</td>
-</tr>
-<tr>
-<td><b>RSA-2048</b></td>
-<td>2048-bit</td>
-<td>🟢 High</td>
-<td>256 bytes</td>
-<td>Legacy support</td>
-</tr>
-<tr>
-<td><b>Ed25519</b></td>
-<td>256-bit</td>
-<td>🟢 High</td>
-<td>64 bytes</td>
-<td>Fast verification</td>
-</tr>
-<tr>
-<td><b>SM2</b></td>
-<td>256-bit</td>
-<td>🟢 High</td>
-<td>~64 bytes</td>
-<td>Chinese standards</td>
+<td><b>返回</b></td>
+<td><code>Self</code> - 新的熔断器</td>
 </tr>
 </table>
 
-</details>
+**示例:**
+
+```rust
+use limiteron::circuit_breaker::CircuitBreaker;
+
+let breaker = CircuitBreaker::new(5, 30); // 5 次失败后熔断，30秒后恢复
+```
 
 ---
 
-## Error Handling
+### Governor
 
 <div align="center">
 
-#### 🚨 Error Types and Handling
+#### 🎛️ 主控制器
 
 </div>
 
-### `Error` Enum
+---
+
+#### `Governor`
+
+主控制器，提供端到端的流量控制。
+
+<table>
+<tr>
+<td width="30%"><b>类型</b></td>
+<td width="70%">
 
 ```rust
-pub enum Error {
-    // Initialization Errors
-    AlreadyInitialized,
-    NotInitialized,
-    InitializationFailed,
-    
-    // Key Errors
-    KeyNotFound,
-    KeyGenerationFailed,
-    InvalidKeyState,
-    
-    // Cryptographic Errors
-    EncryptionFailed,
-    DecryptionFailed,
-    SignatureFailed,
-    VerificationFailed,
-    
-    // Algorithm Errors
-    AlgorithmNotSupported,
-    AlgorithmNotFound,
-    
-    // I/O Errors
-    IoError(std::io::Error),
-    
-    // Custom errors
-    Custom(String),
+pub struct Governor {
+    config: Arc<RwLock<FlowControlConfig>>,
+    // 内部字段
 }
 ```
 
-### Error Handling Pattern
+</td>
+</tr>
+</table>
+
+---
+
+#### `Governor::new()`
+
+创建新的 Governor。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub async fn new(config: FlowControlConfig) -> Result<Self, FlowGuardError>
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `config: FlowControlConfig` - 流量控制配置
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Result&lt;Governor, FlowGuardError&gt;</code></td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+use limiteron::{Governor, FlowControlConfig};
+
+let governor = Governor::new(FlowControlConfig::default()).await?;
+```
+
+---
+
+#### `Governor::check_request()`
+
+检查请求是否允许通过。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub async fn check_request(&self, identifier: &str, path: &str) -> Result<Decision, FlowGuardError>
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `identifier: &str` - 请求标识符
+- `path: &str` - 请求路径
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Result&lt;Decision, FlowGuardError&gt;</code> - 决策结果</td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+let decision = governor.check_request("user123", "/api/v1/users").await?;
+if decision.is_allowed() {
+    // 处理请求
+}
+```
+
+---
+
+## 匹配器
+
+<div align="center">
+
+#### 🔍 标识符提取器
+
+</div>
+
+---
+
+#### `Identifier`
+
+标识符类型。
+
+<table>
+<tr>
+<td width="30%"><b>定义</b></td>
+<td width="70%">
+
+```rust
+pub enum Identifier {
+    UserId(String),
+    Ip(String),
+    Mac(String),
+    ApiKey(String),
+    DeviceId(String),
+}
+```
+
+</td>
+</tr>
+</table>
+
+---
+
+#### `IpExtractor`
+
+IP 地址提取器。
+
+<table>
+<tr>
+<td width="30%"><b>类型</b></td>
+<td width="70%">
+
+```rust
+pub struct IpExtractor {
+    header_names: Vec<String>,
+    validate: bool,
+}
+```
+
+</td>
+</tr>
+</table>
+
+---
+
+#### `IpExtractor::new()`
+
+创建新的 IP 提取器。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn new(header_names: Vec<String>, validate: bool) -> Self
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `header_names: Vec<String>` - HTTP 头名称列表
+- `validate: bool` - 是否验证 IP 格式
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Self</code> - 新的 IP 提取器</td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+use limiteron::matchers::IpExtractor;
+
+let extractor = IpExtractor::new(
+    vec!["X-Forwarded-For".to_string(), "X-Real-IP".to_string()],
+    true,
+);
+```
+
+---
+
+## 错误处理
+
+<div align="center">
+
+#### 🚨 错误类型和处理
+
+</div>
+
+### `FlowGuardError` 枚举
+
+```rust
+pub enum FlowGuardError {
+    RateLimitExceeded(String),
+    QuotaExceeded(String),
+    Banned(String),
+    CircuitBreakerOpen(String),
+    InvalidInput(String),
+    StorageError(String),
+    ConfigError(String),
+}
+```
+
+### 错误处理模式
 
 <table>
 <tr>
 <td width="50%">
 
-**Pattern Matching**
+**模式匹配**
 ```rust
-match operation() {
-    Ok(result) => {
-        println!("Success: {:?}", result);
+match limiter.check(key).await {
+    Ok(_) => {
+        println!("✅ 请求允许");
     }
-    Err(Error::KeyNotFound) => {
-        eprintln!("Key not found");
+    Err(FlowGuardError::RateLimitExceeded(msg)) => {
+        eprintln!("❌ 速率限制: {}", msg);
     }
-    Err(Error::EncryptionFailed) => {
-        eprintln!("Encryption failed");
+    Err(FlowGuardError::Banned(msg)) => {
+        eprintln!("❌ 已封禁: {}", msg);
     }
     Err(e) => {
-        eprintln!("Error: {:?}", e);
+        eprintln!("❌ 错误: {:?}", e);
     }
 }
 ```
@@ -920,20 +734,13 @@ match operation() {
 </td>
 <td width="50%">
 
-**? Operator**
+**? 操作符**
 ```rust
-fn process_data() -> Result<(), Error> {
-    init()?;
+async fn process_request() -> Result<(), FlowGuardError> {
+    let limiter = TokenBucketLimiter::new(10, 1);
+    limiter.check(key).await?;
     
-    let km = KeyManager::new()?;
-    let key = km.generate_key(
-        Algorithm::AES256GCM
-    )?;
-    
-    let cipher = Cipher::new(
-        Algorithm::AES256GCM
-    )?;
-    
+    // 处理请求
     Ok(())
 }
 ```
@@ -944,40 +751,48 @@ fn process_data() -> Result<(), Error> {
 
 ---
 
-## Type Definitions
+## 类型定义
 
-### Common Types
+### 常用类型
 
 <table>
 <tr>
 <td width="50%">
 
-**Key ID**
+**决策类型**
 ```rust
-pub type KeyId = String;
+pub enum Decision {
+    Allowed,
+    Denied(String),
+}
 ```
 
-**Algorithm Type**
+**标识符类型**
 ```rust
-pub enum Algorithm { /* ... */ }
+pub enum Identifier {
+    UserId(String),
+    Ip(String),
+    Mac(String),
+    ApiKey(String),
+    DeviceId(String),
+}
 ```
 
 </td>
 <td width="50%">
 
-**Result Type**
+**结果类型**
 ```rust
-pub type Result<T> = 
-    std::result::Result<T, Error>;
+pub type Result<T> =
+    std::result::Result<T, FlowGuardError>;
 ```
 
-**Log Level**
+**配置类型**
 ```rust
-pub enum LogLevel {
-    Debug,
-    Info,
-    Warn,
-    Error,
+pub struct FlowControlConfig {
+    pub rate_limit: Option<String>,
+    pub quota_limit: Option<String>,
+    pub concurrency_limit: Option<u64>,
 }
 ```
 
@@ -987,86 +802,92 @@ pub enum LogLevel {
 
 ---
 
-## Examples
+## 示例
 
 <div align="center">
 
-### 💡 Common Usage Patterns
+### 💡 常见使用模式
 
 </div>
 
-### Example 1: Basic Encryption
+### 示例 1: 基础限流
 
 ```rust
-use project_name::{init, Cipher, KeyManager, Algorithm};
+use limiteron::limiters::TokenBucketLimiter;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize
-    init()?;
-    
-    // Setup
-    let km = KeyManager::new()?;
-    let key_id = km.generate_key(Algorithm::AES256GCM)?;
-    let cipher = Cipher::new(Algorithm::AES256GCM)?;
-    
-    // Encrypt
-    let plaintext = b"Hello, World!";
-    let ciphertext = cipher.encrypt(&km, &key_id, plaintext)?;
-    
-    // Decrypt
-    let decrypted = cipher.decrypt(&km, &key_id, &ciphertext)?;
-    
-    assert_eq!(plaintext, &decrypted[..]);
-    println!("✅ Success!");
-    
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut limiter = TokenBucketLimiter::new(10, 1);
+    let key = "user123";
+
+    for i in 0..15 {
+        match limiter.check(key).await {
+            Ok(_) => println!("请求 {} ✅", i),
+            Err(_) => println!("请求 {} ❌", i),
+        }
+    }
+
     Ok(())
 }
 ```
 
-### Example 2: Digital Signatures
+### 示例 2: 封禁管理
 
 ```rust
-use project_name::{init, Cipher, KeyManager, Algorithm};
+use limiteron::BanManager;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    init()?;
-    
-    let km = KeyManager::new()?;
-    let key_id = km.generate_key(Algorithm::ECDSAP256)?;
-    let signer = Cipher::new(Algorithm::ECDSAP256)?;
-    
-    // Sign
-    let message = b"Important document";
-    let signature = signer.sign(&km, &key_id, message)?;
-    
-    // Verify
-    let is_valid = signer.verify(&km, &key_id, message, &signature)?;
-    assert!(is_valid);
-    
-    println!("✅ Signature verified!");
-    
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let ban_manager = BanManager::new().await?;
+
+    // 封禁 IP
+    ban_manager.ban("192.168.1.100", "恶意请求", 3600).await?;
+
+    // 检查是否被封禁
+    if ban_manager.is_banned("192.168.1.100").await? {
+        println!("❌ IP 已被封禁");
+    }
+
     Ok(())
 }
 ```
 
-### Example 3: Advanced Configuration
+### 示例 3: 使用 Governor
 
 ```rust
-use project_name::{init_with_config, Config, LogLevel};
+use limiteron::{Governor, FlowControlConfig};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = Config::builder()
-        .thread_pool_size(8)
-        .cache_size(2048)
-        .log_level(LogLevel::Debug)
-        .enable_metrics(true)
-        .enable_audit(true)
-        .build()?;
-    
-    init_with_config(config)?;
-    
-    // Use the library...
-    
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let governor = Governor::new(FlowControlConfig::default()).await?;
+
+    let decision = governor.check_request("user123", "/api/v1/users").await?;
+    if decision.is_allowed() {
+        println!("✅ 请求允许");
+        // 处理请求
+    } else {
+        println!("❌ 请求被拒绝");
+    }
+
+    Ok(())
+}
+```
+
+### 示例 4: 使用宏
+
+```rust
+use limiteron::flow_control;
+
+#[flow_control(rate = "100/s", quota = "10000/m", concurrency = 50)]
+async fn api_handler(user_id: &str) -> Result<String, limiteron::error::FlowGuardError> {
+    // API 业务逻辑
+    Ok(format!("处理用户 {} 的请求", user_id))
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let result = api_handler("user123").await?;
+    println!("{}", result);
     Ok(())
 }
 ```
@@ -1075,10 +896,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 <div align="center">
 
-**[📖 User Guide](USER_GUIDE.md)** • **[🏗️ Architecture](ARCHITECTURE.md)** • **[🏠 Home](../README.md)**
+**[📖 用户指南](USER_GUIDE.md)** • **[❓ 常见问题](FAQ.md)** • **[🏠 首页](../README.md)**
 
-Made with ❤️ by the Documentation Team
+由文档团队制作
 
-[⬆ Back to Top](#-api-reference)
+[⬆ 返回顶部](#-api-参考)
 
 </div>

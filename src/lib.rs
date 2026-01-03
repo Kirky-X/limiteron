@@ -53,6 +53,7 @@ pub mod geo_matcher;
 pub mod governor;
 pub mod l2_cache;
 pub mod l3_cache;
+pub mod limiter_manager;
 pub mod limiters;
 pub mod lua_scripts;
 pub mod macros;
@@ -91,6 +92,7 @@ pub use geo_matcher::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
 pub use governor::{Governor, GovernorStats};
 pub use l2_cache::{CacheEntry, CacheStats, L2Cache, L2CacheConfig};
 pub use l3_cache::{L3Cache, L3CacheConfig, L3CacheStats};
+pub use limiter_manager::GLOBAL_LIMITER_MANAGER;
 pub use lua_scripts::{LuaScriptInfo, LuaScriptManager, LuaScriptType};
 pub use macros::{
     flow_control, parse_quota_limit, parse_rate_limit, FlowControlConfig as MacroFlowControlConfig,

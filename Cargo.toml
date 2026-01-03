@@ -1,0 +1,115 @@
+[workspace]
+members = [
+    ".",
+    "macros",
+]
+resolver = "2"
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+authors = ["Kirky.X"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/kirkyx/limiteron"
+
+[workspace.dependencies]
+tokio = { version = "1.35", features = ["rt-multi-thread", "macros", "time", "net", "signal"] }
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+anyhow = "1.0"
+thiserror = "1.0"
+dashmap = "5.5"
+parking_lot = "0.12"
+tracing = "0.1"
+lru = "0.12"
+tracing-opentelemetry = "0.22"
+prometheus = "0.13"
+opentelemetry = "0.21"
+opentelemetry-jaeger = "0.20"
+opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
+
+[package]
+name = "limiteron"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Unified flow control framework for Rust"
+keywords = ["rate-limiting", "quota", "throttling", "circuit-breaker"]
+categories = ["web-programming", "concurrency"]
+
+[dependencies]
+tokio.workspace = true
+sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "chrono", "uuid"], optional = true }
+redis = { version = "0.24", features = ["tokio-comp", "cluster", "connection-manager"], optional = true }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml = "0.9"
+toml = "0.8"
+chrono.workspace = true
+uuid.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+dashmap.workspace = true
+parking_lot.workspace = true
+tracing.workspace = true
+lru.workspace = true
+maxminddb = "0.24"
+woothee = "0.13"
+regex = "1.12"
+secrecy = "0.8"
+futures = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+tracing-opentelemetry.workspace = true
+prometheus.workspace = true
+opentelemetry.workspace = true
+opentelemetry-jaeger.workspace = true
+opentelemetry_sdk.workspace = true
+reqwest = { version = "0.11", features = ["json"], optional = true }
+notify = "6.1"
+proc-macro2 = "1.0"
+syn = { version = "2.0", features = ["full"] }
+quote = "1.0"
+flowguard-macros = { path = "macros" }
+
+[dev-dependencies]
+tokio-test = "0.4"
+criterion = "0.5"
+tempfile = "3.8"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[features]
+default = ["postgres", "redis"]
+postgres = ["sqlx"]
+redis = ["dep:redis"]
+telemetry = ["tracing-subscriber"]
+webhook = ["reqwest"]
+
+[[example]]
+name = "simple_rate_limit"
+path = "examples/simple_rate_limit.rs"
+
+[[example]]
+name = "quota_management"
+path = "examples/quota_management.rs"
+
+[[example]]
+name = "ban_management"
+path = "examples/ban_management.rs"
+
+[[example]]
+name = "macro_usage"
+path = "examples/macro_usage.rs"
+
+[[example]]
+name = "redis_usage"
+path = "examples/redis_usage.rs"
+
+[[example]]
+name = "geo_device_matching"
+path = "examples/geo_device_matching.rs"

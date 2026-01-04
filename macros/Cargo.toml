@@ -1,10 +1,10 @@
 [package]
 name = "flowguard-macros"
-version = "0.1.0"
-edition = "2021"
-authors = ["Kirky.X"]
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/kirkyx/limiteron"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Procedural macros for flowguard rate limiting"
 
 [lib]

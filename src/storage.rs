@@ -34,10 +34,18 @@ pub trait QuotaStorage: Send + Sync {
         user_id: &str,
         resource: &str,
         cost: u64,
+        limit: u64,
+        window: std::time::Duration,
     ) -> Result<ConsumeResult, StorageError>;
 
     /// 重置配额
-    async fn reset(&self, user_id: &str, resource: &str) -> Result<(), StorageError>;
+    async fn reset(
+        &self,
+        user_id: &str,
+        resource: &str,
+        limit: u64,
+        window: std::time::Duration,
+    ) -> Result<(), StorageError>;
 }
 
 /// 封禁存储接口
@@ -144,7 +152,7 @@ struct QuotaEntry {
     /// 配额信息
     info: QuotaInfo,
     /// TTL（过期时间戳，毫秒）
-    ttl: Option<u64>,
+    _ttl: Option<u64>,
 }
 
 impl Clone for MemoryStorage {
@@ -288,88 +296,79 @@ impl QuotaStorage for MemoryStorage {
         user_id: &str,
         resource: &str,
         cost: u64,
+        limit: u64,
+        window: std::time::Duration,
     ) -> Result<ConsumeResult, StorageError> {
         let key = format!("quota:{}:{}", user_id, resource);
         let now = chrono::Utc::now();
-        let window_start = now.timestamp_millis();
-        let window_end = window_start + 86400000; // 24小时
-        let limit = 1000;
-        let overdraft_limit = 100;
 
-        // 获取当前配额信息
-        let mut consumed = if let Some(entry) = self.quota_data.get(&key) {
-            entry.info.consumed
-        } else {
-            0
-        };
+        // 使用 DashMap 的 entry API 进行原子操作 (虽然 DashMap 本身不是事务性的，但在锁期间是安全的)
+        // 注意：DashMap 的 entry 锁住的是单个 key
+        let mut entry = self.quota_data.entry(key.clone()).or_insert_with(|| {
+            let window_end =
+                now + chrono::Duration::from_std(window).unwrap_or(chrono::Duration::hours(24));
+            QuotaEntry {
+                info: QuotaInfo {
+                    consumed: 0,
+                    limit,
+                    window_start: now,
+                    window_end,
+                },
+                _ttl: None,
+            }
+        });
 
         // 检查窗口是否过期
-        let existing_window_start = if let Some(entry) = self.quota_data.get(&key) {
-            entry.info.window_start.timestamp_millis()
-        } else {
-            0
-        };
-
-        if existing_window_start != window_start {
-            consumed = 0;
+        if now >= entry.info.window_end {
+            entry.info.consumed = 0;
+            entry.info.window_start = now;
+            entry.info.window_end =
+                now + chrono::Duration::from_std(window).unwrap_or(chrono::Duration::hours(24));
+            entry.info.limit = limit; // 更新 limit
         }
 
         // 计算剩余配额
-        let total_limit: u64 = limit + overdraft_limit;
-        let remaining = total_limit.saturating_sub(consumed);
-        let allowed = remaining >= cost;
+        let current_consumed = entry.info.consumed;
+        let new_consumed = current_consumed + cost;
+        let allowed = new_consumed <= limit;
 
         // 如果允许，扣减配额
         if allowed {
-            consumed += cost;
+            entry.info.consumed = new_consumed;
         }
-
-        // 保存配额信息（直接存储结构体，避免JSON序列化）
-        let quota_info = QuotaInfo {
-            consumed,
-            limit,
-            window_start: chrono::DateTime::from_timestamp(window_start / 1000, 0)
-                .unwrap_or_else(chrono::Utc::now),
-            window_end: chrono::DateTime::from_timestamp(window_end / 1000, 0)
-                .unwrap_or_else(chrono::Utc::now),
-        };
-        self.quota_data.insert(
-            key,
-            QuotaEntry {
-                info: quota_info,
-                ttl: None,
-            },
-        );
 
         Ok(ConsumeResult {
             allowed,
-            remaining: total_limit.saturating_sub(consumed),
-            alert_triggered: consumed > limit,
+            remaining: limit.saturating_sub(entry.info.consumed),
+            alert_triggered: entry.info.consumed > limit, // 简单告警逻辑，实际上可能需要更复杂的判断
         })
     }
 
-    async fn reset(&self, user_id: &str, resource: &str) -> Result<(), StorageError> {
+    async fn reset(
+        &self,
+        user_id: &str,
+        resource: &str,
+        limit: u64,
+        window: std::time::Duration,
+    ) -> Result<(), StorageError> {
         let key = format!("quota:{}:{}", user_id, resource);
         let now = chrono::Utc::now();
-        let window_start = now.timestamp_millis();
-        let window_end = window_start + 86400000; // 24小时
+        let window_end =
+            now + chrono::Duration::from_std(window).unwrap_or(chrono::Duration::hours(24));
 
-        // 保存配额信息（直接存储结构体，避免JSON序列化）
-        let quota_info = QuotaInfo {
-            consumed: 0,
-            limit: 1000,
-            window_start: chrono::DateTime::from_timestamp(window_start / 1000, 0)
-                .unwrap_or_else(chrono::Utc::now),
-            window_end: chrono::DateTime::from_timestamp(window_end / 1000, 0)
-                .unwrap_or_else(chrono::Utc::now),
-        };
         self.quota_data.insert(
             key,
             QuotaEntry {
-                info: quota_info,
-                ttl: None,
+                info: QuotaInfo {
+                    consumed: 0,
+                    limit,
+                    window_start: now,
+                    window_end,
+                },
+                _ttl: None,
             },
         );
+
         Ok(())
     }
 }
@@ -392,6 +391,8 @@ impl QuotaStorage for MockQuotaStorage {
         _user_id: &str,
         _resource: &str,
         _cost: u64,
+        _limit: u64,
+        _window: std::time::Duration,
     ) -> Result<ConsumeResult, StorageError> {
         Ok(ConsumeResult {
             allowed: true,
@@ -400,7 +401,13 @@ impl QuotaStorage for MockQuotaStorage {
         })
     }
 
-    async fn reset(&self, _user_id: &str, _resource: &str) -> Result<(), StorageError> {
+    async fn reset(
+        &self,
+        _user_id: &str,
+        _resource: &str,
+        _limit: u64,
+        _window: std::time::Duration,
+    ) -> Result<(), StorageError> {
         Ok(())
     }
 }
@@ -450,6 +457,7 @@ impl BanStorage for MockBanStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::hash::Hash;
 
     #[tokio::test]
     async fn test_memory_storage_set_get() {
@@ -478,7 +486,7 @@ mod tests {
     #[tokio::test]
     async fn test_mock_quota_storage() {
         let storage = MockQuotaStorage;
-        let result = storage.consume("user1", "resource1", 10).await.unwrap();
+        let result = storage.consume("user1", "resource1", 10, 1000, std::time::Duration::from_secs(60)).await.unwrap();
         assert!(result.allowed);
         assert_eq!(result.remaining, 1000);
         assert!(!result.alert_triggered);
@@ -494,7 +502,15 @@ mod tests {
     #[tokio::test]
     async fn test_mock_quota_storage_reset() {
         let storage = MockQuotaStorage;
-        storage.reset("user1", "resource1").await.unwrap();
+        storage
+            .reset(
+                "user1",
+                "resource1",
+                1000,
+                std::time::Duration::from_secs(3600),
+            )
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -539,9 +555,10 @@ mod tests {
     fn test_ban_target_hash() {
         let target1 = BanTarget::UserId("user1".to_string());
         let target2 = BanTarget::UserId("user1".to_string());
-        use std::hash::{Hash, Hasher};
-        let mut hasher1 = std::collections::hash_map::DefaultHasher::new();
-        let mut hasher2 = std::collections::hash_map::DefaultHasher::new();
+        use ahash::AHasher;
+        use std::hash::Hasher;
+        let mut hasher1 = AHasher::default();
+        let mut hasher2 = AHasher::default();
         target1.hash(&mut hasher1);
         target2.hash(&mut hasher2);
         assert_eq!(hasher1.finish(), hasher2.finish());

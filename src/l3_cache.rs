@@ -10,7 +10,7 @@
 //! - **自动恢复**: Redis恢复后自动恢复正常
 //! - **TTL管理**: 支持灵活的TTL配置
 
-use std::collections::HashMap;
+use ahash::AHashMap as HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -20,8 +20,10 @@ use tracing::{debug, error, info, trace, warn};
 use crate::error::StorageError;
 use crate::fallback::{ComponentType, FallbackManager, FallbackStrategy};
 use crate::l2_cache::L2Cache;
-use crate::redis_storage::{RedisConfig, RedisStorage};
 use crate::storage::Storage;
+
+#[cfg(feature = "redis")]
+use crate::redis_storage::{RedisConfig, RedisStorage};
 
 /// L3缓存配置
 #[derive(Debug, Clone)]
@@ -315,7 +317,7 @@ impl L3Cache {
                     // 检查降级状态
                     if _fallback_manager.is_failed(ComponentType::L3Cache).await {
                         // 尝试重新连接Redis
-                        if let Some(storage) = _l3_storage.read().await.as_ref() {
+                        if let Some(_storage) = _l3_storage.read().await.as_ref() {
                             // 这里简化处理，实际应该尝试ping Redis
                             // 如果成功，清除故障状态
                             _fallback_manager
@@ -343,7 +345,7 @@ impl L3Cache {
         // L3: 检查L3缓存（Redis）
         if !self.degraded.load(Ordering::Relaxed) {
             if let Some(l3_storage) = self.l3_storage.read().await.as_ref() {
-                match l3_storage.as_ref().get(key).await {
+                match l3_storage.get(key).await {
                     Ok(Some(value)) => {
                         self.stats.l3_hits.fetch_add(1, Ordering::Relaxed);
                         trace!("L3缓存命中: key={}", key);
@@ -518,7 +520,7 @@ impl L3Cache {
         self.l2_cache.clear().await;
 
         if !self.degraded.load(Ordering::Relaxed) {
-            if let Some(l3_storage) = self.l3_storage.read().await.as_ref() {
+            if let Some(_l3_storage) = self.l3_storage.read().await.as_ref() {
                 // Redis不支持直接清空所有key，这里仅清空L2
                 // 实际应用中可能需要使用SCAN命令或使用特定的key前缀
                 debug!("L3缓存清空（仅清空L2，Redis需要手动处理）");

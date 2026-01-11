@@ -357,7 +357,7 @@ impl ConfigWatcher {
             .storage
             .get(key)
             .await
-            .map_err(|e| FlowGuardError::StorageError(e))?
+            .map_err(FlowGuardError::StorageError)?
             .ok_or_else(|| FlowGuardError::StorageError(StorageError::NotFound(key.to_string())))?;
 
         let config: FlowControlConfig = serde_json::from_str(&value)
@@ -507,7 +507,6 @@ mod tests {
     use crate::storage::MemoryStorage;
     use chrono::Utc;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Mutex;
     use tempfile::NamedTempFile;
     use tokio::fs;
 
@@ -587,7 +586,7 @@ mod tests {
     async fn test_config_version_comparison() {
         let config1 = create_test_config("1.0");
         let config2 = create_test_config("1.1");
-        let config3 = create_test_config("2.0");
+        let _config3 = create_test_config("2.0");
 
         use std::cmp::Ordering;
         assert_eq!(config1.compare_version(&config2), Ordering::Less);
@@ -600,11 +599,11 @@ mod tests {
         let old_config = create_test_config("1.0");
         let new_config = create_test_config("2.0");
 
-        let record = new_config.create_change_record(Some(&old_config), ChangeSource::Manual);
+        let record = new_config.create_change_record(Some(&old_config), ChangeSource::Manual { operator: "test".to_string() });
 
         assert_eq!(record.old_version, Some("1.0".to_string()));
         assert_eq!(record.new_version, "2.0".to_string());
-        assert_eq!(record.source, ChangeSource::Manual);
+        assert_eq!(record.source, ChangeSource::Manual { operator: "test".to_string() });
         assert!(!record.changes.is_empty());
     }
 
@@ -618,7 +617,7 @@ mod tests {
             new_version: "2.0".to_string(),
             old_hash: Some("hash1".to_string()),
             new_hash: "hash2".to_string(),
-            source: ChangeSource::Manual,
+            source: ChangeSource::Manual { operator: "test".to_string() },
             changes: vec!["版本变更".to_string()],
         };
 
@@ -642,7 +641,7 @@ mod tests {
                 new_version: format!("{}.0", i + 1),
                 old_hash: Some(format!("hash{}", i)),
                 new_hash: format!("hash{}", i + 1),
-                source: ChangeSource::Manual,
+                source: ChangeSource::Manual { operator: "test".to_string() },
                 changes: vec![format!("变更{}", i)],
             };
             history.add_record(record);

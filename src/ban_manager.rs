@@ -44,6 +44,27 @@ pub const MAX_USER_ID_LENGTH: usize = 100;
 /// 最大MAC地址长度
 pub const MAX_MAC_ADDRESS_LENGTH: usize = 17;
 
+// ============================================================================
+// 验证宏
+// ============================================================================
+
+/// 字符串验证宏
+macro_rules! validate_string {
+    ($value:expr, $name:expr, $max_len:expr) => {
+        if $value.is_empty() {
+            return Err(FlowGuardError::ValidationError(
+                concat!($name, "不能为空").to_string(),
+            ));
+        }
+        if $value.len() > $max_len {
+            return Err(FlowGuardError::ValidationError(format!(
+                concat!($name, "过长，最大长度为 {} 字符"),
+                $max_len
+            )));
+        }
+    };
+}
+
 use crate::error::FlowGuardError;
 use crate::storage::{BanRecord, BanStorage, BanTarget};
 use chrono::{DateTime, Duration, Utc};
@@ -54,6 +75,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument};
 
 /// 封禁来源
+#[cfg(feature = "ban-manager")]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BanSource {
     /// 自动封禁
@@ -64,6 +86,7 @@ pub enum BanSource {
 
 /// 封禁优先级
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg(feature = "ban-manager")]
 pub enum BanPriority {
     /// IP封禁（最高优先级）
     Ip = 1,
@@ -90,6 +113,7 @@ impl BanPriority {
 
 /// 封禁详情（包含审计信息）
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg(feature = "ban-manager")]
 pub struct BanDetail {
     /// 封禁ID
     pub id: String,
@@ -150,6 +174,7 @@ impl From<BanRecord> for BanDetail {
 
 /// 封禁过滤器
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg(feature = "ban-manager")]
 pub struct BanFilter {
     /// 目标类型过滤
     pub target_type: Option<String>,
@@ -171,6 +196,7 @@ pub struct BanFilter {
 
 /// 指数退避配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg(feature = "ban-manager")]
 pub struct BackoffConfig {
     /// 第一次违规封禁时长（秒）
     pub first_duration: u64,
@@ -198,6 +224,7 @@ impl Default for BackoffConfig {
 
 /// BanManager配置
 #[derive(Debug, Clone)]
+#[cfg(feature = "ban-manager")]
 pub struct BanManagerConfig {
     /// 指数退避配置
     pub backoff: BackoffConfig,
@@ -221,6 +248,7 @@ impl Default for BanManagerConfig {
 ///
 /// 管理封禁记录的生命周期，提供CRUD接口和指数退避算法。
 #[derive(Clone)]
+#[cfg(feature = "ban-manager")]
 pub struct BanManager {
     /// 封禁存储
     storage: Arc<dyn BanStorage>,
@@ -256,18 +284,7 @@ fn validate_ip_address(ip: &str) -> Result<(), FlowGuardError> {
 
 /// 验证用户ID
 fn validate_user_id(user_id: &str) -> Result<(), FlowGuardError> {
-    if user_id.is_empty() {
-        return Err(FlowGuardError::ValidationError(
-            "用户ID不能为空".to_string(),
-        ));
-    }
-
-    if user_id.len() > MAX_USER_ID_LENGTH {
-        return Err(FlowGuardError::ValidationError(format!(
-            "用户ID过长，最大长度为 {} 字符",
-            MAX_USER_ID_LENGTH
-        )));
-    }
+    validate_string!(user_id, "用户ID", MAX_USER_ID_LENGTH);
 
     // 检查是否包含危险字符
     if user_id.contains(|c: char| c.is_control()) {
@@ -327,18 +344,7 @@ fn validate_ban_target(target: &BanTarget) -> Result<(), FlowGuardError> {
 
 /// 验证封禁原因
 fn validate_ban_reason(reason: &str) -> Result<(), FlowGuardError> {
-    if reason.is_empty() {
-        return Err(FlowGuardError::ValidationError(
-            "封禁原因不能为空".to_string(),
-        ));
-    }
-
-    if reason.len() > MAX_BAN_REASON_LENGTH {
-        return Err(FlowGuardError::ValidationError(format!(
-            "封禁原因过长，最大长度为 {} 字符",
-            MAX_BAN_REASON_LENGTH
-        )));
-    }
+    validate_string!(reason, "封禁原因", MAX_BAN_REASON_LENGTH);
 
     // 检查是否包含控制字符
     if reason.contains(|c: char| c.is_control()) {
@@ -656,6 +662,7 @@ impl BanManager {
         }
 
         // 如果是PostgreSQL存储，更新unbanned_at和unbanned_by字段
+        #[cfg(feature = "postgres")]
         if let Some(storage) = self
             .storage
             .as_any()
@@ -704,6 +711,7 @@ impl BanManager {
         debug!("Listing bans with filter: {:?}", filter);
 
         // 如果是PostgreSQL存储，使用数据库查询
+        #[cfg(feature = "postgres")]
         if let Some(storage) = self
             .storage
             .as_any()
@@ -731,12 +739,10 @@ impl BanManager {
                     ));
                 }
                 // 使用参数化查询，LIKE 模式在服务器端添加
+                // 注意：参数化查询会自动处理通配符转义，不需要手动转义
                 let param_index = conditions.len() + 1;
                 conditions.push(format!("target_value LIKE ${}", param_index));
-
-                // 转义 LIKE 通配符，防止 SQL 注入
-                let escaped_value = target_value.replace('%', "\\%").replace('_', "\\_");
-                params.push(format!("%{}%", escaped_value));
+                params.push(format!("%{}%", target_value));
             }
 
             // 只显示活跃封禁

@@ -20,7 +20,7 @@
 //!     let (metrics, tracer) = init_telemetry(&config).await.unwrap();
 //!
 //!     // 使用指标
-//!     metrics.requests_total.inc();
+//!     metrics.record_check(std::time::Duration::from_millis(1), true);
 //!
 //!     // 使用追踪
 //!     let span = tracer.start_span("my_operation");
@@ -28,13 +28,46 @@
 //! }
 //! ```
 
+#[cfg(feature = "monitoring")]
 use prometheus::{Counter, Encoder, Gauge, Histogram, Registry, TextEncoder};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
+#[cfg(not(feature = "monitoring"))]
+#[derive(Clone, Default)]
+pub struct Metrics;
+
+#[cfg(not(feature = "monitoring"))]
+impl Metrics {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn gather(&self) -> String {
+        String::new()
+    }
+
+    pub fn record_check(&self, _duration: Duration, _allowed: bool) {}
+
+    pub fn record_error(&self, _error_type: &str) {}
+
+    pub fn record_ban(&self) {}
+
+    pub fn update_quota_usage(&self, _usage: f64) {}
+
+    pub fn update_concurrent_connections(&self, _count: i64) {}
+
+    pub fn update_token_bucket_tokens(&self, _tokens: f64) {}
+
+    pub fn update_sliding_window_requests(&self, _count: f64) {}
+
+    pub fn update_fixed_window_requests(&self, _count: f64) {}
+}
+
 /// 监控指标
 ///
+#[cfg(feature = "monitoring")]
 /// 包含所有Prometheus指标的定义和操作方法。
 #[derive(Clone)]
 pub struct Metrics {
@@ -71,6 +104,7 @@ static GLOBAL_METRICS: std::sync::OnceLock<Arc<Metrics>> = std::sync::OnceLock::
 
 /// 设置全局指标实例
 ///
+#[cfg(feature = "monitoring")]
 /// # 参数
 /// - `metrics`: Metrics实例
 pub fn set_global_metrics(metrics: Arc<Metrics>) {
@@ -79,13 +113,14 @@ pub fn set_global_metrics(metrics: Arc<Metrics>) {
 
 /// 获取全局指标实例
 ///
+#[cfg(feature = "monitoring")]
 /// # 返回
 /// - `Some(Arc<Metrics>)`: 如果已设置
-/// - `None`: 如果未设置
 pub fn try_global() -> Option<Arc<Metrics>> {
     GLOBAL_METRICS.get().cloned()
 }
 
+#[cfg(feature = "monitoring")]
 impl Metrics {
     /// 创建新的监控指标
     ///
@@ -265,7 +300,7 @@ impl Metrics {
     ///
     /// # 参数
     /// - `error_type`: 错误类型
-    pub fn record_error(&self, error_type: &str) {
+    pub fn record_error(&self, _error_type: &str) {
         self.errors_total.inc();
     }
 
@@ -315,6 +350,7 @@ impl Metrics {
     }
 }
 
+#[cfg(feature = "monitoring")]
 impl Default for Metrics {
     fn default() -> Self {
         Self::new()
@@ -354,7 +390,8 @@ impl Tracer {
             return Span::new_disabled();
         }
 
-        Span::new()
+        // 简化实现：创建一个带有名称的 span
+        Span::new_with_name(name)
     }
 
     /// 检查是否启用
@@ -378,12 +415,21 @@ pub struct Span {
     /// 是否启用
     enabled: bool,
     /// 属性
-    attributes: std::sync::Arc<parking_lot::RwLock<Vec<(String, String)>>>,
+    attributes: AttributesStore,
     /// 事件
-    events: std::sync::Arc<parking_lot::RwLock<Vec<(String, Vec<(String, String)>)>>>,
+    events: EventsStore,
     /// 错误
-    error: std::sync::Arc<parking_lot::RwLock<Option<String>>>,
+    error: ErrorStore,
 }
+
+/// 属性存储类型别名
+type AttributesStore = std::sync::Arc<parking_lot::RwLock<Vec<(String, String)>>>;
+
+/// 事件存储类型别名
+type EventsStore = std::sync::Arc<parking_lot::RwLock<Vec<(String, Vec<(String, String)>)>>>;
+
+/// 错误存储类型别名
+type ErrorStore = std::sync::Arc<parking_lot::RwLock<Option<String>>>;
 
 impl Span {
     /// 创建新的Span
@@ -391,10 +437,17 @@ impl Span {
         Self {
             started_at: Some(Instant::now()),
             enabled: true,
-            attributes: std::sync::Arc::new(parking_lot::RwLock::new(Vec::new())),
-            events: std::sync::Arc::new(parking_lot::RwLock::new(Vec::new())),
-            error: std::sync::Arc::new(parking_lot::RwLock::new(None)),
+            attributes: AttributesStore::new(parking_lot::RwLock::new(Vec::new())),
+            events: EventsStore::new(parking_lot::RwLock::new(Vec::new())),
+            error: ErrorStore::new(parking_lot::RwLock::new(None)),
         }
+    }
+
+    /// 创建带有名称的Span
+    fn new_with_name(name: &str) -> Self {
+        let span = Self::new();
+        span.set_attribute("name", name);
+        span
     }
 
     /// 创建禁用的Span
@@ -402,9 +455,9 @@ impl Span {
         Self {
             started_at: None,
             enabled: false,
-            attributes: std::sync::Arc::new(parking_lot::RwLock::new(Vec::new())),
-            events: std::sync::Arc::new(parking_lot::RwLock::new(Vec::new())),
-            error: std::sync::Arc::new(parking_lot::RwLock::new(None)),
+            attributes: AttributesStore::new(parking_lot::RwLock::new(Vec::new())),
+            events: EventsStore::new(parking_lot::RwLock::new(Vec::new())),
+            error: ErrorStore::new(parking_lot::RwLock::new(None)),
         }
     }
 
@@ -574,7 +627,7 @@ pub async fn init_telemetry(config: &TelemetryConfig) -> Result<(Metrics, Tracer
     // 初始化Prometheus指标
     let metrics = if config.enable_prometheus {
         info!(
-            "Prometheus metrics enabled on port {}",
+            "Prometheus metrics initialized (configured port: {})",
             config.prometheus_port
         );
         Metrics::new()
@@ -615,6 +668,8 @@ async fn init_jaeger_tracer(config: &TelemetryConfig, endpoint: &str) -> Result<
         "Jaeger tracing requested with endpoint: {} (simplified implementation)",
         endpoint
     );
+    // 消除未使用的 config 警告
+    let _ = config;
     info!("Note: Full Jaeger integration requires additional configuration");
 
     // 简化版本，仅记录日志
@@ -640,11 +695,12 @@ fn init_console_tracer(config: &TelemetryConfig) -> Result<(), String> {
 /// # 返回
 /// - `Ok(())`: 服务器启动成功
 /// - `Err(_)`: 服务器启动失败
+#[cfg(feature = "monitoring")]
 pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result<(), String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
         .await
         .map_err(|e| format!("Failed to bind to port {}: {}", port, e))?;
 
@@ -652,7 +708,7 @@ pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result
 
     loop {
         match listener.accept().await {
-            Ok((mut socket, addr)) => {
+            Ok((mut socket, _addr)) => {
                 let metrics = metrics.clone();
                 tokio::spawn(async move {
                     let mut buffer = [0u8; 1024];
@@ -684,11 +740,17 @@ pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result
     }
 }
 
+#[cfg(not(feature = "monitoring"))]
+pub async fn start_prometheus_server(_metrics: Arc<Metrics>, _port: u16) -> Result<(), String> {
+    Err("monitoring feature is disabled".to_string())
+}
+
 // ============================================================================
 // 辅助宏和函数
 // ============================================================================
 
 /// 注册Counter指标
+#[cfg(feature = "monitoring")]
 macro_rules! register_counter {
     ($name:expr, $help:expr, $registry:expr, $labels:expr) => {{
         let opts = prometheus::Opts::new($name, $help);
@@ -697,6 +759,7 @@ macro_rules! register_counter {
 }
 
 /// 注册Gauge指标
+#[cfg(feature = "monitoring")]
 macro_rules! register_gauge {
     ($name:expr, $help:expr, $registry:expr, $labels:expr) => {{
         let opts = prometheus::Opts::new($name, $help);
@@ -705,6 +768,7 @@ macro_rules! register_gauge {
 }
 
 /// 注册Histogram指标
+#[cfg(feature = "monitoring")]
 macro_rules! register_histogram {
     ($name:expr, $help:expr, $registry:expr, $buckets:expr) => {{
         let opts = prometheus::HistogramOpts::new($name, $help);
@@ -720,77 +784,6 @@ macro_rules! register_histogram {
 mod tests {
     use super::*;
     use std::time::Duration;
-
-    #[test]
-    fn test_metrics_creation() {
-        let metrics = Metrics::new();
-        // 验证所有指标都已创建
-        assert_eq!(metrics.requests_total.get(), 0.0);
-        assert_eq!(metrics.requests_allowed.get(), 0.0);
-        assert_eq!(metrics.requests_rejected.get(), 0.0);
-    }
-
-    #[test]
-    fn test_metrics_record_check_allowed() {
-        let metrics = Metrics::new();
-        metrics.record_check(Duration::from_millis(10), true);
-
-        assert_eq!(metrics.requests_total.get(), 1.0);
-        assert_eq!(metrics.requests_allowed.get(), 1.0);
-        assert_eq!(metrics.requests_rejected.get(), 0.0);
-    }
-
-    #[test]
-    fn test_metrics_record_check_rejected() {
-        let metrics = Metrics::new();
-        metrics.record_check(Duration::from_millis(10), false);
-
-        assert_eq!(metrics.requests_total.get(), 1.0);
-        assert_eq!(metrics.requests_allowed.get(), 0.0);
-        assert_eq!(metrics.requests_rejected.get(), 1.0);
-    }
-
-    #[test]
-    fn test_metrics_record_error() {
-        let metrics = Metrics::new();
-        metrics.record_error("test_error");
-
-        assert_eq!(metrics.errors_total.get(), 1.0);
-    }
-
-    #[test]
-    fn test_metrics_record_ban() {
-        let metrics = Metrics::new();
-        metrics.record_ban();
-
-        assert_eq!(metrics.requests_banned.get(), 1.0);
-    }
-
-    #[test]
-    fn test_metrics_update_quota_usage() {
-        let metrics = Metrics::new();
-        metrics.update_quota_usage(75.5);
-
-        // Gauge的值无法直接获取，这里只测试不会panic
-    }
-
-    #[test]
-    fn test_metrics_update_concurrent_connections() {
-        let metrics = Metrics::new();
-        metrics.update_concurrent_connections(10);
-
-        // Gauge的值无法直接获取，这里只测试不会panic
-    }
-
-    #[test]
-    fn test_metrics_gather() {
-        let metrics = Metrics::new();
-        metrics.record_check(Duration::from_millis(10), true);
-
-        let output = metrics.gather();
-        assert!(!output.is_empty());
-        assert!(output.contains("flowguard_requests_total"));
-    }
 
     #[test]
     fn test_tracer_creation() {
@@ -880,41 +873,9 @@ mod tests {
     }
 
     #[test]
-    fn test_metrics_multiple_records() {
-        let metrics = Metrics::new();
-
-        for i in 0..5 {
-            metrics.record_check(Duration::from_millis(i * 10), i % 2 == 0);
-        }
-
-        assert_eq!(metrics.requests_total.get(), 5.0);
-        assert_eq!(metrics.requests_allowed.get(), 3.0);
-        assert_eq!(metrics.requests_rejected.get(), 2.0);
-    }
-
-    #[test]
-    fn test_metrics_all_gauges() {
-        let metrics = Metrics::new();
-
-        metrics.update_quota_usage(50.0);
-        metrics.update_concurrent_connections(100);
-        metrics.update_token_bucket_tokens(10.5);
-        metrics.update_sliding_window_requests(20.0);
-        metrics.update_fixed_window_requests(30.0);
-
-        // 只测试不会panic
-    }
-
-    #[test]
     fn test_tracer_default() {
         let tracer = Tracer::default();
         assert!(tracer.is_enabled());
-    }
-
-    #[test]
-    fn test_metrics_default() {
-        let metrics = Metrics::default();
-        assert_eq!(metrics.requests_total.get(), 0.0);
     }
 
     #[test]
@@ -954,33 +915,7 @@ mod tests {
     fn test_span_drop() {
         let span = Span::new();
         span.set_attribute("test", "value");
-        // span will be dropped here
-    }
-
-    #[test]
-    fn test_global_metrics() {
-        let metrics = Arc::new(Metrics::new());
-        set_global_metrics(metrics);
-
-        let global = try_global();
-        assert!(global.is_some());
-    }
-
-    #[test]
-    fn test_global_metrics_none() {
-        // 清除全局指标
-
-        let global = try_global();
-        assert!(global.is_none());
-    }
-
-    #[test]
-    fn test_metrics_register() {
-        let metrics = Metrics::new();
-        let registry = Registry::new();
-
-        let result = metrics.register(&registry);
-        assert!(result.is_ok());
+        let _ = span;
     }
 
     #[test]
@@ -1004,19 +939,143 @@ mod tests {
         assert!(span.events().is_empty());
         assert!(span.error().is_none());
     }
+}
+
+#[cfg(all(test, feature = "monitoring"))]
+mod tests_monitoring {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_metrics_creation() {
+        let metrics = Metrics::new();
+        assert_eq!(metrics.requests_total.get(), 0.0);
+        assert_eq!(metrics.requests_allowed.get(), 0.0);
+        assert_eq!(metrics.requests_rejected.get(), 0.0);
+    }
+
+    #[test]
+    fn test_metrics_record_check_allowed() {
+        let metrics = Metrics::new();
+        metrics.record_check(Duration::from_millis(10), true);
+
+        assert_eq!(metrics.requests_total.get(), 1.0);
+        assert_eq!(metrics.requests_allowed.get(), 1.0);
+        assert_eq!(metrics.requests_rejected.get(), 0.0);
+    }
+
+    #[test]
+    fn test_metrics_record_check_rejected() {
+        let metrics = Metrics::new();
+        metrics.record_check(Duration::from_millis(10), false);
+
+        assert_eq!(metrics.requests_total.get(), 1.0);
+        assert_eq!(metrics.requests_allowed.get(), 0.0);
+        assert_eq!(metrics.requests_rejected.get(), 1.0);
+    }
+
+    #[test]
+    fn test_metrics_record_error() {
+        let metrics = Metrics::new();
+        metrics.record_error("test_error");
+
+        assert_eq!(metrics.errors_total.get(), 1.0);
+    }
+
+    #[test]
+    fn test_metrics_record_ban() {
+        let metrics = Metrics::new();
+        metrics.record_ban();
+
+        assert_eq!(metrics.requests_banned.get(), 1.0);
+    }
+
+    #[test]
+    fn test_metrics_update_quota_usage() {
+        let metrics = Metrics::new();
+        metrics.update_quota_usage(75.5);
+    }
+
+    #[test]
+    fn test_metrics_update_concurrent_connections() {
+        let metrics = Metrics::new();
+        metrics.update_concurrent_connections(10);
+    }
+
+    #[test]
+    fn test_metrics_gather() {
+        let metrics = Metrics::new();
+        metrics.record_check(Duration::from_millis(10), true);
+
+        let output = metrics.gather();
+        assert!(!output.is_empty());
+        assert!(output.contains("flowguard_requests_total"));
+    }
+
+    #[test]
+    fn test_metrics_multiple_records() {
+        let metrics = Metrics::new();
+
+        for i in 0..5 {
+            metrics.record_check(Duration::from_millis(i * 10), i % 2 == 0);
+        }
+
+        assert_eq!(metrics.requests_total.get(), 5.0);
+        assert_eq!(metrics.requests_allowed.get(), 3.0);
+        assert_eq!(metrics.requests_rejected.get(), 2.0);
+    }
+
+    #[test]
+    fn test_metrics_all_gauges() {
+        let metrics = Metrics::new();
+
+        metrics.update_quota_usage(50.0);
+        metrics.update_concurrent_connections(100);
+        metrics.update_token_bucket_tokens(10.5);
+        metrics.update_sliding_window_requests(20.0);
+        metrics.update_fixed_window_requests(30.0);
+    }
+
+    #[test]
+    fn test_metrics_default() {
+        let metrics = Metrics::default();
+        assert_eq!(metrics.requests_total.get(), 0.0);
+    }
+
+    #[test]
+    fn test_global_metrics() {
+        let metrics = Arc::new(Metrics::new());
+        set_global_metrics(metrics);
+
+        let global = try_global();
+        assert!(global.is_some());
+    }
+
+    #[test]
+    fn test_global_metrics_none() {
+        let global = try_global();
+        assert!(global.is_none());
+    }
+
+    #[test]
+    fn test_metrics_register() {
+        let metrics = Metrics::new();
+        let registry = Registry::new();
+
+        let result = metrics.register(&registry);
+        assert!(result.is_ok());
+    }
 
     #[test]
     fn test_metrics_histogram_buckets() {
         let metrics = Metrics::new();
 
-        // 测试不同的延迟值
         metrics.record_check(Duration::from_micros(50), true);
         metrics.record_check(Duration::from_millis(1), true);
         metrics.record_check(Duration::from_millis(10), true);
         metrics.record_check(Duration::from_millis(100), true);
         metrics.record_check(Duration::from_millis(500), true);
 
-        // 验证指标被正确记录
         assert_eq!(metrics.requests_total.get(), 5.0);
     }
 
@@ -1027,7 +1086,6 @@ mod tests {
 
         let output = metrics.gather();
 
-        // 验证输出格式
         assert!(output.contains("flowguard_requests_total"));
         assert!(output.contains("flowguard_requests_allowed_total"));
         assert!(output.contains("flowguard_requests_rejected_total"));
@@ -1036,6 +1094,9 @@ mod tests {
 }
 
 // 导出宏
+#[cfg(feature = "monitoring")]
 pub(crate) use register_counter;
+#[cfg(feature = "monitoring")]
 pub(crate) use register_gauge;
+#[cfg(feature = "monitoring")]
 pub(crate) use register_histogram;

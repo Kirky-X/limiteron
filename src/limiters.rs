@@ -51,12 +51,13 @@ pub trait Limiter: Send + Sync {
         cost: u64,
     ) -> Pin<Box<dyn Future<Output = Result<bool, FlowGuardError>> + Send + '_>>;
 
-    /// 检查是否允许（别名方法）
-    fn check(
-        &self,
-        cost: u64,
-    ) -> Pin<Box<dyn Future<Output = Result<bool, FlowGuardError>> + Send + '_>> {
-        self.allow(cost)
+    /// 检查是否允许（接受 key 参数，用于宏）
+    /// 默认实现：消费 1 个单位的 cost
+    fn check(&self, _key: &str) -> Pin<Box<dyn Future<Output = Result<(), FlowGuardError>> + Send + '_>> {
+        Box::pin(async move {
+            self.allow(1).await?;
+            Ok(())
+        })
     }
 }
 
@@ -258,14 +259,6 @@ impl Limiter for TokenBucketLimiter {
     }
 }
 
-impl TokenBucketLimiter {
-    /// 检查是否允许（接受 key 参数，用于宏）
-    pub async fn check(&self, _key: &str) -> Result<(), FlowGuardError> {
-        self.allow(1).await?;
-        Ok(())
-    }
-}
-
 /// 滑动窗口限流器
 ///
 /// 使用滑动窗口算法实现速率限制，记录请求的时间戳，
@@ -374,14 +367,6 @@ impl Limiter for SlidingWindowLimiter {
 
             Ok(true)
         })
-    }
-}
-
-impl SlidingWindowLimiter {
-    /// 检查是否允许（接受 key 参数，用于宏）
-    pub async fn check(&self, _key: &str) -> Result<(), FlowGuardError> {
-        self.allow(1).await?;
-        Ok(())
     }
 }
 
@@ -533,14 +518,6 @@ impl Limiter for FixedWindowLimiter {
                 }
             }
         })
-    }
-}
-
-impl FixedWindowLimiter {
-    /// 检查是否允许（接受 key 参数，用于宏）
-    pub async fn check(&self, _key: &str) -> Result<(), FlowGuardError> {
-        self.allow(1).await?;
-        Ok(())
     }
 }
 
@@ -702,14 +679,6 @@ impl Limiter for ConcurrencyLimiter {
                 Err(_) => Ok(false),
             }
         })
-    }
-}
-
-impl ConcurrencyLimiter {
-    /// 检查是否允许（接受 key 参数，用于宏）
-    pub async fn check(&self, _key: &str) -> Result<(), FlowGuardError> {
-        self.allow(1).await?;
-        Ok(())
     }
 }
 

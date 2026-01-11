@@ -21,7 +21,7 @@
 
 use crate::config::Matcher as ConfigMatcher;
 use crate::error::FlowGuardError;
-use std::collections::HashMap;
+use ahash::AHashMap as HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -80,7 +80,7 @@ impl Identifier {
 /// HTTP请求上下文
 ///
 /// 简化的HTTP请求表示，包含提取标识符所需的信息。
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RequestContext {
     /// 用户ID
     pub user_id: Option<String>,
@@ -102,6 +102,61 @@ pub struct RequestContext {
     pub client_ip: Option<String>,
     /// 查询参数
     pub query_params: HashMap<String, String>,
+}
+
+impl std::fmt::Debug for RequestContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = f.debug_struct("RequestContext");
+        debug
+            .field("user_id", &self.user_id)
+            .field("ip", &self.ip)
+            .field("mac", &self.mac)
+            .field("device_id", &self.device_id)
+            .field("api_key", &self.api_key.as_ref().map(|_| "***"));
+
+        // 脱敏 headers
+        let headers: HashMap<String, String> = self
+            .headers
+            .iter()
+            .map(|(k, v)| {
+                let v = if k.to_lowercase().contains("auth")
+                    || k.to_lowercase().contains("cookie")
+                    || k.to_lowercase().contains("key")
+                {
+                    "***".to_string()
+                } else {
+                    v.clone()
+                };
+                (k.clone(), v)
+            })
+            .collect();
+        debug.field("headers", &headers);
+
+        debug
+            .field("path", &self.path)
+            .field("method", &self.method)
+            .field("client_ip", &self.client_ip);
+
+        // 脱敏 query_params
+        let query_params: HashMap<String, String> = self
+            .query_params
+            .iter()
+            .map(|(k, v)| {
+                let v = if k.to_lowercase().contains("token")
+                    || k.to_lowercase().contains("key")
+                    || k.to_lowercase().contains("secret")
+                {
+                    "***".to_string()
+                } else {
+                    v.clone()
+                };
+                (k.clone(), v)
+            })
+            .collect();
+        debug.field("query_params", &query_params);
+
+        debug.finish()
+    }
 }
 
 impl RequestContext {
@@ -176,112 +231,83 @@ pub trait IdentifierExtractor: Send + Sync {
 }
 
 // ============================================================================
-// 用户ID提取器
+// 简化提取器定义的宏
 // ============================================================================
 
-/// 用户ID提取器
+/// 简化简单提取器定义的宏
 ///
-/// 从HTTP头或查询参数中提取用户ID。
-pub struct UserIdExtractor {
-    /// HTTP头名称（优先从此处提取）
-    header_name: Option<String>,
-    /// 查询参数名称（备选）
-    query_param_name: Option<String>,
-    /// 默认用户ID（当无法提取时使用）
-    default_user_id: Option<String>,
-}
-
-impl UserIdExtractor {
-    /// 创建新的用户ID提取器
-    ///
-    /// # 参数
-    /// - `header_name`: HTTP头名称（可选）
-    /// - `query_param_name`: 查询参数名称（可选）
-    /// - `default_user_id`: 默认用户ID（可选）
-    pub fn new(
-        header_name: Option<String>,
-        query_param_name: Option<String>,
-        default_user_id: Option<String>,
-    ) -> Self {
-        Self {
-            header_name,
-            query_param_name,
-            default_user_id,
+/// 用于定义从HTTP头或查询参数中提取标识符的提取器。
+macro_rules! simple_extractor {
+    ($name:ident, $variant:ident, $doc:expr) => {
+        #[doc = $doc]
+        pub struct $name {
+            header_name: Option<String>,
+            query_param_name: Option<String>,
+            default_value: Option<String>,
         }
-    }
 
-    /// 从HTTP头提取用户ID（便捷方法）
-    ///
-    /// # 参数
-    /// - `header_name`: HTTP头名称
-    ///
-    /// # 示例
-    /// ```rust
-    /// use limiteron::matchers::UserIdExtractor;
-    ///
-    /// let extractor = UserIdExtractor::from_header("X-User-Id");
-    /// ```
-    pub fn from_header(header_name: &str) -> Self {
-        Self::new(Some(header_name.to_string()), None, None)
-    }
-
-    /// 从查询参数提取用户ID（便捷方法）
-    ///
-    /// # 参数
-    /// - `query_param_name`: 查询参数名称
-    ///
-    /// # 示例
-    /// ```rust
-    /// use limiteron::matchers::UserIdExtractor;
-    ///
-    /// let extractor = UserIdExtractor::from_query_param("user_id");
-    /// ```
-    pub fn from_query_param(query_param_name: &str) -> Self {
-        Self::new(None, Some(query_param_name.to_string()), None)
-    }
-
-    /// 设置默认用户ID
-    ///
-    /// # 参数
-    /// - `default_user_id`: 默认用户ID
-    pub fn with_default(mut self, default_user_id: &str) -> Self {
-        self.default_user_id = Some(default_user_id.to_string());
-        self
-    }
-}
-
-impl IdentifierExtractor for UserIdExtractor {
-    fn extract(&self, context: &RequestContext) -> Option<Identifier> {
-        // 优先从HTTP头提取
-        if let Some(header_name) = &self.header_name {
-            if let Some(user_id) = context.get_header(header_name) {
-                if !user_id.is_empty() {
-                    return Some(Identifier::UserId(user_id.clone()));
+        impl $name {
+            pub fn new(
+                header_name: Option<String>,
+                query_param_name: Option<String>,
+                default_value: Option<String>,
+            ) -> Self {
+                Self {
+                    header_name,
+                    query_param_name,
+                    default_value,
                 }
+            }
+
+            pub fn from_header(header_name: &str) -> Self {
+                Self::new(Some(header_name.to_string()), None, None)
+            }
+
+            pub fn from_query_param(query_param_name: &str) -> Self {
+                Self::new(None, Some(query_param_name.to_string()), None)
+            }
+
+            pub fn with_default(mut self, default: &str) -> Self {
+                self.default_value = Some(default.to_string());
+                self
             }
         }
 
-        // 从查询参数提取
-        if let Some(query_param_name) = &self.query_param_name {
-            if let Some(user_id) = context.query_params.get(query_param_name) {
-                if !user_id.is_empty() {
-                    return Some(Identifier::UserId(user_id.clone()));
+        impl IdentifierExtractor for $name {
+            fn extract(&self, context: &RequestContext) -> Option<Identifier> {
+                if let Some(header_name) = &self.header_name {
+                    if let Some(value) = context.get_header(header_name) {
+                        if !value.is_empty() {
+                            return Some(Identifier::$variant(value.clone()));
+                        }
+                    }
                 }
+
+                if let Some(query_param_name) = &self.query_param_name {
+                    if let Some(value) = context.query_params.get(query_param_name) {
+                        if !value.is_empty() {
+                            return Some(Identifier::$variant(value.clone()));
+                        }
+                    }
+                }
+
+                if let Some(default) = &self.default_value {
+                    return Some(Identifier::$variant(default.clone()));
+                }
+
+                None
+            }
+
+            fn name(&self) -> &str {
+                stringify!($name)
             }
         }
-
-        // 使用默认用户ID
-        if let Some(default) = &self.default_user_id {
-            return Some(Identifier::UserId(default.clone()));
-        }
-
-        None
-    }
-
-    fn name(&self) -> &str {
-        "UserIdExtractor"
-    }
+    };
 }
+
+// 使用宏定义简单提取器
+simple_extractor!(UserIdExtractor, UserId, "用户ID提取器");
+simple_extractor!(DeviceIdExtractor, DeviceId, "设备ID提取器");
 
 // ============================================================================
 // IP提取器
@@ -318,7 +344,7 @@ impl IpExtractor {
     ///
     /// let extractor = IpExtractor::default();
     /// ```
-    pub fn default() -> Self {
+    pub fn new_default() -> Self {
         Self::new(vec![], true)
     }
 
@@ -361,10 +387,8 @@ impl IpExtractor {
         let ip = value.split(',').next()?.trim();
 
         // 验证IP格式
-        if self.validate {
-            if ip.parse::<IpAddr>().is_err() {
-                return None;
-            }
+        if self.validate && ip.parse::<IpAddr>().is_err() {
+            return None;
         }
 
         Some(ip.to_string())
@@ -474,7 +498,7 @@ impl MacExtractor {
         // - 001A.2B3C.4D5E
         // - 001A2B3C4D5E
 
-        let cleaned = mac.replace(':', "").replace('-', "").replace('.', "");
+        let cleaned = mac.replace([':', '-', '.'], "");
 
         if cleaned.len() != 12 {
             return false;
@@ -523,8 +547,8 @@ impl IdentifierExtractor for MacExtractor {
 pub struct ApiKeyExtractor {
     /// HTTP头名称
     header_name: Option<String>,
-    /// 查询参数名称
-    query_param_name: Option<String>,
+    /// 查询参数名称（已禁用，仅为了兼容性保留）
+    _query_param_name: Option<String>,
     /// 前缀（如 "Bearer "）
     prefix: Option<String>,
 }
@@ -534,16 +558,19 @@ impl ApiKeyExtractor {
     ///
     /// # 参数
     /// - `header_name`: HTTP头名称
-    /// - `query_param_name`: 查询参数名称
+    /// - `query_param_name`: 查询参数名称（已禁用）
     /// - `prefix`: 前缀
     pub fn new(
         header_name: Option<String>,
         query_param_name: Option<String>,
         prefix: Option<String>,
     ) -> Self {
+        if query_param_name.is_some() {
+            tracing::warn!("出于安全考虑，通过查询参数提取API Key已被禁用");
+        }
         Self {
             header_name,
-            query_param_name,
+            _query_param_name: query_param_name,
             prefix,
         }
     }
@@ -622,15 +649,6 @@ impl IdentifierExtractor for ApiKeyExtractor {
             }
         }
 
-        // 从查询参数提取
-        if let Some(query_param_name) = &self.query_param_name {
-            if let Some(value) = context.query_params.get(query_param_name) {
-                if let Some(key) = self.clean_key(value) {
-                    return Some(Identifier::ApiKey(key));
-                }
-            }
-        }
-
         None
     }
 
@@ -641,90 +659,6 @@ impl IdentifierExtractor for ApiKeyExtractor {
 
 // ============================================================================
 // 设备ID提取器
-// ============================================================================
-
-/// 设备ID提取器
-///
-/// 从请求上下文中提取设备ID。
-pub struct DeviceIdExtractor {
-    /// HTTP头名称
-    header_name: Option<String>,
-    /// 查询参数名称
-    query_param_name: Option<String>,
-}
-
-impl DeviceIdExtractor {
-    /// 创建新的设备ID提取器
-    ///
-    /// # 参数
-    /// - `header_name`: HTTP头名称
-    /// - `query_param_name`: 查询参数名称
-    pub fn new(header_name: Option<String>, query_param_name: Option<String>) -> Self {
-        Self {
-            header_name,
-            query_param_name,
-        }
-    }
-
-    /// 从HTTP头提取设备ID
-    ///
-    /// # 参数
-    /// - `header_name`: HTTP头名称
-    ///
-    /// # 示例
-    /// ```rust
-    /// use limiteron::matchers::DeviceIdExtractor;
-    ///
-    /// let extractor = DeviceIdExtractor::from_header("X-Device-Id");
-    /// ```
-    pub fn from_header(header_name: &str) -> Self {
-        Self::new(Some(header_name.to_string()), None)
-    }
-
-    /// 从查询参数提取设备ID
-    ///
-    /// # 参数
-    /// - `query_param_name`: 查询参数名称
-    ///
-    /// # 示例
-    /// ```rust
-    /// use limiteron::matchers::DeviceIdExtractor;
-    ///
-    /// let extractor = DeviceIdExtractor::from_query_param("device_id");
-    /// ```
-    pub fn from_query_param(query_param_name: &str) -> Self {
-        Self::new(None, Some(query_param_name.to_string()))
-    }
-}
-
-impl IdentifierExtractor for DeviceIdExtractor {
-    fn extract(&self, context: &RequestContext) -> Option<Identifier> {
-        // 从HTTP头提取
-        if let Some(header_name) = &self.header_name {
-            if let Some(device_id) = context.get_header(header_name) {
-                if !device_id.is_empty() {
-                    return Some(Identifier::DeviceId(device_id.clone()));
-                }
-            }
-        }
-
-        // 从查询参数提取
-        if let Some(query_param_name) = &self.query_param_name {
-            if let Some(device_id) = context.query_params.get(query_param_name) {
-                if !device_id.is_empty() {
-                    return Some(Identifier::DeviceId(device_id.clone()));
-                }
-            }
-        }
-
-        None
-    }
-
-    fn name(&self) -> &str {
-        "DeviceIdExtractor"
-    }
-}
-
 // ============================================================================
 // 组合提取器
 // ============================================================================
@@ -987,9 +921,13 @@ impl IpRange {
 
         true
     }
+}
+
+impl FromStr for IpRange {
+    type Err = FlowGuardError;
 
     /// 从字符串解析IP范围
-    pub fn from_str(s: &str) -> Result<Self, FlowGuardError> {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.contains('/') {
             // CIDR格式
             let parts: Vec<&str> = s.split('/').collect();
@@ -1187,7 +1125,7 @@ impl ConditionEvaluator for CompositeCondition {
                 // NOT操作符只应该有一个子条件
                 self.conditions
                     .first()
-                    .map_or(false, |c| !c.evaluate(context))
+                    .is_some_and(|c| !c.evaluate(context))
             }
         }
     }
@@ -1417,7 +1355,7 @@ impl RuleMatcher {
                 }
                 ConfigMatcher::Ip { ip_ranges } => {
                     let ranges: Result<Vec<IpRange>, _> =
-                        ip_ranges.iter().map(|s| IpRange::from_str(s)).collect();
+                        ip_ranges.iter().map(|s| s.parse()).collect();
 
                     Box::new(MatchCondition::Ip(ranges?))
                 }
@@ -1520,7 +1458,7 @@ mod tests {
 
     #[test]
     fn test_ip_extractor_from_client_ip() {
-        let extractor = IpExtractor::default();
+        let extractor = IpExtractor::new_default();
         let context = RequestContext::new().with_client_ip("10.0.0.1");
 
         let identifier = extractor.extract(&context).unwrap();
@@ -1604,7 +1542,7 @@ mod tests {
         let extractor = CompositeExtractor::new(
             vec![
                 Box::new(UserIdExtractor::from_header("X-User-Id")),
-                Box::new(IpExtractor::default()),
+                Box::new(IpExtractor::new_default()),
             ],
             true,
         );
@@ -1639,7 +1577,7 @@ mod tests {
 
     #[test]
     fn test_ip_range_single() {
-        let range = IpRange::from_str("192.168.1.1").unwrap();
+        let range: IpRange = "192.168.1.1".parse().unwrap();
         let ip: IpAddr = "192.168.1.1".parse().unwrap();
         assert!(range.contains(&ip));
 
@@ -1649,7 +1587,7 @@ mod tests {
 
     #[test]
     fn test_ip_range_ipv4_cidr() {
-        let range = IpRange::from_str("192.168.1.0/24").unwrap();
+        let range: IpRange = "192.168.1.0/24".parse().unwrap();
         let ip1: IpAddr = "192.168.1.1".parse().unwrap();
         let ip2: IpAddr = "192.168.1.255".parse().unwrap();
         let ip3: IpAddr = "192.168.2.1".parse().unwrap();
@@ -1661,7 +1599,7 @@ mod tests {
 
     #[test]
     fn test_ip_range_ipv4_range() {
-        let range = IpRange::from_str("192.168.1.1-192.168.1.10").unwrap();
+        let range: IpRange = "192.168.1.1-192.168.1.10".parse().unwrap();
         let ip1: IpAddr = "192.168.1.1".parse().unwrap();
         let ip2: IpAddr = "192.168.1.10".parse().unwrap();
         let ip3: IpAddr = "192.168.1.11".parse().unwrap();
@@ -1673,9 +1611,9 @@ mod tests {
 
     #[test]
     fn test_ip_range_invalid() {
-        assert!(IpRange::from_str("invalid").is_err());
-        assert!(IpRange::from_str("192.168.1.1/33").is_err());
-        assert!(IpRange::from_str("192.168.1.10-192.168.1.1").is_err());
+        assert!("invalid".parse::<IpRange>().is_err());
+        assert!("192.168.1.1/33".parse::<IpRange>().is_err());
+        assert!("192.168.1.10-192.168.1.1".parse::<IpRange>().is_err());
     }
 
     // ==================== 规则匹配器测试 ====================
@@ -1724,10 +1662,7 @@ mod tests {
             id: "rule1".to_string(),
             name: "Test Rule".to_string(),
             priority: 100,
-            condition: Box::new(MatchCondition::Ip(vec![IpRange::from_str(
-                "192.168.1.0/24",
-            )
-            .unwrap()])),
+            condition: Box::new(MatchCondition::Ip(vec!["192.168.1.0/24".parse().unwrap()])),
             enabled: true,
         };
 

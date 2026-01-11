@@ -38,6 +38,7 @@
 //! # }
 //! ```
 
+#[cfg(feature = "device-matching")]
 use crate::error::FlowGuardError;
 use dashmap::DashMap;
 use regex::Regex;
@@ -187,6 +188,7 @@ fn sanitize_user_agent(user_agent: &str) -> String {
 // 设备类型
 // ============================================================================
 
+#[cfg(feature = "device-matching")]
 /// 设备类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DeviceType {
@@ -251,6 +253,7 @@ impl std::fmt::Display for DeviceType {
 // 设备信息
 // ============================================================================
 
+#[cfg(feature = "device-matching")]
 /// 设备信息
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeviceInfo {
@@ -290,7 +293,7 @@ impl DeviceInfo {
     pub fn description(&self) -> String {
         match (&self.device_type, &self.browser, &self.os) {
             (DeviceType::API, _, _) => "API Client".to_string(),
-            (dt, Some(browser), Some(os)) => {
+            (_dt, Some(browser), Some(os)) => {
                 format!(
                     "{} {} on {} {}",
                     browser,
@@ -377,6 +380,7 @@ impl Default for DeviceInfo {
 // 设备匹配条件
 // ============================================================================
 
+#[cfg(feature = "device-matching")]
 /// 设备匹配条件
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DeviceCondition {
@@ -486,6 +490,7 @@ impl Default for DeviceCondition {
 
 /// 设备匹配器
 ///
+#[cfg(feature = "device-matching")]
 /// 解析User-Agent并识别设备类型、浏览器和操作系统。
 pub struct DeviceMatcher {
     /// Woothee解析器

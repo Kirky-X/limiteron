@@ -53,13 +53,14 @@
 //!     WHERE expires_at IS NOT NULL;
 //! ```
 
+#[cfg(feature = "postgres")]
 use async_trait::async_trait;
 use secrecy::{ExposeSecret, Secret};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::types::chrono::{DateTime, Utc};
 use sqlx::{Postgres, Transaction};
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::error::{ConsumeResult, StorageError};
 use crate::storage::{
@@ -67,6 +68,7 @@ use crate::storage::{
 };
 
 /// PostgreSQL存储配置
+#[cfg(feature = "postgres")]
 #[derive(Clone)]
 pub struct PostgresStorageConfig {
     /// 数据库连接URL（使用 Secret 包装以防止意外泄露）
@@ -157,6 +159,7 @@ impl PostgresStorageConfig {
     }
 }
 
+#[cfg(feature = "postgres")]
 /// PostgreSQL存储实现
 pub struct PostgresStorage {
     pool: PgPool,
@@ -387,11 +390,16 @@ impl QuotaStorage for PostgresStorage {
     }
 
     /// 消费配额
+    ///
+    /// 注意：如果传入的 limit 与数据库中存储的不一致，将使用新的 limit 更新数据库。
+    /// 如果 window 持续时间发生变化，当前有效窗口仍将保持原有的结束时间，直到过期。
     async fn consume(
         &self,
         user_id: &str,
         resource: &str,
         cost: u64,
+        limit: u64,
+        window: std::time::Duration,
     ) -> Result<ConsumeResult, StorageError> {
         debug!(
             "消费配额: user_id={}, resource={}, cost={}",
@@ -420,69 +428,62 @@ impl QuotaStorage for PostgresStorage {
         .await
         .map_err(|e| StorageError::QueryError(format!("获取当前配额失败: {}", e)))?;
 
-        let (consumed, limit, remaining) = match current {
-            Some((consumed, limit, window_start, window_end)) => {
-                // 检查窗口是否过期
-                if window_end < Utc::now() {
-                    // 创建新窗口
-                    let new_start = Utc::now();
-                    let new_end = new_start + chrono::Duration::seconds(3600); // 默认1小时窗口
-                    sqlx::query(
-                        r#"
-                        INSERT INTO quota_usage (user_id, resource_key, quota_type, consumed, limit_value, window_start, window_end)
-                        VALUES ($1, $2, 'default', $3, $4, $5, $6)
-                        "#,
-                    )
-                    .bind(user_id)
-                    .bind(resource)
-                    .bind(cost as i64)
-                    .bind(limit)
-                    .bind(new_start)
-                    .bind(new_end)
-                    .execute(tx.as_mut())
-                    .await
-                    .map_err(|e| StorageError::QueryError(format!("创建新配额窗口失败: {}", e)))?;
+        let window_duration =
+            chrono::Duration::from_std(window).unwrap_or(chrono::Duration::hours(1));
 
-                    (cost as i64, limit, limit - cost as i64)
-                } else {
-                    // 检查是否超限
-                    let new_consumed = consumed + cost as i64;
-                    if new_consumed > limit {
-                        tx.rollback().await?;
-                        return Ok(ConsumeResult {
-                            allowed: false,
-                            remaining: 0,
-                            alert_triggered: false,
-                        });
-                    }
+        let (consumed, remaining, allowed) = match current {
+            Some((current_consumed, _db_limit, _window_start, _window_end)) => {
+                let new_consumed = current_consumed + cost as i64;
 
-                    // 更新配额
-                    sqlx::query(
-                        r#"
-                        UPDATE quota_usage
-                        SET consumed = consumed + $3,
-                            last_updated = now()
-                        WHERE user_id = $1
-                          AND resource_key = $2
-                          AND window_start = $4
-                        "#,
-                    )
-                    .bind(user_id)
-                    .bind(resource)
-                    .bind(cost as i64)
-                    .bind(window_start)
-                    .execute(tx.as_mut())
-                    .await
-                    .map_err(|e| StorageError::QueryError(format!("更新配额失败: {}", e)))?;
-
-                    (new_consumed, limit, limit - new_consumed)
+                if new_consumed > limit as i64 {
+                    // 超出配额
+                    tx.rollback().await?;
+                    return Ok(ConsumeResult {
+                        allowed: false,
+                        remaining: 0,
+                        alert_triggered: true,
+                    });
                 }
+
+                // 更新配额和限制
+                sqlx::query(
+                    r#"
+                    UPDATE quota_usage
+                    SET consumed = $3,
+                        limit_value = $4,
+                        last_updated = now()
+                    WHERE user_id = $1
+                      AND resource_key = $2
+                      AND window_end > now()
+                    "#,
+                )
+                .bind(user_id)
+                .bind(resource)
+                .bind(new_consumed)
+                .bind(limit as i64)
+                .execute(tx.as_mut())
+                .await
+                .map_err(|e| StorageError::QueryError(format!("更新配额失败: {}", e)))?;
+
+                (
+                    new_consumed as u64,
+                    (limit as i64 - new_consumed) as u64,
+                    true,
+                )
             }
             None => {
-                // 创建新配额记录
+                // 没有有效窗口，创建新窗口
+                if cost > limit {
+                    tx.rollback().await?;
+                    return Ok(ConsumeResult {
+                        allowed: false,
+                        remaining: limit,
+                        alert_triggered: true,
+                    });
+                }
+
                 let window_start = Utc::now();
-                let window_end = window_start + chrono::Duration::seconds(3600); // 默认1小时窗口
-                let limit = 1000i64; // 默认限制
+                let window_end = window_start + window_duration;
 
                 sqlx::query(
                     r#"
@@ -493,48 +494,47 @@ impl QuotaStorage for PostgresStorage {
                 .bind(user_id)
                 .bind(resource)
                 .bind(cost as i64)
-                .bind(limit)
+                .bind(limit as i64)
                 .bind(window_start)
                 .bind(window_end)
                 .execute(tx.as_mut())
                 .await
-                .map_err(|e| StorageError::QueryError(format!("创建配额记录失败: {}", e)))?;
+                .map_err(|e| StorageError::QueryError(format!("创建新配额窗口失败: {}", e)))?;
 
-                (cost as i64, limit, limit - cost as i64)
+                (cost, limit - cost, true)
             }
         };
 
-        // 提交事务
         tx.commit().await?;
 
-        // 检查是否触发告警（使用率超过80%）
-        let usage_ratio = consumed as f64 / limit as f64;
-        let alert_triggered = usage_ratio > 0.8;
-
-        if alert_triggered {
-            warn!(
-                "配额使用告警: user_id={}, resource={}, usage={:.1}%",
-                user_id,
-                resource,
-                usage_ratio * 100.0
-            );
-        }
-
         Ok(ConsumeResult {
-            allowed: true,
-            remaining: remaining.max(0) as u64,
-            alert_triggered,
+            allowed,
+            remaining,
+            alert_triggered: consumed > limit,
         })
     }
 
     /// 重置配额
-    async fn reset(&self, user_id: &str, resource: &str) -> Result<(), StorageError> {
+    async fn reset(
+        &self,
+        user_id: &str,
+        resource: &str,
+        limit: u64,
+        window: std::time::Duration,
+    ) -> Result<(), StorageError> {
         debug!("重置配额: user_id={}, resource={}", user_id, resource);
+
+        let window_start = Utc::now();
+        let window_end =
+            window_start + chrono::Duration::from_std(window).unwrap_or(chrono::Duration::hours(1));
 
         sqlx::query(
             r#"
             UPDATE quota_usage
             SET consumed = 0,
+                limit_value = $3,
+                window_start = $4,
+                window_end = $5,
                 last_updated = now()
             WHERE user_id = $1
               AND resource_key = $2
@@ -543,6 +543,9 @@ impl QuotaStorage for PostgresStorage {
         )
         .bind(user_id)
         .bind(resource)
+        .bind(limit as i64)
+        .bind(window_start)
+        .bind(window_end)
         .execute(&self.pool)
         .await
         .map_err(|e| StorageError::QueryError(format!("重置配额失败: {}", e)))?;
@@ -837,7 +840,7 @@ mod tests {
         let config = PostgresStorageConfig::new("postgresql://localhost/test");
         let storage = PostgresStorage::new(config).await.unwrap();
 
-        let result = storage.consume("user1", "resource1", 10).await.unwrap();
+        let result = storage.consume("user1", "resource1", 10, 1000, std::time::Duration::from_secs(60)).await.unwrap();
         assert!(result.allowed);
 
         let quota = storage.get_quota("user1", "resource1").await.unwrap();

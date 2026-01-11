@@ -48,13 +48,12 @@ pub const DEFAULT_CLEANUP_INTERVAL_SECS: u64 = 60;
 /// 默认LRU淘汰阈值（90%）
 pub const DEFAULT_EVICTION_THRESHOLD: f64 = 0.9;
 
+use ahash::AHashMap as HashMap;
 use dashmap::DashMap;
-use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tracing::{debug, trace};
 
@@ -101,10 +100,10 @@ impl CacheEntry {
     }
 }
 
-/// 单飞加载器
+/// 单飞加载器 - 使用 DashMap 和原子标记实现简单的单飞模式
 struct SingleFlightLoader {
-    /// 加载中的任务: key -> (tx, rx)
-    pending: DashMap<String, oneshot::Sender<Result<String, StorageError>>>,
+    /// 加载中的任务: key -> (结果, 是否完成)
+    pending: DashMap<String, Arc<parking_lot::Mutex<Option<Result<String, StorageError>>>>>,
 }
 
 impl SingleFlightLoader {
@@ -115,35 +114,54 @@ impl SingleFlightLoader {
     }
 
     /// 尝试获取已存在的加载任务，或创建新的
-    async fn get_or_load<F, Fut>(&self, key: &str, loader: F) -> Result<String, StorageError>
+    /// 返回 (result, is_new) - 如果 is_new 为 true，调用者需要执行加载
+    async fn start_or_wait<F, Fut>(&self, key: &str, loader: F) -> (Result<String, StorageError>, bool)
     where
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<String, StorageError>>,
     {
-        // 检查是否已有其他请求在加载
-        if let Some(entry) = self.pending.get(key) {
+        // 检查是否已有加载任务
+        if let Some(holder_ref) = self.pending.get(key) {
+            // 已有任务在加载，等待结果
             trace!("等待其他请求加载 key={}", key);
-            // 等待已有任务完成
-            let rx = entry.value();
-            // 注意：这里需要克隆接收端，但 oneshot::Sender 无法克隆
-            // 简化实现：直接返回错误，让调用者重新加载
-            drop(entry);
-            return Err(StorageError::TimeoutError(
-                "Another request is loading".to_string(),
-            ));
+            let start = std::time::Instant::now();
+            let timeout = Duration::from_secs(5);
+
+            loop {
+                {
+                    let guard = holder_ref.lock();
+                    if let Some(result) = guard.as_ref() {
+                        return (result.clone(), false);
+                    }
+                }
+
+                // 检查超时
+                if start.elapsed() > timeout {
+                    return (Err(StorageError::TimeoutError("Single flight wait timeout".to_string())), false);
+                }
+
+                // 短暂休眠后重试
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
         }
 
         // 创建新的加载任务
-        let (tx, rx) = oneshot::channel::<Result<String, StorageError>>();
-        self.pending.insert(key.to_string(), tx);
+        let result_holder = Arc::new(parking_lot::Mutex::new(None));
+        self.pending.insert(key.to_string(), result_holder.clone());
 
         // 执行加载
         let result = loader().await;
 
-        // 清理单飞条目
+        // 保存结果
+        *result_holder.lock() = Some(result.clone());
+
+        // 等待一小段时间，让其他请求有机会获取结果
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        // 移除条目
         self.pending.remove(key);
 
-        result
+        (result, true)
     }
 }
 
@@ -176,6 +194,21 @@ impl L2CacheConfig {
         Self::default()
     }
 
+    /// 使用指定参数创建配置（简化的构造函数）
+    pub fn with_options(
+        capacity: usize,
+        default_ttl: Option<Duration>,
+        cleanup_interval: Duration,
+        eviction_threshold: f64,
+    ) -> Self {
+        Self {
+            capacity,
+            default_ttl,
+            cleanup_interval,
+            eviction_threshold,
+        }
+    }
+
     pub fn capacity(mut self, capacity: usize) -> Self {
         self.capacity = capacity;
         self
@@ -206,7 +239,7 @@ pub struct L2Cache {
     /// 配置
     config: L2CacheConfig,
     /// 统计信息
-    __stats: Arc<CacheStats>,
+    stats: Arc<CacheStats>,
     /// 清理任务句柄
     cleanup_handle: Option<JoinHandle<()>>,
 }
@@ -284,13 +317,13 @@ impl L2Cache {
             ))),
             single_flight,
             config,
-            __stats: stats,
+            stats,
             cleanup_handle: Some(cleanup_handle),
         }
     }
 
     /// 启动清理任务
-    fn start_cleanup_task(__stats: Arc<CacheStats>, interval: Duration) -> JoinHandle<()> {
+    fn start_cleanup_task(_stats: Arc<CacheStats>, interval: Duration) -> JoinHandle<()> {
         tokio::spawn(async move {
             let mut cleanup_interval = tokio::time::interval(interval);
             loop {
@@ -308,16 +341,16 @@ impl L2Cache {
             // 检查是否过期
             if entry.is_expired() {
                 cache.pop(key);
-                self.__stats.expirations.fetch_add(1, Ordering::Relaxed);
+                self.stats.expirations.fetch_add(1, Ordering::Relaxed);
                 return None;
             }
 
             // 更新访问信息
             entry.update_access();
-            self.__stats.hits.fetch_add(1, Ordering::Relaxed);
+            self.stats.hits.fetch_add(1, Ordering::Relaxed);
             Some(entry.value.clone())
         } else {
-            self.__stats.misses.fetch_add(1, Ordering::Relaxed);
+            self.stats.misses.fetch_add(1, Ordering::Relaxed);
             None
         }
     }
@@ -334,12 +367,12 @@ impl L2Cache {
             // 放置新键会自动淘汰LRU，所以不需要手动evict
             // 但为了统计信息，我们记录一次eviction
             if cache.len() >= self.config.capacity {
-                self.__stats.evictions.fetch_add(1, Ordering::Relaxed);
+                self.stats.evictions.fetch_add(1, Ordering::Relaxed);
             }
         }
 
         cache.put(key.to_string(), entry);
-        self.__stats.writes.fetch_add(1, Ordering::Relaxed);
+        self.stats.writes.fetch_add(1, Ordering::Relaxed);
     }
 
     /// 删除值
@@ -391,12 +424,21 @@ impl L2Cache {
         }
 
         // 单飞模式加载
-        let value = self.single_flight.get_or_load(key, loader).await?;
+        let (result, is_new) = self.single_flight.start_or_wait(key, loader).await;
 
-        // 缓存加载的值
-        self.set(key, &value, self.config.default_ttl).await;
+        // 如果是我们创建的加载任务，将结果缓存
+        if is_new {
+            match &result {
+                Ok(value) => {
+                    self.set(key, value, self.config.default_ttl).await;
+                }
+                Err(_) => {
+                    // 加载失败，不缓存
+                }
+            }
+        }
 
-        Ok(value)
+        result
     }
 
     /// 批量获取
@@ -440,7 +482,7 @@ impl L2Cache {
         // 移除过期的键
         for key in expired_keys {
             cache.pop(&key);
-            self.__stats.expirations.fetch_add(1, Ordering::Relaxed);
+            self.stats.expirations.fetch_add(1, Ordering::Relaxed);
         }
 
         if count > 0 {
@@ -451,18 +493,19 @@ impl L2Cache {
     }
 
     /// LRU淘汰
+    #[allow(dead_code)]
     fn evict_lru(&self) {
         // 使用 LruCache 的 pop_lru() 方法，这是 O(1) 的
         let mut cache = self.data.lock();
         if cache.pop_lru().is_some() {
-            self.__stats.evictions.fetch_add(1, Ordering::Relaxed);
+            self.stats.evictions.fetch_add(1, Ordering::Relaxed);
             debug!("LRU淘汰成功");
         }
     }
 
     /// 获取统计信息
     pub fn stats(&self) -> &CacheStats {
-        &self.__stats
+        &self.stats
     }
 
     /// 获取配置

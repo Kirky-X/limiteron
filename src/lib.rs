@@ -39,84 +39,85 @@
 //! - `telemetry`: 监控和追踪
 
 pub mod audit_log;
+#[cfg(feature = "ban-manager")]
 pub mod ban_manager;
+#[cfg(feature = "circuit-breaker")]
 pub mod circuit_breaker;
 pub mod code_review;
 pub mod config;
+#[cfg(feature = "config-watcher")]
 pub mod config_watcher;
 pub mod custom_limiter;
 pub mod custom_matcher;
 pub mod decision_chain;
+#[cfg(feature = "device-matching")]
 pub mod device_matcher;
 pub mod error;
 pub mod factory;
 pub mod fallback;
+#[cfg(feature = "geo-matching")]
 pub mod geo_matcher;
 pub mod governor;
 pub mod l2_cache;
+#[cfg(feature = "redis")]
 pub mod l3_cache;
 pub mod limiter_manager;
 pub mod limiters;
+#[cfg(feature = "redis")]
 pub mod lua_scripts;
+#[cfg(feature = "macros")]
 pub mod macros;
 pub mod matchers;
 pub mod parallel_ban_checker;
+#[cfg(feature = "postgres")]
 pub mod postgres_storage;
+#[cfg(feature = "quota-control")]
 pub mod quota_controller;
+#[cfg(feature = "redis")]
 pub mod redis_storage;
 pub mod storage;
+#[cfg(any(feature = "telemetry", feature = "monitoring"))]
 pub mod telemetry;
 
 // 重新导出常用类型
-pub use audit_log::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
-pub use ban_manager::{
-    BackoffConfig, BanDetail, BanFilter, BanManager, BanManagerConfig, BanPriority, BanSource,
-};
-pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
-pub use code_review::{
-    CodeReviewConfig, CodeReviewIssue, CodeReviewManager, CodeReviewReport, CodeReviewStats,
-    IssueCategory, ReviewConclusion, ReviewStatus, ReviewSummary, Severity,
-};
-pub use config::{
-    ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig,
-    LimiterConfig, Matcher as ConfigMatcher, Rule as ConfigRule,
-};
-pub use config_watcher::{ConfigChangeCallback, ConfigWatcher, PostgresConfigStorage, WatchMode};
-pub use custom_limiter::{
-    CustomLimiter, CustomLimiterRegistry, LeakyBucketLimiter, LimiterStats, TokenBucketLimiter,
-};
-pub use custom_matcher::{CustomMatcher, CustomMatcherRegistry, HeaderMatcher, TimeWindowMatcher};
-pub use decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
-pub use device_matcher::{
-    DeviceCacheStats, DeviceCondition, DeviceInfo, DeviceMatcher, DeviceType,
-};
-pub use error::{
-    BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, FlowGuardError,
-    StorageError,
-};
+#[cfg(feature = "audit-log")]
+pub use audit_log::{*};
+#[cfg(feature = "ban-manager")]
+pub use ban_manager::{*};
+#[cfg(feature = "circuit-breaker")]
+pub use circuit_breaker::{*};
+pub use code_review::{*};
+pub use config::{*};
+#[cfg(feature = "config-watcher")]
+pub use config_watcher::{*};
+pub use custom_limiter::{*};
+pub use custom_matcher::{*};
+pub use decision_chain::{*};
+#[cfg(feature = "device-matching")]
+pub use device_matcher::{*};
+pub use error::{*};
 pub use factory::LimiterFactory;
-pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
-pub use geo_matcher::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
-pub use governor::{Governor, GovernorStats};
-pub use l2_cache::{CacheEntry, CacheStats, L2Cache, L2CacheConfig};
-pub use l3_cache::{L3Cache, L3CacheConfig, L3CacheStats};
+pub use fallback::{*};
+#[cfg(feature = "geo-matching")]
+pub use geo_matcher::{*};
+pub use governor::{*};
+pub use l2_cache::{*};
+#[cfg(feature = "redis")]
+pub use l3_cache::{*};
 pub use limiter_manager::GLOBAL_LIMITER_MANAGER;
-pub use lua_scripts::{LuaScriptInfo, LuaScriptManager, LuaScriptType};
-pub use macros::{
-    flow_control, parse_quota_limit, parse_rate_limit, FlowControlConfig as MacroFlowControlConfig,
-    QuotaLimit, RateLimit,
-};
-pub use matchers::{
-    ApiKeyExtractor, CompositeCondition, CompositeExtractor, ConditionEvaluator, CustomExtractor,
-    DeviceIdExtractor, Identifier, IdentifierExtractor, IpExtractor, IpRange, LogicalOperator,
-    MacExtractor, MatchCondition, MatcherStats, RequestContext, Rule, RuleMatcher, UserIdExtractor,
-};
-pub use postgres_storage::{PostgresStorage, PostgresStorageConfig};
-pub use quota_controller::{
-    AlertChannel, AlertConfig, AlertInfo, QuotaConfig, QuotaController, QuotaState, QuotaType,
-};
-pub use redis_storage::{RedisConfig, RedisStorage, RetryStats};
-pub use storage::{BanConfig, BanRecord, BanScope, BanStorage, BanTarget, QuotaStorage, Storage};
-pub use telemetry::{
-    init_telemetry, set_global_metrics, try_global, Metrics, TelemetryConfig, Tracer,
-};
+#[cfg(feature = "redis")]
+pub use lua_scripts::{*};
+#[cfg(feature = "macros")]
+pub use macros::{*};
+pub use matchers::{*};
+#[cfg(feature = "postgres")]
+pub use postgres_storage::{*};
+#[cfg(feature = "quota-control")]
+pub use quota_controller::{*};
+#[cfg(feature = "redis")]
+pub use redis_storage::{*};
+pub use storage::{*};
+#[cfg(feature = "telemetry")]
+pub use telemetry::{init_telemetry, TelemetryConfig, Tracer};
+#[cfg(feature = "monitoring")]
+pub use telemetry::{set_global_metrics, try_global, Metrics};

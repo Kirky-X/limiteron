@@ -9,7 +9,9 @@
 //! - **Lua脚本**: 预加载脚本，原子性操作
 //! - **集群支持**: 支持Redis Cluster
 //! - **降级机制**: Redis故障时自动降级
+//!
 
+#[cfg(feature = "redis")]
 use async_trait::async_trait;
 use redis::{aio::ConnectionManager, AsyncCommands, Client};
 use secrecy::{ExposeSecret, Secret};
@@ -108,6 +110,7 @@ fn validate_key(key: &str) -> Result<(), StorageError> {
 }
 
 /// Redis配置
+#[cfg(feature = "redis")]
 #[derive(Clone)]
 pub struct RedisConfig {
     /// Redis连接URL
@@ -237,6 +240,7 @@ impl RedisConfig {
 }
 
 /// 重试统计
+#[cfg(feature = "redis")]
 #[derive(Debug, Default, Clone)]
 pub struct RetryStats {
     /// 总重试次数
@@ -294,6 +298,7 @@ impl RetryStats {
 }
 
 /// Redis存储实现
+#[cfg(feature = "redis")]
 #[derive(Clone)]
 pub struct RedisStorage {
     /// 连接管理器
@@ -877,6 +882,8 @@ impl QuotaStorage for RedisStorage {
         user_id: &str,
         resource: &str,
         cost: u64,
+        limit: u64,
+        window: std::time::Duration,
     ) -> Result<ConsumeResult, StorageError> {
         let lua_manager = self
             .lua_manager
@@ -885,12 +892,12 @@ impl QuotaStorage for RedisStorage {
 
         let key = Self::quota_key(user_id, resource);
 
-        // 默认配额限制为1000
-        let limit = 1000;
-        let overdraft_limit = 100;
+        let overdraft_limit = 0u64;
         let now = chrono::Utc::now();
         let window_start = now.timestamp_millis();
-        let window_end = window_start + 86400000; // 24小时
+        let window_end = window_start
+            + i64::try_from(window.as_millis())
+                .map_err(|_| StorageError::QueryError("window duration overflow".to_string()))?;
 
         // 使用优化的字段名
         let consumed_field = Self::quota_field(resource, "consumed");
@@ -948,21 +955,14 @@ impl QuotaStorage for RedisStorage {
         })
     }
 
-    async fn reset(&self, user_id: &str, resource: &str) -> Result<(), StorageError> {
-        let lua_manager = self
-            .lua_manager
-            .as_ref()
-            .ok_or_else(|| StorageError::QueryError("Lua脚本未启用".to_string()))?;
-
+    async fn reset(
+        &self,
+        user_id: &str,
+        resource: &str,
+        _limit: u64,
+        _window: std::time::Duration,
+    ) -> Result<(), StorageError> {
         let key = Self::quota_key(user_id, resource);
-        let now = chrono::Utc::now();
-        let window_start = now.timestamp_millis();
-        let window_end = window_start + 86400000; // 24小时
-
-        // 使用优化的字段名
-        let consumed_field = Self::quota_field(resource, "consumed");
-        let window_start_field = Self::quota_field(resource, "window_start");
-        let window_end_field = Self::quota_field(resource, "window_end");
 
         self.execute_with_retry(|| async {
             let conn_manager = self.conn_manager.lock().await;
@@ -971,20 +971,10 @@ impl QuotaStorage for RedisStorage {
                 .ok_or_else(|| StorageError::ConnectionError("连接未初始化".to_string()))?;
 
             let mut conn = conn_manager.clone();
-            lua_manager
-                .execute_script::<_, ()>(
-                    &mut conn,
-                    LuaScriptType::QuotaReset,
-                    &[&key],
-                    &[
-                        &window_start.to_string(),
-                        &window_end.to_string(),
-                        &consumed_field,
-                        &window_start_field,
-                        &window_end_field,
-                    ],
-                )
-                .await?;
+            let _: () = conn.del(&key).await.map_err(|e| {
+                error!("Redis DEL失败: {}", e);
+                StorageError::QueryError(format!("DEL失败: {}", e))
+            })?;
 
             debug!("配额已重置: user_id={}, resource={}", user_id, resource);
             Ok(())
@@ -1113,7 +1103,7 @@ impl BanStorage for RedisStorage {
                 })?;
 
             // 设置过期时间
-            let ttl = (record.expires_at - chrono::Utc::now()).num_seconds() as i64;
+            let ttl = (record.expires_at - chrono::Utc::now()).num_seconds();
             if ttl > 0 {
                 let _: () = conn.expire(&key, ttl).await.map_err(|e| {
                     error!("Redis EXPIRE失败: {}", e);

@@ -44,7 +44,7 @@ use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 
 // ============================================================================
 // 地理信息结构

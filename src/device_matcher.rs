@@ -42,7 +42,6 @@ use crate::error::FlowGuardError;
 use dashmap::DashMap;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, info, instrument, warn};
 use woothee::parser::Parser;
@@ -623,7 +622,7 @@ impl DeviceMatcher {
         for rule in &self.custom_rules {
             if let Ok(re) = regex::Regex::new(&rule.pattern) {
                 if re.is_match(user_agent) {
-                    let mut info = DeviceInfo {
+                    let info = DeviceInfo {
                         device_type: rule.device_type,
                         browser: rule.browser.clone(),
                         browser_version: None,

@@ -5,7 +5,6 @@
 use crate::config::{ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig};
 use crate::error::{FlowGuardError, StorageError};
 use crate::storage::Storage;
-use chrono::Utc;
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 use serde::Deserialize;
 use sqlx::Row;
@@ -437,7 +436,40 @@ pub struct PostgresConfigStorage {
 }
 
 impl PostgresConfigStorage {
+    /// 验证表名和列名是否安全（白名单验证）
+    fn validate_identifier(identifier: &str, field_name: &str) -> Result<(), FlowGuardError> {
+        if identifier.is_empty() {
+            return Err(FlowGuardError::ConfigError(format!(
+                "{}不能为空",
+                field_name
+            )));
+        }
+
+        // 只允许字母、数字、下划线
+        if !identifier.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            return Err(FlowGuardError::ConfigError(format!(
+                "{}包含非法字符，只能包含字母、数字和下划线: {}",
+                field_name, identifier
+            )));
+        }
+
+        // 限制长度防止缓冲区溢出
+        if identifier.len() > 64 {
+            return Err(FlowGuardError::ConfigError(format!(
+                "{}长度超过限制，最大64字符: {}",
+                field_name, identifier
+            )));
+        }
+
+        Ok(())
+    }
+
     pub async fn load_config(&self, key: &str) -> Result<FlowControlConfig, FlowGuardError> {
+        // 验证表名和列名，防止 SQL 注入
+        Self::validate_identifier(&self.table_name, "表名")?;
+        Self::validate_identifier(&self.key_column, "键列名")?;
+        Self::validate_identifier(&self.value_column, "值列名")?;
+
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect(&self.connection_string)
             .await
@@ -445,6 +477,7 @@ impl PostgresConfigStorage {
                 FlowGuardError::StorageError(StorageError::ConnectionError(e.to_string()))
             })?;
 
+        // 使用白名单验证后的列名，直接插值是安全的
         let row = sqlx::query(&format!(
             "SELECT {} FROM {} WHERE {} = $1",
             self.value_column, self.table_name, self.key_column
@@ -472,6 +505,7 @@ mod tests {
     use super::*;
     use crate::config::{GlobalConfig, Matcher, Rule};
     use crate::storage::MemoryStorage;
+    use chrono::Utc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex;
     use tempfile::NamedTempFile;

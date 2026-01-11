@@ -79,7 +79,7 @@ async fn setup_multi_rule_governor() -> Governor {
     };
 
     let storage = Arc::new(MemoryStorage::new());
-    let ban_storage = Arc::new(limiteron::storage::MemoryBanStorage::new());
+    let ban_storage = Arc::new(limiteron::storage::MemoryStorage::new());
 
     Governor::new(config, storage, ban_storage, None, None)
         .await
@@ -258,7 +258,7 @@ async fn test_e2e_rule_disabled() {
     };
 
     let storage = Arc::new(MemoryStorage::new());
-    let ban_storage = Arc::new(limiteron::storage::MemoryBanStorage::new());
+    let ban_storage = Arc::new(limiteron::storage::MemoryStorage::new());
 
     let gov = Governor::new(config, storage, ban_storage, None, None)
         .await
@@ -331,7 +331,7 @@ async fn test_e2e_composite_matcher() {
     };
 
     let storage = Arc::new(MemoryStorage::new());
-    let ban_storage = Arc::new(limiteron::storage::MemoryBanStorage::new());
+    let ban_storage = Arc::new(limiteron::storage::MemoryStorage::new());
 
     let gov = Governor::new(config, storage, ban_storage, None, None)
         .await
@@ -381,7 +381,7 @@ async fn test_e2e_rule_hot_reload() {
     };
 
     let storage = Arc::new(MemoryStorage::new());
-    let ban_storage = Arc::new(limiteron::storage::MemoryBanStorage::new());
+    let ban_storage = Arc::new(limiteron::storage::MemoryStorage::new());
 
     let gov = Governor::new(config.clone(), storage, ban_storage, None, None)
         .await

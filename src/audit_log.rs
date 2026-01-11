@@ -9,15 +9,13 @@
 //! - **批量写入**: 优化性能
 //! - **多种事件类型**: 决策、配置变更、封禁操作、系统事件
 
-use crate::error::FlowGuardError;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{self, Sender};
-use tokio::sync::RwLock;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{error, info, trace};
 
 /// 审计事件类型
 #[derive(Debug, Clone, Serialize)]

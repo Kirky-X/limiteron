@@ -139,11 +139,13 @@ impl FlowControlConfig {
 
 /// 速率限制配置
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct RateLimit {
     amount: u64,
     unit: String,
 }
 
+#[allow(dead_code)]
 impl RateLimit {
     fn from_str(s: &str) -> Result<Self, String> {
         let parts: Vec<&str> = s.split('/').collect();

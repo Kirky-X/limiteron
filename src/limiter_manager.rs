@@ -26,7 +26,12 @@ impl LimiterManager {
     }
 
     /// 获取或创建速率限制器
-    pub fn get_rate_limiter(&self, key: &str, capacity: u64, refill_rate: u64) -> Arc<TokenBucketLimiter> {
+    pub fn get_rate_limiter(
+        &self,
+        key: &str,
+        capacity: u64,
+        refill_rate: u64,
+    ) -> Arc<TokenBucketLimiter> {
         let mut limiters = self.rate_limiters.lock();
         if let Some(limiter) = limiters.get(key) {
             return limiter.clone();
@@ -37,7 +42,12 @@ impl LimiterManager {
     }
 
     /// 获取或创建配额限制器
-    pub fn get_quota_limiter(&self, key: &str, duration: Duration, max_requests: u64) -> Arc<FixedWindowLimiter> {
+    pub fn get_quota_limiter(
+        &self,
+        key: &str,
+        duration: Duration,
+        max_requests: u64,
+    ) -> Arc<FixedWindowLimiter> {
         let mut limiters = self.quota_limiters.lock();
         if let Some(limiter) = limiters.get(key) {
             return limiter.clone();
@@ -48,13 +58,20 @@ impl LimiterManager {
     }
 
     /// 获取或创建并发限制器
-    pub fn get_concurrency_limiter(&self, key: &str, max_concurrent: u64) -> Arc<ConcurrencyLimiter> {
+    pub fn get_concurrency_limiter(
+        &self,
+        key: &str,
+        max_concurrent: u64,
+    ) -> Arc<ConcurrencyLimiter> {
         let mut limiters = self.concurrency_limiters.lock();
         if let Some(limiter) = limiters.get(key) {
             return limiter.clone();
         }
         // 使用带超时的并发限制器，超时时间 50ms
-        let limiter = Arc::new(ConcurrencyLimiter::with_timeout(max_concurrent, Duration::from_millis(50)));
+        let limiter = Arc::new(ConcurrencyLimiter::with_timeout(
+            max_concurrent,
+            Duration::from_millis(50),
+        ));
         limiters.insert(key.to_string(), limiter.clone());
         limiter
     }

@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, info, trace, warn};
+use tracing::{info, trace, warn};
 
 /// 熔断器配置
 #[derive(Debug, Clone)]

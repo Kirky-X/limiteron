@@ -41,6 +41,7 @@
 pub mod audit_log;
 pub mod ban_manager;
 pub mod circuit_breaker;
+pub mod code_review;
 pub mod config;
 pub mod config_watcher;
 pub mod custom_limiter;
@@ -48,6 +49,7 @@ pub mod custom_matcher;
 pub mod decision_chain;
 pub mod device_matcher;
 pub mod error;
+pub mod factory;
 pub mod fallback;
 pub mod geo_matcher;
 pub mod governor;
@@ -58,6 +60,7 @@ pub mod limiters;
 pub mod lua_scripts;
 pub mod macros;
 pub mod matchers;
+pub mod parallel_ban_checker;
 pub mod postgres_storage;
 pub mod quota_controller;
 pub mod redis_storage;
@@ -70,6 +73,10 @@ pub use ban_manager::{
     BackoffConfig, BanDetail, BanFilter, BanManager, BanManagerConfig, BanPriority, BanSource,
 };
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+pub use code_review::{
+    CodeReviewConfig, CodeReviewIssue, CodeReviewManager, CodeReviewReport, CodeReviewStats,
+    IssueCategory, ReviewConclusion, ReviewStatus, ReviewSummary, Severity,
+};
 pub use config::{
     ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig,
     LimiterConfig, Matcher as ConfigMatcher, Rule as ConfigRule,
@@ -87,6 +94,7 @@ pub use error::{
     BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, FlowGuardError,
     StorageError,
 };
+pub use factory::LimiterFactory;
 pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
 pub use geo_matcher::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
 pub use governor::{Governor, GovernorStats};

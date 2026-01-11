@@ -28,11 +28,7 @@
 //! }
 //! ```
 
-use opentelemetry::global;
-use opentelemetry_sdk::trace::Config;
-use opentelemetry_sdk::Resource;
 use prometheus::{Counter, Encoder, Gauge, Histogram, Registry, TextEncoder};
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};

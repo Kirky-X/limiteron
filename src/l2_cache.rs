@@ -49,7 +49,6 @@ pub const DEFAULT_CLEANUP_INTERVAL_SECS: u64 = 60;
 pub const DEFAULT_EVICTION_THRESHOLD: f64 = 0.9;
 
 use dashmap::DashMap;
-use lru::LruCache;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};

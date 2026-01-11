@@ -692,38 +692,37 @@ impl HeaderMatcher {
     /// # 返回
     /// - 新的 HeaderMatcher 实例
     ///
-    /// # Panics
+    /// # 错误
     /// - 如果 header_name 或 allowed_values 验证失败
     ///
     /// # 示例
     /// ```rust
     /// use limiteron::custom_matcher::HeaderMatcher;
     ///
-    /// let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]);
+    /// let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]).unwrap();
     /// ```
-    pub fn new(header_name: &str, allowed_values: Vec<String>) -> Self {
+    pub fn new(header_name: &str, allowed_values: Vec<String>) -> Result<Self, FlowGuardError> {
         // 验证 HTTP 头名称
-        if let Err(e) = validate_header_name(header_name) {
-            panic!("无效的 HTTP 头名称: {}", e);
-        }
+        validate_header_name(header_name)?;
 
         // 验证允许的值数量
         if allowed_values.len() > MAX_ALLOWED_VALUES_COUNT {
-            panic!("允许的值数量超过限制（最大 {}）", MAX_ALLOWED_VALUES_COUNT);
+            return Err(FlowGuardError::ValidationError(format!(
+                "允许的值数量超过限制（最大 {}）",
+                MAX_ALLOWED_VALUES_COUNT
+            )));
         }
 
         // 验证每个值
         for value in &allowed_values {
-            if let Err(e) = validate_header_value(value) {
-                panic!("无效的 HTTP 头值: {}", e);
-            }
+            validate_header_value(value)?;
         }
 
-        Self {
+        Ok(Self {
             header_name: header_name.to_lowercase(),
             allowed_values,
             case_sensitive: false,
-        }
+        })
     }
 
     /// 设置是否区分大小写
@@ -900,7 +899,7 @@ mod tests {
         registry
             .register(
                 "matcher2".to_string(),
-                Box::new(HeaderMatcher::new("X-API-Key", vec!["secret".to_string()])),
+                Box::new(HeaderMatcher::new("X-API-Key", vec!["secret".to_string()]).unwrap()),
             )
             .await
             .unwrap();
@@ -1011,7 +1010,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_header_matcher_new() {
-        let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]);
+        let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]).unwrap();
         assert_eq!(matcher.name(), "header");
         assert_eq!(matcher.header_name(), "x-api-key");
         assert_eq!(matcher.allowed_values().len(), 1);
@@ -1019,7 +1018,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_header_matcher_matches() {
-        let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]);
+        let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]).unwrap();
         let context = RequestContext::new().with_header("X-API-Key", "secret123");
 
         let result = matcher.matches(&context).await.unwrap();
@@ -1028,7 +1027,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_header_matcher_not_matches() {
-        let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]);
+        let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]).unwrap();
         let context = RequestContext::new().with_header("X-API-Key", "wrong");
 
         let result = matcher.matches(&context).await.unwrap();
@@ -1037,7 +1036,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_header_matcher_missing_header() {
-        let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]);
+        let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]).unwrap();
         let context = RequestContext::new();
 
         let result = matcher.matches(&context).await.unwrap();
@@ -1046,7 +1045,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_header_matcher_case_insensitive() {
-        let matcher = HeaderMatcher::new("X-API-Key", vec!["SECRET123".to_string()]);
+        let matcher = HeaderMatcher::new("X-API-Key", vec!["SECRET123".to_string()]).unwrap();
         let context = RequestContext::new().with_header("X-API-Key", "secret123");
 
         let result = matcher.matches(&context).await.unwrap();
@@ -1054,8 +1053,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_header_matcher_case_sensitive() {
+    async fn test_header_header_matcher_case_sensitive() {
         let matcher = HeaderMatcher::new("X-API-Key", vec!["SECRET123".to_string()])
+            .unwrap()
             .with_case_sensitive(true);
         let context = RequestContext::new().with_header("X-API-Key", "secret123");
 
@@ -1068,7 +1068,8 @@ mod tests {
         let matcher = HeaderMatcher::new(
             "X-API-Key",
             vec!["secret123".to_string(), "secret456".to_string()],
-        );
+        )
+        .unwrap();
         let context1 = RequestContext::new().with_header("X-API-Key", "secret123");
         let context2 = RequestContext::new().with_header("X-API-Key", "secret456");
 
@@ -1078,7 +1079,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_header_matcher_load_config() {
-        let mut matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]);
+        let mut matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]).unwrap();
         let config = serde_json::json!({
             "header_name": "Authorization",
             "allowed_values": ["Bearer token123"],

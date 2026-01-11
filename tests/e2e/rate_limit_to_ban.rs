@@ -66,7 +66,7 @@ async fn setup_governor() -> Governor {
     };
 
     let storage = Arc::new(MemoryStorage::new());
-    let ban_storage = Arc::new(limiteron::storage::MemoryBanStorage::new());
+    let ban_storage = Arc::new(limiteron::storage::MemoryStorage::new());
 
     Governor::new(config, storage, ban_storage, None, None)
         .await

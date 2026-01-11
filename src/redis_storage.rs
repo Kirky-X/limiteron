@@ -321,7 +321,7 @@ impl RedisStorage {
             None
         };
 
-        let mut storage = Self {
+        let storage = Self {
             conn_manager: Arc::new(Mutex::new(None)),
             config,
             lua_manager,
@@ -972,7 +972,7 @@ impl QuotaStorage for RedisStorage {
 
             let mut conn = conn_manager.clone();
             lua_manager
-                .execute_script(
+                .execute_script::<_, ()>(
                     &mut conn,
                     LuaScriptType::QuotaReset,
                     &[&key],

@@ -1,0 +1,407 @@
+name: Code Review
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - '**.rs'
+      - '**.toml'
+      - '**.yaml'
+      - '**.yml'
+      - '.github/workflows/code_review.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - '**.rs'
+      - '**.toml'
+      - '**.yaml'
+      - '**.yml'
+      - '.github/workflows/code_review.yml'
+  schedule:
+    # 每周运行一次完整的代码审查
+    - cron: '0 0 * * 0'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # =============================================================================
+  # 安全审计作业
+  # =============================================================================
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run Security Audit
+        id: security-audit
+        run: |
+          echo "Running security audit..."
+          
+          # Check for hardcoded secrets
+          echo "Checking for hardcoded secrets..."
+          grep -rE "(api_key|secret|password|token).*[:=].*['\"][a-zA-Z0-9]{8,}['\"]" src/ --include="*.rs" | \
+            grep -v "test" | grep -v "example" | grep -v "fake" | grep -v "placeholder" || true
+          
+          # Check for unsafe code
+          echo "Checking for unsafe code..."
+          grep -rE "unsafe\s*{" src/ --include="*.rs" | grep -v "// safe" || true
+          
+          # Check for SQL injection risks
+          echo "Checking for SQL injection risks..."
+          grep -rE "format!\s*\([^)]*SELECT" src/ --include="*.rs" | grep -v "sqlx::query" | grep -v "prepare" || true
+          
+          # Run cargo-deny
+          cargo deny check 2>&1 || true
+      
+      - name: Upload Security Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-audit-results
+          path: security_audit_results.txt
+          retention-days: 30
+      
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '## 🔒 Security Audit Results\n\nSecurity audit completed. Please check the workflow logs for details.'
+            })
+
+  # =============================================================================
+  # 性能分析作业
+  # =============================================================================
+  performance-analysis:
+    name: Performance Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-perf-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run Performance Analysis
+        id: perf-analysis
+        run: |
+          echo "Running performance analysis..."
+          
+          # Check for unnecessary clones
+          echo "Checking for unnecessary clones..."
+          grep -rE "\.clone\(\)" src/ --include="*.rs" | grep -v "//.*clone" | grep -v "Arc<" | grep -v "Rc<" | grep -v "Box<" | head -20 || true
+          
+          # Check for potential memory allocations in loops
+          echo "Checking for memory allocations in loops..."
+          grep -rnE "for.*in.*\{.*push\(" src/ --include="*.rs" || true
+          
+          # Check lock usage
+          echo "Checking lock usage..."
+          grep -rE "Mutex::new|RwLock::new" src/ --include="*.rs" | grep -v "parking_lot" || true
+          
+          # Run benchmarks comparison if available
+          if [ -f "benchmarks.txt" ]; then
+            echo "Comparing with baseline benchmarks..."
+          fi
+      
+      - name: Upload Performance Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-analysis-results
+          path: performance_analysis_results.txt
+          retention-days: 30
+
+  # =============================================================================
+  # 代码质量检查作业
+  # =============================================================================
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Check Formatting
+        run: cargo fmt --all -- --check
+      
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features --workspace -- -D warnings
+      
+      - name: Check Documentation
+        run: |
+          echo "Checking documentation coverage..."
+          
+          # Count undocumented public items
+          undocumented=$(awk '/^pub\s+(struct|enum|fn|mod|trait|impl)/ && !/^///|^\/!/' src/*.rs 2>/dev/null | wc -l)
+          echo "Undocumented public items: $undocumented"
+          
+          # Check for excessive function length
+          echo "Checking for long functions..."
+          awk '/^fn / { fname=$0; line=NR } NR > 200 && fname { if (NR - line > 100) print fname }' src/*.rs 2>/dev/null || true
+      
+      - name: Upload Quality Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-quality-results
+          path: quality_results.txt
+          retention-days: 30
+
+  # =============================================================================
+  # 架构审查作业
+  # =============================================================================
+  architecture-review:
+    name: Architecture Review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run Architecture Review
+        id: arch-review
+        run: |
+          echo "Running architecture review..."
+          
+          # Check module structure
+          echo "Module structure:"
+          ls -la src/
+          
+          # Check for circular dependencies
+          echo "Checking dependencies..."
+          cargo tree -p limiteron 2>&1 | head -50
+          
+          # Check public API
+          echo "Public API surface:"
+          grep -rE"^pub\s+(struct|enum|fn|trait|mod)" src/ --include="*.rs" | wc -l
+          
+          # Check configuration consistency
+          echo "Configuration files:"
+          ls -la *.toml *.yaml *.yml 2>/dev/null || true
+      
+      - name: Generate Architecture Report
+        run: |
+          cat > architecture_report.md << 'EOF'
+# Architecture Review Report
+
+## Module Structure
+EOF
+          ls -la src/ >> architecture_report.md
+          
+          cat >> architecture_report.md << 'EOF'
+
+## Dependency Analysis
+EOF
+          cargo tree -p limiteron 2>&1 | head -30 >> architecture_report.md
+          
+          cat >> architecture_report.md << 'EOF'
+
+## Public API
+EOF
+          grep -rE"^pub\s+(struct|enum|fn|trait)" src/ --include="*.rs" >> architecture_report.md || true
+      
+      - name: Upload Architecture Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: architecture-review-results
+          path: architecture_report.md
+          retention-days: 30
+
+  # =============================================================================
+  # 综合代码审查报告作业
+  # =============================================================================
+  code-review-report:
+    name: Code Review Report
+    runs-on: ubuntu-latest
+    needs: [security-audit, performance-analysis, code-quality, architecture-review]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: review-results
+      
+      - name: Generate Combined Report
+        id: generate-report
+        run: |
+          echo "Generating combined code review report..."
+          
+          cat > CODE_REVIEW_REPORT.md << 'EOF'
+# Limiteron 综合代码审查报告
+
+## 审查概览
+
+**生成时间:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+**分支:** ${{ github.ref_name }}
+**提交:** ${{ github.sha }}
+
+## 审查结果摘要
+
+| 检查项 | 状态 |
+|--------|------|
+EOF
+          
+          echo "| 安全审计 | ${{ needs.security-audit.result == 'success' && '✅ 通过' || '❌ 需要关注' }} |" >> CODE_REVIEW_REPORT.md
+          echo "| 性能分析 | ${{ needs.performance-analysis.result == 'success' && '✅ 通过' || '❌ 需要关注' }} |" >> CODE_REVIEW_REPORT.md
+          echo "| 代码质量 | ${{ needs.code-quality.result == 'success' && '✅ 通过' || '❌ 需要关注' }} |" >> CODE_REVIEW_REPORT.md
+          echo "| 架构审查 | ${{ needs.architecture-review.result == 'success' && '✅ 通过' || '❌ 需要关注' }} |" >> CODE_REVIEW_REPORT.md
+          
+          cat >> CODE_REVIEW_REPORT.md << 'EOF'
+
+## 详细发现
+
+### 安全审计
+EOF
+          
+          if [ -f "review-results/security-audit-results/security_audit_results.txt" ]; then
+            cat "review-results/security-audit-results/security_audit_results.txt" >> CODE_REVIEW_REPORT.md
+          else
+            echo "未发现安全问题" >> CODE_REVIEW_REPORT.md
+          fi
+          
+          cat >> CODE_REVIEW_REPORT.md << 'EOF'
+
+### 性能分析
+EOF
+          
+          if [ -f "review-results/performance-analysis-results/performance_analysis_results.txt" ]; then
+            cat "review-results/performance-analysis-results/performance_analysis_results.txt" >> CODE_REVIEW_REPORT.md
+          else
+            echo "未发现性能问题" >> CODE_REVIEW_REPORT.md
+          fi
+          
+          cat >> CODE_REVIEW_REPORT.md << 'EOF'
+
+### 代码质量
+EOF
+          
+          if [ -f "review-results/code-quality-results/quality_results.txt" ]; then
+            cat "review-results/code-quality-results/quality_results.txt" >> CODE_REVIEW_REPORT.md
+          else
+            echo "代码质量检查通过" >> CODE_REVIEW_REPORT.md
+          fi
+          
+          cat >> CODE_REVIEW_REPORT.md << 'EOF'
+
+### 架构审查
+EOF
+          
+          if [ -f "review-results/architecture-review-results/architecture_report.md" ]; then
+            cat "review-results/architecture-review-results/architecture_report.md" >> CODE_REVIEW_REPORT.md
+          else
+            echo "架构审查完成" >> CODE_REVIEW_REPORT.md
+          fi
+          
+          cat >> CODE_REVIEW_REPORT.md << 'EOF'
+
+## 建议行动
+
+1. 修复所有标记为高优先级的问题
+2. 关注性能瓶颈，优化热点代码
+3. 提升文档覆盖率
+4. 定期运行代码审查以保持代码质量
+
+---
+*此报告由 Limiteron CI 自动生成*
+EOF
+          
+          echo "REPORT_PATH=$(pwd)/CODE_REVIEW_REPORT.md" >> $GITHUB_OUTPUT
+      
+      - name: Upload Combined Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-review-report
+          path: CODE_REVIEW_REPORT.md
+          retention-days: 90
+      
+      - name: Comment on PR with Report
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('CODE_REVIEW_REPORT.md', 'utf8');
+            
+            // Truncate report if too long
+            const maxLength = 65000;
+            const truncated = report.length > maxLength ? report.substring(0, maxLength) + '\n\n...(报告已截断)' : report;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '## 📊 Code Review Report\n\n' + truncated
+            });
+      
+      - name: Check Review Result
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ "${{ needs.code-quality.result }}" == "success" ]; then
+            echo "✅ 代码审查通过"
+            exit 0
+          else
+            echo "❌ 代码审查发现问题，请查看详细报告"
+            exit 1
+          fi

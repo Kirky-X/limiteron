@@ -16,9 +16,6 @@ use std::time::{Duration, Instant};
 /// 最大 cost 值
 const MAX_COST: u64 = 1_000_000;
 
-/// 最小 cost 值
-const MIN_COST: u64 = 1;
-
 // ============================================================================
 // Cost 参数验证函数
 // ============================================================================
@@ -200,6 +197,9 @@ impl TokenBucketLimiter {
     /// - `Ok(false)`: 令牌不足，无法消费
     /// - `Err(_)`: 发生错误
     fn try_consume(&self, cost: u64) -> bool {
+        let mut retry_count = 0u32;
+        const MAX_RETRY: u32 = 3;
+
         loop {
             let current = self.tokens.load(std::sync::atomic::Ordering::SeqCst);
 
@@ -216,7 +216,19 @@ impl TokenBucketLimiter {
                 std::sync::atomic::Ordering::SeqCst,
             ) {
                 Ok(_) => return true,
-                Err(_) => continue, // CAS 失败，重试
+                Err(_) => {
+                    retry_count += 1;
+                    if retry_count >= MAX_RETRY {
+                        // 超过最大重试次数，放弃
+                        return false;
+                    }
+
+                    // 指数退避：第1次失败不等待，第2次等待1ms，第3次等待2ms
+                    if retry_count > 1 {
+                        let backoff_ms = 1u64 << (retry_count - 2); // 1, 2, 4...
+                        std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                    }
+                }
             }
         }
     }

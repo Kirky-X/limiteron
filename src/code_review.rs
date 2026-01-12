@@ -21,8 +21,8 @@
 //! ```
 
 use crate::error::FlowGuardError;
+use ahash::AHashMap as HashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -420,7 +420,7 @@ impl CodeReviewManager {
     async fn aggregate_results(
         &self,
         agent_results: Vec<AgentReviewResult>,
-        total_duration_ms: u128,
+        _total_duration_ms: u128,
     ) -> CodeReviewReport {
         let mut all_issues = Vec::new();
         let mut issues_by_category: HashMap<IssueCategory, Vec<CodeReviewIssue>> = HashMap::new();
@@ -550,8 +550,8 @@ pub fn format_report_as_markdown(report: &CodeReviewReport) -> String {
     ));
 
     md.push_str("## 摘要\n\n");
-    md.push_str(&format!("| 指标 | 数量 |\n"));
-    md.push_str(&format!("|------|------|\n"));
+    md.push_str("| 指标 | 数量 |\n");
+    md.push_str("|------|------|\n");
     md.push_str(&format!("| 总问题数 | {} |\n", report.summary.total_issues));
     md.push_str(&format!(
         "| 🔴 严重 | {} |\n",
@@ -592,5 +592,5 @@ pub fn format_report_as_markdown(report: &CodeReviewReport) -> String {
 
 /// 格式化审查报告为 JSON
 pub fn format_report_as_json(report: &CodeReviewReport) -> Result<String, FlowGuardError> {
-    serde_json::to_string_pretty(report).map_err(|e| FlowGuardError::SerdeError(e))
+    serde_json::to_string_pretty(report).map_err(FlowGuardError::SerdeError)
 }

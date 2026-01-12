@@ -165,12 +165,13 @@ async fn test_e2e_rate_limit_to_ban() {
         mac: None,
         device_id: None,
         api_key: None,
-        headers: std::collections::HashMap::new(),
-        path: "/test".to_string(),
+        headers: ahash::AHashMap::new(),
+        path: "/api/test".to_string(),
         method: "GET".to_string(),
         client_ip: Some(ip.to_string()),
-        query_params: std::collections::HashMap::new(),
-    };
+        query_params: ahash::AHashMap::new(),
+    }
+};
 
     // 检查封禁记录
     let is_banned = ban_manager.is_banned(&target).await.unwrap().is_some();

@@ -50,11 +50,11 @@
 
 use crate::error::FlowGuardError;
 use crate::matchers::RequestContext;
+use ahash::AHashMap as HashMap;
 use async_trait::async_trait;
 use chrono::Timelike;
 use regex::Regex;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
@@ -76,6 +76,7 @@ const MAX_HEADER_VALUE_LENGTH: usize = 4096;
 const MAX_ALLOWED_VALUES_COUNT: usize = 100;
 
 /// 正则表达式最大复杂度（嵌套深度）
+#[allow(dead_code)]
 const MAX_REGEX_NESTING_DEPTH: usize = 10;
 
 // ============================================================================
@@ -178,6 +179,7 @@ fn validate_header_value(value: &str) -> Result<(), FlowGuardError> {
 /// # 返回
 /// - `Ok(())`: 验证通过
 /// - `Err(FlowGuardError)`: 验证失败
+#[allow(dead_code)]
 fn validate_regex_complexity(pattern: &str) -> Result<(), FlowGuardError> {
     // 检查模式长度
     if pattern.len() > 1000 {
@@ -187,8 +189,8 @@ fn validate_regex_complexity(pattern: &str) -> Result<(), FlowGuardError> {
     }
 
     // 检查嵌套深度（简单的括号计数）
-    let mut depth = 0;
-    let mut max_depth = 0;
+    let mut depth: usize = 0;
+    let mut max_depth: usize = 0;
     for c in pattern.chars() {
         match c {
             '(' => {
@@ -196,9 +198,7 @@ fn validate_regex_complexity(pattern: &str) -> Result<(), FlowGuardError> {
                 max_depth = max_depth.max(depth);
             }
             ')' => {
-                if depth > 0 {
-                    depth -= 1;
-                }
+                depth = depth.saturating_sub(1);
             }
             _ => {}
         }
@@ -243,6 +243,7 @@ fn validate_regex_complexity(pattern: &str) -> Result<(), FlowGuardError> {
 ///
 /// # 返回
 /// - 清理后的字符串
+#[allow(dead_code)]
 fn sanitize_string(input: &str) -> String {
     input
         .chars()
@@ -391,7 +392,7 @@ impl CustomMatcherRegistry {
     pub async fn get(&self, name: &str) -> Option<Box<dyn CustomMatcher>> {
         let matchers = self.matchers.read().await;
 
-        if let Some(matcher) = matchers.get(name) {
+        if let Some(_matcher) = matchers.get(name) {
             // 注意：这里不能直接返回引用，因为需要克隆
             // 由于 trait 对象不能 clone，我们需要另一种方式
             // 在实际使用中，应该通过调用匹配器的方法而不是获取所有权
@@ -456,9 +457,10 @@ impl CustomMatcherRegistry {
     ///
     /// # 返回
     /// - 匹配器名称列表
+    #[allow(clippy::map_clone)]
     pub async fn list(&self) -> Vec<String> {
         let matchers = self.matchers.read().await;
-        matchers.keys().cloned().collect()
+        matchers.keys().map(|k| k.clone()).collect()
     }
 
     /// 获取注册的匹配器数量

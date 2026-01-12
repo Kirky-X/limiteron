@@ -2,9 +2,9 @@
 //!
 //! 定义流量控制的配置结构。
 
+use ahash::AHashSet as HashSet;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 /// 流量控制配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,10 +133,10 @@ impl FlowControlConfig {
 }
 
 /// 配置变更来源
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ChangeSource {
     /// 手动触发
-    Manual,
+    Manual { operator: String },
     /// 自动检测（轮询）
     Poll,
     /// 自动检测（Watch）

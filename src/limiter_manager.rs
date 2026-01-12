@@ -3,8 +3,8 @@
 //! 为 `flow_control` 宏提供全局共享的 limiter 实例。
 
 use crate::limiters::{ConcurrencyLimiter, FixedWindowLimiter, TokenBucketLimiter};
+use ahash::AHashMap as HashMap;
 use parking_lot::Mutex;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -90,7 +90,7 @@ impl Default for LimiterManager {
     }
 }
 
-/// 全局限流器管理器实例
 lazy_static::lazy_static! {
+    /// 全局限流器管理器实例
     pub static ref GLOBAL_LIMITER_MANAGER: LimiterManager = LimiterManager::new();
 }

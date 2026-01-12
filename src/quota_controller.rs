@@ -20,8 +20,10 @@ use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Duration as StdDuration;
 
 /// 配额类型
+#[cfg(feature = "quota-control")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum QuotaType {
     /// 令牌配额
@@ -55,6 +57,7 @@ impl QuotaType {
 
 /// 配额配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg(feature = "quota-control")]
 pub struct QuotaConfig {
     /// 配额类型
     pub quota_type: QuotaType,
@@ -85,6 +88,7 @@ impl Default for QuotaConfig {
 
 /// 告警配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg(feature = "quota-control")]
 pub struct AlertConfig {
     /// 是否启用告警
     pub enabled: bool,
@@ -109,6 +113,7 @@ impl Default for AlertConfig {
 
 /// 告警渠道
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg(feature = "quota-control")]
 pub enum AlertChannel {
     /// 日志告警
     Log,
@@ -118,6 +123,7 @@ pub enum AlertChannel {
 
 /// 告警信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg(feature = "quota-control")]
 pub struct AlertInfo {
     /// 用户ID
     pub user_id: String,
@@ -137,6 +143,7 @@ pub struct AlertInfo {
 
 /// 配额状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg(feature = "quota-control")]
 pub struct QuotaState {
     /// 已消费量
     pub consumed: u64,
@@ -147,6 +154,7 @@ pub struct QuotaState {
 }
 
 /// 配额控制器
+#[cfg(feature = "quota-control")]
 pub struct QuotaController<S: QuotaStorage> {
     /// 存储后端
     storage: Arc<S>,
@@ -266,7 +274,7 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
             .await?;
 
         // 计算剩余配额
-        let remaining = self.config.limit.saturating_sub(new_consumed);
+        let remaining = total_limit.saturating_sub(new_consumed);
 
         // 检查告警
         let alert_triggered = self
@@ -323,7 +331,12 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
     /// - `Err(error)`: 错误信息
     pub async fn reset_quota(&self, user_id: &str, resource: &str) -> Result<(), FlowGuardError> {
         self.storage
-            .reset(user_id, resource)
+            .reset(
+                user_id,
+                resource,
+                self.config.limit,
+                StdDuration::from_secs(self.config.window_size),
+            )
             .await
             .map_err(|e| FlowGuardError::StorageError(e))?;
 
@@ -410,7 +423,18 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
         // 使用存储的 consume 方法更新配额
         let _result = self
             .storage
-            .consume(user_id, resource, new_consumed - state.consumed)
+            .consume(
+                user_id,
+                resource,
+                new_consumed - state.consumed,
+                self.config.limit
+                    + if self.config.allow_overdraft {
+                        self.config.limit * self.config.overdraft_limit_percent as u64 / 100
+                    } else {
+                        0
+                    },
+                StdDuration::from_secs(self.config.window_size),
+            )
             .await
             .map_err(|e| FlowGuardError::StorageError(e))?;
 
@@ -573,8 +597,8 @@ mod tests {
     use super::*;
     use crate::error::StorageError;
     use crate::storage::{QuotaInfo, QuotaStorage};
+    use ahash::AHashMap as HashMap;
     use async_trait::async_trait;
-    use std::collections::HashMap;
     use std::sync::Mutex;
 
     /// 测试用的配额存储实现
@@ -606,6 +630,8 @@ mod tests {
             user_id: &str,
             resource: &str,
             cost: u64,
+            limit: u64,
+            window: StdDuration,
         ) -> Result<ConsumeResult, StorageError> {
             let key = format!("{}:{}", user_id, resource);
             let mut quotas = self.quotas.lock().unwrap();
@@ -614,9 +640,11 @@ mod tests {
                 let now = Utc::now();
                 QuotaInfo {
                     consumed: 0,
-                    limit: DEFAULT_QUOTA_LIMIT,
+                    limit,
                     window_start: now,
-                    window_end: now + Duration::seconds(DEFAULT_WINDOW_SIZE_SECS as i64),
+                    window_end: now
+                        + Duration::from_std(window)
+                            .unwrap_or(Duration::seconds(DEFAULT_WINDOW_SIZE_SECS as i64)),
                 }
             });
 
@@ -626,7 +654,10 @@ mod tests {
                 // 窗口已过期，重置消费量
                 quota_info.consumed = 0;
                 quota_info.window_start = now;
-                quota_info.window_end = now + Duration::seconds(3600);
+                quota_info.window_end = now
+                    + Duration::from_std(window)
+                        .unwrap_or(Duration::seconds(DEFAULT_WINDOW_SIZE_SECS as i64));
+                quota_info.limit = limit;
             }
 
             if quota_info.consumed + cost > quota_info.limit {
@@ -646,12 +677,24 @@ mod tests {
             })
         }
 
-        async fn reset(&self, user_id: &str, resource: &str) -> Result<(), StorageError> {
+        async fn reset(
+            &self,
+            user_id: &str,
+            resource: &str,
+            limit: u64,
+            window: StdDuration,
+        ) -> Result<(), StorageError> {
             let key = format!("{}:{}", user_id, resource);
             let mut quotas = self.quotas.lock().unwrap();
 
             if let Some(quota_info) = quotas.get_mut(&key) {
                 quota_info.consumed = 0;
+                quota_info.limit = limit;
+                let now = Utc::now();
+                quota_info.window_start = now;
+                quota_info.window_end = now
+                    + Duration::from_std(window)
+                        .unwrap_or(Duration::seconds(DEFAULT_WINDOW_SIZE_SECS as i64));
             }
 
             Ok(())

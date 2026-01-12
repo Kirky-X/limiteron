@@ -11,7 +11,7 @@
 
 use crate::error::{FlowGuardError, StorageError};
 use crate::l2_cache::L2Cache;
-use std::collections::HashMap;
+use ahash::AHashMap as HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -47,8 +47,8 @@ pub enum ComponentType {
     Other(String),
 }
 
-impl ComponentType {
-    pub fn from_str(s: &str) -> Self {
+impl From<&str> for ComponentType {
+    fn from(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "redis" => ComponentType::Redis,
             "postgres" => ComponentType::Postgres,
@@ -59,7 +59,9 @@ impl ComponentType {
             other => ComponentType::Other(other.to_string()),
         }
     }
+}
 
+impl ComponentType {
     pub fn as_str(&self) -> &str {
         match self {
             ComponentType::Redis => "redis",
@@ -271,7 +273,7 @@ impl FallbackManager {
         }
 
         // 检查是否处于故障状态
-        let is_failed = {
+        let _is_failed = {
             let states = self.failure_states.read().await;
             *states.get(&component).unwrap_or(&false)
         };
@@ -404,11 +406,11 @@ mod tests {
 
     #[test]
     fn test_component_type_from_str() {
-        assert_eq!(ComponentType::from_str("redis"), ComponentType::Redis);
-        assert_eq!(ComponentType::from_str("postgres"), ComponentType::Postgres);
-        assert_eq!(ComponentType::from_str("l3_cache"), ComponentType::L3Cache);
+        assert_eq!(ComponentType::from("redis"), ComponentType::Redis);
+        assert_eq!(ComponentType::from("postgres"), ComponentType::Postgres);
+        assert_eq!(ComponentType::from("l3_cache"), ComponentType::L3Cache);
         assert_eq!(
-            ComponentType::from_str("other"),
+            ComponentType::from("other"),
             ComponentType::Other("other".to_string())
         );
     }

@@ -119,6 +119,8 @@ impl QuotaStorage for MockQuotaStorage {
         user_id: &str,
         resource: &str,
         cost: u64,
+        limit: u64,
+        window: std::time::Duration,
     ) -> Result<limiteron::error::ConsumeResult, StorageError> {
         let key = format!("{}:{}", user_id, resource);
         let mut quotas = self.quotas.write().await;
@@ -128,16 +130,19 @@ impl QuotaStorage for MockQuotaStorage {
         // 获取或创建配额信息
         let quota_info = quotas.entry(key.clone()).or_insert_with(|| QuotaInfo {
             consumed: 0,
-            limit: 1000,
+            limit,
             window_start: now,
-            window_end: now + chrono::Duration::seconds(3600),
+            window_end: now
+                + chrono::Duration::from_std(window).unwrap_or(chrono::Duration::seconds(3600)),
         });
 
         // 检查窗口是否过期
         if now >= quota_info.window_end {
             quota_info.consumed = 0;
             quota_info.window_start = now;
-            quota_info.window_end = now + chrono::Duration::seconds(3600);
+            quota_info.window_end =
+                now + chrono::Duration::from_std(window).unwrap_or(chrono::Duration::seconds(3600));
+            quota_info.limit = limit; // 更新 limit
         }
 
         let total_limit = quota_info.limit;
@@ -160,12 +165,24 @@ impl QuotaStorage for MockQuotaStorage {
         })
     }
 
-    async fn reset(&self, user_id: &str, resource: &str) -> Result<(), StorageError> {
+    async fn reset(
+        &self,
+        user_id: &str,
+        resource: &str,
+        limit: u64,
+        window: std::time::Duration,
+    ) -> Result<(), StorageError> {
         let key = format!("{}:{}", user_id, resource);
         let mut quotas = self.quotas.write().await;
 
         if let Some(quota_info) = quotas.get_mut(&key) {
             quota_info.consumed = 0;
+            // 同时也更新配置
+            quota_info.limit = limit;
+            let now = chrono::Utc::now();
+            quota_info.window_start = now;
+            quota_info.window_end =
+                now + chrono::Duration::from_std(window).unwrap_or(chrono::Duration::seconds(3600));
         }
 
         Ok(())
@@ -394,17 +411,26 @@ mod tests {
         let storage = MockQuotaStorage::new();
 
         // 消费配额
-        let result = storage.consume("user1", "resource1", 100).await.unwrap();
+        let result = storage
+            .consume("user1", "resource1", 100, 1000, Duration::from_secs(60))
+            .await
+            .unwrap();
         assert!(result.allowed);
         assert_eq!(result.remaining, 900);
 
         // 再次消费
-        let result = storage.consume("user1", "resource1", 500).await.unwrap();
+        let result = storage
+            .consume("user1", "resource1", 500, 1000, Duration::from_secs(60))
+            .await
+            .unwrap();
         assert!(result.allowed);
         assert_eq!(result.remaining, 400);
 
         // 超过限制
-        let result = storage.consume("user1", "resource1", 500).await.unwrap();
+        let result = storage
+            .consume("user1", "resource1", 500, 1000, Duration::from_secs(60))
+            .await
+            .unwrap();
         assert!(!result.allowed);
     }
 

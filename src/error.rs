@@ -88,6 +88,7 @@ pub enum StorageError {
     NotFound(String),
 }
 
+#[cfg(feature = "postgres")]
 impl From<sqlx::Error> for StorageError {
     fn from(err: sqlx::Error) -> Self {
         match err {

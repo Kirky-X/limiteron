@@ -57,6 +57,7 @@
 //! ```
 
 use crate::error::FlowGuardError;
+use ahash::AHashMap as HashMap;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -170,7 +171,7 @@ impl Default for LimiterStats {
 #[derive(Clone)]
 pub struct CustomLimiterRegistry {
     /// 限流器存储（使用 RwLock 实现线程安全）
-    limiters: Arc<RwLock<std::collections::HashMap<String, Box<dyn CustomLimiter>>>>,
+    limiters: Arc<RwLock<HashMap<String, Box<dyn CustomLimiter>>>>,
 }
 
 impl std::fmt::Debug for CustomLimiterRegistry {
@@ -192,7 +193,7 @@ impl CustomLimiterRegistry {
     /// ```
     pub fn new() -> Self {
         Self {
-            limiters: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            limiters: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -324,9 +325,10 @@ impl CustomLimiterRegistry {
     ///
     /// # 返回
     /// - 限流器名称列表
+    #[allow(clippy::map_clone)]
     pub async fn list(&self) -> Vec<String> {
         let limiters = self.limiters.read().await;
-        limiters.keys().cloned().collect()
+        limiters.keys().map(|k| k.clone()).collect()
     }
 
     /// 获取注册的限流器数量

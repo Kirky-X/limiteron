@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{info, trace, warn};
 
+#[cfg(feature = "circuit-breaker")]
 /// 熔断器配置
 #[derive(Debug, Clone)]
 pub struct CircuitBreakerConfig {
@@ -71,6 +72,7 @@ impl CircuitBreakerConfig {
     }
 }
 
+#[cfg(feature = "circuit-breaker")]
 /// 熔断器
 pub struct CircuitBreaker {
     /// 当前状态

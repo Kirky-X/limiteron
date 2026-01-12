@@ -12,17 +12,26 @@ mod tests {
         let storage = MockQuotaStorage::new();
 
         // 消费配额
-        let result = storage.consume("user1", "resource1", 100).await.unwrap();
+        let result = storage
+            .consume("user1", "resource1", 100, 1000, std::time::Duration::from_secs(60))
+            .await
+            .unwrap();
         assert!(result.allowed);
         assert_eq!(result.remaining, 900);
 
         // 再次消费
-        let result = storage.consume("user1", "resource1", 500).await.unwrap();
+        let result = storage
+            .consume("user1", "resource1", 500, 1000, std::time::Duration::from_secs(60))
+            .await
+            .unwrap();
         assert!(result.allowed);
         assert_eq!(result.remaining, 400);
 
         // 超过限制
-        let result = storage.consume("user1", "resource1", 500).await.unwrap();
+        let result = storage
+            .consume("user1", "resource1", 500, 1000, std::time::Duration::from_secs(60))
+            .await
+            .unwrap();
         assert!(!result.allowed);
     }
 

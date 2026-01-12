@@ -81,9 +81,9 @@ impl LimiterFactory {
                 Ok(Arc::new(ConcurrencyLimiter::new(*max_concurrent)))
             }
             LimiterConfig::Quota {
-                quota_type,
-                limit,
-                window,
+                quota_type: _,
+                limit: _limit,
+                window: _window,
                 overdraft: _,
             } => {
                 // Quota 类型由QuotaController处理

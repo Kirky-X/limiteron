@@ -1,21 +1,17 @@
 //! Lua脚本管理器
 //!
 //! 提供Redis Lua脚本的预加载、SHA缓存和版本管理功能。
-//!
-//! # 特性
-//!
-//! - **脚本预加载**: 避免重复传输脚本
-//! - **SHA缓存**: 缓存脚本SHA避免重复计算
-//! - **原子性操作**: 使用Lua脚本保证Redis操作的原子性
-//! - **版本管理**: 支持脚本版本控制
 
-use redis::{AsyncCommands, Script};
-use std::collections::HashMap;
+use ahash::AHashMap as HashMap;
 use std::sync::Arc;
 use tracing::{debug, error, info, trace};
 
 use crate::error::StorageError;
 
+#[cfg(feature = "redis")]
+use redis::{AsyncCommands, Script};
+
+#[cfg(feature = "redis")]
 /// Lua脚本类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LuaScriptType {
@@ -155,6 +151,9 @@ elseif not stored_window_start then
     -- 首次消费，初始化配额信息
     redis.call('HMSET', key, consumed_field, 0, window_start_field, window_start, window_end_field, window_end, limit_field, limit)
     redis.call('EXPIRE', key, math.ceil((window_end - window_start) / 1000) + 10)
+else
+    -- 窗口未过期，更新limit信息（确保metadata一致性）
+    redis.call('HSET', key, limit_field, limit)
 end
 
 -- 获取当前已消费量

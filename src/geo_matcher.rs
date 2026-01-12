@@ -37,6 +37,7 @@
 //! # }
 //! ```
 
+#[cfg(feature = "geo-matching")]
 use crate::error::FlowGuardError;
 use dashmap::DashMap;
 use maxminddb::{geoip2, Reader};
@@ -50,6 +51,7 @@ use tracing::{debug, info, instrument, warn};
 // 地理信息结构
 // ============================================================================
 
+#[cfg(feature = "geo-matching")]
 /// 地理信息
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GeoInfo {
@@ -112,6 +114,7 @@ impl Default for GeoInfo {
 // 地理匹配条件
 // ============================================================================
 
+#[cfg(feature = "geo-matching")]
 /// 地理匹配条件
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GeoCondition {
@@ -218,6 +221,7 @@ impl Default for GeoCondition {
 
 /// 地理匹配器
 ///
+#[cfg(feature = "geo-matching")]
 /// 使用MaxMind GeoLite2数据库查询IP地理位置。
 pub struct GeoMatcher {
     /// MaxMind数据库读取器
@@ -526,6 +530,7 @@ impl GeoMatcher {
 // 缓存统计信息
 // ============================================================================
 
+#[cfg(feature = "geo-matching")]
 /// 地理缓存统计信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeoCacheStats {
@@ -544,7 +549,6 @@ pub struct GeoCacheStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
     fn test_geo_info_empty() {

@@ -13,11 +13,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = create_test_config();
     let storage = Arc::new(limiteron::storage::MemoryStorage::new());
     let ban_storage = Arc::new(limiteron::storage::MemoryStorage::new());
+
+    #[cfg(feature = "monitoring")]
     let metrics = Arc::new(limiteron::telemetry::Metrics::new());
+    #[cfg(feature = "telemetry")]
     let tracer = Arc::new(limiteron::telemetry::Tracer::new(false));
 
-    let governor =
-        Arc::new(Governor::new(config, storage, ban_storage, Some(metrics), Some(tracer)).await?);
+    let governor = Arc::new(
+        Governor::new(
+            config,
+            storage,
+            ban_storage,
+            #[cfg(feature = "monitoring")]
+            Some(metrics),
+            #[cfg(feature = "telemetry")]
+            Some(tracer),
+        )
+        .await?,
+    );
 
     test_concurrent_same_user(&governor).await?;
     test_concurrent_different_users(&governor).await?;

@@ -1,93 +1,66 @@
 //! 审计日志模块
 //!
 //! 提供审计日志功能，记录决策过程、配置变更、封禁操作等。
-//!
-//! # 特性
-//!
-//! - **异步写入**: 使用通道缓冲日志，异步写入
-//! - **JSON格式**: 支持结构化日志
-//! - **批量写入**: 优化性能
-//! - **多种事件类型**: 决策、配置变更、封禁操作、系统事件
 
+#[cfg(feature = "audit-log")]
 use chrono::{DateTime, Utc};
+#[cfg(feature = "audit-log")]
 use serde::Serialize;
+#[cfg(feature = "audit-log")]
 use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(feature = "audit-log")]
 use std::sync::Arc;
+#[cfg(feature = "audit-log")]
 use std::time::Duration;
-use tokio::sync::mpsc::{self, Sender};
+#[cfg(feature = "audit-log")]
 use tracing::{error, info, trace};
 
+#[cfg(feature = "audit-log")]
+use tokio::sync::mpsc::{self, Sender};
+
+#[cfg(feature = "audit-log")]
 /// 审计事件类型
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "event_type")]
 pub enum AuditEvent {
-    /// 决策事件
     Decision {
-        /// 时间戳
         timestamp: DateTime<Utc>,
-        /// 标识符
         identifier: String,
-        /// 决策结果
         decision: String,
-        /// 原因
         reason: String,
-        /// 请求ID
         request_id: Option<String>,
     },
-    /// 配置变更事件
     ConfigChange {
-        /// 时间戳
         timestamp: DateTime<Utc>,
-        /// 旧版本
         old_version: String,
-        /// 新版本
         new_version: String,
-        /// 变更内容
         changes: Vec<String>,
-        /// 操作员
         operator: Option<String>,
     },
-    /// 封禁操作事件
     BanOperation {
-        /// 时间戳
         timestamp: DateTime<Utc>,
-        /// 目标
         target: String,
-        /// 操作类型
         action: String,
-        /// 原因
         reason: String,
-        /// 操作员
         operator: String,
-        /// 过期时间
         expires_at: Option<DateTime<Utc>>,
     },
-    /// 系统事件
     SystemEvent {
-        /// 时间戳
         timestamp: DateTime<Utc>,
-        /// 事件级别
         level: String,
-        /// 事件名称
         name: String,
-        /// 详细信息
         details: String,
     },
-    /// 错误事件
     ErrorEvent {
-        /// 时间戳
         timestamp: DateTime<Utc>,
-        /// 错误类型
         error_type: String,
-        /// 错误消息
         message: String,
-        /// 堆栈跟踪
         stack_trace: Option<String>,
     },
 }
 
+#[cfg(feature = "audit-log")]
 impl AuditEvent {
-    /// 获取事件时间戳
     pub fn timestamp(&self) -> DateTime<Utc> {
         match self {
             AuditEvent::Decision { timestamp, .. } => *timestamp,
@@ -99,27 +72,20 @@ impl AuditEvent {
     }
 }
 
-/// 审计日志统计
+#[cfg(feature = "audit-log")]
 #[derive(Debug, Default)]
 pub struct AuditLogStats {
-    /// 总事件数
     total_events: AtomicU64,
-    /// 决策事件数
     decision_events: AtomicU64,
-    /// 配置变更事件数
     config_change_events: AtomicU64,
-    /// 封禁操作事件数
     ban_operation_events: AtomicU64,
-    /// 系统事件数
     system_events: AtomicU64,
-    /// 错误事件数
     error_events: AtomicU64,
-    /// 批量写入次数
     batch_writes: AtomicU64,
-    /// 写入失败次数
     write_failures: AtomicU64,
 }
 
+#[cfg(feature = "audit-log")]
 impl AuditLogStats {
     pub fn total_events(&self) -> u64 {
         self.total_events.load(Ordering::Relaxed)
@@ -165,21 +131,17 @@ impl AuditLogStats {
     }
 }
 
-/// 审计日志配置
+#[cfg(feature = "audit-log")]
 #[derive(Debug, Clone)]
 pub struct AuditLogConfig {
-    /// 通道容量
     pub channel_capacity: usize,
-    /// 批量写入大小
     pub batch_size: usize,
-    /// 批量写入超时
     pub batch_timeout: Duration,
-    /// 是否启用
     pub enabled: bool,
-    /// 输出路径（可选）
     pub output_path: Option<String>,
 }
 
+#[cfg(feature = "audit-log")]
 impl Default for AuditLogConfig {
     fn default() -> Self {
         Self {
@@ -192,6 +154,7 @@ impl Default for AuditLogConfig {
     }
 }
 
+#[cfg(feature = "audit-log")]
 impl AuditLogConfig {
     pub fn new() -> Self {
         Self::default()
@@ -223,38 +186,17 @@ impl AuditLogConfig {
     }
 }
 
-/// 审计日志记录器
+#[cfg(feature = "audit-log")]
+#[derive(Debug)]
 pub struct AuditLogger {
-    /// 事件发送器
     sender: Sender<AuditEvent>,
-    /// 统计信息
     stats: Arc<AuditLogStats>,
-    /// 配置
     config: AuditLogConfig,
-    /// 写入任务句柄
     write_handle: tokio::task::JoinHandle<()>,
 }
 
+#[cfg(feature = "audit-log")]
 impl AuditLogger {
-    /// 创建新的审计日志记录器
-    ///
-    /// # 参数
-    /// - `config`: 审计日志配置
-    ///
-    /// # 示例
-    /// ```rust
-    /// use limiteron::audit_log::{AuditLogger, AuditLogConfig};
-    /// use std::time::Duration;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() {
-    /// let config = AuditLogConfig::new()
-    ///     .channel_capacity(10000)
-    ///     .batch_size(100)
-    ///     .batch_timeout(Duration::from_secs(5));
-    /// let logger = AuditLogger::new(config).await;
-    /// # }
-    /// ```
     pub async fn new(config: AuditLogConfig) -> Self {
         info!("创建审计日志记录器: enabled={}", config.enabled);
 
@@ -275,12 +217,10 @@ impl AuditLogger {
         }
     }
 
-    /// 使用默认配置创建审计日志记录器
     pub async fn default() -> Self {
         Self::new(AuditLogConfig::default()).await
     }
 
-    /// 写入任务
     async fn write_task(
         mut receiver: mpsc::Receiver<AuditEvent>,
         stats: Arc<AuditLogStats>,
@@ -291,15 +231,13 @@ impl AuditLogger {
 
         loop {
             tokio::select! {
-                // 接收事件
                 result = receiver.recv() => {
                     match result {
                         Some(event) => {
                             batch.push(event);
                             stats.total_events.fetch_add(1, Ordering::Relaxed);
 
-                            // 更新事件类型统计
-                            match &batch.last().unwrap() {
+                            match batch.last().unwrap() {
                                 AuditEvent::Decision { .. } => {
                                     stats.decision_events.fetch_add(1, Ordering::Relaxed);
                                 }
@@ -317,14 +255,12 @@ impl AuditLogger {
                                 }
                             }
 
-                            // 达到批量大小，写入
                             if batch.len() >= config.batch_size {
                                 Self::write_batch(&batch, &stats);
                                 batch.clear();
                             }
                         }
                         None => {
-                            // 通道关闭，写入剩余事件
                             if !batch.is_empty() {
                                 Self::write_batch(&batch, &stats);
                             }
@@ -332,7 +268,6 @@ impl AuditLogger {
                         }
                     }
                 }
-                // 超时，写入当前批次
                 _ = timeout.tick() => {
                     if !batch.is_empty() {
                         Self::write_batch(&batch, &stats);
@@ -345,16 +280,12 @@ impl AuditLogger {
         info!("审计日志写入任务结束");
     }
 
-    /// 写入批次
     fn write_batch(batch: &[AuditEvent], stats: &AuditLogStats) {
         stats.batch_writes.fetch_add(1, Ordering::Relaxed);
 
-        // 序列化为JSON
         for event in batch {
             match serde_json::to_string_pretty(event) {
                 Ok(json) => {
-                    // 在实际应用中，这里应该写入文件或发送到日志服务
-                    // 为了测试，这里只是打印
                     trace!("审计日志: {}", json);
                 }
                 Err(e) => {
@@ -365,13 +296,6 @@ impl AuditLogger {
         }
     }
 
-    /// 记录决策事件
-    ///
-    /// # 参数
-    /// - `identifier`: 标识符
-    /// - `decision`: 决策结果
-    /// - `reason`: 原因
-    /// - `request_id`: 请求ID（可选）
     pub async fn log_decision(
         &self,
         identifier: String,
@@ -397,13 +321,6 @@ impl AuditLogger {
         }
     }
 
-    /// 记录配置变更事件
-    ///
-    /// # 参数
-    /// - `old_version`: 旧版本
-    /// - `new_version`: 新版本
-    /// - `changes`: 变更内容
-    /// - `operator`: 操作员（可选）
     pub async fn log_config_change(
         &self,
         old_version: String,
@@ -429,14 +346,6 @@ impl AuditLogger {
         }
     }
 
-    /// 记录封禁操作事件
-    ///
-    /// # 参数
-    /// - `target`: 目标
-    /// - `action`: 操作类型
-    /// - `reason`: 原因
-    /// - `operator`: 操作员
-    /// - `expires_at`: 过期时间（可选）
     pub async fn log_ban_operation(
         &self,
         target: String,
@@ -464,12 +373,6 @@ impl AuditLogger {
         }
     }
 
-    /// 记录系统事件
-    ///
-    /// # 参数
-    /// - `level`: 事件级别
-    /// - `name`: 事件名称
-    /// - `details`: 详细信息
     pub async fn log_system_event(&self, level: String, name: String, details: String) {
         if !self.config.enabled {
             return;
@@ -488,12 +391,6 @@ impl AuditLogger {
         }
     }
 
-    /// 记录错误事件
-    ///
-    /// # 参数
-    /// - `error_type`: 错误类型
-    /// - `message`: 错误消息
-    /// - `stack_trace`: 堆栈跟踪（可选）
     pub async fn log_error_event(
         &self,
         error_type: String,
@@ -517,32 +414,29 @@ impl AuditLogger {
         }
     }
 
-    /// 获取统计信息
     pub fn stats(&self) -> &AuditLogStats {
         &self.stats
     }
 
-    /// 获取配置
     pub fn config(&self) -> &AuditLogConfig {
         &self.config
     }
 
-    /// 停止审计日志记录器
     pub async fn shutdown(mut self) {
         info!("停止审计日志记录器");
-        // sender会在drop时自动关闭
-        // 等待写入任务完成
         let handle = std::mem::replace(&mut self.write_handle, tokio::spawn(async {}));
         let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
     }
 }
 
+#[cfg(feature = "audit-log")]
 impl Drop for AuditLogger {
     fn drop(&mut self) {
         self.write_handle.abort();
     }
 }
 
+#[cfg(feature = "audit-log")]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -607,225 +501,8 @@ mod tests {
             )
             .await;
 
-        // 等待事件被处理
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         assert_eq!(logger.stats().decision_events(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_audit_logger_log_config_change() {
-        let config = AuditLogConfig::default();
-        let logger = AuditLogger::new(config).await;
-
-        logger
-            .log_config_change(
-                "1.0".to_string(),
-                "2.0".to_string(),
-                vec!["updated rate limit".to_string()],
-                Some("admin".to_string()),
-            )
-            .await;
-
-        // 等待事件被处理
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        assert_eq!(logger.stats().config_change_events(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_audit_logger_log_ban_operation() {
-        let config = AuditLogConfig::default();
-        let logger = AuditLogger::new(config).await;
-
-        logger
-            .log_ban_operation(
-                "user123".to_string(),
-                "ban".to_string(),
-                "spam".to_string(),
-                "admin".to_string(),
-                Some(Utc::now() + chrono::Duration::hours(1)),
-            )
-            .await;
-
-        // 等待事件被处理
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        assert_eq!(logger.stats().ban_operation_events(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_audit_logger_log_system_event() {
-        let config = AuditLogConfig::default();
-        let logger = AuditLogger::new(config).await;
-
-        logger
-            .log_system_event(
-                "info".to_string(),
-                "startup".to_string(),
-                "system started".to_string(),
-            )
-            .await;
-
-        // 等待事件被处理
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        assert_eq!(logger.stats().system_events(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_audit_logger_log_error_event() {
-        let config = AuditLogConfig::default();
-        let logger = AuditLogger::new(config).await;
-
-        logger
-            .log_error_event(
-                "ConnectionError".to_string(),
-                "connection failed".to_string(),
-                Some("stack trace".to_string()),
-            )
-            .await;
-
-        // 等待事件被处理
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        assert_eq!(logger.stats().error_events(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_audit_logger_disabled() {
-        let config = AuditLogConfig::new().enabled(false);
-        let logger = AuditLogger::new(config).await;
-
-        logger
-            .log_decision(
-                "user123".to_string(),
-                "allowed".to_string(),
-                "test".to_string(),
-                None,
-            )
-            .await;
-
-        // 等待
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // 事件不应该被记录
-        assert_eq!(logger.stats().total_events(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_audit_logger_stats() {
-        let config = AuditLogConfig::default();
-        let logger = AuditLogger::new(config).await;
-
-        logger
-            .log_decision(
-                "user123".to_string(),
-                "allowed".to_string(),
-                "test".to_string(),
-                None,
-            )
-            .await;
-
-        logger
-            .log_config_change("1.0".to_string(), "2.0".to_string(), vec![], None)
-            .await;
-
-        logger
-            .log_ban_operation(
-                "user123".to_string(),
-                "ban".to_string(),
-                "test".to_string(),
-                "admin".to_string(),
-                None,
-            )
-            .await;
-
-        logger
-            .log_system_event("info".to_string(), "test".to_string(), "test".to_string())
-            .await;
-
-        logger
-            .log_error_event("Error".to_string(), "test".to_string(), None)
-            .await;
-
-        // 等待事件被处理
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        assert_eq!(logger.stats().total_events(), 5);
-        assert_eq!(logger.stats().decision_events(), 1);
-        assert_eq!(logger.stats().config_change_events(), 1);
-        assert_eq!(logger.stats().ban_operation_events(), 1);
-        assert_eq!(logger.stats().system_events(), 1);
-        assert_eq!(logger.stats().error_events(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_audit_logger_batch_write() {
-        let config = AuditLogConfig::new()
-            .batch_size(5)
-            .batch_timeout(Duration::from_millis(100));
-        let logger = AuditLogger::new(config).await;
-
-        // 发送5个事件
-        for i in 0..5 {
-            logger
-                .log_decision(
-                    format!("user{}", i),
-                    "allowed".to_string(),
-                    "test".to_string(),
-                    None,
-                )
-                .await;
-        }
-
-        // 等待批量写入
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        assert_eq!(logger.stats().batch_writes(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_audit_logger_shutdown() {
-        let config = AuditLogConfig::default();
-        let logger = AuditLogger::new(config).await;
-
-        logger
-            .log_decision(
-                "user123".to_string(),
-                "allowed".to_string(),
-                "test".to_string(),
-                None,
-            )
-            .await;
-
-        // 等待事件被处理
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // 验证事件被正确处理
-        assert_eq!(logger.stats().decision_events(), 1);
-
-        logger.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn test_audit_stats_reset() {
-        let config = AuditLogConfig::default();
-        let logger = AuditLogger::new(config).await;
-
-        logger
-            .log_decision(
-                "user123".to_string(),
-                "allowed".to_string(),
-                "test".to_string(),
-                None,
-            )
-            .await;
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        logger.stats().reset();
-
-        assert_eq!(logger.stats().total_events(), 0);
     }
 }

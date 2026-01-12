@@ -137,7 +137,7 @@ impl TokenBucketLimiter {
 
         // 使用 CAS 循环更新 last_refill 和 tokens
         loop {
-            let last = self.last_refill.load(std::sync::atomic::Ordering::SeqCst);
+            let last = self.last_refill.load(std::sync::atomic::Ordering::Acquire);
             let elapsed_nanos = now.saturating_sub(last);
 
             // 如果时间差太小，不需要补充
@@ -159,14 +159,14 @@ impl TokenBucketLimiter {
                 .compare_exchange(
                     last,
                     now,
-                    std::sync::atomic::Ordering::SeqCst,
-                    std::sync::atomic::Ordering::SeqCst,
+                    std::sync::atomic::Ordering::Release,
+                    std::sync::atomic::Ordering::Relaxed,
                 )
                 .is_ok()
             {
                 // 成功更新时间戳，现在更新令牌数
                 loop {
-                    let current = self.tokens.load(std::sync::atomic::Ordering::SeqCst);
+                    let current = self.tokens.load(std::sync::atomic::Ordering::Acquire);
                     let new_tokens = current.saturating_add(tokens_to_add).min(self.capacity);
 
                     if self
@@ -174,8 +174,8 @@ impl TokenBucketLimiter {
                         .compare_exchange(
                             current,
                             new_tokens,
-                            std::sync::atomic::Ordering::SeqCst,
-                            std::sync::atomic::Ordering::SeqCst,
+                            std::sync::atomic::Ordering::Release,
+                            std::sync::atomic::Ordering::Relaxed,
                         )
                         .is_ok()
                     {
@@ -202,7 +202,7 @@ impl TokenBucketLimiter {
         const MAX_RETRY: u32 = 3;
 
         loop {
-            let current = self.tokens.load(std::sync::atomic::Ordering::SeqCst);
+            let current = self.tokens.load(std::sync::atomic::Ordering::Acquire);
 
             // 检查令牌是否足够
             if current < cost {
@@ -213,8 +213,8 @@ impl TokenBucketLimiter {
             match self.tokens.compare_exchange(
                 current,
                 current - cost,
-                std::sync::atomic::Ordering::SeqCst,
-                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::Release,
+                std::sync::atomic::Ordering::Relaxed,
             ) {
                 Ok(_) => return true,
                 Err(_) => {
@@ -447,7 +447,7 @@ impl FixedWindowLimiter {
         let window_size_nanos = self.window_size.as_nanos() as u64;
 
         loop {
-            let current_start = self.window_start.load(std::sync::atomic::Ordering::SeqCst);
+            let current_start = self.window_start.load(std::sync::atomic::Ordering::Acquire);
             let window_end = current_start.saturating_add(window_size_nanos);
 
             // 如果当前时间还在当前窗口内，不需要重置
@@ -464,12 +464,12 @@ impl FixedWindowLimiter {
             match self.window_start.compare_exchange(
                 current_start,
                 new_start,
-                std::sync::atomic::Ordering::SeqCst,
-                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::Release,
+                std::sync::atomic::Ordering::Relaxed,
             ) {
                 Ok(_) => {
                     // 成功更新窗口开始时间，重置计数
-                    self.count.store(0, std::sync::atomic::Ordering::SeqCst);
+                    self.count.store(0, std::sync::atomic::Ordering::Release);
                     break;
                 }
                 Err(_) => continue, // CAS 失败，重试
@@ -481,7 +481,7 @@ impl FixedWindowLimiter {
     #[cfg(test)]
     fn get_count(&self) -> u64 {
         self.check_and_reset_window();
-        self.count.load(std::sync::atomic::Ordering::SeqCst)
+        self.count.load(std::sync::atomic::Ordering::Acquire)
     }
 }
 
@@ -499,7 +499,7 @@ impl Limiter for FixedWindowLimiter {
 
             // 使用 CAS 循环尝试增加计数
             loop {
-                let current = self.count.load(std::sync::atomic::Ordering::SeqCst);
+                let current = self.count.load(std::sync::atomic::Ordering::Acquire);
 
                 // 检查是否超过限制
                 if current + cost > self.max_requests {
@@ -510,8 +510,8 @@ impl Limiter for FixedWindowLimiter {
                 match self.count.compare_exchange(
                     current,
                     current + cost,
-                    std::sync::atomic::Ordering::SeqCst,
-                    std::sync::atomic::Ordering::SeqCst,
+                    std::sync::atomic::Ordering::Release,
+                    std::sync::atomic::Ordering::Relaxed,
                 ) {
                     Ok(_) => return Ok(true),
                     Err(_) => continue, // CAS 失败，重试

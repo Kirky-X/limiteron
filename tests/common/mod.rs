@@ -2,6 +2,7 @@
 //!
 //! 提供测试中常用的工具函数和辅助结构。
 
+use ahash::AHashMap;
 use limiteron::{
     ban_manager::{BackoffConfig, BanManager, BanManagerConfig},
     config::{FlowControlConfig, LimiterConfig, Matcher as ConfigMatcher, Rule},
@@ -324,11 +325,11 @@ pub fn create_test_request(user_id: &str, ip: &str) -> limiteron::matchers::Requ
         mac: None,
         device_id: None,
         api_key: None,
-        headers: std::collections::HashMap::new(),
+        headers: AHashMap::new(),
         path: "/test".to_string(),
         method: "GET".to_string(),
         client_ip: Some(ip.to_string()),
-        query_params: std::collections::HashMap::new(),
+        query_params: AHashMap::new(),
     }
 }
 

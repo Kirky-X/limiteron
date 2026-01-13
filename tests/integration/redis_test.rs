@@ -7,6 +7,9 @@ use limiteron::storage::{BanStorage, QuotaStorage};
 use std::time::Duration;
 use tokio::time::sleep;
 
+const DEFAULT_LIMIT: u64 = 1000;
+const DEFAULT_WINDOW: Duration = Duration::from_secs(60);
+
 /// 测试Redis连接
 #[tokio::test]
 #[ignore] // 需要Redis服务器运行
@@ -32,10 +35,15 @@ async fn test_redis_quota_storage() {
     let resource = "test_resource";
 
     // 清理旧数据
-    let _ = storage.reset(user_id, resource).await;
+    let _ = storage
+        .reset(user_id, resource, DEFAULT_LIMIT, DEFAULT_WINDOW)
+        .await;
 
     // 消费配额
-    let result = storage.consume(user_id, resource, 100).await.unwrap();
+    let result = storage
+        .consume(user_id, resource, 100, DEFAULT_LIMIT, DEFAULT_WINDOW)
+        .await
+        .unwrap();
     assert!(result.allowed);
     // 由于优化了 Redis Hash 存储，配额计算可能有所不同
     // 这里只验证成功消费，不验证具体数值
@@ -47,7 +55,10 @@ async fn test_redis_quota_storage() {
     assert_eq!(quota.unwrap().consumed, 100);
 
     // 重置配额
-    storage.reset(user_id, resource).await.unwrap();
+    storage
+        .reset(user_id, resource, DEFAULT_LIMIT, DEFAULT_WINDOW)
+        .await
+        .unwrap();
     let quota = storage.get_quota(user_id, resource).await.unwrap();
     assert!(quota.is_some());
     assert_eq!(quota.unwrap().consumed, 0);
@@ -114,7 +125,9 @@ async fn test_redis_connection_pool() {
 
             // 执行多次操作
             for _ in 0..10 {
-                let _ = storage_clone.consume(&user_id, resource, 1).await;
+                let _ = storage_clone
+                    .consume(&user_id, resource, 1, DEFAULT_LIMIT, DEFAULT_WINDOW)
+                    .await;
             }
         }));
     }
@@ -198,7 +211,9 @@ async fn test_redis_failure_recovery() {
     let storage = RedisStorage::new(config).await.unwrap();
 
     // 测试正常操作
-    let result = storage.consume("user1", "resource1", 10).await;
+    let result = storage
+        .consume("user1", "resource1", 10, DEFAULT_LIMIT, DEFAULT_WINDOW)
+        .await;
     assert!(result.is_ok());
 
     // 模拟Redis故障（需要手动停止Redis）
@@ -223,7 +238,9 @@ async fn test_redis_batch_operations() {
         let resource = "batch_resource";
 
         handles.push(tokio::spawn(async move {
-            storage_clone.consume(&user_id, resource, 10).await
+            storage_clone
+                .consume(&user_id, resource, 10, DEFAULT_LIMIT, DEFAULT_WINDOW)
+                .await
         }));
     }
 
@@ -284,7 +301,9 @@ async fn test_redis_high_concurrency() {
     let resource = "high_concurrency_resource";
 
     // 清理
-    let _ = storage.reset(user_id, resource).await;
+    let _ = storage
+        .reset(user_id, resource, DEFAULT_LIMIT, DEFAULT_WINDOW)
+        .await;
 
     // 1000个并发请求
     let mut handles = vec![];
@@ -295,7 +314,9 @@ async fn test_redis_high_concurrency() {
         let resource = resource.to_string();
 
         handles.push(tokio::spawn(async move {
-            storage_clone.consume(&user_id, &resource, 1).await
+            storage_clone
+                .consume(&user_id, &resource, 1, DEFAULT_LIMIT, DEFAULT_WINDOW)
+                .await
         }));
     }
 

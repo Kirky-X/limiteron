@@ -170,8 +170,7 @@ async fn test_e2e_rate_limit_to_ban() {
         method: "GET".to_string(),
         client_ip: Some(ip.to_string()),
         query_params: ahash::AHashMap::new(),
-    }
-};
+    };
 
     // 检查封禁记录
     let is_banned = ban_manager.is_banned(&target).await.unwrap().is_some();

@@ -147,14 +147,14 @@ mod tests {
     #[cfg(feature = "ban-manager")]
     use crate::ban_manager::BanManager;
     #[cfg(feature = "ban-manager")]
-    use crate::storage::MockBanStorage;
+    use crate::storage::MemoryStorage;
     use std::sync::Arc;
 
     #[tokio::test]
     #[cfg(feature = "ban-manager")]
     async fn test_parallel_ban_checker() {
-        let ban_storage = Arc::new(MockBanStorage);
-        let ban_manager = Arc::new(BanManager::new(ban_storage, None).await.unwrap());
+        let ban_storage = Arc::new(MemoryStorage::new());
+        let ban_manager = Arc::new(BanManager::new(ban_storage.clone(), None).await.unwrap());
         let checker = ParallelBanChecker::new(ban_manager);
 
         // 测试多个目标的并行检查

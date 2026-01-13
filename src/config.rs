@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// 流量控制配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FlowControlConfig {
     pub version: String,
     pub global: GlobalConfig,
@@ -248,7 +248,7 @@ impl GlobalConfig {
 }
 
 /// 规则配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Rule {
     pub id: String,
     pub name: String,
@@ -326,6 +326,29 @@ pub enum Matcher {
     },
 }
 
+impl PartialEq for Matcher {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Matcher::User { user_ids: a }, Matcher::User { user_ids: b }) => a == b,
+            (Matcher::Ip { ip_ranges: a }, Matcher::Ip { ip_ranges: b }) => a == b,
+            (Matcher::Geo { countries: a }, Matcher::Geo { countries: b }) => a == b,
+            (Matcher::ApiVersion { versions: a }, Matcher::ApiVersion { versions: b }) => a == b,
+            (Matcher::Device { device_types: a }, Matcher::Device { device_types: b }) => a == b,
+            (
+                Matcher::Custom {
+                    name: a_name,
+                    config: a_cfg,
+                },
+                Matcher::Custom {
+                    name: b_name,
+                    config: b_cfg,
+                },
+            ) => a_name == b_name && a_cfg == b_cfg,
+            _ => false,
+        }
+    }
+}
+
 impl Matcher {
     /// 校验匹配器
     pub fn validate(&self) -> Result<(), String> {
@@ -400,6 +423,72 @@ pub enum LimiterConfig {
         /// 限流器配置（JSON格式）
         config: serde_json::Value,
     },
+}
+
+impl PartialEq for LimiterConfig {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                LimiterConfig::TokenBucket {
+                    capacity: a,
+                    refill_rate: b,
+                },
+                LimiterConfig::TokenBucket {
+                    capacity: c,
+                    refill_rate: d,
+                },
+            ) => a == c && b == d,
+            (
+                LimiterConfig::SlidingWindow {
+                    window_size: a,
+                    max_requests: b,
+                },
+                LimiterConfig::SlidingWindow {
+                    window_size: c,
+                    max_requests: d,
+                },
+            ) => a == c && b == d,
+            (
+                LimiterConfig::FixedWindow {
+                    window_size: a,
+                    max_requests: b,
+                },
+                LimiterConfig::FixedWindow {
+                    window_size: c,
+                    max_requests: d,
+                },
+            ) => a == c && b == d,
+            (
+                LimiterConfig::Quota {
+                    quota_type: a,
+                    limit: b,
+                    window: c,
+                    overdraft: d,
+                },
+                LimiterConfig::Quota {
+                    quota_type: e,
+                    limit: f,
+                    window: g,
+                    overdraft: h,
+                },
+            ) => a == e && b == f && c == g && d == h,
+            (
+                LimiterConfig::Concurrency { max_concurrent: a },
+                LimiterConfig::Concurrency { max_concurrent: b },
+            ) => a == b,
+            (
+                LimiterConfig::Custom {
+                    name: a_name,
+                    config: a_cfg,
+                },
+                LimiterConfig::Custom {
+                    name: b_name,
+                    config: b_cfg,
+                },
+            ) => a_name == b_name && a_cfg == b_cfg,
+            _ => false,
+        }
+    }
 }
 
 impl LimiterConfig {
@@ -481,7 +570,7 @@ impl LimiterConfig {
 }
 
 /// 透支配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OverdraftConfig {
     pub enabled: bool,
     pub max_overdraft: u64,
@@ -498,7 +587,7 @@ impl OverdraftConfig {
 }
 
 /// 动作配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ActionConfig {
     pub on_exceed: String,
     pub ban: Option<BanConfig>,
@@ -533,7 +622,7 @@ impl ActionConfig {
 }
 
 /// 封禁配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BanConfig {
     pub threshold: u32,
     pub initial_duration: String,

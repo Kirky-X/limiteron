@@ -1,51 +1,32 @@
+//!
 //! 配额管理示例
+//!
+//! 运行示例：
+//! ```bash
+//! cargo run --example quota_management --features macros,quota-control
+//! ```
 
-use limiteron::config::FlowControlConfig;
-use limiteron::Governor;
+use limiteron::flow_control;
+
+/// 复合限流示例（速率限制 + 配额限制）
+///
+/// - 速率限制：每秒最多5个请求
+/// - 配额限制：每分钟最多100个请求
+#[flow_control(rate = "5/s", quota = "100/m")]
+async fn quota_api(user_id: &str) -> Result<String, limiteron::FlowGuardError> {
+    Ok(format!("Hello, {}!", user_id))
+}
 
 #[tokio::main]
 async fn main() {
-    #[cfg(feature = "telemetry")]
-    tracing_subscriber::fmt::init();
+    println!("=== 配额管理示例 ===\n");
 
-    #[cfg(not(feature = "telemetry"))]
-    println!("启用telemetry feature以查看日志");
-
-    let config = FlowControlConfig {
-        version: "1.0".to_string(),
-        global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
-        },
-        rules: vec![],
-    };
-
-    let storage = std::sync::Arc::new(limiteron::storage::MemoryStorage::new());
-    let ban_storage = std::sync::Arc::new(limiteron::storage::MemoryStorage::new());
-    let governor = Governor::new(config, storage, ban_storage, None, None)
-        .await
-        .unwrap();
-
-    println!("配额管理示例");
-    let ctx = limiteron::RequestContext {
-        user_id: None,
-        ip: None,
-        mac: None,
-        device_id: None,
-        api_key: None,
-        headers: std::collections::HashMap::new(),
-        path: "/api/quota".to_string(),
-        method: "GET".to_string(),
-        client_ip: None,
-        query_params: std::collections::HashMap::new(),
-    };
-    match governor.check(&ctx).await {
-        Ok(limiteron::Decision::Allowed(_)) => {
-            println!("配额检查通过");
+    // 尝试多个请求
+    for i in 0..10 {
+        match quota_api("user456").await {
+            Ok(result) => println!("   请求 {}: {}", i + 1, result),
+            Err(e) => println!("   请求 {}: 错误 - {}", i + 1, e),
         }
-        _ => {
-            println!("配额不足");
-        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     }
 }

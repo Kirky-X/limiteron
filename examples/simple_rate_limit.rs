@@ -1,59 +1,32 @@
-//! 简单限流示例
+//!
+//! 简单速率限制示例
+//!
+//! 运行示例：
+//! ```bash
+//! cargo run --example simple_rate_limit --features macros
+//! ```
 
-use limiteron::config::FlowControlConfig;
-use limiteron::Governor;
+use limiteron::flow_control;
+
+/// 简单的速率限制示例
+///
+/// 每秒最多允许5个请求
+#[flow_control(rate = "5/s")]
+async fn simple_rate_limit_api(user_id: &str) -> Result<String, limiteron::FlowGuardError> {
+    Ok(format!("Hello, {}!", user_id))
+}
 
 #[tokio::main]
 async fn main() {
-    #[cfg(feature = "telemetry")]
-    tracing_subscriber::fmt::init();
+    println!("=== 简单速率限制示例 ===\n");
 
-    #[cfg(not(feature = "telemetry"))]
-    println!("启用telemetry feature以查看日志");
-
-    // 创建配置
-    let config = FlowControlConfig {
-        version: "1.0".to_string(),
-        global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
-        },
-        rules: vec![],
-    };
-
-    // 创建Governor
-    let storage = std::sync::Arc::new(limiteron::storage::MemoryStorage::new());
-    let ban_storage = std::sync::Arc::new(limiteron::storage::MemoryStorage::new());
-    let governor = Governor::new(config, storage, ban_storage, None, None)
-        .await
-        .unwrap();
-
-    // 检查请求
-    let ctx = limiteron::RequestContext {
-        user_id: None,
-        ip: None,
-        mac: None,
-        device_id: None,
-        api_key: None,
-        headers: std::collections::HashMap::new(),
-        path: "/api/test".to_string(),
-        method: "GET".to_string(),
-        client_ip: None,
-        query_params: std::collections::HashMap::new(),
-    };
-    match governor.check(&ctx).await {
-        Ok(limiteron::Decision::Allowed(_)) => {
-            println!("请求被允许");
+    // 尝试10个请求，前5个应该成功
+    for i in 0..10 {
+        match simple_rate_limit_api("user123").await {
+            Ok(result) => println!("   请求 {}: {}", i + 1, result),
+            Err(e) => println!("   请求 {}: 错误 - {}", i + 1, e),
         }
-        Ok(limiteron::Decision::Rejected(reason)) => {
-            println!("请求被拒绝: {}", reason);
-        }
-        Ok(limiteron::Decision::Banned(info)) => {
-            println!("请求被封禁: {}", info.reason);
-        }
-        Err(e) => {
-            eprintln!("错误: {}", e);
-        }
+        // 添加短暂延迟，让速率限制有时间恢复
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
     }
 }

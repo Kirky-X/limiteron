@@ -7,6 +7,9 @@ use limiteron::storage::{BanStorage, QuotaStorage};
 use std::time::Duration;
 use tokio::time::sleep;
 
+const DEFAULT_LIMIT: u64 = 1000;
+const DEFAULT_WINDOW: Duration = Duration::from_secs(60);
+
 /// 测试PostgreSQL连接
 #[tokio::test]
 #[ignore] // 需要PostgreSQL服务器运行
@@ -34,10 +37,15 @@ async fn test_postgres_quota_storage() {
     let resource = "test_resource";
 
     // 清理旧数据
-    let _ = storage.reset(user_id, resource).await;
+    let _ = storage
+        .reset(user_id, resource, DEFAULT_LIMIT, DEFAULT_WINDOW)
+        .await;
 
     // 消费配额
-    let result = storage.consume(user_id, resource, 100).await.unwrap();
+    let result = storage
+        .consume(user_id, resource, 100, DEFAULT_LIMIT, DEFAULT_WINDOW)
+        .await
+        .unwrap();
     assert!(result.allowed);
     assert_eq!(result.remaining, 900);
 
@@ -47,7 +55,10 @@ async fn test_postgres_quota_storage() {
     assert_eq!(quota.unwrap().consumed, 100);
 
     // 重置配额
-    storage.reset(user_id, resource).await.unwrap();
+    storage
+        .reset(user_id, resource, DEFAULT_LIMIT, DEFAULT_WINDOW)
+        .await
+        .unwrap();
     let quota = storage.get_quota(user_id, resource).await.unwrap();
     assert!(quota.is_some());
     assert_eq!(quota.unwrap().consumed, 0);
@@ -66,15 +77,23 @@ async fn test_postgres_transaction_rollback() {
     let resource = "transaction_test_resource";
 
     // 清理
-    let _ = storage.reset(user_id, resource).await;
+    let _ = storage
+        .reset(user_id, resource, DEFAULT_LIMIT, DEFAULT_WINDOW)
+        .await;
 
     // 消费配额
-    let result1 = storage.consume(user_id, resource, 100).await.unwrap();
+    let result1 = storage
+        .consume(user_id, resource, 100, DEFAULT_LIMIT, DEFAULT_WINDOW)
+        .await
+        .unwrap();
     assert!(result1.allowed);
 
     // 模拟事务失败（这里简化处理，实际应该在事务中）
     // 在真实场景中，如果业务逻辑失败，应该调用reset来回滚
-    storage.reset(user_id, resource).await.unwrap();
+    storage
+        .reset(user_id, resource, DEFAULT_LIMIT, DEFAULT_WINDOW)
+        .await
+        .unwrap();
 
     // 验证配额已被重置
     let quota = storage.get_quota(user_id, resource).await.unwrap();
@@ -234,7 +253,9 @@ async fn test_postgres_connection_pool() {
         handles.push(tokio::spawn(async move {
             // 执行多次操作
             for _ in 0..10 {
-                let _ = storage_clone.consume(&user_id, resource, 1).await;
+                let _ = storage_clone
+                    .consume(&user_id, resource, 1, DEFAULT_LIMIT, DEFAULT_WINDOW)
+                    .await;
             }
         }));
     }
@@ -259,7 +280,9 @@ async fn test_postgres_high_concurrency() {
     let resource = "high_concurrency_pg_resource";
 
     // 清理
-    let _ = storage.reset(user_id, resource).await;
+    let _ = storage
+        .reset(user_id, resource, DEFAULT_LIMIT, DEFAULT_WINDOW)
+        .await;
 
     // 500个并发请求
     let mut handles = vec![];
@@ -270,7 +293,9 @@ async fn test_postgres_high_concurrency() {
         let resource = resource.to_string();
 
         handles.push(tokio::spawn(async move {
-            storage_clone.consume(&user_id, &resource, 1).await
+            storage_clone
+                .consume(&user_id, &resource, 1, DEFAULT_LIMIT, DEFAULT_WINDOW)
+                .await
         }));
     }
 

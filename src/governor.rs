@@ -481,13 +481,13 @@ impl Governor {
     /// 获取决策链统计
     #[instrument(skip(self))]
     pub async fn decision_chain_stats(&self) -> crate::decision_chain::ChainStats {
-        self.decision_chain.read().await.stats().clone()
+        self.decision_chain.read().await.stats()
     }
 
     /// 获取规则匹配器统计
     #[instrument(skip(self))]
     pub async fn rule_matcher_stats(&self) -> crate::matchers::MatcherStats {
-        self.rule_matcher.read().await.stats().clone()
+        self.rule_matcher.read().await.stats().unwrap_or_default()
     }
 
     /// 重置统计信息
@@ -495,8 +495,8 @@ impl Governor {
     pub async fn reset_stats(&self) {
         info!("重置统计信息");
 
-        self.decision_chain.write().await.reset_stats();
-        self.rule_matcher.write().await.reset_stats();
+        let _ = self.decision_chain.write().await.reset_stats();
+        let _ = self.rule_matcher.write().await.reset_stats();
         self.total_requests.store(0, Ordering::Relaxed);
         self.allowed_requests.store(0, Ordering::Relaxed);
         self.rejected_requests.store(0, Ordering::Relaxed);

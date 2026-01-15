@@ -201,12 +201,30 @@ impl BanStorage for MemoryStorage {
     }
 
     async fn increment_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError> {
-        let ban_times = if let Some(record) = self.bans.get(target) {
+        let new_times = if let Some(record) = self.bans.get(target) {
             record.ban_times + 1
         } else {
             1
         };
-        Ok(ban_times as u64)
+
+        // 如果存在记录，更新它
+        if let Some(mut record) = self.bans.get_mut(target) {
+            record.ban_times = new_times;
+        } else {
+            // 如果不存在，创建一个新的封禁记录
+            let new_record = BanRecord {
+                target: target.clone(),
+                ban_times: new_times as u32,
+                duration: std::time::Duration::from_secs(0),
+                banned_at: chrono::Utc::now(),
+                expires_at: chrono::Utc::now(),
+                is_manual: false,
+                reason: "Incremented ban times".to_string(),
+            };
+            self.bans.insert(target.clone(), new_record);
+        }
+
+        Ok(new_times as u64)
     }
 
     async fn get_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError> {
@@ -458,6 +476,7 @@ impl BanStorage for MockBanStorage {
 mod tests {
     use super::*;
     use std::hash::Hash;
+    use std::sync::Arc;
 
     #[tokio::test]
     async fn test_memory_storage_set_get() {
@@ -486,7 +505,16 @@ mod tests {
     #[tokio::test]
     async fn test_mock_quota_storage() {
         let storage = MockQuotaStorage;
-        let result = storage.consume("user1", "resource1", 10, 1000, std::time::Duration::from_secs(60)).await.unwrap();
+        let result = storage
+            .consume(
+                "user1",
+                "resource1",
+                10,
+                1000,
+                std::time::Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
         assert!(result.allowed);
         assert_eq!(result.remaining, 1000);
         assert!(!result.alert_triggered);
@@ -562,5 +590,335 @@ mod tests {
         target1.hash(&mut hasher1);
         target2.hash(&mut hasher2);
         assert_eq!(hasher1.finish(), hasher2.finish());
+    }
+
+    // ==================== MemoryStorage 完整功能测试 ====================
+
+    /// 测试 MemoryStorage 的 Send + Sync 属性
+    #[test]
+    fn test_memory_storage_send_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<MemoryStorage>();
+    }
+
+    /// 测试 MemoryStorage 实现 QuotaStorage
+    #[tokio::test]
+    async fn test_memory_storage_quota_consume() {
+        let storage = MemoryStorage::new();
+        let result = storage
+            .consume(
+                "user1",
+                "api_calls",
+                10,
+                100,
+                std::time::Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 90);
+    }
+
+    /// 测试 MemoryStorage 配额耗尽
+    #[tokio::test]
+    async fn test_memory_storage_quota_exhausted() {
+        let storage = MemoryStorage::new();
+        // 消费 100 次，每次 1，limit 是 100
+        for _ in 0..100 {
+            let result = storage
+                .consume(
+                    "user1",
+                    "api_calls",
+                    1,
+                    100,
+                    std::time::Duration::from_secs(60),
+                )
+                .await
+                .unwrap();
+            assert!(result.allowed);
+        }
+        // 第 101 次应该被拒绝
+        let result = storage
+            .consume(
+                "user1",
+                "api_calls",
+                1,
+                100,
+                std::time::Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+        assert!(!result.allowed);
+        assert_eq!(result.remaining, 0);
+    }
+
+    /// 测试 MemoryStorage 获取配额
+    #[tokio::test]
+    async fn test_memory_storage_get_quota() {
+        let storage = MemoryStorage::new();
+        // 先消费一些配额
+        storage
+            .consume(
+                "user1",
+                "api_calls",
+                25,
+                100,
+                std::time::Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+
+        let quota = storage.get_quota("user1", "api_calls").await.unwrap();
+        assert!(quota.is_some());
+        let q = quota.unwrap();
+        assert_eq!(q.consumed, 25);
+        assert_eq!(q.limit, 100);
+    }
+
+    /// 测试 MemoryStorage 重置配额
+    #[tokio::test]
+    async fn test_memory_storage_reset_quota() {
+        let storage = MemoryStorage::new();
+        // 先消费一些配额
+        storage
+            .consume(
+                "user1",
+                "api_calls",
+                50,
+                100,
+                std::time::Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
+
+        // 重置配额
+        storage
+            .reset(
+                "user1",
+                "api_calls",
+                200,
+                std::time::Duration::from_secs(120),
+            )
+            .await
+            .unwrap();
+
+        // 验证配额已重置
+        let quota = storage.get_quota("user1", "api_calls").await.unwrap();
+        assert!(quota.is_some());
+        assert_eq!(quota.unwrap().consumed, 0);
+    }
+
+    /// 测试 MemoryStorage 实现 BanStorage - 添加封禁
+    #[tokio::test]
+    async fn test_memory_storage_add_ban() {
+        let storage = MemoryStorage::new();
+        let target = BanTarget::Ip("192.168.1.100".to_string());
+        let record = BanRecord {
+            target: target.clone(),
+            ban_times: 1,
+            duration: std::time::Duration::from_secs(300),
+            banned_at: chrono::Utc::now(),
+            expires_at: chrono::Utc::now() + chrono::Duration::seconds(300),
+            is_manual: false,
+            reason: "Rate limit exceeded".to_string(),
+        };
+
+        storage.add_ban(&record).await.unwrap();
+
+        // 验证封禁已添加
+        let is_banned = storage.is_banned(&target).await.unwrap();
+        assert!(is_banned.is_some());
+        assert_eq!(is_banned.unwrap().ban_times, 1);
+    }
+
+    /// 测试 MemoryStorage 封禁检查
+    #[tokio::test]
+    async fn test_memory_storage_is_banned() {
+        let storage = MemoryStorage::new();
+        let target = BanTarget::UserId("banned_user".to_string());
+
+        // 未封禁时应该返回 None
+        let is_banned = storage.is_banned(&target).await.unwrap();
+        assert!(is_banned.is_none());
+
+        // 添加封禁
+        let record = BanRecord {
+            target: target.clone(),
+            ban_times: 1,
+            duration: std::time::Duration::from_secs(300),
+            banned_at: chrono::Utc::now(),
+            expires_at: chrono::Utc::now() + chrono::Duration::seconds(300),
+            is_manual: false,
+            reason: "Test ban".to_string(),
+        };
+        storage.add_ban(&record).await.unwrap();
+
+        // 验证封禁存在
+        let is_banned = storage.is_banned(&target).await.unwrap();
+        assert!(is_banned.is_some());
+    }
+
+    /// 测试 MemoryStorage 移除封禁
+    #[tokio::test]
+    async fn test_memory_storage_remove_ban() {
+        let storage = MemoryStorage::new();
+        let target = BanTarget::Ip("192.168.1.200".to_string());
+
+        // 添加封禁
+        let record = BanRecord {
+            target: target.clone(),
+            ban_times: 1,
+            duration: std::time::Duration::from_secs(300),
+            banned_at: chrono::Utc::now(),
+            expires_at: chrono::Utc::now() + chrono::Duration::seconds(300),
+            is_manual: false,
+            reason: "Test ban".to_string(),
+        };
+        storage.add_ban(&record).await.unwrap();
+
+        // 移除封禁
+        storage.remove_ban(&target).await.unwrap();
+
+        // 验证封禁已移除
+        let is_banned = storage.is_banned(&target).await.unwrap();
+        assert!(is_banned.is_none());
+    }
+
+    /// 测试 MemoryStorage 封禁历史
+    #[tokio::test]
+    async fn test_memory_storage_ban_history() {
+        let storage = MemoryStorage::new();
+        let target = BanTarget::UserId("history_user".to_string());
+
+        // 添加封禁
+        let record = BanRecord {
+            target: target.clone(),
+            ban_times: 3,
+            duration: std::time::Duration::from_secs(300),
+            banned_at: chrono::Utc::now(),
+            expires_at: chrono::Utc::now() + chrono::Duration::seconds(300),
+            is_manual: false,
+            reason: "Multiple violations".to_string(),
+        };
+        storage.add_ban(&record).await.unwrap();
+
+        // 验证历史记录
+        let history = storage.get_history(&target).await.unwrap();
+        assert!(history.is_some());
+        assert_eq!(history.unwrap().ban_times, 3);
+    }
+
+    /// 测试 MemoryStorage 增加封禁次数
+    #[tokio::test]
+    async fn test_memory_storage_increment_ban_times() {
+        let storage = MemoryStorage::new();
+        let target = BanTarget::Ip("192.168.1.300".to_string());
+
+        // 初始封禁次数
+        let times = storage.get_ban_times(&target).await.unwrap();
+        assert_eq!(times, 0);
+
+        // 增加封禁次数
+        let new_times = storage.increment_ban_times(&target).await.unwrap();
+        assert_eq!(new_times, 1);
+
+        let new_times = storage.increment_ban_times(&target).await.unwrap();
+        assert_eq!(new_times, 2);
+    }
+
+    /// 测试 MemoryStorage 清理过期封禁
+    #[tokio::test]
+    async fn test_memory_storage_cleanup_expired_bans() {
+        let storage = MemoryStorage::new();
+        let target = BanTarget::Ip("192.168.1.400".to_string());
+
+        // 添加一个已过期的封禁
+        let record = BanRecord {
+            target: target.clone(),
+            ban_times: 1,
+            duration: std::time::Duration::from_secs(1),
+            banned_at: chrono::Utc::now() - chrono::Duration::seconds(10),
+            expires_at: chrono::Utc::now() - chrono::Duration::seconds(5),
+            is_manual: false,
+            reason: "Expired ban".to_string(),
+        };
+        storage.add_ban(&record).await.unwrap();
+
+        // 验证封禁存在
+        let is_banned = storage.is_banned(&target).await.unwrap();
+        assert!(is_banned.is_some());
+
+        // 等待过期
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // 清理过期封禁
+        let cleaned = storage.cleanup_expired_bans().await.unwrap();
+        assert!(cleaned >= 1);
+
+        // 验证封禁已清理
+        let is_banned = storage.is_banned(&target).await.unwrap();
+        assert!(is_banned.is_none());
+    }
+
+    /// 测试 MemoryStorage 并发访问
+    #[tokio::test]
+    async fn test_memory_storage_concurrent_access() {
+        let storage = Arc::new(MemoryStorage::new());
+        let mut handles = vec![];
+
+        for i in 0..10 {
+            let storage_clone = storage.clone();
+            handles.push(tokio::spawn(async move {
+                for j in 0..100 {
+                    let key = format!("key_{}_{}", i, j);
+                    let value = format!("value_{}_{}", i, j);
+                    storage_clone.set(&key, &value, None).await.unwrap();
+                    let retrieved = storage_clone.get(&key).await.unwrap();
+                    assert_eq!(retrieved, Some(value));
+                }
+            }));
+        }
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
+    }
+
+    /// 测试 MemoryStorage 作为真实存储后端
+    #[tokio::test]
+    async fn test_memory_storage_as_production_storage() {
+        // 这是一个集成测试，验证 MemoryStorage 可以作为生产存储使用
+        let storage = Arc::new(MemoryStorage::new());
+
+        // 并发添加封禁
+        let mut handles = vec![];
+        for i in 0..5 {
+            let storage_clone = storage.clone();
+            let target = BanTarget::Ip(format!("192.168.1.{}", i));
+            handles.push(tokio::spawn(async move {
+                let record = BanRecord {
+                    target: target.clone(),
+                    ban_times: 1,
+                    duration: std::time::Duration::from_secs(3600),
+                    banned_at: chrono::Utc::now(),
+                    expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+                    is_manual: false,
+                    reason: format!("Test ban {}", i),
+                };
+                storage_clone.add_ban(&record).await.unwrap();
+                storage_clone.is_banned(&target).await.unwrap()
+            }));
+        }
+
+        for result in handles {
+            assert!(result.await.unwrap().is_some());
+        }
+
+        // 验证所有封禁都存在
+        for i in 0..5 {
+            let target = BanTarget::Ip(format!("192.168.1.{}", i));
+            let is_banned = storage.is_banned(&target).await.unwrap();
+            assert!(is_banned.is_some());
+        }
     }
 }

@@ -1,0 +1,1 @@
+/root/dev-craft-ai/rules/06-documentation.md

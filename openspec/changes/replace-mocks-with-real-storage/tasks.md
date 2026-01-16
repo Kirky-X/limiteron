@@ -14,7 +14,7 @@
 
 ## 3. Update ban_manager.rs to Use Real Storage
 - [x] 3.1 Replace MockBanStorage with MemoryStorage in tests
-- [ ] 3.2 Update documentation examples to use real storage
+- [x] 3.2 Update documentation examples to use real storage
 - [x] 3.3 Verify ban_manager tests pass with real storage
 
 ## 4. Update L2 Cache to Use Real Storage
@@ -23,10 +23,10 @@
 - [x] 4.3 Verify all l2_cache tests pass
 
 ## 5. Update Common Tests
-- [ ] 5.1 Replace MockQuotaStorage usage with MemoryStorage
-- [ ] 5.2 Replace MockBanStorage usage with MemoryStorage
-- [ ] 5.3 Update test helper functions to create MemoryStorage instances
-- [ ] 5.4 Run all common tests to verify no regression
+- [x] 5.1 Replace MockQuotaStorage usage with MemoryStorage
+- [x] 5.2 Replace MockBanStorage usage with MemoryStorage
+- [x] 5.3 Update test helper functions to create MemoryStorage instances
+- [x] 5.4 Run all common tests to verify no regression
 
 ## 6. Validation
 - [x] 6.1 Run `cargo test --lib --all-features` - all tests pass

@@ -1305,7 +1305,11 @@ impl RuleMatcher {
         }
 
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self
+                .stats
+                .write()
+                .map_err(|e| FlowGuardError::LockError(e.to_string()))
+                .ok()?;
             stats.total_mismatches += 1;
         }
         None
@@ -1326,14 +1330,22 @@ impl RuleMatcher {
     }
 
     /// 获取统计信息
-    pub fn stats(&self) -> MatcherStats {
-        self.stats.read().unwrap().clone()
+    pub fn stats(&self) -> Result<MatcherStats, FlowGuardError> {
+        Ok(self
+            .stats
+            .read()
+            .map_err(|e| FlowGuardError::LockError(e.to_string()))?
+            .clone())
     }
 
     /// 重置统计信息
-    pub fn reset_stats(&self) {
-        let mut stats = self.stats.write().unwrap();
+    pub fn reset_stats(&self) -> Result<(), FlowGuardError> {
+        let mut stats = self
+            .stats
+            .write()
+            .map_err(|e| FlowGuardError::LockError(e.to_string()))?;
         *stats = MatcherStats::default();
+        Ok(())
     }
 
     /// 获取规则数量
@@ -1736,7 +1748,7 @@ mod tests {
         let context2 = RequestContext::new().with_header("X-User-Id", "user2");
         matcher.matches(&context2);
 
-        let stats = matcher.stats();
+        let stats = matcher.stats().unwrap();
         assert_eq!(stats.total_matches, 1);
         assert_eq!(stats.total_mismatches, 1);
     }

@@ -23,6 +23,13 @@ pub fn create_memory_storage() -> Arc<MemoryStorage> {
     Arc::new(MemoryStorage::new())
 }
 
+/// 清理存储中的所有数据（用于测试隔离）
+pub async fn clear_storage(storage: &MemoryStorage) {
+    // MemoryStorage 没有 clear 方法，需要重新创建
+    // 由于 Arc 无法直接修改内部内容，这里只是占位
+    // 测试中应该使用独立的 storage 实例
+}
+
 /// 创建测试用的Governor
 pub async fn create_test_governor() -> Result<Governor, FlowGuardError> {
     let config = FlowControlConfig {
@@ -85,226 +92,6 @@ pub async fn create_test_ban_manager() -> BanManager {
     BanManager::new(storage, Some(create_ban_manager_config()))
         .await
         .unwrap()
-}
-
-/// Mock存储实现 - 用于单元测试
-pub struct MockQuotaStorage {
-    quotas: Arc<tokio::sync::RwLock<std::collections::HashMap<String, QuotaInfo>>>,
-}
-
-impl MockQuotaStorage {
-    pub fn new() -> Self {
-        Self {
-            quotas: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-        }
-    }
-
-    pub fn clear(&self) {
-        self.quotas.blocking_write().clear();
-    }
-}
-
-#[async_trait::async_trait]
-impl QuotaStorage for MockQuotaStorage {
-    async fn get_quota(
-        &self,
-        user_id: &str,
-        resource: &str,
-    ) -> Result<Option<QuotaInfo>, StorageError> {
-        let key = format!("{}:{}", user_id, resource);
-        Ok(self.quotas.read().await.get(&key).cloned())
-    }
-
-    async fn consume(
-        &self,
-        user_id: &str,
-        resource: &str,
-        cost: u64,
-        limit: u64,
-        window: std::time::Duration,
-    ) -> Result<limiteron::error::ConsumeResult, StorageError> {
-        let key = format!("{}:{}", user_id, resource);
-        let mut quotas = self.quotas.write().await;
-
-        let now = chrono::Utc::now();
-
-        // 获取或创建配额信息
-        let quota_info = quotas.entry(key.clone()).or_insert_with(|| QuotaInfo {
-            consumed: 0,
-            limit,
-            window_start: now,
-            window_end: now
-                + chrono::Duration::from_std(window).unwrap_or(chrono::Duration::seconds(3600)),
-        });
-
-        // 检查窗口是否过期
-        if now >= quota_info.window_end {
-            quota_info.consumed = 0;
-            quota_info.window_start = now;
-            quota_info.window_end =
-                now + chrono::Duration::from_std(window).unwrap_or(chrono::Duration::seconds(3600));
-            quota_info.limit = limit; // 更新 limit
-        }
-
-        let total_limit = quota_info.limit;
-
-        // 检查是否超过限制
-        if quota_info.consumed + cost > total_limit {
-            return Ok(limiteron::error::ConsumeResult {
-                allowed: false,
-                remaining: total_limit.saturating_sub(quota_info.consumed),
-                alert_triggered: false,
-            });
-        }
-
-        quota_info.consumed += cost;
-
-        Ok(limiteron::error::ConsumeResult {
-            allowed: true,
-            remaining: total_limit.saturating_sub(quota_info.consumed),
-            alert_triggered: false,
-        })
-    }
-
-    async fn reset(
-        &self,
-        user_id: &str,
-        resource: &str,
-        limit: u64,
-        window: std::time::Duration,
-    ) -> Result<(), StorageError> {
-        let key = format!("{}:{}", user_id, resource);
-        let mut quotas = self.quotas.write().await;
-
-        if let Some(quota_info) = quotas.get_mut(&key) {
-            quota_info.consumed = 0;
-            // 同时也更新配置
-            quota_info.limit = limit;
-            let now = chrono::Utc::now();
-            quota_info.window_start = now;
-            quota_info.window_end =
-                now + chrono::Duration::from_std(window).unwrap_or(chrono::Duration::seconds(3600));
-        }
-
-        Ok(())
-    }
-}
-
-/// Mock Ban存储实现
-pub struct MockBanStorage {
-    bans: Arc<tokio::sync::RwLock<std::collections::HashMap<String, BanRecord>>>,
-}
-
-impl MockBanStorage {
-    pub fn new() -> Self {
-        Self {
-            bans: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-        }
-    }
-
-    pub fn clear(&self) {
-        self.bans.blocking_write().clear();
-    }
-
-    fn get_key(target: &BanTarget) -> String {
-        match target {
-            BanTarget::Ip(ip) => format!("ip:{}", ip),
-            BanTarget::UserId(user_id) => format!("user:{}", user_id),
-            BanTarget::Mac(mac) => format!("mac:{}", mac),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl BanStorage for MockBanStorage {
-    async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, StorageError> {
-        let key = Self::get_key(target);
-        let ban = self.bans.read().await.get(&key).cloned();
-
-        if let Some(ban) = ban {
-            let now = chrono::Utc::now();
-            if ban.expires_at > now {
-                Ok(Some(ban))
-            } else {
-                // 过期了，删除记录
-                self.bans.write().await.remove(&key);
-                Ok(None)
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn save(&self, ban: &BanRecord) -> Result<(), StorageError> {
-        let key = Self::get_key(&ban.target);
-        self.bans.write().await.insert(key, ban.clone());
-        Ok(())
-    }
-
-    async fn get_history(
-        &self,
-        target: &BanTarget,
-    ) -> Result<Option<limiteron::storage::BanHistory>, StorageError> {
-        let key = Self::get_key(target);
-        if let Some(ban) = self.bans.read().await.get(&key) {
-            Ok(Some(limiteron::storage::BanHistory {
-                ban_times: ban.ban_times,
-                last_banned_at: ban.banned_at,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn increment_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError> {
-        let key = Self::get_key(target);
-        let mut bans = self.bans.write().await;
-
-        if let Some(ban) = bans.get_mut(&key) {
-            ban.ban_times += 1;
-            Ok(ban.ban_times as u64)
-        } else {
-            Ok(1)
-        }
-    }
-
-    async fn get_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError> {
-        let key = Self::get_key(target);
-        Ok(self
-            .bans
-            .read()
-            .await
-            .get(&key)
-            .map(|b| b.ban_times as u64)
-            .unwrap_or(0))
-    }
-
-    async fn remove_ban(&self, target: &BanTarget) -> Result<(), StorageError> {
-        let key = Self::get_key(target);
-        self.bans.write().await.remove(&key);
-        Ok(())
-    }
-
-    async fn cleanup_expired_bans(&self) -> Result<u64, StorageError> {
-        let now = chrono::Utc::now();
-        let mut bans = self.bans.write().await;
-        let mut count = 0;
-
-        bans.retain(|_, ban| {
-            if ban.expires_at < now {
-                count += 1;
-                false
-            } else {
-                true
-            }
-        });
-
-        Ok(count)
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
 }
 
 /// 等待指定时间（简化测试代码）
@@ -408,8 +195,8 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_mock_quota_storage() {
-        let storage = MockQuotaStorage::new();
+    async fn test_memory_storage_quota() {
+        let storage = MemoryStorage::new();
 
         // 消费配额
         let result = storage
@@ -436,8 +223,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mock_ban_storage() {
-        let storage = MockBanStorage::new();
+    async fn test_memory_storage_ban() {
+        let storage = MemoryStorage::new();
 
         // 添加封禁
         let ban = BanRecord {

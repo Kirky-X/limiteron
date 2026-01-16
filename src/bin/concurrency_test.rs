@@ -38,10 +38,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn create_test_config() -> FlowControlConfig {
+fn create_test_config() -> limiteron::config::FlowControlConfig {
     use limiteron::config::{ActionConfig, GlobalConfig, LimiterConfig, Matcher, Rule};
 
-    FlowControlConfig {
+    limiteron::config::FlowControlConfig {
         version: "1.0".to_string(),
         global: GlobalConfig {
             storage: "memory".to_string(),

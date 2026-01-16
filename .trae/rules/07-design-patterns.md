@@ -1,0 +1,1 @@
+/root/dev-craft-ai/rules/07-design-patterns.md

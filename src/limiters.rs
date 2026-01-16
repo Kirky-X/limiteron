@@ -53,7 +53,10 @@ pub trait Limiter: Send + Sync {
 
     /// 检查是否允许（接受 key 参数，用于宏）
     /// 默认实现：消费 1 个单位的 cost
-    fn check(&self, _key: &str) -> Pin<Box<dyn Future<Output = Result<(), FlowGuardError>> + Send + '_>> {
+    fn check(
+        &self,
+        _key: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), FlowGuardError>> + Send + '_>> {
         Box::pin(async move {
             self.allow(1).await?;
             Ok(())

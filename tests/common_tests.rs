@@ -5,15 +5,21 @@ mod common;
 #[cfg(test)]
 mod tests {
     use super::common::*;
-    use limiteron::storage::{BanStorage, QuotaStorage};
+    use limiteron::storage::{BanStorage, MemoryStorage, QuotaStorage};
 
     #[tokio::test]
-    async fn test_mock_quota_storage() {
-        let storage = MockQuotaStorage::new();
+    async fn test_memory_storage_quota() {
+        let storage = MemoryStorage::new();
 
         // 消费配额
         let result = storage
-            .consume("user1", "resource1", 100, 1000, std::time::Duration::from_secs(60))
+            .consume(
+                "user1",
+                "resource1",
+                100,
+                1000,
+                std::time::Duration::from_secs(60),
+            )
             .await
             .unwrap();
         assert!(result.allowed);
@@ -21,7 +27,13 @@ mod tests {
 
         // 再次消费
         let result = storage
-            .consume("user1", "resource1", 500, 1000, std::time::Duration::from_secs(60))
+            .consume(
+                "user1",
+                "resource1",
+                500,
+                1000,
+                std::time::Duration::from_secs(60),
+            )
             .await
             .unwrap();
         assert!(result.allowed);
@@ -29,18 +41,24 @@ mod tests {
 
         // 超过限制
         let result = storage
-            .consume("user1", "resource1", 500, 1000, std::time::Duration::from_secs(60))
+            .consume(
+                "user1",
+                "resource1",
+                500,
+                1000,
+                std::time::Duration::from_secs(60),
+            )
             .await
             .unwrap();
         assert!(!result.allowed);
     }
 
     #[tokio::test]
-    async fn test_mock_ban_storage() {
+    async fn test_memory_storage_ban() {
         use limiteron::storage::{BanRecord, BanTarget};
         use std::time::Duration;
 
-        let storage = MockBanStorage::new();
+        let storage = MemoryStorage::new();
 
         // 添加封禁
         let ban = BanRecord {

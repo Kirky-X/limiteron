@@ -1,0 +1,1 @@
+/root/dev-craft-ai/rules/03-project-structure.md

@@ -1,0 +1,1 @@
+/root/dev-craft-ai/rules/04-environment.md

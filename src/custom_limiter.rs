@@ -170,8 +170,8 @@ impl Default for LimiterStats {
 /// 提供线程安全的限流器注册、查询和注销功能。
 #[derive(Clone)]
 pub struct CustomLimiterRegistry {
-    /// 限流器存储（使用 RwLock 实现线程安全）
-    limiters: Arc<RwLock<HashMap<String, Box<dyn CustomLimiter>>>>,
+    /// 限流器存储（使用 RwLock + Arc 实现线程安全）
+    limiters: Arc<RwLock<HashMap<String, Arc<dyn CustomLimiter>>>>,
 }
 
 impl std::fmt::Debug for CustomLimiterRegistry {
@@ -215,7 +215,7 @@ impl CustomLimiterRegistry {
     /// async fn main() {
     ///     let registry = CustomLimiterRegistry::new();
     ///     let limiter = LeakyBucketLimiter::new(100, 10);
-    ///     registry.register("leaky_bucket".to_string(), Box::new(limiter)).await.unwrap();
+    ///     registry.register("leaky_bucket".to_string(), Arc::new(limiter)).await.unwrap();
     /// }
     /// ```
     pub async fn register(
@@ -232,19 +232,20 @@ impl CustomLimiterRegistry {
         }
 
         info!("注册自定义限流器: {}", name);
-        limiters.insert(name.clone(), limiter);
+        // 将 Box 转换为 Arc 以支持克隆
+        limiters.insert(name.clone(), Arc::from(limiter));
         debug!("当前注册的限流器数量: {}", limiters.len());
 
         Ok(())
     }
 
-    /// 获取限流器
+    /// 获取限流器（返回 Arc 引用）
     ///
     /// # 参数
     /// - `name`: 限流器名称
     ///
     /// # 返回
-    /// - `Some(limiter)`: 找到限流器
+    /// - `Some(Arc<dyn CustomLimiter>)`: 找到限流器
     /// - `None`: 未找到限流器
     ///
     /// # 示例
@@ -259,14 +260,13 @@ impl CustomLimiterRegistry {
     ///     }
     /// }
     /// ```
-    pub async fn get(&self, name: &str) -> Option<Box<dyn CustomLimiter>> {
+    pub async fn get(&self, name: &str) -> Option<Arc<dyn CustomLimiter>> {
         let limiters = self.limiters.read().await;
 
-        if let Some(_limiter) = limiters.get(name) {
+        if let Some(limiter) = limiters.get(name) {
             debug!("查询限流器: {}", name);
-            // 注意：这里不能直接返回 trait 对象
-            // 在实际使用中，应该通过 allow 方法调用而不是获取所有权
-            None
+            // 返回 Arc 克隆
+            Some(limiter.clone())
         } else {
             debug!("未找到限流器: {}", name);
             None
@@ -488,8 +488,11 @@ impl LeakyBucketLimiter {
     }
 
     /// 漏出请求（移除过期的请求）
-    fn leak(&self) {
-        let mut queue = self.queue.lock().unwrap();
+    fn leak(&self) -> Result<(), FlowGuardError> {
+        let mut queue = self
+            .queue
+            .lock()
+            .map_err(|e| FlowGuardError::LockError(e.to_string()))?;
         let now = Instant::now();
         let leak_interval = Duration::from_secs(1).div_f64(self.leak_rate as f64);
 
@@ -502,6 +505,7 @@ impl LeakyBucketLimiter {
                 break;
             }
         }
+        Ok(())
     }
 }
 
@@ -513,14 +517,17 @@ impl CustomLimiter for LeakyBucketLimiter {
 
     async fn allow(&self, cost: u64) -> Result<bool, FlowGuardError> {
         // 先漏出请求
-        self.leak();
+        self.leak()?;
 
         let current = self.current.load(Ordering::SeqCst);
 
         // 检查桶是否已满
         if current + cost > self.capacity {
             // 更新统计信息
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self
+                .stats
+                .lock()
+                .map_err(|e| FlowGuardError::LockError(e.to_string()))?;
             stats.total_requests += 1;
             stats.rejected_requests += 1;
 

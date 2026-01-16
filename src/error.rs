@@ -63,6 +63,10 @@ pub enum FlowGuardError {
     #[error("验证错误: {0}")]
     ValidationError(String),
 
+    /// 锁获取错误
+    #[error("锁获取错误: {0}")]
+    LockError(String),
+
     /// 其他错误
     #[error("未知错误: {0}")]
     Other(String),

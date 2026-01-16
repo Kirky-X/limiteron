@@ -1,0 +1,1 @@
+/root/dev-craft-ai/rules/08-error-logging.md

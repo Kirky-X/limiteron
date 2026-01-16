@@ -840,7 +840,16 @@ mod tests {
         let config = PostgresStorageConfig::new("postgresql://localhost/test");
         let storage = PostgresStorage::new(config).await.unwrap();
 
-        let result = storage.consume("user1", "resource1", 10, 1000, std::time::Duration::from_secs(60)).await.unwrap();
+        let result = storage
+            .consume(
+                "user1",
+                "resource1",
+                10,
+                1000,
+                std::time::Duration::from_secs(60),
+            )
+            .await
+            .unwrap();
         assert!(result.allowed);
 
         let quota = storage.get_quota("user1", "resource1").await.unwrap();

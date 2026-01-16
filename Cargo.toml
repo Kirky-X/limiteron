@@ -1,9 +1,17 @@
 [workspace]
 members = [
     ".",
-    "macros", "temp/test_project",
+    "macros",
 ]
 resolver = "2"
+exclude = [
+    "temp/comprehensive_test",
+    "temp/concurrent_test",
+    "temp/integration_test",
+    "temp/test_macro_fixed",
+    "temp/test_project",
+    "temp/test_project_simple",
+]
 
 [workspace.package]
 version = "0.1.0"

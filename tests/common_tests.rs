@@ -1,10 +1,14 @@
 //! Common模块测试入口
+//!
+//! 使用新的模块化测试结构
 
 mod common;
+mod modules;
 
 #[cfg(test)]
 mod tests {
     use super::common::*;
+    use super::modules::*;
     use limiteron::storage::{BanStorage, QuotaStorage};
 
     #[tokio::test]

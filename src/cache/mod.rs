@@ -12,8 +12,12 @@ pub use l2::{
     DEFAULT_EVICTION_THRESHOLD, DEFAULT_TTL_SECS,
 };
 
-// 重新导出 L3 缓存的公共 API
+// 重新导出 L3 缓存的公共 API (仅在 redis 特性启用时)
+#[cfg(feature = "redis")]
 pub use l3::{L3Cache, L3CacheConfig, L3CacheStats};
+
+#[cfg(not(feature = "redis"))]
+pub use l3::L3Cache;
 
 // 重新导出智能缓存的公共 API
 pub use smart::{CacheStats as SmartCacheStats, SmartCacheStrategy};

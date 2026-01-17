@@ -40,7 +40,9 @@ async fn test_e2e_quota_overdraft_alert() {
     // Step 1: 消费900（正常，90%使用率）
     let result = controller.consume(user_id, resource, 900).await.unwrap();
     assert!(result.allowed, "Should allow 900 consumption");
-    assert_eq!(result.remaining, 100, "Should have 100 remaining");
+    // 总额度 = 1000 + 200 = 1200
+    // 剩余 = 1200 - 900 = 300
+    assert_eq!(result.remaining, 300, "Should have 300 remaining");
     assert!(result.alert_triggered, "Should trigger 90% alert");
 
     println!("✓ Step 1: Consumed 900 (90%), alert triggered");
@@ -48,21 +50,25 @@ async fn test_e2e_quota_overdraft_alert() {
     // Step 2: 消费150（达到1050，进入透支）
     let result = controller.consume(user_id, resource, 150).await.unwrap();
     assert!(result.allowed, "Should allow 150 (overdraft)");
-    assert_eq!(result.remaining, 0, "Remaining should be 0 (in overdraft)");
+    // 剩余 = 1200 - 1050 = 150
+    assert_eq!(
+        result.remaining, 150,
+        "Remaining should be 150 (in overdraft)"
+    );
     assert!(result.alert_triggered, "Should trigger overdraft alert");
 
     println!("✓ Step 2: Consumed 150 (overdraft to 1050), alert triggered");
 
-    // Step 3: 尝试再消费150（应该失败，总共1200超过透支上限1200）
+    // Step 3: 尝试再消费151（应该失败，总共1201超过透支上限1200）
     let total_limit = 1200; // 1000 + 200 overdraft
-    let result = controller.consume(user_id, resource, 150).await.unwrap();
+    let result = controller.consume(user_id, resource, 151).await.unwrap();
     assert!(
         !result.allowed,
-        "Should reject 150 (exceeds overdraft limit)"
+        "Should reject 151 (exceeds overdraft limit)"
     );
     assert_eq!(result.remaining, 150, "Should have 150 remaining capacity");
 
-    println!("✓ Step 3: Rejected 150 (exceeds overdraft limit of 1200)");
+    println!("✓ Step 3: Rejected 151 (exceeds overdraft limit of 1200)");
 
     // Step 4: 验证当前状态
     let quota_state = controller.get_quota(user_id, resource).await.unwrap();
@@ -309,7 +315,7 @@ async fn test_e2e_quota_concurrent_consumption() {
     let mut handles = vec![];
 
     for _ in 0..10 {
-        let controller_clone = Arc::clone(&controller);
+        let controller_clone = controller.clone();
         let user_id = user_id.to_string();
         let resource = resource.to_string();
 

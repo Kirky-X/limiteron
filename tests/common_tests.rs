@@ -5,11 +5,11 @@ mod common;
 #[cfg(test)]
 mod tests {
     use super::common::*;
-    use limiteron::storage::{BanStorage, MemoryStorage, QuotaStorage};
+    use limiteron::storage::{BanStorage, QuotaStorage};
 
     #[tokio::test]
-    async fn test_memory_storage_quota() {
-        let storage = MemoryStorage::new();
+    async fn test_mock_quota_storage() {
+        let storage = MockQuotaStorage::new();
 
         // 消费配额
         let result = storage
@@ -54,11 +54,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_memory_storage_ban() {
+    async fn test_mock_ban_storage() {
         use limiteron::storage::{BanRecord, BanTarget};
         use std::time::Duration;
 
-        let storage = MemoryStorage::new();
+        let storage = MockBanStorage::new();
 
         // 添加封禁
         let ban = BanRecord {

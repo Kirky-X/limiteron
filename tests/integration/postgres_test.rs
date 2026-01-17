@@ -14,9 +14,8 @@ const DEFAULT_WINDOW: Duration = Duration::from_secs(60);
 #[tokio::test]
 #[ignore] // 需要PostgreSQL服务器运行
 async fn test_postgres_connection() {
-    let config = PostgresStorageConfig::new(
-        "postgresql://limiteron_user:test_password_123@localhost:5432/limiteron_test",
-    );
+    let config =
+        PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron");
     let storage = PostgresStorage::new(config).await.unwrap();
 
     // 测试基本连接
@@ -28,9 +27,8 @@ async fn test_postgres_connection() {
 #[tokio::test]
 #[ignore]
 async fn test_postgres_quota_storage() {
-    let config = PostgresStorageConfig::new(
-        "postgresql://limiteron_user:test_password_123@localhost:5432/limiteron_test",
-    );
+    let config =
+        PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron");
     let storage = PostgresStorage::new(config).await.unwrap();
 
     let user_id = "test_user_pg";
@@ -68,9 +66,8 @@ async fn test_postgres_quota_storage() {
 #[tokio::test]
 #[ignore]
 async fn test_postgres_transaction_rollback() {
-    let config = PostgresStorageConfig::new(
-        "postgresql://limiteron_user:test_password_123@localhost:5432/limiteron_test",
-    );
+    let config =
+        PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron");
     let storage = PostgresStorage::new(config).await.unwrap();
 
     let user_id = "transaction_test_user";
@@ -108,9 +105,8 @@ async fn test_postgres_ban_storage() {
     use chrono::Utc;
     use limiteron::storage::{BanRecord, BanTarget};
 
-    let config = PostgresStorageConfig::new(
-        "postgresql://limiteron_user:test_password_123@localhost:5432/limiteron_test",
-    );
+    let config =
+        PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron");
     let storage = PostgresStorage::new(config).await.unwrap();
 
     let target = BanTarget::UserId("test_user_ban".to_string());
@@ -149,10 +145,15 @@ async fn test_postgres_list_bans() {
     use chrono::Utc;
     use limiteron::storage::{BanRecord, BanTarget};
 
-    let config = PostgresStorageConfig::new(
-        "postgresql://limiteron_user:test_password_123@localhost:5432/limiteron_test",
-    );
+    let config =
+        PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron");
     let storage = PostgresStorage::new(config).await.unwrap();
+
+    // 清理旧数据
+    for i in 0..5 {
+        let target = BanTarget::UserId(format!("list_test_user_{}", i));
+        let _ = storage.remove_ban(&target).await;
+    }
 
     // 添加多个封禁
     for i in 0..5 {
@@ -184,12 +185,14 @@ async fn test_postgres_cleanup_expired_bans() {
     use chrono::Utc;
     use limiteron::storage::{BanRecord, BanTarget};
 
-    let config = PostgresStorageConfig::new(
-        "postgresql://limiteron_user:test_password_123@localhost:5432/limiteron_test",
-    );
+    let config =
+        PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron");
     let storage = PostgresStorage::new(config).await.unwrap();
 
     let target = BanTarget::Ip("192.168.1.250".to_string());
+
+    // 清理旧数据
+    let _ = storage.remove_ban(&target).await;
 
     // 添加一个已过期的封禁
     let ban = BanRecord {
@@ -206,6 +209,10 @@ async fn test_postgres_cleanup_expired_bans() {
 
     // 添加一个活跃的封禁
     let target2 = BanTarget::Ip("192.168.1.251".to_string());
+
+    // 清理旧数据
+    let _ = storage.remove_ban(&target2).await;
+
     let ban2 = BanRecord {
         target: target2.clone(),
         ban_times: 1,
@@ -235,10 +242,9 @@ async fn test_postgres_cleanup_expired_bans() {
 #[tokio::test]
 #[ignore]
 async fn test_postgres_connection_pool() {
-    let config = PostgresStorageConfig::new(
-        "postgresql://limiteron_user:test_password_123@localhost:5432/limiteron_test",
-    )
-    .with_pool_size(10);
+    let config =
+        PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron")
+            .with_pool_size(10);
 
     let storage = PostgresStorage::new(config).await.unwrap();
 
@@ -269,10 +275,9 @@ async fn test_postgres_connection_pool() {
 #[tokio::test]
 #[ignore]
 async fn test_postgres_high_concurrency() {
-    let config = PostgresStorageConfig::new(
-        "postgresql://limiteron_user:test_password_123@localhost:5432/limiteron_test",
-    )
-    .with_pool_size(50);
+    let config =
+        PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron")
+            .with_pool_size(50);
 
     let storage = PostgresStorage::new(config).await.unwrap();
 
@@ -326,9 +331,8 @@ async fn test_postgres_ban_times_tracking() {
     use chrono::Utc;
     use limiteron::storage::{BanRecord, BanTarget};
 
-    let config = PostgresStorageConfig::new(
-        "postgresql://limiteron_user:test_password_123@localhost:5432/limiteron_test",
-    );
+    let config =
+        PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron");
     let storage = PostgresStorage::new(config).await.unwrap();
 
     let target = BanTarget::UserId("ban_times_user".to_string());

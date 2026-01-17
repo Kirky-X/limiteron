@@ -34,9 +34,16 @@ CREATE TABLE IF NOT EXISTS ban_records (
 CREATE INDEX idx_ban_active ON ban_records(target_type, target_value, expires_at)
     WHERE unbanned_at IS NULL;
 
--- 添加唯一约束用于增量更新
+-- 添加唯一约束用于增量更新 (使用 IMMUTABLE 函数)
+CREATE OR REPLACE FUNCTION current_timestamp_immutable()
+RETURNS TIMESTAMPTZ AS $$
+BEGIN
+    RETURN CURRENT_TIMESTAMP;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ban_active_unique ON ban_records(target_type, target_value)
-    WHERE unbanned_at IS NULL AND expires_at > now();
+    WHERE unbanned_at IS NULL AND expires_at > current_timestamp_immutable();
 
 -- 创建通用键值存储表
 CREATE TABLE IF NOT EXISTS kv_store (

@@ -21,7 +21,7 @@ license = "Apache-2.0"
 repository = "https://github.com/Kirky-X/limiteron"
 
 [workspace.dependencies]
-tokio = { version = "1.35", features = ["rt-multi-thread", "macros", "time", "net", "signal", "sync"] }
+tokio = { version = "1.35", features = ["rt-multi-thread", "macros", "time", "net", "signal", "sync", "io-util"] }
 async-trait = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -182,11 +182,24 @@ webhook = ["dep:reqwest"]
 [[example]]
 name = "simple_rate_limit"
 path = "examples/simple_rate_limit.rs"
+required-features = ["macros"]
 
 [[example]]
 name = "quota_management"
 path = "examples/quota_management.rs"
+required-features = ["macros"]
 
 [[example]]
 name = "macro_usage"
 path = "examples/macro_usage.rs"
+required-features = ["macros"]
+
+[[bench]]
+name = "throughput"
+path = "benches/throughput.rs"
+required-features = ["full"]
+
+[[bench]]
+name = "latency"
+path = "benches/latency.rs"
+required-features = ["full"]

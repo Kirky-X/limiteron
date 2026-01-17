@@ -13,7 +13,7 @@
 //! # 使用示例
 //!
 //! ```no_run
-//! use limiteron::l2_cache::L2Cache;
+//! use limiteron::L2Cache;
 //! use std::time::Duration;
 //!
 //! #[tokio::main]

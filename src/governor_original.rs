@@ -20,7 +20,7 @@ use crate::decision_chain::{DecisionChain, DecisionChainBuilder, DecisionNode};
 use crate::error::{Decision, FlowGuardError};
 use crate::factory::LimiterFactory;
 use crate::fallback::FallbackManager;
-use crate::l2_cache::L2Cache;
+use crate::cache::l2::L2Cache;
 use crate::matchers::{Identifier, IdentifierExtractor, RequestContext, RuleMatcher};
 use crate::storage::{BanStorage, BanTarget, Storage};
 use crate::telemetry::{Metrics, Tracer};

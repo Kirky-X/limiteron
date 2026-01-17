@@ -1,0 +1,19 @@
+//! 缓存模块
+//!
+//! 提供多级缓存实现，包括 L2 缓存（内存）、L3 缓存（Redis）和智能缓存策略。
+
+pub mod l2;
+pub mod l3;
+pub mod smart;
+
+// 重新导出 L2 缓存的公共 API
+pub use l2::{
+    CacheEntry, L2Cache, L2CacheConfig, DEFAULT_CACHE_CAPACITY, DEFAULT_CLEANUP_INTERVAL_SECS,
+    DEFAULT_EVICTION_THRESHOLD, DEFAULT_TTL_SECS,
+};
+
+// 重新导出 L3 缓存的公共 API
+pub use l3::{L3Cache, L3CacheConfig, L3CacheStats};
+
+// 重新导出智能缓存的公共 API
+pub use smart::{CacheStats as SmartCacheStats, SmartCacheStrategy};

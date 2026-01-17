@@ -41,6 +41,7 @@
 pub mod audit_log;
 #[cfg(feature = "ban-manager")]
 pub mod ban_manager;
+pub mod cache;
 #[cfg(feature = "circuit-breaker")]
 pub mod circuit_breaker;
 pub mod code_review;
@@ -58,9 +59,6 @@ pub mod fallback;
 #[cfg(feature = "geo-matching")]
 pub mod geo_matcher;
 pub mod governor;
-pub mod l2_cache;
-#[cfg(feature = "redis")]
-pub mod l3_cache;
 pub mod limiter_manager;
 pub mod limiters;
 #[cfg(feature = "redis")]
@@ -86,6 +84,9 @@ pub use audit_log::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
 pub use ban_manager::{
     BackoffConfig, BanDetail, BanFilter, BanManager, BanManagerConfig, BanPriority, BanSource,
 };
+pub use cache::{L2Cache, L2CacheConfig, SmartCacheStrategy};
+#[cfg(feature = "redis")]
+pub use cache::{L3Cache, L3CacheConfig, L3CacheStats};
 #[cfg(feature = "circuit-breaker")]
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 pub use code_review::{
@@ -116,9 +117,6 @@ pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrat
 #[cfg(feature = "geo-matching")]
 pub use geo_matcher::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
 pub use governor::{Governor, GovernorStats};
-pub use l2_cache::{CacheEntry, CacheStats, L2Cache, L2CacheConfig};
-#[cfg(feature = "redis")]
-pub use l3_cache::{L3Cache, L3CacheConfig, L3CacheStats};
 pub use limiter_manager::GLOBAL_LIMITER_MANAGER;
 #[cfg(feature = "redis")]
 pub use lua_scripts::{LuaScriptInfo, LuaScriptManager, LuaScriptType};

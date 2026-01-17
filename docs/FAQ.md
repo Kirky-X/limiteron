@@ -625,7 +625,7 @@ cargo bench
 
 2. **使用缓存:**
    ```rust
-   use limiteron::l2_cache::L2Cache;
+   use limiteron::L2Cache;
    
    let cache = L2Cache::new(10000, 3600)?;
    ```

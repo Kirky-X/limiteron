@@ -231,83 +231,112 @@ pub trait IdentifierExtractor: Send + Sync {
 }
 
 // ============================================================================
-// 简化提取器定义的宏
+// 用户ID提取器
 // ============================================================================
 
-/// 简化简单提取器定义的宏
+/// 用户ID提取器
 ///
-/// 用于定义从HTTP头或查询参数中提取标识符的提取器。
-macro_rules! simple_extractor {
-    ($name:ident, $variant:ident, $doc:expr) => {
-        #[doc = $doc]
-        pub struct $name {
-            header_name: Option<String>,
-            query_param_name: Option<String>,
-            default_value: Option<String>,
-        }
-
-        impl $name {
-            pub fn new(
-                header_name: Option<String>,
-                query_param_name: Option<String>,
-                default_value: Option<String>,
-            ) -> Self {
-                Self {
-                    header_name,
-                    query_param_name,
-                    default_value,
-                }
-            }
-
-            pub fn from_header(header_name: &str) -> Self {
-                Self::new(Some(header_name.to_string()), None, None)
-            }
-
-            pub fn from_query_param(query_param_name: &str) -> Self {
-                Self::new(None, Some(query_param_name.to_string()), None)
-            }
-
-            pub fn with_default(mut self, default: &str) -> Self {
-                self.default_value = Some(default.to_string());
-                self
-            }
-        }
-
-        impl IdentifierExtractor for $name {
-            fn extract(&self, context: &RequestContext) -> Option<Identifier> {
-                if let Some(header_name) = &self.header_name {
-                    if let Some(value) = context.get_header(header_name) {
-                        if !value.is_empty() {
-                            return Some(Identifier::$variant(value.clone()));
-                        }
-                    }
-                }
-
-                if let Some(query_param_name) = &self.query_param_name {
-                    if let Some(value) = context.query_params.get(query_param_name) {
-                        if !value.is_empty() {
-                            return Some(Identifier::$variant(value.clone()));
-                        }
-                    }
-                }
-
-                if let Some(default) = &self.default_value {
-                    return Some(Identifier::$variant(default.clone()));
-                }
-
-                None
-            }
-
-            fn name(&self) -> &str {
-                stringify!($name)
-            }
-        }
-    };
+/// 从HTTP头或查询参数中提取用户ID。
+pub struct UserIdExtractor {
+    /// HTTP头名称（优先从此处提取）
+    header_name: Option<String>,
+    /// 查询参数名称（备选）
+    query_param_name: Option<String>,
+    /// 默认用户ID（当无法提取时使用）
+    default_user_id: Option<String>,
 }
 
-// 使用宏定义简单提取器
-simple_extractor!(UserIdExtractor, UserId, "用户ID提取器");
-simple_extractor!(DeviceIdExtractor, DeviceId, "设备ID提取器");
+impl UserIdExtractor {
+    /// 创建新的用户ID提取器
+    ///
+    /// # 参数
+    /// - `header_name`: HTTP头名称（可选）
+    /// - `query_param_name`: 查询参数名称（可选）
+    /// - `default_user_id`: 默认用户ID（可选）
+    pub fn new(
+        header_name: Option<String>,
+        query_param_name: Option<String>,
+        default_user_id: Option<String>,
+    ) -> Self {
+        Self {
+            header_name,
+            query_param_name,
+            default_user_id,
+        }
+    }
+
+    /// 从HTTP头提取用户ID（便捷方法）
+    ///
+    /// # 参数
+    /// - `header_name`: HTTP头名称
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::matchers::UserIdExtractor;
+    ///
+    /// let extractor = UserIdExtractor::from_header("X-User-Id");
+    /// ```
+    pub fn from_header(header_name: &str) -> Self {
+        Self::new(Some(header_name.to_string()), None, None)
+    }
+
+    /// 从查询参数提取用户ID（便捷方法）
+    ///
+    /// # 参数
+    /// - `query_param_name`: 查询参数名称
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::matchers::UserIdExtractor;
+    ///
+    /// let extractor = UserIdExtractor::from_query_param("user_id");
+    /// ```
+    pub fn from_query_param(query_param_name: &str) -> Self {
+        Self::new(None, Some(query_param_name.to_string()), None)
+    }
+
+    /// 设置默认用户ID
+    ///
+    /// # 参数
+    /// - `default_user_id`: 默认用户ID
+    pub fn with_default(mut self, default_user_id: &str) -> Self {
+        self.default_user_id = Some(default_user_id.to_string());
+        self
+    }
+}
+
+impl IdentifierExtractor for UserIdExtractor {
+    fn extract(&self, context: &RequestContext) -> Option<Identifier> {
+        // 优先从HTTP头提取
+        if let Some(header_name) = &self.header_name {
+            if let Some(user_id) = context.get_header(header_name) {
+                if !user_id.is_empty() {
+                    return Some(Identifier::UserId(user_id.clone()));
+                }
+            }
+        }
+
+        // 从查询参数提取
+        if let Some(query_param_name) = &self.query_param_name {
+            if let Some(user_id) = context.query_params.get(query_param_name) {
+                if !user_id.is_empty() {
+                    return Some(Identifier::UserId(user_id.clone()));
+                }
+            }
+        }
+
+        // 使用默认用户ID
+        if let Some(default) = &self.default_user_id {
+            return Some(Identifier::UserId(default.clone()));
+        }
+
+        None
+    }
+
+    fn name(&self) -> &str {
+        "UserIdExtractor"
+    }
+}
 
 // ============================================================================
 // IP提取器
@@ -659,6 +688,90 @@ impl IdentifierExtractor for ApiKeyExtractor {
 
 // ============================================================================
 // 设备ID提取器
+// ============================================================================
+
+/// 设备ID提取器
+///
+/// 从请求上下文中提取设备ID。
+pub struct DeviceIdExtractor {
+    /// HTTP头名称
+    header_name: Option<String>,
+    /// 查询参数名称
+    query_param_name: Option<String>,
+}
+
+impl DeviceIdExtractor {
+    /// 创建新的设备ID提取器
+    ///
+    /// # 参数
+    /// - `header_name`: HTTP头名称
+    /// - `query_param_name`: 查询参数名称
+    pub fn new(header_name: Option<String>, query_param_name: Option<String>) -> Self {
+        Self {
+            header_name,
+            query_param_name,
+        }
+    }
+
+    /// 从HTTP头提取设备ID
+    ///
+    /// # 参数
+    /// - `header_name`: HTTP头名称
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::matchers::DeviceIdExtractor;
+    ///
+    /// let extractor = DeviceIdExtractor::from_header("X-Device-Id");
+    /// ```
+    pub fn from_header(header_name: &str) -> Self {
+        Self::new(Some(header_name.to_string()), None)
+    }
+
+    /// 从查询参数提取设备ID
+    ///
+    /// # 参数
+    /// - `query_param_name`: 查询参数名称
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::matchers::DeviceIdExtractor;
+    ///
+    /// let extractor = DeviceIdExtractor::from_query_param("device_id");
+    /// ```
+    pub fn from_query_param(query_param_name: &str) -> Self {
+        Self::new(None, Some(query_param_name.to_string()))
+    }
+}
+
+impl IdentifierExtractor for DeviceIdExtractor {
+    fn extract(&self, context: &RequestContext) -> Option<Identifier> {
+        // 从HTTP头提取
+        if let Some(header_name) = &self.header_name {
+            if let Some(device_id) = context.get_header(header_name) {
+                if !device_id.is_empty() {
+                    return Some(Identifier::DeviceId(device_id.clone()));
+                }
+            }
+        }
+
+        // 从查询参数提取
+        if let Some(query_param_name) = &self.query_param_name {
+            if let Some(device_id) = context.query_params.get(query_param_name) {
+                if !device_id.is_empty() {
+                    return Some(Identifier::DeviceId(device_id.clone()));
+                }
+            }
+        }
+
+        None
+    }
+
+    fn name(&self) -> &str {
+        "DeviceIdExtractor"
+    }
+}
+
 // ============================================================================
 // 组合提取器
 // ============================================================================
@@ -1305,11 +1418,7 @@ impl RuleMatcher {
         }
 
         {
-            let mut stats = self
-                .stats
-                .write()
-                .map_err(|e| FlowGuardError::LockError(e.to_string()))
-                .ok()?;
+            let mut stats = self.stats.write().unwrap();
             stats.total_mismatches += 1;
         }
         None
@@ -1330,22 +1439,14 @@ impl RuleMatcher {
     }
 
     /// 获取统计信息
-    pub fn stats(&self) -> Result<MatcherStats, FlowGuardError> {
-        Ok(self
-            .stats
-            .read()
-            .map_err(|e| FlowGuardError::LockError(e.to_string()))?
-            .clone())
+    pub fn stats(&self) -> MatcherStats {
+        self.stats.read().unwrap().clone()
     }
 
     /// 重置统计信息
-    pub fn reset_stats(&self) -> Result<(), FlowGuardError> {
-        let mut stats = self
-            .stats
-            .write()
-            .map_err(|e| FlowGuardError::LockError(e.to_string()))?;
+    pub fn reset_stats(&self) {
+        let mut stats = self.stats.write().unwrap();
         *stats = MatcherStats::default();
-        Ok(())
     }
 
     /// 获取规则数量
@@ -1748,7 +1849,7 @@ mod tests {
         let context2 = RequestContext::new().with_header("X-User-Id", "user2");
         matcher.matches(&context2);
 
-        let stats = matcher.stats().unwrap();
+        let stats = matcher.stats();
         assert_eq!(stats.total_matches, 1);
         assert_eq!(stats.total_mismatches, 1);
     }

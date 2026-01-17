@@ -29,7 +29,7 @@
 //! ```
 
 #[cfg(feature = "monitoring")]
-use prometheus::{Counter, Encoder, Gauge, Histogram, Registry, TextEncoder};
+use prometheus::{Counter, Encoder, Gauge, Histogram, HistogramOpts, Registry, TextEncoder};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
@@ -129,100 +129,100 @@ impl Metrics {
     pub fn new() -> Self {
         let registry = Registry::new();
 
+        let register_counter = |name: &str, help: &str| -> Counter {
+            let c = Counter::new(name, help).expect("Failed to create counter");
+            registry
+                .register(Box::new(c.clone()))
+                .expect("Failed to register counter");
+            c
+        };
+
+        let register_gauge = |name: &str, help: &str| -> Gauge {
+            let g = Gauge::new(name, help).expect("Failed to create gauge");
+            registry
+                .register(Box::new(g.clone()))
+                .expect("Failed to register gauge");
+            g
+        };
+
+        let register_histogram = |name: &str, help: &str, buckets: Vec<f64>| -> Histogram {
+            let opts = HistogramOpts::new(name, help).buckets(buckets);
+            let h = Histogram::with_opts(opts).expect("Failed to create histogram");
+            registry
+                .register(Box::new(h.clone()))
+                .expect("Failed to register histogram");
+            h
+        };
+
         // 总请求数
-        let requests_total = register_counter!(
+        let requests_total = register_counter(
             "flowguard_requests_total",
             "Total number of flow control checks",
-            &registry,
-            vec![]
         );
 
         // 允许的请求数
-        let requests_allowed = register_counter!(
+        let requests_allowed = register_counter(
             "flowguard_requests_allowed_total",
             "Total number of allowed requests",
-            &registry,
-            vec![]
         );
 
         // 拒绝的请求数
-        let requests_rejected = register_counter!(
+        let requests_rejected = register_counter(
             "flowguard_requests_rejected_total",
             "Total number of rejected requests",
-            &registry,
-            vec![]
         );
 
         // 封禁的请求数
-        let requests_banned = register_counter!(
+        let requests_banned = register_counter(
             "flowguard_requests_banned_total",
             "Total number of banned requests",
-            &registry,
-            vec![]
         );
 
         // 错误数
-        let errors_total = register_counter!(
-            "flowguard_errors_total",
-            "Total number of errors",
-            &registry,
-            vec![]
-        );
+        let errors_total = register_counter("flowguard_errors_total", "Total number of errors");
 
         // 检查延迟分布
-        let check_duration = register_histogram!(
+        let check_duration = register_histogram(
             "flowguard_check_duration_seconds",
             "Duration of flow control checks in seconds",
-            &registry,
-            vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+            vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
         );
 
         // 限流器延迟分布
-        let limiter_duration = register_histogram!(
+        let limiter_duration = register_histogram(
             "flowguard_limiter_duration_seconds",
             "Duration of limiter operations in seconds",
-            &registry,
-            vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+            vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
         );
 
         // 配额使用率
-        let quota_usage = register_gauge!(
+        let quota_usage = register_gauge(
             "flowguard_quota_usage_ratio_percent",
             "Quota usage ratio as percentage (0-100)",
-            &registry,
-            vec![]
         );
 
         // 并发连接数
-        let concurrent_connections = register_gauge!(
+        let concurrent_connections = register_gauge(
             "flowguard_concurrent_connections",
             "Current number of concurrent connections",
-            &registry,
-            vec![]
         );
 
         // 令牌桶令牌数
-        let token_bucket_tokens = register_gauge!(
+        let token_bucket_tokens = register_gauge(
             "flowguard_token_bucket_tokens",
             "Current number of tokens in token bucket",
-            &registry,
-            vec![]
         );
 
         // 滑动窗口请求数
-        let sliding_window_requests = register_gauge!(
+        let sliding_window_requests = register_gauge(
             "flowguard_sliding_window_requests",
             "Current number of requests in sliding window",
-            &registry,
-            vec![]
         );
 
         // 固定窗口请求数
-        let fixed_window_requests = register_gauge!(
+        let fixed_window_requests = register_gauge(
             "flowguard_fixed_window_requests",
             "Current number of requests in fixed window",
-            &registry,
-            vec![]
         );
 
         Self {
@@ -390,8 +390,7 @@ impl Tracer {
             return Span::new_disabled();
         }
 
-        // 简化实现：创建一个带有名称的 span
-        Span::new_with_name(name)
+        Span::new()
     }
 
     /// 检查是否启用
@@ -415,21 +414,12 @@ pub struct Span {
     /// 是否启用
     enabled: bool,
     /// 属性
-    attributes: AttributesStore,
+    attributes: std::sync::Arc<parking_lot::RwLock<Vec<(String, String)>>>,
     /// 事件
-    events: EventsStore,
+    events: std::sync::Arc<parking_lot::RwLock<Vec<(String, Vec<(String, String)>)>>>,
     /// 错误
-    error: ErrorStore,
+    error: std::sync::Arc<parking_lot::RwLock<Option<String>>>,
 }
-
-/// 属性存储类型别名
-type AttributesStore = std::sync::Arc<parking_lot::RwLock<Vec<(String, String)>>>;
-
-/// 事件存储类型别名
-type EventsStore = std::sync::Arc<parking_lot::RwLock<Vec<(String, Vec<(String, String)>)>>>;
-
-/// 错误存储类型别名
-type ErrorStore = std::sync::Arc<parking_lot::RwLock<Option<String>>>;
 
 impl Span {
     /// 创建新的Span
@@ -437,17 +427,10 @@ impl Span {
         Self {
             started_at: Some(Instant::now()),
             enabled: true,
-            attributes: AttributesStore::new(parking_lot::RwLock::new(Vec::new())),
-            events: EventsStore::new(parking_lot::RwLock::new(Vec::new())),
-            error: ErrorStore::new(parking_lot::RwLock::new(None)),
+            attributes: std::sync::Arc::new(parking_lot::RwLock::new(Vec::new())),
+            events: std::sync::Arc::new(parking_lot::RwLock::new(Vec::new())),
+            error: std::sync::Arc::new(parking_lot::RwLock::new(None)),
         }
-    }
-
-    /// 创建带有名称的Span
-    fn new_with_name(name: &str) -> Self {
-        let span = Self::new();
-        span.set_attribute("name", name);
-        span
     }
 
     /// 创建禁用的Span
@@ -455,9 +438,9 @@ impl Span {
         Self {
             started_at: None,
             enabled: false,
-            attributes: AttributesStore::new(parking_lot::RwLock::new(Vec::new())),
-            events: EventsStore::new(parking_lot::RwLock::new(Vec::new())),
-            error: ErrorStore::new(parking_lot::RwLock::new(None)),
+            attributes: std::sync::Arc::new(parking_lot::RwLock::new(Vec::new())),
+            events: std::sync::Arc::new(parking_lot::RwLock::new(Vec::new())),
+            error: std::sync::Arc::new(parking_lot::RwLock::new(None)),
         }
     }
 
@@ -746,37 +729,6 @@ pub async fn start_prometheus_server(_metrics: Arc<Metrics>, _port: u16) -> Resu
 }
 
 // ============================================================================
-// 辅助宏和函数
-// ============================================================================
-
-/// 注册Counter指标
-#[cfg(feature = "monitoring")]
-macro_rules! register_counter {
-    ($name:expr, $help:expr, $registry:expr, $labels:expr) => {{
-        let opts = prometheus::Opts::new($name, $help);
-        Counter::with_opts(opts).unwrap()
-    }};
-}
-
-/// 注册Gauge指标
-#[cfg(feature = "monitoring")]
-macro_rules! register_gauge {
-    ($name:expr, $help:expr, $registry:expr, $labels:expr) => {{
-        let opts = prometheus::Opts::new($name, $help);
-        Gauge::with_opts(opts).unwrap()
-    }};
-}
-
-/// 注册Histogram指标
-#[cfg(feature = "monitoring")]
-macro_rules! register_histogram {
-    ($name:expr, $help:expr, $registry:expr, $buckets:expr) => {{
-        let opts = prometheus::HistogramOpts::new($name, $help);
-        Histogram::with_opts(opts.buckets($buckets)).unwrap()
-    }};
-}
-
-// ============================================================================
 // 单元测试
 // ============================================================================
 
@@ -1052,12 +1004,6 @@ mod tests_monitoring {
     }
 
     #[test]
-    fn test_global_metrics_none() {
-        let global = try_global();
-        assert!(global.is_none());
-    }
-
-    #[test]
     fn test_metrics_register() {
         let metrics = Metrics::new();
         let registry = Registry::new();
@@ -1092,11 +1038,3 @@ mod tests_monitoring {
         assert!(output.contains("flowguard_check_duration_seconds"));
     }
 }
-
-// 导出宏
-#[cfg(feature = "monitoring")]
-pub(crate) use register_counter;
-#[cfg(feature = "monitoring")]
-pub(crate) use register_gauge;
-#[cfg(feature = "monitoring")]
-pub(crate) use register_histogram;

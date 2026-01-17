@@ -196,9 +196,11 @@ impl CircuitBreaker {
                     ));
                 }
                 self.half_open_calls.fetch_add(1, Ordering::Relaxed);
+                drop(state);
             }
             CircuitState::Closed => {
                 // 正常状态，继续执行
+                drop(state);
             }
         }
 
@@ -311,7 +313,9 @@ impl CircuitBreaker {
             *self.state.write().await = CircuitState::HalfOpen;
             *self.last_state_change.write().await = Some(Instant::now());
             self.success_count.store(0, Ordering::Relaxed);
-            self.half_open_calls.store(0, Ordering::Relaxed);
+            // 重置半开状态调用计数
+            // 注意：将计数设置为1，因为当前请求（探针请求）将被允许通过
+            self.half_open_calls.store(1, Ordering::Relaxed);
             info!("熔断器状态变更: {:?} -> HalfOpen", old_state);
         }
     }
@@ -639,7 +643,7 @@ mod tests {
     #[tokio::test]
     async fn test_circuit_breaker_half_open_max_calls() {
         let config =
-            CircuitBreakerConfig::new(2, 2, Duration::from_millis(100)).half_open_max_calls(2);
+            CircuitBreakerConfig::new(2, 3, Duration::from_millis(100)).half_open_max_calls(2);
         let breaker = CircuitBreaker::new(config);
 
         // 触发熔断

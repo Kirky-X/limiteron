@@ -44,27 +44,6 @@ pub const MAX_USER_ID_LENGTH: usize = 100;
 /// 最大MAC地址长度
 pub const MAX_MAC_ADDRESS_LENGTH: usize = 17;
 
-// ============================================================================
-// 验证宏
-// ============================================================================
-
-/// 字符串验证宏
-macro_rules! validate_string {
-    ($value:expr, $name:expr, $max_len:expr) => {
-        if $value.is_empty() {
-            return Err(FlowGuardError::ValidationError(
-                concat!($name, "不能为空").to_string(),
-            ));
-        }
-        if $value.len() > $max_len {
-            return Err(FlowGuardError::ValidationError(format!(
-                concat!($name, "过长，最大长度为 {} 字符"),
-                $max_len
-            )));
-        }
-    };
-}
-
 use crate::error::FlowGuardError;
 use crate::storage::{BanRecord, BanStorage, BanTarget};
 use chrono::{DateTime, Duration, Utc};
@@ -73,16 +52,6 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument};
-
-/// 转义 LIKE 查询中的通配符字符
-///
-/// 将 % 和 _ 转义为字面量，防止 SQL LIKE 查询中的意外匹配
-fn escape_like_wildcards(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
-}
 
 /// 封禁来源
 #[cfg(feature = "ban-manager")]
@@ -294,7 +263,18 @@ fn validate_ip_address(ip: &str) -> Result<(), FlowGuardError> {
 
 /// 验证用户ID
 fn validate_user_id(user_id: &str) -> Result<(), FlowGuardError> {
-    validate_string!(user_id, "用户ID", MAX_USER_ID_LENGTH);
+    if user_id.is_empty() {
+        return Err(FlowGuardError::ValidationError(
+            "用户ID不能为空".to_string(),
+        ));
+    }
+
+    if user_id.len() > MAX_USER_ID_LENGTH {
+        return Err(FlowGuardError::ValidationError(format!(
+            "用户ID过长，最大长度为 {} 字符",
+            MAX_USER_ID_LENGTH
+        )));
+    }
 
     // 检查是否包含危险字符
     if user_id.contains(|c: char| c.is_control()) {
@@ -354,7 +334,18 @@ fn validate_ban_target(target: &BanTarget) -> Result<(), FlowGuardError> {
 
 /// 验证封禁原因
 fn validate_ban_reason(reason: &str) -> Result<(), FlowGuardError> {
-    validate_string!(reason, "封禁原因", MAX_BAN_REASON_LENGTH);
+    if reason.is_empty() {
+        return Err(FlowGuardError::ValidationError(
+            "封禁原因不能为空".to_string(),
+        ));
+    }
+
+    if reason.len() > MAX_BAN_REASON_LENGTH {
+        return Err(FlowGuardError::ValidationError(format!(
+            "封禁原因过长，最大长度为 {} 字符",
+            MAX_BAN_REASON_LENGTH
+        )));
+    }
 
     // 检查是否包含控制字符
     if reason.contains(|c: char| c.is_control()) {
@@ -376,12 +367,12 @@ impl BanManager {
     /// # 示例
     /// ```rust
     /// use limiteron::ban_manager::BanManager;
-    /// use limiteron::storage::MemoryStorage::new();
+    /// use limiteron::storage::MockBanStorage;
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let storage = Arc::new(MemoryStorage::new());
+    ///     let storage = Arc::new(MockBanStorage);
     ///     let ban_manager = BanManager::new(storage, None).await.unwrap();
     /// }
     /// ```
@@ -705,6 +696,12 @@ impl BanManager {
             })?;
         }
 
+        // 无论何种存储，都需要从活动封禁中移除
+        // 对于PostgreSQL，remove_ban 也会更新 unbanned_at (如果实现正确)
+        // 但这里我们已经上面处理了Postgres的特殊逻辑(记录解封人)，
+        // 为了兼容 Memory 和 Redis，必须调用 remove_ban
+        self.storage.remove_ban(target).await?;
+
         info!("Ban deleted successfully: target={:?}", target);
         Ok(true)
     }
@@ -727,209 +724,159 @@ impl BanManager {
             .as_any()
             .downcast_ref::<crate::postgres_storage::PostgresStorage>()
         {
-            // 构建查询条件
-            let (conditions, params) = self.build_list_bans_query_conditions(&filter)?;
+            let mut conditions = Vec::new();
+            let mut params: Vec<String> = Vec::new();
 
-            // 构建并执行查询
-            let results = self
-                .execute_list_bans_query(storage, &conditions, &params, &filter)
-                .await?;
+            // 目标类型过滤（使用参数化查询）
+            if let Some(target_type) = &filter.target_type {
+                // 验证目标类型
+                if !["ip", "user", "mac"].contains(&target_type.to_lowercase().as_str()) {
+                    return Err(FlowGuardError::ConfigError("无效的目标类型".to_string()));
+                }
+                conditions.push("target_type = $1".to_string());
+                params.push(target_type.to_lowercase());
+            }
+
+            // 目标值过滤（使用参数化查询，防止 SQL 注入）
+            if let Some(target_value) = &filter.target_value {
+                // 验证目标值长度
+                if target_value.len() > 255 {
+                    return Err(FlowGuardError::ConfigError(
+                        "目标值长度超过限制".to_string(),
+                    ));
+                }
+                // 使用参数化查询，LIKE 模式在服务器端添加
+                let param_index = conditions.len() + 1;
+                conditions.push(format!("target_value LIKE ${}", param_index));
+
+                // 转义 LIKE 通配符，防止 SQL 注入
+                let escaped_value = target_value.replace('%', "\\%").replace('_', "\\_");
+                params.push(format!("%{}%", escaped_value));
+            }
+
+            // 只显示活跃封禁
+            if filter.active_only {
+                conditions.push("expires_at > now() AND unbanned_at IS NULL".to_string());
+            }
+
+            // 只显示手动封禁
+            if filter.manual_only {
+                conditions.push("is_manual = true".to_string());
+            }
+
+            // 构建基础查询
+            let mut query = String::from(
+                "SELECT id, target_type, target_value, reason, ban_times, duration_secs, ",
+            );
+            query.push_str("banned_at, expires_at, is_manual, unbanned_at, unbanned_by ");
+            query.push_str("FROM ban_records");
+
+            // 添加条件
+            if !conditions.is_empty() {
+                query.push_str(" WHERE ");
+                query.push_str(&conditions.join(" AND "));
+            }
+
+            // 排序和分页（使用参数化查询）
+            query.push_str(" ORDER BY banned_at DESC LIMIT $1 OFFSET $2");
+
+            let limit = filter
+                .limit
+                .unwrap_or(DEFAULT_PAGINATION_LIMIT)
+                .min(MAX_PAGINATION_LIMIT);
+            let offset = filter.offset.unwrap_or(0);
+
+            // 执行参数化查询
+            let mut query_builder = sqlx::query_as::<
+                _,
+                (
+                    uuid::Uuid,
+                    String,
+                    String,
+                    String,
+                    i32,
+                    i64,
+                    chrono::DateTime<chrono::Utc>,
+                    chrono::DateTime<chrono::Utc>,
+                    bool,
+                    Option<chrono::DateTime<chrono::Utc>>,
+                    Option<String>,
+                ),
+            >(&query);
+
+            // 绑定分页参数
+            query_builder = query_builder.bind(limit as i64).bind(offset as i64);
+
+            // 绑定条件参数
+            for param in &params {
+                query_builder = query_builder.bind(param);
+            }
+
+            // 执行查询
+            let results = query_builder.fetch_all(storage.pool()).await.map_err(|e| {
+                error!("查询封禁记录失败: {}", e);
+                FlowGuardError::StorageError(crate::error::StorageError::QueryError(e.to_string()))
+            })?;
 
             // 转换结果
-            let bans = self.map_ban_records_to_details(results);
+            let bans: Vec<BanDetail> = results
+                .into_iter()
+                .map(
+                    |(
+                        id,
+                        target_type,
+                        target_value,
+                        reason,
+                        ban_times,
+                        duration_secs,
+                        banned_at,
+                        expires_at,
+                        is_manual,
+                        unbanned_at,
+                        unbanned_by,
+                    )| {
+                        let target = match target_type.as_str() {
+                            "ip" => BanTarget::Ip(target_value),
+                            "user" => BanTarget::UserId(target_value),
+                            "mac" => BanTarget::Mac(target_value),
+                            _ => BanTarget::UserId(target_value), // 默认处理
+                        };
+
+                        let unbanned_by_clone = unbanned_by.clone();
+
+                        BanDetail {
+                            id: id.to_string(),
+                            target,
+                            ban_times: ban_times as u32,
+                            duration: std::time::Duration::from_secs(duration_secs as u64),
+                            banned_at,
+                            expires_at,
+                            is_manual,
+                            reason,
+                            source: if is_manual {
+                                BanSource::Manual {
+                                    operator: unbanned_by_clone
+                                        .unwrap_or_else(|| "unknown".to_string()),
+                                }
+                            } else {
+                                BanSource::Auto
+                            },
+                            metadata: serde_json::json!({}),
+                            created_at: banned_at,
+                            updated_at: banned_at,
+                            unbanned_at,
+                            unbanned_by,
+                        }
+                    },
+                )
+                .collect();
+
             debug!("Found {} bans", bans.len());
             Ok(bans)
         } else {
             // 对于内存存储，返回空列表（简化实现）
             Ok(Vec::new())
         }
-    }
-
-    /// 构建列表封禁记录的查询条件
-    fn build_list_bans_query_conditions(
-        &self,
-        filter: &BanFilter,
-    ) -> Result<(Vec<String>, Vec<String>), FlowGuardError> {
-        let mut conditions = Vec::new();
-        let mut params: Vec<String> = Vec::new();
-
-        // 目标类型过滤
-        if let Some(target_type) = &filter.target_type {
-            if !["ip", "user", "mac"].contains(&target_type.to_lowercase().as_str()) {
-                return Err(FlowGuardError::ConfigError("无效的目标类型".to_string()));
-            }
-            conditions.push("target_type = $1".to_string());
-            params.push(target_type.to_lowercase());
-        }
-
-        // 目标值过滤
-        if let Some(target_value) = &filter.target_value {
-            if target_value.len() > 255 {
-                return Err(FlowGuardError::ConfigError(
-                    "目标值长度超过限制".to_string(),
-                ));
-            }
-            let escaped_value = escape_like_wildcards(target_value);
-            let param_index = conditions.len() + 1;
-            conditions.push(format!("target_value LIKE ${}", param_index));
-            params.push(format!("%{}%", escaped_value));
-        }
-
-        // 活跃封禁过滤
-        if filter.active_only {
-            conditions.push("expires_at > now() AND unbanned_at IS NULL".to_string());
-        }
-
-        // 手动封禁过滤
-        if filter.manual_only {
-            conditions.push("is_manual = true".to_string());
-        }
-
-        Ok((conditions, params))
-    }
-
-    /// 执行列表封禁记录的数据库查询
-    async fn execute_list_bans_query(
-        &self,
-        storage: &crate::postgres_storage::PostgresStorage,
-        conditions: &[String],
-        params: &[String],
-        filter: &BanFilter,
-    ) -> Result<
-        Vec<(
-            uuid::Uuid,
-            String,
-            String,
-            String,
-            i32,
-            i64,
-            chrono::DateTime<chrono::Utc>,
-            chrono::DateTime<chrono::Utc>,
-            bool,
-            Option<chrono::DateTime<chrono::Utc>>,
-            Option<String>,
-        )>,
-        FlowGuardError,
-    > {
-        // 构建SQL查询
-        let query = self.build_list_bans_sql_query(conditions, filter)?;
-
-        // 执行参数化查询
-        let mut query_builder = sqlx::query_as::<_, _>(&query);
-
-        // 绑定分页参数
-        let limit = filter
-            .limit
-            .unwrap_or(DEFAULT_PAGINATION_LIMIT)
-            .min(MAX_PAGINATION_LIMIT);
-        let offset = filter.offset.unwrap_or(0);
-        query_builder = query_builder.bind(limit as i64).bind(offset as i64);
-
-        // 绑定条件参数
-        for param in params {
-            query_builder = query_builder.bind(param);
-        }
-
-        // 执行查询
-        let results = query_builder.fetch_all(storage.pool()).await.map_err(|e| {
-            error!("查询封禁记录失败: {}", e);
-            FlowGuardError::StorageError(crate::error::StorageError::QueryError(e.to_string()))
-        })?;
-
-        Ok(results)
-    }
-
-    /// 构建列表封禁记录的SQL查询字符串
-    fn build_list_bans_sql_query(
-        &self,
-        conditions: &[String],
-        filter: &BanFilter,
-    ) -> Result<String, FlowGuardError> {
-        let mut query = String::from(
-            "SELECT id, target_type, target_value, reason, ban_times, duration_secs, ",
-        );
-        query.push_str("banned_at, expires_at, is_manual, unbanned_at, unbanned_by ");
-        query.push_str("FROM ban_records");
-
-        // 添加条件
-        if !conditions.is_empty() {
-            query.push_str(" WHERE ");
-            query.push_str(&conditions.join(" AND "));
-        }
-
-        // 排序和分页
-        query.push_str(" ORDER BY banned_at DESC LIMIT $1 OFFSET $2");
-
-        Ok(query)
-    }
-
-    /// 将数据库记录转换为BanDetail
-    fn map_ban_records_to_details(
-        &self,
-        results: Vec<(
-            uuid::Uuid,
-            String,
-            String,
-            String,
-            i32,
-            i64,
-            chrono::DateTime<chrono::Utc>,
-            chrono::DateTime<chrono::Utc>,
-            bool,
-            Option<chrono::DateTime<chrono::Utc>>,
-            Option<String>,
-        )>,
-    ) -> Vec<BanDetail> {
-        results
-            .into_iter()
-            .map(
-                |(
-                    id,
-                    target_type,
-                    target_value,
-                    reason,
-                    ban_times,
-                    duration_secs,
-                    banned_at,
-                    expires_at,
-                    is_manual,
-                    unbanned_at,
-                    unbanned_by,
-                )| {
-                    let target = match target_type.as_str() {
-                        "ip" => BanTarget::Ip(target_value),
-                        "user" => BanTarget::UserId(target_value),
-                        "mac" => BanTarget::Mac(target_value),
-                        _ => BanTarget::UserId(target_value),
-                    };
-
-                    BanDetail {
-                        id: id.to_string(),
-                        target,
-                        ban_times: ban_times as u32,
-                        duration: std::time::Duration::from_secs(duration_secs as u64),
-                        banned_at,
-                        expires_at,
-                        is_manual,
-                        reason,
-                        source: if is_manual {
-                            BanSource::Manual {
-                                operator: unbanned_by
-                                    .clone()
-                                    .unwrap_or_else(|| "unknown".to_string()),
-                            }
-                        } else {
-                            BanSource::Auto
-                        },
-                        metadata: serde_json::json!({}),
-                        created_at: banned_at,
-                        updated_at: banned_at,
-                        unbanned_at,
-                        unbanned_by,
-                    }
-                },
-            )
-            .collect()
     }
 
     /// 检查封禁优先级（并行版本，支持提前退出）
@@ -1075,11 +1022,11 @@ impl BanManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::MemoryStorage;
+    use crate::storage::MockBanStorage;
 
     fn create_test_ban_manager() -> BanManager {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let storage = Arc::new(MemoryStorage::new());
+            let storage = Arc::new(MockBanStorage);
             BanManager::new(storage, None).await.unwrap()
         })
     }
@@ -1123,7 +1070,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_calculate_ban_duration() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(MockBanStorage);
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         // 第一次违规：1分钟
@@ -1149,7 +1096,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_ban_auto() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(MockBanStorage);
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let target = BanTarget::UserId("user123".to_string());
@@ -1171,7 +1118,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_ban_manual() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(MockBanStorage);
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let target = BanTarget::Ip("192.168.1.1".to_string());
@@ -1202,7 +1149,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_ban_not_found() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(MockBanStorage);
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let target = BanTarget::UserId("nonexistent".to_string());
@@ -1214,7 +1161,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_ban_not_found() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(MockBanStorage);
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let target = BanTarget::UserId("nonexistent".to_string());
@@ -1228,7 +1175,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_ban_not_found() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(MockBanStorage);
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let target = BanTarget::UserId("nonexistent".to_string());
@@ -1240,7 +1187,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_bans_empty() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(MockBanStorage);
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let filter = BanFilter::default();
@@ -1252,7 +1199,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_ban_priority_empty() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(MockBanStorage);
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let targets = vec![
@@ -1268,7 +1215,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_config() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(MockBanStorage);
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let config = ban_manager.get_config().await;
@@ -1278,7 +1225,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_config() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(MockBanStorage);
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let new_config = BanManagerConfig {
@@ -1297,7 +1244,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_stop_auto_unban_task() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(MockBanStorage);
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         // 停止任务应该不会失败
@@ -1330,251 +1277,5 @@ mod tests {
             operator: "admin".to_string(),
         };
         assert_eq!(source3, source4);
-    }
-
-    // Tests for list_bans helper methods
-    #[test]
-    fn test_build_list_bans_query_conditions_empty() {
-        let manager = create_test_ban_manager();
-        let filter = BanFilter::default();
-        let (conditions, params) = manager.build_list_bans_query_conditions(&filter).unwrap();
-        assert!(conditions.is_empty());
-        assert!(params.is_empty());
-    }
-
-    #[test]
-    fn test_build_list_bans_query_conditions_with_target_type() {
-        let manager = create_test_ban_manager();
-        let mut filter = BanFilter::default();
-        filter.target_type = Some("ip".to_string());
-        let (conditions, params) = manager.build_list_bans_query_conditions(&filter).unwrap();
-        assert_eq!(conditions.len(), 1);
-        assert_eq!(conditions[0], "target_type = $1");
-        assert_eq!(params.len(), 1);
-        assert_eq!(params[0], "ip");
-    }
-
-    #[test]
-    fn test_build_list_bans_query_conditions_with_target_type_invalid() {
-        let manager = create_test_ban_manager();
-        let mut filter = BanFilter::default();
-        filter.target_type = Some("invalid".to_string());
-        let result = manager.build_list_bans_query_conditions(&filter);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_build_list_bans_query_conditions_with_target_value() {
-        let manager = create_test_ban_manager();
-        let mut filter = BanFilter::default();
-        filter.target_value = Some("192.168.1.1".to_string());
-        let (conditions, params) = manager.build_list_bans_query_conditions(&filter).unwrap();
-        assert_eq!(conditions.len(), 1);
-        assert!(conditions[0].contains("LIKE"));
-        assert_eq!(params.len(), 1);
-        assert!(params[0].contains("192.168.1.1"));
-    }
-
-    #[test]
-    fn test_build_list_bans_query_conditions_with_all_filters() {
-        let manager = create_test_ban_manager();
-        let mut filter = BanFilter::default();
-        filter.target_type = Some("user".to_string());
-        filter.target_value = Some("test".to_string());
-        filter.active_only = true;
-        filter.manual_only = true;
-        let (conditions, params) = manager.build_list_bans_query_conditions(&filter).unwrap();
-        assert_eq!(conditions.len(), 4); // target_type, target_value, active_only, manual_only
-        assert_eq!(params.len(), 2); // target_type, target_value
-    }
-
-    #[test]
-    fn test_build_list_bans_sql_query_empty_conditions() {
-        let manager = create_test_ban_manager();
-        let filter = BanFilter::default();
-        let query = manager.build_list_bans_sql_query(&[], &filter).unwrap();
-        assert!(query.contains("SELECT id, target_type, target_value"));
-        assert!(query.contains("FROM ban_records"));
-        assert!(query.contains("ORDER BY banned_at DESC LIMIT $1 OFFSET $2"));
-        assert!(!query.contains("WHERE"));
-    }
-
-    #[test]
-    fn test_build_list_bans_sql_query_with_conditions() {
-        let manager = create_test_ban_manager();
-        let filter = BanFilter::default();
-        let conditions = vec![
-            "target_type = $1".to_string(),
-            "active_only = true".to_string(),
-        ];
-        let query = manager
-            .build_list_bans_sql_query(&conditions, &filter)
-            .unwrap();
-        assert!(query.contains("WHERE target_type = $1 AND active_only = true"));
-    }
-
-    #[test]
-    fn test_map_ban_records_to_details_empty() {
-        let manager = create_test_ban_manager();
-        let records: Vec<(
-            uuid::Uuid,
-            String,
-            String,
-            String,
-            i32,
-            i64,
-            chrono::DateTime<chrono::Utc>,
-            chrono::DateTime<chrono::Utc>,
-            bool,
-            Option<chrono::DateTime<chrono::Utc>>,
-            Option<String>,
-        )> = Vec::new();
-        let result = manager.map_ban_records_to_details(records);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_map_ban_records_to_details_single_record() {
-        let manager = create_test_ban_manager();
-        let now =
-            chrono::DateTime::<chrono::Utc>::from_timestamp(chrono::Utc::now().timestamp(), 0)
-                .unwrap();
-        let expires = chrono::DateTime::<chrono::Utc>::from_timestamp(
-            chrono::Utc::now().timestamp() + 3600,
-            0,
-        )
-        .unwrap();
-        let id = uuid::Uuid::new_v4();
-
-        let records = vec![(
-            id.clone(),
-            "ip".to_string(),
-            "192.168.1.1".to_string(),
-            "Test ban".to_string(),
-            1i32,
-            3600i64,
-            now,
-            expires,
-            false,
-            None,
-            None,
-        )];
-
-        let result = manager.map_ban_records_to_details(records);
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].id, id.to_string());
-        assert_eq!(result[0].reason, "Test ban");
-        assert!(matches!(result[0].source, BanSource::Auto));
-    }
-
-    #[test]
-    fn test_map_ban_records_to_details_manual_ban() {
-        let manager = create_test_ban_manager();
-        let now =
-            chrono::DateTime::<chrono::Utc>::from_timestamp(chrono::Utc::now().timestamp(), 0)
-                .unwrap();
-        let expires = chrono::DateTime::<chrono::Utc>::from_timestamp(
-            chrono::Utc::now().timestamp() + 3600,
-            0,
-        )
-        .unwrap();
-        let id = uuid::Uuid::new_v4();
-
-        let records = vec![(
-            id.clone(),
-            "user".to_string(),
-            "test_user".to_string(),
-            "Manual ban".to_string(),
-            1i32,
-            3600i64,
-            now,
-            expires,
-            true,
-            None,
-            Some("admin".to_string()),
-        )];
-
-        let result = manager.map_ban_records_to_details(records);
-        assert_eq!(result.len(), 1);
-        match &result[0].source {
-            BanSource::Manual { operator } => assert_eq!(operator, "admin"),
-            _ => panic!("Expected Manual ban source"),
-        }
-    }
-
-    #[test]
-    fn test_map_ban_records_to_details_all_target_types() {
-        let manager = create_test_ban_manager();
-        let now =
-            chrono::DateTime::<chrono::Utc>::from_timestamp(chrono::Utc::now().timestamp(), 0)
-                .unwrap();
-        let expires = chrono::DateTime::<chrono::Utc>::from_timestamp(
-            chrono::Utc::now().timestamp() + 3600,
-            0,
-        )
-        .unwrap();
-
-        let ip_id = uuid::Uuid::new_v4();
-        let user_id = uuid::Uuid::new_v4();
-        let mac_id = uuid::Uuid::new_v4();
-
-        let records = vec![
-            (
-                ip_id.clone(),
-                "ip".to_string(),
-                "1.2.3.4".to_string(),
-                "".to_string(),
-                1i32,
-                3600i64,
-                now,
-                expires,
-                false,
-                None,
-                None,
-            ),
-            (
-                user_id.clone(),
-                "user".to_string(),
-                "user123".to_string(),
-                "".to_string(),
-                1i32,
-                3600i64,
-                now,
-                expires,
-                false,
-                None,
-                None,
-            ),
-            (
-                mac_id.clone(),
-                "mac".to_string(),
-                "00:11:22:33:44:55".to_string(),
-                "".to_string(),
-                1i32,
-                3600i64,
-                now,
-                expires,
-                false,
-                None,
-                None,
-            ),
-        ];
-
-        let result = manager.map_ban_records_to_details(records);
-        assert_eq!(result.len(), 3);
-
-        // Verify all target types are correctly mapped
-        match &result[0].target {
-            BanTarget::Ip(ip) => assert_eq!(ip, "1.2.3.4"),
-            _ => panic!("Expected IP target"),
-        }
-        match &result[1].target {
-            BanTarget::UserId(user_id) => assert_eq!(user_id, "user123"),
-            _ => panic!("Expected UserId target"),
-        }
-        match &result[2].target {
-            BanTarget::Mac(mac) => assert_eq!(mac, "00:11:22:33:44:55"),
-            _ => panic!("Expected Mac target"),
-        }
     }
 }

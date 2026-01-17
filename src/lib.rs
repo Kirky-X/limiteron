@@ -49,15 +49,10 @@ pub mod config;
 #[cfg(feature = "config-watcher")]
 pub mod config_watcher;
 pub mod custom_limiter;
-pub mod custom_matcher;
 pub mod decision_chain;
-#[cfg(feature = "device-matching")]
-pub mod device_matcher;
 pub mod error;
 pub mod factory;
 pub mod fallback;
-#[cfg(feature = "geo-matching")]
-pub mod geo_matcher;
 pub mod governor;
 pub mod limiter_manager;
 pub mod limiters;
@@ -102,20 +97,13 @@ pub use config_watcher::{ConfigChangeCallback, ConfigWatcher, PostgresConfigStor
 pub use custom_limiter::{
     CustomLimiter, CustomLimiterRegistry, LeakyBucketLimiter, LimiterStats, TokenBucketLimiter,
 };
-pub use custom_matcher::{CustomMatcher, CustomMatcherRegistry, HeaderMatcher, TimeWindowMatcher};
 pub use decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
-#[cfg(feature = "device-matching")]
-pub use device_matcher::{
-    DeviceCacheStats, DeviceCondition, DeviceInfo, DeviceMatcher, DeviceType,
-};
 pub use error::{
     BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, FlowGuardError,
     StorageError,
 };
 pub use factory::LimiterFactory;
 pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
-#[cfg(feature = "geo-matching")]
-pub use geo_matcher::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
 pub use governor::{Governor, GovernorStats};
 pub use limiter_manager::GLOBAL_LIMITER_MANAGER;
 #[cfg(feature = "redis")]
@@ -130,6 +118,11 @@ pub use matchers::{
     DeviceIdExtractor, Identifier, IdentifierExtractor, IpExtractor, IpRange, LogicalOperator,
     MacExtractor, MatchCondition, MatcherStats, RequestContext, Rule, RuleMatcher, UserIdExtractor,
 };
+pub use matchers::{CustomMatcher, CustomMatcherRegistry, HeaderMatcher, TimeWindowMatcher};
+#[cfg(feature = "device-matching")]
+pub use matchers::{DeviceCacheStats, DeviceCondition, DeviceInfo, DeviceMatcher, DeviceType};
+#[cfg(feature = "geo-matching")]
+pub use matchers::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
 #[cfg(feature = "postgres")]
 pub use postgres_storage::{PostgresStorage, PostgresStorageConfig};
 #[cfg(feature = "quota-control")]

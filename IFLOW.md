@@ -42,9 +42,11 @@ limiteron/
 │   │   ├── l2.rs          # L2 缓存
 │   │   ├── l3.rs          # L3 缓存
 │   │   └── smart.rs       # 智能缓存策略
-│   ├── matchers.rs        # 标识符匹配器
-│   ├── geo_matcher.rs     # 地理位置匹配器
-│   ├── device_matcher.rs  # 设备匹配器
+│   ├── matchers/          # 匹配器模块
+│   │   ├── mod.rs         # 核心匹配器
+│   │   ├── geo.rs         # 地理位置匹配器
+│   │   ├── device.rs      # 设备匹配器
+│   │   └── custom.rs      # 自定义匹配器
 │   ├── decision_chain.rs  # 决策链
 │   ├── config.rs          # 配置管理
 │   ├── config_watcher.rs  # 配置监视器
@@ -52,7 +54,6 @@ limiteron/
 │   ├── audit_log.rs       # 审计日志
 │   ├── fallback.rs        # 降级策略
 │   ├── custom_limiter.rs  # 自定义限流器
-│   ├── custom_matcher.rs  # 自定义匹配器
 │   ├── lua_scripts.rs     # Lua 脚本管理
 │   └── error.rs           # 错误类型
 ├── macros/                # 过程宏子项目
@@ -320,8 +321,8 @@ let storage = Arc::new(RedisStorage::new(config).await?);
 
 ### 添加新的匹配器
 
-1. 在 `src/custom_matcher.rs` 中实现 `CustomMatcher` trait
-2. 在 `src/matchers.rs` 中添加匹配器逻辑
+1. 在 `src/matchers/custom.rs` 中实现 `CustomMatcher` trait
+2. 在 `src/matchers/mod.rs` 中添加匹配器逻辑
 3. 在 `src/lib.rs` 中重新导出
 4. 编写单元测试
 

@@ -19,6 +19,15 @@
 //! - 高性能匹配 (< 200μs P99)
 //! - 支持至少100条规则
 
+// 子模块
+#[cfg(feature = "geo-matching")]
+pub mod geo;
+
+#[cfg(feature = "device-matching")]
+pub mod device;
+
+pub mod custom;
+
 use crate::config::Matcher as ConfigMatcher;
 use crate::error::FlowGuardError;
 use ahash::AHashMap as HashMap;
@@ -1973,3 +1982,18 @@ mod tests {
         );
     }
 }
+
+// ============================================================================
+// 公共导出
+// ============================================================================
+
+// 地理位置匹配器
+#[cfg(feature = "geo-matching")]
+pub use geo::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
+
+// 设备类型匹配器
+#[cfg(feature = "device-matching")]
+pub use device::{DeviceCacheStats, DeviceCondition, DeviceInfo, DeviceMatcher, DeviceType};
+
+// 自定义匹配器
+pub use custom::{CustomMatcher, CustomMatcherRegistry, HeaderMatcher, TimeWindowMatcher};

@@ -81,42 +81,66 @@ pub mod telemetry;
 
 // 重新导出常用类型
 #[cfg(feature = "audit-log")]
-pub use audit_log::*;
+pub use audit_log::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
 #[cfg(feature = "ban-manager")]
-pub use ban_manager::*;
+pub use ban_manager::{
+    BackoffConfig, BanDetail, BanFilter, BanManager, BanManagerConfig, BanPriority, BanSource,
+};
 #[cfg(feature = "circuit-breaker")]
-pub use circuit_breaker::*;
-pub use code_review::*;
-pub use config::*;
+pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+pub use code_review::{
+    CodeReviewConfig, CodeReviewIssue, CodeReviewManager, CodeReviewReport, CodeReviewStats,
+    IssueCategory, ReviewConclusion, ReviewStatus, ReviewSummary, Severity,
+};
+pub use config::{
+    ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig,
+    LimiterConfig, Matcher as ConfigMatcher, Rule as ConfigRule,
+};
 #[cfg(feature = "config-watcher")]
-pub use config_watcher::*;
-pub use custom_limiter::*;
-pub use custom_matcher::*;
-pub use decision_chain::*;
+pub use config_watcher::{ConfigChangeCallback, ConfigWatcher, PostgresConfigStorage, WatchMode};
+pub use custom_limiter::{
+    CustomLimiter, CustomLimiterRegistry, LeakyBucketLimiter, LimiterStats, TokenBucketLimiter,
+};
+pub use custom_matcher::{CustomMatcher, CustomMatcherRegistry, HeaderMatcher, TimeWindowMatcher};
+pub use decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
 #[cfg(feature = "device-matching")]
-pub use device_matcher::*;
-pub use error::*;
+pub use device_matcher::{
+    DeviceCacheStats, DeviceCondition, DeviceInfo, DeviceMatcher, DeviceType,
+};
+pub use error::{
+    BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, FlowGuardError,
+    StorageError,
+};
 pub use factory::LimiterFactory;
-pub use fallback::*;
+pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
 #[cfg(feature = "geo-matching")]
-pub use geo_matcher::*;
-pub use governor::*;
-pub use l2_cache::*;
+pub use geo_matcher::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
+pub use governor::{Governor, GovernorStats};
+pub use l2_cache::{CacheEntry, CacheStats, L2Cache, L2CacheConfig};
 #[cfg(feature = "redis")]
-pub use l3_cache::*;
+pub use l3_cache::{L3Cache, L3CacheConfig, L3CacheStats};
 pub use limiter_manager::GLOBAL_LIMITER_MANAGER;
 #[cfg(feature = "redis")]
-pub use lua_scripts::*;
+pub use lua_scripts::{LuaScriptInfo, LuaScriptManager, LuaScriptType};
 #[cfg(feature = "macros")]
-pub use macros::*;
-pub use matchers::*;
+pub use macros::{
+    flow_control, parse_quota_limit, parse_rate_limit, FlowControlConfig as MacroFlowControlConfig,
+    QuotaLimit, RateLimit,
+};
+pub use matchers::{
+    ApiKeyExtractor, CompositeCondition, CompositeExtractor, ConditionEvaluator, CustomExtractor,
+    DeviceIdExtractor, Identifier, IdentifierExtractor, IpExtractor, IpRange, LogicalOperator,
+    MacExtractor, MatchCondition, MatcherStats, RequestContext, Rule, RuleMatcher, UserIdExtractor,
+};
 #[cfg(feature = "postgres")]
-pub use postgres_storage::*;
+pub use postgres_storage::{PostgresStorage, PostgresStorageConfig};
 #[cfg(feature = "quota-control")]
-pub use quota_controller::*;
+pub use quota_controller::{
+    AlertChannel, AlertConfig, AlertInfo, QuotaConfig, QuotaController, QuotaState, QuotaType,
+};
 #[cfg(feature = "redis")]
-pub use redis_storage::*;
-pub use storage::*;
+pub use redis_storage::{RedisConfig, RedisStorage, RetryStats};
+pub use storage::{BanConfig, BanRecord, BanScope, BanStorage, BanTarget, QuotaStorage, Storage};
 #[cfg(feature = "telemetry")]
 pub use telemetry::{init_telemetry, TelemetryConfig, Tracer};
 #[cfg(feature = "monitoring")]

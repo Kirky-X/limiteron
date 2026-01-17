@@ -117,10 +117,20 @@ impl ConfigWatcher {
 
         match self.watch_mode {
             WatchMode::Poll => {
-                self.start_polling().await?;
+                let watcher = self.clone_for_polling();
+                tokio::spawn(async move {
+                    if let Err(e) = watcher.start_polling().await {
+                        error!("Polling watcher error: {:?}", e);
+                    }
+                });
             }
             WatchMode::Watch => {
-                self.start_watching().await?;
+                let watcher = self.clone_for_watching();
+                tokio::spawn(async move {
+                    if let Err(e) = watcher.start_watching().await {
+                        error!("File watcher error: {:?}", e);
+                    }
+                });
             }
             WatchMode::Hybrid => {
                 // 启动轮询和Watch两个任务
@@ -292,7 +302,7 @@ impl ConfigWatcher {
             });
         }
 
-        Ok(false)
+        Ok(has_changed)
     }
 
     /// 加载配置
@@ -682,7 +692,7 @@ mod tests {
             })
         });
 
-        let temp_file = NamedTempFile::new().unwrap();
+        let temp_file = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
         let yaml_content = r#"
 version: "1.0"
 global:
@@ -735,7 +745,7 @@ rules:
             })
         });
 
-        let temp_file = NamedTempFile::new().unwrap();
+        let temp_file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
         let toml_content = r#"
 version = "1.0"
 
@@ -851,7 +861,10 @@ on_exceed = "reject"
             Some("config_key".to_string()),
         );
 
-        // 初始加载
+        // 初始加载 - 首次检查会返回true，因为从无到有
+        watcher.check_config_change().await.unwrap();
+
+        // 再次检测 - 应该无变更
         let changed = watcher.check_config_change().await.unwrap();
         assert!(!changed);
 

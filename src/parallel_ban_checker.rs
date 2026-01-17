@@ -7,9 +7,9 @@ use crate::ban_manager::BanManager;
 use crate::error::{BanInfo, FlowGuardError};
 #[cfg(feature = "ban-manager")]
 use crate::matchers::RequestContext;
-use crate::storage::BanTarget;
 #[cfg(not(feature = "ban-manager"))]
-use crate::BanStorage;
+use crate::storage::BanStorage;
+use crate::storage::BanTarget;
 #[cfg(feature = "ban-manager")]
 use futures::future::join_all;
 use std::sync::Arc;
@@ -147,14 +147,88 @@ mod tests {
     #[cfg(feature = "ban-manager")]
     use crate::ban_manager::BanManager;
     #[cfg(feature = "ban-manager")]
-    use crate::storage::MemoryStorage;
-    use std::sync::Arc;
+    use crate::error::StorageError;
+    #[cfg(feature = "ban-manager")]
+    use crate::storage::{BanHistory, BanRecord, BanStorage};
+    #[cfg(feature = "ban-manager")]
+    use async_trait::async_trait;
+    #[cfg(feature = "ban-manager")]
+    use std::collections::HashMap;
+    #[cfg(feature = "ban-manager")]
+    use tokio::sync::Mutex;
+
+    #[cfg(feature = "ban-manager")]
+    struct TestBanStorage {
+        bans: Mutex<HashMap<BanTarget, BanRecord>>,
+    }
+
+    #[cfg(feature = "ban-manager")]
+    impl TestBanStorage {
+        fn new() -> Self {
+            Self {
+                bans: Mutex::new(HashMap::new()),
+            }
+        }
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[async_trait]
+    impl BanStorage for TestBanStorage {
+        async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, StorageError> {
+            let bans = self.bans.lock().await;
+            Ok(bans.get(target).cloned())
+        }
+
+        async fn save(&self, record: &BanRecord) -> Result<(), StorageError> {
+            let mut bans = self.bans.lock().await;
+            bans.insert(record.target.clone(), record.clone());
+            Ok(())
+        }
+
+        async fn get_history(
+            &self,
+            _target: &BanTarget,
+        ) -> Result<Option<BanHistory>, StorageError> {
+            Ok(None)
+        }
+        async fn increment_ban_times(&self, _target: &BanTarget) -> Result<u64, StorageError> {
+            Ok(0)
+        }
+        async fn get_ban_times(&self, _target: &BanTarget) -> Result<u64, StorageError> {
+            Ok(0)
+        }
+        async fn remove_ban(&self, target: &BanTarget) -> Result<(), StorageError> {
+            let mut bans = self.bans.lock().await;
+            bans.remove(target);
+            Ok(())
+        }
+        async fn cleanup_expired_bans(&self) -> Result<u64, StorageError> {
+            Ok(0)
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
 
     #[tokio::test]
     #[cfg(feature = "ban-manager")]
     async fn test_parallel_ban_checker() {
-        let ban_storage = Arc::new(MemoryStorage::new());
+        let ban_storage = Arc::new(TestBanStorage::new());
         let ban_manager = Arc::new(BanManager::new(ban_storage.clone(), None).await.unwrap());
+
+        // Setup ban
+        let banned_user = BanTarget::UserId("banned_user".to_string());
+        let record = BanRecord {
+            target: banned_user.clone(),
+            ban_times: 1,
+            duration: std::time::Duration::from_secs(3600),
+            banned_at: chrono::Utc::now(),
+            expires_at: chrono::Utc::now() + chrono::Duration::seconds(3600),
+            is_manual: true,
+            reason: "Test ban".to_string(),
+        };
+        ban_storage.save(&record).await.unwrap();
+
         let checker = ParallelBanChecker::new(ban_manager);
 
         // 测试多个目标的并行检查

@@ -845,7 +845,7 @@ mod tests {
                 "user1",
                 "resource1",
                 10,
-                1000,
+                100,
                 std::time::Duration::from_secs(60),
             )
             .await

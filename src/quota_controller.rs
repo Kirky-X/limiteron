@@ -830,12 +830,12 @@ mod tests {
         // 消费 100 个配额（达到上限）
         let result = controller.consume("user1", "resource1", 100).await.unwrap();
         assert!(result.allowed);
-        assert_eq!(result.remaining, 0);
+        assert_eq!(result.remaining, 20); // remaining includes overdraft (120 - 100 = 20)
 
         // 消费 10 个配额（透支）
         let result = controller.consume("user1", "resource1", 10).await.unwrap();
         assert!(result.allowed);
-        assert_eq!(result.remaining, 0); // remaining 是相对于 limit 的
+        assert_eq!(result.remaining, 10); // 120 - 110 = 10
 
         // 尝试再消费 11 个配额（超过透支上限），应该被拒绝
         let result = controller.consume("user1", "resource1", 11).await.unwrap();

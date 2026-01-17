@@ -22,6 +22,7 @@ use tracing::{debug, info, trace, warn};
 /// 决策链节点
 ///
 /// 责任链中的单个节点，包含一个限流器和相关配置。
+#[derive(Clone)]
 pub struct DecisionNode {
     /// 节点ID
     pub id: String,
@@ -128,6 +129,7 @@ impl DecisionNode {
 /// 决策链
 ///
 /// 使用责任链模式实现多限流器组合决策。
+#[derive(Clone)]
 pub struct DecisionChain {
     /// 链中的节点（按优先级排序）
     nodes: Vec<DecisionNode>,
@@ -239,6 +241,8 @@ impl DecisionChain {
             self.nodes.len()
         );
 
+        let mut rejected_reason = None;
+
         // 按优先级顺序检查每个节点
         for node in &self.nodes {
             if !node.enabled {
@@ -273,13 +277,16 @@ impl DecisionChain {
                         }
                     }
 
+                    // 记录拒绝原因（如果是第一次拒绝）
+                    if rejected_reason.is_none() {
+                        rejected_reason =
+                            Some(format!("Rejected by {}: rate limit exceeded", node.name));
+                    }
+
                     // 如果启用了短路，立即返回
                     if node.short_circuit {
                         info!("Decision chain short-circuited by node: {}", node.name);
-                        return Ok(Decision::Rejected(format!(
-                            "Rejected by {}: rate limit exceeded",
-                            node.name
-                        )));
+                        return Ok(Decision::Rejected(rejected_reason.unwrap()));
                     }
                 }
                 Err(e) => {
@@ -288,6 +295,11 @@ impl DecisionChain {
                     return Err(e);
                 }
             }
+        }
+
+        // 如果有任何节点拒绝，返回拒绝
+        if let Some(reason) = rejected_reason {
+            return Ok(Decision::Rejected(reason));
         }
 
         // 所有节点都允许
@@ -506,7 +518,53 @@ mod tests {
     use crate::limiters::{
         ConcurrencyLimiter, FixedWindowLimiter, SlidingWindowLimiter, TokenBucketLimiter,
     };
+    use std::future::Future;
+    use std::pin::Pin;
     use std::time::Duration;
+
+    // Helper structs for testing
+    struct MockLimiter {
+        allowed: Arc<std::sync::atomic::AtomicBool>,
+    }
+    impl MockLimiter {
+        fn new(allowed: bool) -> Self {
+            Self {
+                allowed: Arc::new(std::sync::atomic::AtomicBool::new(allowed)),
+            }
+        }
+        fn set_allowed(&self, v: bool) {
+            self.allowed.store(v, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    impl Limiter for MockLimiter {
+        fn allow(
+            &self,
+            _cost: u64,
+        ) -> Pin<Box<dyn Future<Output = Result<bool, FlowGuardError>> + Send + '_>> {
+            let a = self.allowed.load(std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async move { Ok(a) })
+        }
+    }
+
+    struct SpyLimiter {
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+    }
+    impl SpyLimiter {
+        fn new() -> Self {
+            Self {
+                calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            }
+        }
+    }
+    impl Limiter for SpyLimiter {
+        fn allow(
+            &self,
+            _cost: u64,
+        ) -> Pin<Box<dyn Future<Output = Result<bool, FlowGuardError>> + Send + '_>> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async move { Ok(true) })
+        }
+    }
 
     // ==================== DecisionNode 测试 ====================
 
@@ -852,41 +910,60 @@ mod tests {
 
     #[tokio::test]
     async fn test_decision_chain_set_short_circuit() {
-        let limiter1 = Arc::new(TokenBucketLimiter::new(5, 1));
-        let limiter2 = Arc::new(TokenBucketLimiter::new(0, 1));
+        let limiter1 = Arc::new(MockLimiter::new(true));
+        let limiter2_spy = Arc::new(SpyLimiter::new());
+        let limiter2 = limiter2_spy.clone();
 
-        let node1 = DecisionNode::new("node1".to_string(), "First Node".to_string(), limiter1, 100)
-            .with_short_circuit(false);
+        // Node1: Mock limiter, initially allowed. Short circuit OFF.
+        let node1 = DecisionNode::new(
+            "node1".to_string(),
+            "Mock Node".to_string(),
+            limiter1.clone(),
+            100,
+        )
+        .with_short_circuit(false);
 
-        let node2 = DecisionNode::new("node2".to_string(), "Second Node".to_string(), limiter2, 50);
+        // Node2: Spy limiter, always allowed.
+        let node2 = DecisionNode::new("node2".to_string(), "Spy Node".to_string(), limiter2, 50);
 
         let mut chain = DecisionChain::new(vec![node1, node2]);
 
-        // 前5个请求应该被允许
-        for _ in 0..5 {
-            let decision = chain.check().await.unwrap();
-            assert_eq!(decision, Decision::Allowed(None));
-        }
+        // 1. Initial check: Node1 allows. Node2 should be called.
+        let decision = chain.check().await.unwrap();
+        assert_eq!(decision, Decision::Allowed(None));
+        assert_eq!(
+            limiter2_spy.calls.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
 
-        // 第6个请求，node1拒绝但不短路，node2也会拒绝
+        // 2. Node1 rejects. Short circuit OFF. Node2 should be called.
+        limiter1.set_allowed(false);
         let decision = chain.check().await.unwrap();
         assert!(matches!(decision, Decision::Rejected(_)));
+        assert_eq!(
+            limiter2_spy.calls.load(std::sync::atomic::Ordering::SeqCst),
+            2
+        ); // Increased
 
-        // 启用node1的短路
+        // 3. Enable short circuit on Node1.
         chain.set_short_circuit("node1", true);
 
-        // 重置统计
-        chain.reset_stats();
-
-        // 前5个请求应该被允许
-        for _ in 0..5 {
-            let decision = chain.check().await.unwrap();
-            assert_eq!(decision, Decision::Allowed(None));
-        }
-
-        // 第6个请求，node1拒绝并短路
+        // 4. Node1 rejects. Short circuit ON. Node2 should NOT be called.
         let decision = chain.check().await.unwrap();
         assert!(matches!(decision, Decision::Rejected(_)));
+        assert_eq!(
+            limiter2_spy.calls.load(std::sync::atomic::Ordering::SeqCst),
+            2
+        ); // Unchanged!
+
+        // 5. Node1 allows again. Node2 should be called.
+        limiter1.set_allowed(true);
+        let decision = chain.check().await.unwrap();
+        assert_eq!(decision, Decision::Allowed(None));
+        assert_eq!(
+            limiter2_spy.calls.load(std::sync::atomic::Ordering::SeqCst),
+            3
+        ); // Increased
     }
 
     // ==================== DecisionChainBuilder 测试 ====================

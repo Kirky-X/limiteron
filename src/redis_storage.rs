@@ -66,9 +66,6 @@ fn validate_key_component(component: &str) -> Result<(), StorageError> {
         return Err(StorageError::QueryError("键组件不能为空".to_string()));
     }
 
-    // 移除前后空格
-    let component = component.trim();
-
     if component.len() > MAX_KEY_COMPONENT_LENGTH {
         return Err(StorageError::QueryError(format!(
             "键组件长度超过限制（最大 {} 字符）",
@@ -79,11 +76,6 @@ fn validate_key_component(component: &str) -> Result<(), StorageError> {
     // 检查是否包含危险字符
     if component.contains(':') || component.contains('*') || component.contains('?') {
         return Err(StorageError::QueryError("键组件包含非法字符".to_string()));
-    }
-
-    // 防止路径遍历
-    if component.contains("..") {
-        return Err(StorageError::QueryError("键组件包含非法序列".to_string()));
     }
 
     Ok(())
@@ -1111,7 +1103,7 @@ impl BanStorage for RedisStorage {
                 })?;
 
             // 设置过期时间
-            let ttl = (record.expires_at - chrono::Utc::now()).num_seconds();
+            let ttl = (record.expires_at - chrono::Utc::now()).num_seconds() as i64;
             if ttl > 0 {
                 let _: () = conn.expire(&key, ttl).await.map_err(|e| {
                     error!("Redis EXPIRE失败: {}", e);

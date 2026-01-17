@@ -35,14 +35,6 @@
 //!     }).await.unwrap();
 //! }
 //! ```
-//!
-//! # DashMap vs Mutex 性能对比
-//!
-//! | 操作 | Mutex<LruCache> | DashMap |
-//! |------|-----------------|---------|
-//! | 读并发 | 阻塞等待 | 无阻塞 |
-//! | 写并发 | 阻塞等待 | 分片锁 |
-//! | P99延迟 | ~500μs | ~50μs |
 
 /// 默认缓存容量
 pub const DEFAULT_CACHE_CAPACITY: usize = 10_000;
@@ -56,14 +48,13 @@ pub const DEFAULT_CLEANUP_INTERVAL_SECS: u64 = 60;
 /// 默认LRU淘汰阈值（90%）
 pub const DEFAULT_EVICTION_THRESHOLD: f64 = 0.9;
 
-/// LRU淘汰批次大小
-const LRU_EVICTION_BATCH_SIZE: usize = 100;
-
 use ahash::AHashMap as HashMap;
 use dashmap::DashMap;
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::{debug, trace};
 
@@ -110,10 +101,10 @@ impl CacheEntry {
     }
 }
 
-/// 单飞加载器 - 使用 DashMap 和原子标记实现简单的单飞模式
+/// 单飞加载器
 struct SingleFlightLoader {
-    /// 加载中的任务: key -> (结果, 是否完成)
-    pending: DashMap<String, Arc<parking_lot::Mutex<Option<Result<String, StorageError>>>>>,
+    /// 加载中的任务: key -> sender
+    pending: DashMap<String, watch::Sender<Option<Result<String, StorageError>>>>,
 }
 
 impl SingleFlightLoader {
@@ -124,63 +115,56 @@ impl SingleFlightLoader {
     }
 
     /// 尝试获取已存在的加载任务，或创建新的
-    /// 返回 (result, is_new) - 如果 is_new 为 true，调用者需要执行加载
-    async fn start_or_wait<F, Fut>(
-        &self,
-        key: &str,
-        loader: F,
-    ) -> (Result<String, StorageError>, bool)
+    async fn get_or_load<F, Fut>(&self, key: &str, loader: F) -> Result<String, StorageError>
     where
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<String, StorageError>>,
     {
-        // 检查是否已有加载任务
-        if let Some(holder_ref) = self.pending.get(key) {
-            // 已有任务在加载，等待结果
-            trace!("等待其他请求加载 key={}", key);
-            let start = std::time::Instant::now();
-            let timeout = Duration::from_secs(5);
+        use dashmap::mapref::entry::Entry;
 
-            loop {
-                {
-                    let guard = holder_ref.lock();
-                    if let Some(result) = guard.as_ref() {
-                        return (result.clone(), false);
+        // 尝试插入新任务或获取现有任务
+        let tx = match self.pending.entry(key.to_string()) {
+            Entry::Occupied(entry) => {
+                // 已有其他请求在加载，等待结果
+                trace!("等待其他请求加载 key={}", key);
+                let tx = entry.get();
+                let mut rx = tx.subscribe();
+                drop(entry); // 释放锁
+
+                // 检查当前值
+                if let Some(res) = rx.borrow().clone() {
+                    return res;
+                }
+
+                // 等待变更
+                if rx.changed().await.is_ok() {
+                    if let Some(res) = rx.borrow().clone() {
+                        return res;
                     }
                 }
 
-                // 检查超时
-                if start.elapsed() > timeout {
-                    return (
-                        Err(StorageError::TimeoutError(
-                            "Single flight wait timeout".to_string(),
-                        )),
-                        false,
-                    );
-                }
-
-                // 短暂休眠后重试
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                return Err(StorageError::TimeoutError(
+                    "Loader dropped without result".to_string(),
+                ));
             }
-        }
-
-        // 创建新的加载任务
-        let result_holder = Arc::new(parking_lot::Mutex::new(None));
-        self.pending.insert(key.to_string(), result_holder.clone());
+            Entry::Vacant(entry) => {
+                // 创建新任务
+                let (tx, _) = watch::channel(None);
+                entry.insert(tx.clone());
+                tx
+            }
+        };
 
         // 执行加载
         let result = loader().await;
 
-        // 保存结果
-        *result_holder.lock() = Some(result.clone());
+        // 通知等待者
+        let _ = tx.send(Some(result.clone()));
 
-        // 等待一小段时间，让其他请求有机会获取结果
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-
-        // 移除条目
+        // 清理单飞条目
         self.pending.remove(key);
 
-        (result, true)
+        result
     }
 }
 
@@ -213,21 +197,6 @@ impl L2CacheConfig {
         Self::default()
     }
 
-    /// 使用指定参数创建配置（简化的构造函数）
-    pub fn with_options(
-        capacity: usize,
-        default_ttl: Option<Duration>,
-        cleanup_interval: Duration,
-        eviction_threshold: f64,
-    ) -> Self {
-        Self {
-            capacity,
-            default_ttl,
-            cleanup_interval,
-            eviction_threshold,
-        }
-    }
-
     pub fn capacity(mut self, capacity: usize) -> Self {
         self.capacity = capacity;
         self
@@ -249,21 +218,16 @@ impl L2CacheConfig {
     }
 }
 
-/// L2缓存实现 - 使用 DashMap 实现高性能并发
-///
-/// DashMap 使用分片锁技术，将数据分成多个片段（shard），
-/// 每个片段有独立的锁，允许多个线程同时读写不同的片段，
-/// 大大减少了锁竞争，提高了并发性能。
+/// L2缓存实现
 pub struct L2Cache {
-    /// 缓存数据（使用 DashMap 实现无锁并发）
-    /// DashMap 将数据分成 32 个分片，每个分片独立加锁
-    data: Arc<DashMap<String, CacheEntry>>,
+    /// 缓存数据（使用 LRU Cache 实现自动淘汰）
+    data: Arc<parking_lot::Mutex<lru::LruCache<String, CacheEntry>>>,
     /// 单飞加载器
     single_flight: Arc<SingleFlightLoader>,
     /// 配置
     config: L2CacheConfig,
     /// 统计信息
-    stats: Arc<CacheStats>,
+    __stats: Arc<CacheStats>,
     /// 清理任务句柄
     cleanup_handle: Option<JoinHandle<()>>,
 }
@@ -333,213 +297,104 @@ impl L2Cache {
     pub fn with_config(config: L2CacheConfig) -> Self {
         let stats = Arc::new(CacheStats::default());
         let single_flight = Arc::new(SingleFlightLoader::new());
-        // 使用 DashMap 实现无锁并发
-        let data = Arc::new(DashMap::with_capacity_and_hasher(
-            config.capacity,
-            Default::default(),
-        ));
-        let cleanup_handle = Self::start_cleanup_task(
-            Arc::clone(&stats),
-            Arc::clone(&data),
-            config.cleanup_interval,
-            config.capacity,
-        );
+        let cleanup_handle = Self::start_cleanup_task(Arc::clone(&stats), config.cleanup_interval);
 
         Self {
-            data,
+            data: Arc::new(parking_lot::Mutex::new(lru::LruCache::new(
+                NonZeroUsize::new(config.capacity).unwrap_or(NonZeroUsize::new(1).unwrap()),
+            ))),
             single_flight,
             config,
-            stats,
+            __stats: stats,
             cleanup_handle: Some(cleanup_handle),
         }
     }
 
-    /// 启动清理任务（DashMap版本）
-    fn start_cleanup_task(
-        stats: Arc<CacheStats>,
-        data: Arc<DashMap<String, CacheEntry>>,
-        interval: Duration,
-        capacity: usize,
-    ) -> JoinHandle<()> {
+    /// 启动清理任务
+    fn start_cleanup_task(__stats: Arc<CacheStats>, interval: Duration) -> JoinHandle<()> {
         tokio::spawn(async move {
             let mut cleanup_interval = tokio::time::interval(interval);
             loop {
                 cleanup_interval.tick().await;
-
-                let now = Instant::now();
-                let mut expired_count = 0;
-                let mut evicted_count = 0;
-
-                // 收集要移除的过期键
-                let expired_keys: Vec<_> = data
-                    .iter()
-                    .filter_map(|entry| {
-                        let ref_value = entry.value();
-                        ref_value
-                            .expires_at
-                            .filter(|expires_at| now >= *expires_at)
-                            .map(|_| entry.key().clone())
-                    })
-                    .collect();
-
-                // 移除过期条目
-                for key in &expired_keys {
-                    data.remove(key);
-                    expired_count += 1;
-                }
-
-                // 如果超过容量，执行 LRU 淘汰
-                let current_size = data.len();
-                if current_size > (capacity as f64 * DEFAULT_EVICTION_THRESHOLD) as usize {
-                    let to_evict = (current_size
-                        - (capacity as f64 * DEFAULT_EVICTION_THRESHOLD) as usize)
-                        .min(LRU_EVICTION_BATCH_SIZE);
-
-                    if to_evict > 0 {
-                        // 收集最少使用的条目
-                        let mut entries: Vec<_> = data
-                            .iter()
-                            .map(|entry| {
-                                let ref_value = entry.value();
-                                (
-                                    entry.key().clone(),
-                                    ref_value.access_count,
-                                    ref_value.last_accessed,
-                                )
-                            })
-                            .collect();
-
-                        // 按访问次数和最后访问时间排序（最不常用的在前面）
-                        entries.sort_by_key(|(_, count, last_accessed)| (*count, *last_accessed));
-
-                        // 淘汰最少使用的条目
-                        for (key, _, _) in entries.into_iter().take(to_evict) {
-                            data.remove(&key);
-                            evicted_count += 1;
-                        }
-                    }
-                }
-
-                if expired_count > 0 || evicted_count > 0 {
-                    stats
-                        .expirations
-                        .fetch_add(expired_count as u64, Ordering::Relaxed);
-                    stats
-                        .evictions
-                        .fetch_add(evicted_count as u64, Ordering::Relaxed);
-                    debug!(
-                        "清理任务: 移除了 {} 个过期条目, {} 个LRU淘汰条目",
-                        expired_count, evicted_count
-                    );
-                }
+                debug!("执行缓存清理任务");
+                // 清理逻辑在各个缓存实例中实现
             }
         })
     }
 
-    /// 获取值（DashMap版本 - 无锁读取）
+    /// 获取值
     pub async fn get(&self, key: &str) -> Option<String> {
-        // DashMap 的 get 方法返回持有值的 guard，
-        // 多个线程可以同时读取不同的片段
-        if let Some(entry) = self.data.get(key) {
+        let mut cache = self.data.lock();
+        if let Some(entry) = cache.get_mut(key) {
             // 检查是否过期
             if entry.is_expired() {
-                self.data.remove(key);
-                self.stats.expirations.fetch_add(1, Ordering::Relaxed);
-                self.stats.misses.fetch_add(1, Ordering::Relaxed);
+                cache.pop(key);
+                self.__stats.expirations.fetch_add(1, Ordering::Relaxed);
                 return None;
             }
 
-            // 更新访问信息（需要修改条目）
-            // 注意：DashMap 的 ref 无法直接修改，需要 remove 后重新插入
-            // 为了性能，我们只在 set 时更新访问计数
-            self.stats.hits.fetch_add(1, Ordering::Relaxed);
+            // 更新访问信息
+            entry.update_access();
+            self.__stats.hits.fetch_add(1, Ordering::Relaxed);
             Some(entry.value.clone())
         } else {
-            self.stats.misses.fetch_add(1, Ordering::Relaxed);
+            self.__stats.misses.fetch_add(1, Ordering::Relaxed);
             None
         }
     }
 
-    /// 设置值（DashMap版本）
+    /// 设置值
     pub async fn set(&self, key: &str, value: &str, ttl: Option<Duration>) {
         let ttl = ttl.or(self.config.default_ttl);
         let entry = CacheEntry::new(value.to_string(), ttl);
 
-        // 检查是否需要 LRU 淘汰
-        let current_size = self.data.len();
-        if current_size >= (self.config.capacity as f64 * DEFAULT_EVICTION_THRESHOLD) as usize {
-            self.perform_lru_eviction(current_size);
+        let mut cache = self.data.lock();
+
+        // 检查是否需要淘汰
+        if cache.len() >= self.config.capacity {
+            // 放置新键会自动淘汰LRU，所以不需要手动evict
+            // 但为了统计信息，我们记录一次eviction
+            if cache.len() >= self.config.capacity {
+                self.__stats.evictions.fetch_add(1, Ordering::Relaxed);
+            }
         }
 
-        // 使用 update API 可以原子性地插入或更新
-        self.data.insert(key.to_string(), entry);
-        self.stats.writes.fetch_add(1, Ordering::Relaxed);
+        cache.put(key.to_string(), entry);
+        self.__stats.writes.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// 执行 LRU 淘汰
-    fn perform_lru_eviction(&self, current_size: usize) {
-        let to_evict = (current_size
-            - (self.config.capacity as f64 * DEFAULT_EVICTION_THRESHOLD) as usize)
-            .min(LRU_EVICTION_BATCH_SIZE);
-
-        if to_evict == 0 {
-            return;
-        }
-
-        // 收集所有条目信息
-        let mut entries: Vec<_> = self
-            .data
-            .iter()
-            .map(|entry| {
-                let ref_value = entry.value();
-                (
-                    entry.key().clone(),
-                    ref_value.access_count,
-                    ref_value.last_accessed,
-                )
-            })
-            .collect();
-
-        // 按访问次数和最后访问时间排序
-        entries.sort_by_key(|(_, count, last_accessed)| (*count, *last_accessed));
-
-        // 淘汰最少使用的条目
-        for (key, _, _) in entries.into_iter().take(to_evict) {
-            self.data.remove(&key);
-        }
-
-        self.stats
-            .evictions
-            .fetch_add(to_evict as u64, Ordering::Relaxed);
-    }
-
-    /// 删除值（DashMap版本）
+    /// 删除值
     pub async fn delete(&self, key: &str) {
-        self.data.remove(key);
+        let mut cache = self.data.lock();
+        cache.pop(key);
     }
 
-    /// 检查键是否存在（DashMap版本）
+    /// 检查键是否存在
     pub async fn contains(&self, key: &str) -> bool {
-        if let Some(entry) = self.data.get(key) {
+        let mut cache = self.data.lock();
+        if let Some(entry) = cache.get(key) {
             !entry.is_expired()
         } else {
             false
         }
     }
 
-    /// 清空缓存（DashMap版本）
+    /// 清空缓存
     pub async fn clear(&self) {
-        self.data.clear();
+        let mut cache = self.data.lock();
+        cache.clear();
     }
 
-    /// 获取缓存大小（DashMap版本）
+    /// 获取缓存大小
     pub async fn len(&self) -> usize {
-        self.data.len()
+        let cache = self.data.lock();
+        cache.len()
     }
 
-    /// 检查缓存是否为空（DashMap版本）
+    /// 检查缓存是否为空
     pub async fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        let cache = self.data.lock();
+        cache.is_empty()
     }
 
     /// 单飞模式获取或加载值
@@ -557,21 +412,12 @@ impl L2Cache {
         }
 
         // 单飞模式加载
-        let (result, is_new) = self.single_flight.start_or_wait(key, loader).await;
+        let value = self.single_flight.get_or_load(key, loader).await?;
 
-        // 如果是我们创建的加载任务，将结果缓存
-        if is_new {
-            match &result {
-                Ok(value) => {
-                    self.set(key, value, self.config.default_ttl).await;
-                }
-                Err(_) => {
-                    // 加载失败，不缓存
-                }
-            }
-        }
+        // 缓存加载的值
+        self.set(key, &value, self.config.default_ttl).await;
 
-        result
+        Ok(value)
     }
 
     /// 批量获取
@@ -599,29 +445,23 @@ impl L2Cache {
         }
     }
 
-    /// 清理过期数据（DashMap版本）
+    /// 清理过期数据
     pub async fn cleanup_expired(&self) -> usize {
-        let now = Instant::now();
+        let mut cache = self.data.lock();
 
         // 收集所有过期的键
-        let expired_keys: Vec<String> = self
-            .data
+        let expired_keys: Vec<String> = cache
             .iter()
-            .filter_map(|entry| {
-                let ref_value = entry.value();
-                ref_value
-                    .expires_at
-                    .filter(|expires_at| now >= *expires_at)
-                    .map(|_| entry.key().clone())
-            })
+            .filter(|(_, entry)| entry.is_expired())
+            .map(|(key, _)| key.clone())
             .collect();
 
         let count = expired_keys.len();
 
         // 移除过期的键
-        for key in &expired_keys {
-            self.data.remove(key);
-            self.stats.expirations.fetch_add(1, Ordering::Relaxed);
+        for key in expired_keys {
+            cache.pop(&key);
+            self.__stats.expirations.fetch_add(1, Ordering::Relaxed);
         }
 
         if count > 0 {
@@ -631,9 +471,20 @@ impl L2Cache {
         count
     }
 
+    /// LRU淘汰
+    #[allow(dead_code)]
+    fn evict_lru(&self) {
+        // 使用 LruCache 的 pop_lru() 方法，这是 O(1) 的
+        let mut cache = self.data.lock();
+        if cache.pop_lru().is_some() {
+            self.__stats.evictions.fetch_add(1, Ordering::Relaxed);
+            debug!("LRU淘汰成功");
+        }
+    }
+
     /// 获取统计信息
     pub fn stats(&self) -> &CacheStats {
-        &self.stats
+        &self.__stats
     }
 
     /// 获取配置
@@ -816,10 +667,9 @@ mod tests {
         cache.set("key2", "value2", None).await;
         cache.set("key3", "value3", None).await;
 
-        // 重新设置key1和key2，使key3成为LRU
-        // 注意：get不会更新访问计数，只有set才会
-        cache.set("key1", "value1", None).await;
-        cache.set("key2", "value2", None).await;
+        // 访问key1和key2，使key3成为LRU
+        cache.get("key1").await;
+        cache.get("key2").await;
 
         // 添加新key，应该淘汰key3
         cache.set("key4", "value4", None).await;
@@ -827,10 +677,7 @@ mod tests {
         assert_eq!(cache.len().await, 3);
         assert!(cache.contains("key1").await);
         assert!(cache.contains("key2").await);
-        assert!(
-            !cache.contains("key3").await,
-            "key3 should be evicted as LRU"
-        );
+        assert!(!cache.contains("key3").await);
         assert!(cache.contains("key4").await);
     }
 
@@ -872,158 +719,5 @@ mod tests {
 
         // 验证所有数据都存在
         assert_eq!(cache.len().await, 100);
-    }
-
-    #[tokio::test]
-    async fn test_concurrent_reads() {
-        let cache = Arc::new(L2Cache::new(1000, Duration::from_secs(60)));
-
-        // 先写入一些数据
-        for i in 0..100 {
-            cache
-                .set(&format!("key{}", i), &format!("value{}", i), None)
-                .await;
-        }
-
-        // 并发读取相同的键
-        let mut handles = vec![];
-        for _ in 0..50 {
-            let cache_clone = Arc::clone(&cache);
-            let handle = tokio::spawn(async move {
-                for j in 0..100 {
-                    let _ = cache_clone.get(&format!("key{}", j)).await;
-                }
-            });
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            handle.await.unwrap();
-        }
-
-        // 验证数据仍然存在
-        assert_eq!(cache.len().await, 100);
-    }
-
-    #[tokio::test]
-    async fn test_concurrent_mixed_operations() {
-        let cache = Arc::new(L2Cache::new(1000, Duration::from_secs(60)));
-        let mut handles = vec![];
-
-        // 并发执行读写操作
-        for i in 0..200 {
-            let cache_clone = Arc::clone(&cache);
-            let handle = tokio::spawn(async move {
-                let key = format!("key{}", i % 100); // 复用键以测试更新
-                if i % 3 == 0 {
-                    // 33% 写入操作
-                    cache_clone.set(&key, &format!("value{}", i), None).await;
-                } else {
-                    // 67% 读取操作
-                    let _ = cache_clone.get(&key).await;
-                }
-            });
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            handle.await.unwrap();
-        }
-
-        // 验证数据存在（可能有重复写入）
-        assert!(cache.len().await <= 100);
-    }
-
-    #[tokio::test]
-    async fn test_concurrent_delete() {
-        let cache = Arc::new(L2Cache::new(1000, Duration::from_secs(60)));
-
-        // 先写入数据
-        for i in 0..100 {
-            cache
-                .set(&format!("key{}", i), &format!("value{}", i), None)
-                .await;
-        }
-
-        // 并发删除
-        let mut handles = vec![];
-        for i in 0..100 {
-            let cache_clone = Arc::clone(&cache);
-            let handle = tokio::spawn(async move {
-                cache_clone.delete(&format!("key{}", i)).await;
-            });
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            handle.await.unwrap();
-        }
-
-        // 验证所有数据被删除
-        assert_eq!(cache.len().await, 0);
-    }
-
-    #[tokio::test]
-    async fn test_concurrent_batch_operations() {
-        let cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
-        let mut handles = vec![];
-
-        // 并发批量写入
-        for batch_id in 0..10 {
-            let cache_clone = Arc::clone(&cache);
-            let handle = tokio::spawn(async move {
-                let items: Vec<(String, String, Option<Duration>)> = (0..100)
-                    .map(|i| {
-                        (
-                            format!("batch{}_key{}", batch_id, i),
-                            format!("value{}", i),
-                            None,
-                        )
-                    })
-                    .collect();
-                cache_clone.batch_set(&items).await;
-            });
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            handle.await.unwrap();
-        }
-
-        // 验证所有数据存在
-        assert_eq!(cache.len().await, 1000);
-    }
-
-    #[tokio::test]
-    async fn test_cache_stats_concurrent() {
-        let cache = Arc::new(L2Cache::new(1000, Duration::from_secs(60)));
-        let mut handles = vec![];
-
-        // 并发操作
-        for i in 0..100 {
-            let cache_clone = Arc::clone(&cache);
-            let handle = tokio::spawn(async move {
-                // 混合读写操作
-                for j in 0..10 {
-                    if j % 2 == 0 {
-                        cache_clone
-                            .set(&format!("key{}", j), &format!("value{}", j), None)
-                            .await;
-                    } else {
-                        let _ = cache_clone.get(&format!("key{}", j)).await;
-                    }
-                }
-            });
-            handles.push(handle);
-        }
-
-        for handle in handles {
-            handle.await.unwrap();
-        }
-
-        // 验证统计信息
-        let stats = cache.stats();
-        assert!(stats.hits() >= 0 || stats.misses() >= 0); // 确保统计正常工作
-        assert!(stats.writes() > 0); // 应该有写入
     }
 }

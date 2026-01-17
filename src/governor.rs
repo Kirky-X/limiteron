@@ -5,14 +5,21 @@
 //! - 简化核心逻辑，提高可维护性
 //! - 保持向后兼容性
 
-use crate::config::{ChangeSource, ConfigChangeRecord, FlowControlConfig};
-use crate::decision_chain::DecisionChain;
+use crate::config::{
+    ChangeSource, ConfigChangeRecord, FlowControlConfig, LimiterConfig, Matcher as ConfigMatcher,
+};
+use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::{Decision, FlowGuardError};
 use crate::fallback::FallbackManager;
 use crate::l2_cache::L2Cache;
-use crate::matchers::{Identifier, IdentifierExtractor, RequestContext, RuleMatcher};
+use crate::limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter};
+use crate::matchers::{
+    CompositeCondition, ConditionEvaluator, Identifier, IdentifierExtractor, IpRange,
+    LogicalOperator, MatchCondition, RequestContext, Rule as MatcherRule, RuleMatcher,
+};
 use crate::storage::{BanStorage, BanTarget, Storage};
 use chrono::Utc;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -76,6 +83,9 @@ pub struct Governor {
     /// 规则匹配器
     rule_matcher: Arc<RwLock<RuleMatcher>>,
 
+    /// 规则对应的决策链
+    rule_chains: Arc<RwLock<HashMap<String, DecisionChain>>>,
+
     /// 标识符提取器
     identifier_extractor: Arc<dyn IdentifierExtractor>,
 
@@ -118,21 +128,175 @@ fn redact_for_log(value: Option<&str>) -> String {
 }
 
 impl Governor {
-    /// 将 Identifier 转换为 BanTarget
-    ///
-    /// # 参数
-    /// - `identifier`: 标识符
-    ///
-    /// # 返回
-    /// - `Some(BanTarget)`: 转换成功
-    /// - `None`: 无法转换（如 ApiKey, DeviceId）
-    fn identifier_to_ban_target(identifier: &Identifier) -> Option<BanTarget> {
-        match identifier {
-            Identifier::UserId(id) => Some(BanTarget::UserId(id.clone())),
-            Identifier::Ip(ip) => Some(BanTarget::Ip(ip.clone())),
-            Identifier::Mac(mac) => Some(BanTarget::Mac(mac.clone())),
-            _ => None,
+    fn parse_duration(s: &str) -> Result<Duration, FlowGuardError> {
+        let s = s.trim();
+        let (num, unit) = if s.ends_with("ms") {
+            (s.trim_end_matches("ms"), "ms")
+        } else if s.ends_with('s') {
+            (s.trim_end_matches('s'), "s")
+        } else if s.ends_with('m') {
+            (s.trim_end_matches('m'), "m")
+        } else if s.ends_with('h') {
+            (s.trim_end_matches('h'), "h")
+        } else {
+            return Err(FlowGuardError::ConfigError(format!(
+                "Invalid duration format: {}",
+                s
+            )));
+        };
+
+        let val: u64 = num.parse().map_err(|_| {
+            FlowGuardError::ConfigError(format!("Invalid duration number: {}", num))
+        })?;
+
+        match unit {
+            "ms" => Ok(Duration::from_millis(val)),
+            "s" => Ok(Duration::from_secs(val)),
+            "m" => Ok(Duration::from_secs(val * 60)),
+            "h" => Ok(Duration::from_secs(val * 3600)),
+            _ => unreachable!(),
         }
+    }
+
+    fn build_rule_chains(
+        config: &FlowControlConfig,
+    ) -> Result<HashMap<String, DecisionChain>, FlowGuardError> {
+        let mut chains = HashMap::new();
+
+        for rule in &config.rules {
+            let mut nodes: Vec<DecisionNode> = Vec::new();
+
+            for (index, limiter_config) in rule.limiters.iter().enumerate() {
+                let (limiter, type_name): (Arc<dyn Limiter>, &str) = match limiter_config {
+                    LimiterConfig::TokenBucket {
+                        capacity,
+                        refill_rate,
+                    } => (
+                        Arc::new(TokenBucketLimiter::new(*capacity, *refill_rate)),
+                        "TokenBucket",
+                    ),
+                    LimiterConfig::SlidingWindow {
+                        window_size,
+                        max_requests,
+                    } => {
+                        let duration = Self::parse_duration(window_size)?;
+                        (
+                            Arc::new(SlidingWindowLimiter::new(duration, *max_requests)),
+                            "SlidingWindow",
+                        )
+                    }
+                    LimiterConfig::FixedWindow {
+                        window_size,
+                        max_requests,
+                    } => {
+                        let duration = Self::parse_duration(window_size)?;
+                        (
+                            Arc::new(FixedWindowLimiter::new(duration, *max_requests)),
+                            "FixedWindow",
+                        )
+                    }
+                    LimiterConfig::Quota {
+                        quota_type,
+                        limit,
+                        window,
+                        overdraft: _,
+                    } => {
+                        // TODO: Implement QuotaLimiter
+                        warn!(
+                            "QuotaLimiter not implemented yet, skipping: {} {}/{}",
+                            quota_type, limit, window
+                        );
+                        continue;
+                    }
+                    LimiterConfig::Concurrency { max_concurrent } => {
+                        warn!(
+                            "ConcurrencyLimiter not implemented yet, skipping: {}",
+                            max_concurrent
+                        );
+                        continue;
+                    }
+                    LimiterConfig::Custom { name, config: _ } => {
+                        warn!("CustomLimiter not implemented yet, skipping: {}", name);
+                        continue;
+                    }
+                };
+
+                let node = DecisionNode::new(
+                    format!("{}_limiter_{}", rule.id, index),
+                    format!("{} - {}", rule.name, type_name),
+                    limiter,
+                    100u16.saturating_sub(index as u16), // Priority: earlier limiters have higher priority
+                );
+                nodes.push(node);
+            }
+
+            chains.insert(rule.id.clone(), DecisionChain::new(nodes));
+        }
+
+        Ok(chains)
+    }
+
+    /// 从配置构建规则列表
+    fn build_rules(config: &FlowControlConfig) -> Result<Vec<MatcherRule>, FlowGuardError> {
+        let mut rules = Vec::new();
+
+        for rule_config in &config.rules {
+            let mut conditions: Vec<Box<dyn ConditionEvaluator>> = Vec::new();
+
+            for matcher in &rule_config.matchers {
+                let condition: Box<dyn ConditionEvaluator> = match matcher {
+                    ConfigMatcher::User { user_ids } => {
+                        Box::new(MatchCondition::User(user_ids.clone()))
+                    }
+                    ConfigMatcher::Ip { ip_ranges } => {
+                        let ranges: Result<Vec<IpRange>, _> =
+                            ip_ranges.iter().map(|s| s.parse()).collect();
+                        Box::new(MatchCondition::Ip(ranges?))
+                    }
+                    ConfigMatcher::Geo { countries } => {
+                        Box::new(MatchCondition::Geo(countries.clone()))
+                    }
+                    ConfigMatcher::ApiVersion { versions } => {
+                        Box::new(MatchCondition::ApiVersion(versions.clone()))
+                    }
+                    ConfigMatcher::Device { device_types } => {
+                        Box::new(MatchCondition::Device(device_types.clone()))
+                    }
+                    ConfigMatcher::Custom { name, config: _ } => {
+                        let name = name.clone();
+                        Box::new(MatchCondition::Custom(Arc::new(move |_context| {
+                            tracing::warn!(
+                                "自定义匹配器 '{}' 需要通过CustomMatcherRegistry处理",
+                                name
+                            );
+                            false
+                        })))
+                    }
+                };
+                conditions.push(condition);
+            }
+
+            let final_condition: Box<dyn ConditionEvaluator> = if conditions.len() == 1 {
+                conditions.pop().unwrap()
+            } else if conditions.is_empty() {
+                continue;
+            } else {
+                Box::new(CompositeCondition {
+                    conditions,
+                    operator: LogicalOperator::And,
+                })
+            };
+
+            rules.push(MatcherRule {
+                id: rule_config.id.clone(),
+                name: rule_config.name.clone(),
+                priority: rule_config.priority,
+                condition: final_condition,
+                enabled: true,
+            });
+        }
+
+        Ok(rules)
     }
 
     /// 创建新的 Governor 实例
@@ -158,7 +322,8 @@ impl Governor {
         ));
 
         // 创建规则匹配器
-        let rule_matcher = Arc::new(RwLock::new(RuleMatcher::new(vec![])));
+        let rules = Self::build_rules(&config)?;
+        let rule_matcher = Arc::new(RwLock::new(RuleMatcher::new(rules)));
 
         // 创建决策链
         let decision_chain = Arc::new(RwLock::new(DecisionChain::new(vec![])));
@@ -169,7 +334,7 @@ impl Governor {
             failure_threshold: 5,
             success_threshold: 3,
             timeout: Duration::from_secs(30),
-            half_open_max_calls: 10,
+            half_open_max_calls: 3,
         }));
 
         // 创建 L2Cache 用于 FallbackManager
@@ -191,6 +356,10 @@ impl Governor {
             ban_manager.clone(),
         ));
 
+        // 创建规则对应的决策链
+        let rule_chains_map = Self::build_rule_chains(&config)?;
+        let rule_chains = Arc::new(RwLock::new(rule_chains_map));
+
         #[cfg(not(feature = "ban-manager"))]
         let parallel_ban_checker = Arc::new(crate::parallel_ban_checker::ParallelBanChecker::new(
             ban_storage.clone(),
@@ -205,6 +374,7 @@ impl Governor {
             parallel_ban_checker,
             decision_chain,
             rule_matcher,
+            rule_chains,
             identifier_extractor,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker,
@@ -245,7 +415,12 @@ impl Governor {
         trace!("提取标识符: {}", identifier.key());
 
         // 尝试转换为 BanTarget 进行检查
-        let ban_target = Self::identifier_to_ban_target(&identifier);
+        let ban_target = match &identifier {
+            Identifier::UserId(id) => Some(BanTarget::UserId(id.clone())),
+            Identifier::Ip(ip) => Some(BanTarget::Ip(ip.clone())),
+            Identifier::Mac(mac) => Some(BanTarget::Mac(mac.clone())),
+            _ => None,
+        };
 
         if let Some(target) = ban_target {
             // 使用专门的并行封禁检查器
@@ -266,24 +441,74 @@ impl Governor {
         }
 
         // 继续其他检查
-        let result = self.decision_chain.read().await.check().await;
+        // 规则匹配
+        let matched_rules = {
+            let matcher = self.rule_matcher.read().await;
+            matcher
+                .match_all(context)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
 
-        match &result {
-            Ok(Decision::Allowed(_)) => {
-                self.allowed_requests.fetch_add(1, Ordering::Relaxed);
+        if matched_rules.is_empty() {
+            // 如果没有匹配的规则，检查默认决策链
+            // 目前默认决策链为空，相当于直接允许
+            let result = self.decision_chain.read().await.check().await;
+            match &result {
+                Ok(Decision::Allowed(_)) => {
+                    self.allowed_requests.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(Decision::Banned(_)) => {
+                    self.banned_requests.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(Decision::Rejected(_)) => {
+                    self.rejected_requests.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(_) => {
+                    self.error_count.fetch_add(1, Ordering::Relaxed);
+                }
             }
-            Ok(Decision::Banned(_)) => {
-                self.banned_requests.fetch_add(1, Ordering::Relaxed);
-            }
-            Ok(Decision::Rejected(_)) => {
-                self.rejected_requests.fetch_add(1, Ordering::Relaxed);
-            }
-            Err(_) => {
-                self.error_count.fetch_add(1, Ordering::Relaxed);
+            return result;
+        }
+
+        // 有匹配的规则，按顺序执行（级联）
+        // 只要有一个规则拒绝，请求就被拒绝
+        let rule_chains = self.rule_chains.read().await;
+
+        for rule in matched_rules {
+            if let Some(chain) = rule_chains.get(&rule.id) {
+                // 执行决策链
+                let result = chain.check().await;
+
+                match result {
+                    Ok(Decision::Allowed(_)) => {
+                        // 当前规则允许，继续检查下一个规则
+                        continue;
+                    }
+                    _ => {
+                        // 拒绝、封禁或错误，直接返回
+                        match &result {
+                            Ok(Decision::Rejected(_)) => {
+                                self.rejected_requests.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Ok(Decision::Banned(_)) => {
+                                self.banned_requests.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(_) => {
+                                self.error_count.fetch_add(1, Ordering::Relaxed);
+                            }
+                            _ => {}
+                        }
+                        return result;
+                    }
+                }
             }
         }
 
-        result
+        // 所有规则都允许
+        self.allowed_requests.fetch_add(1, Ordering::Relaxed);
+        Ok(Decision::Allowed(None))
     }
 
     /// 并行资源检查 - 保持原有接口兼容性
@@ -318,7 +543,12 @@ impl Governor {
     ) -> Result<(), FlowGuardError> {
         debug!("封禁用户: {} 原因: {}", identifier.key(), reason);
 
-        let ban_target = Self::identifier_to_ban_target(identifier);
+        let ban_target = match identifier {
+            Identifier::UserId(id) => Some(BanTarget::UserId(id.clone())),
+            Identifier::Ip(ip) => Some(BanTarget::Ip(ip.clone())),
+            Identifier::Mac(mac) => Some(BanTarget::Mac(mac.clone())),
+            _ => None,
+        };
 
         if let Some(target) = ban_target {
             let ban_source = match source {
@@ -353,7 +583,12 @@ impl Governor {
     pub async fn unban_identifier(&self, identifier: &Identifier) -> Result<(), FlowGuardError> {
         debug!("取消封禁用户: {}", identifier.key());
 
-        let ban_target = Self::identifier_to_ban_target(identifier);
+        let ban_target = match identifier {
+            Identifier::UserId(id) => Some(BanTarget::UserId(id.clone())),
+            Identifier::Ip(ip) => Some(BanTarget::Ip(ip.clone())),
+            Identifier::Mac(mac) => Some(BanTarget::Mac(mac.clone())),
+            _ => None,
+        };
 
         if let Some(target) = ban_target {
             self.ban_manager
@@ -374,6 +609,20 @@ impl Governor {
     pub async fn update_config(&self, new_config: FlowControlConfig) -> Result<(), FlowGuardError> {
         info!("更新配置");
 
+        // 更新规则匹配器
+        let rules = Self::build_rules(&new_config)?;
+        {
+            let mut matcher = self.rule_matcher.write().await;
+            *matcher = RuleMatcher::new(rules);
+        }
+
+        // 更新规则决策链
+        let chains = Self::build_rule_chains(&new_config)?;
+        {
+            let mut rule_chains = self.rule_chains.write().await;
+            *rule_chains = chains;
+        }
+
         let mut config = self.config.write().await;
         *config = new_config;
 
@@ -388,6 +637,20 @@ impl Governor {
         source: ChangeSource,
     ) -> Result<(), FlowGuardError> {
         info!("更新配置（来源: {:?}）", source);
+
+        // 更新规则匹配器
+        let rules = Self::build_rules(&new_config)?;
+        {
+            let mut matcher = self.rule_matcher.write().await;
+            *matcher = RuleMatcher::new(rules);
+        }
+
+        // 更新规则决策链
+        let chains = Self::build_rule_chains(&new_config)?;
+        {
+            let mut rule_chains = self.rule_chains.write().await;
+            *rule_chains = chains;
+        }
 
         let mut config = self.config.write().await;
         *config = new_config;
@@ -481,13 +744,13 @@ impl Governor {
     /// 获取决策链统计
     #[instrument(skip(self))]
     pub async fn decision_chain_stats(&self) -> crate::decision_chain::ChainStats {
-        self.decision_chain.read().await.stats()
+        self.decision_chain.read().await.stats().clone()
     }
 
     /// 获取规则匹配器统计
     #[instrument(skip(self))]
     pub async fn rule_matcher_stats(&self) -> crate::matchers::MatcherStats {
-        self.rule_matcher.read().await.stats().unwrap_or_default()
+        self.rule_matcher.read().await.stats().clone()
     }
 
     /// 重置统计信息
@@ -495,8 +758,8 @@ impl Governor {
     pub async fn reset_stats(&self) {
         info!("重置统计信息");
 
-        let _ = self.decision_chain.write().await.reset_stats();
-        let _ = self.rule_matcher.write().await.reset_stats();
+        self.decision_chain.write().await.reset_stats();
+        self.rule_matcher.write().await.reset_stats();
         self.total_requests.store(0, Ordering::Relaxed);
         self.allowed_requests.store(0, Ordering::Relaxed);
         self.rejected_requests.store(0, Ordering::Relaxed);

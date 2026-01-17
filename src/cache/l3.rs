@@ -47,6 +47,7 @@ pub struct L3CacheConfig {
     pub null_value_ttl: Duration,
 }
 
+#[cfg(feature = "redis")]
 impl Default for L3CacheConfig {
     fn default() -> Self {
         Self {
@@ -203,6 +204,7 @@ impl L3CacheStats {
 }
 
 /// L3缓存实现
+#[cfg(feature = "redis")]
 pub struct L3Cache {
     /// L2缓存
     l2_cache: Arc<L2Cache>,
@@ -222,6 +224,7 @@ pub struct L3Cache {
     fallback_manager: Arc<FallbackManager>,
 }
 
+#[cfg(feature = "redis")]
 impl L3Cache {
     /// 创建新的L3缓存
     pub async fn new(config: L3CacheConfig) -> Result<Self, StorageError> {
@@ -346,8 +349,8 @@ impl L3Cache {
 
         // L3: 检查L3缓存（Redis）
         if !self.degraded.load(Ordering::Relaxed) {
-            if let Some(l3_storage) = self.l3_storage.read().await.as_ref() {
-                match l3_storage.as_ref().get(key).await {
+            if let Some(storage) = self.l3_storage.read().await.as_ref().cloned() {
+                match storage.get(key).await {
                     Ok(Some(value)) => {
                         self.stats.l3_hits.fetch_add(1, Ordering::Relaxed);
                         trace!("L3缓存命中: key={}", key);
@@ -537,6 +540,7 @@ impl L3Cache {
     }
 }
 
+#[cfg(feature = "redis")]
 impl Drop for L3Cache {
     fn drop(&mut self) {
         self.health_check_handle.abort();

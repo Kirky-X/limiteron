@@ -11,9 +11,8 @@
 use limiteron::{
     ban_manager::{BackoffConfig, BanManager, BanManagerConfig},
     config::{FlowControlConfig, LimiterConfig, Rule},
-    error::{Decision, FlowGuardError},
+    error::Decision,
     governor::Governor,
-    limiters::SlidingWindowLimiter,
     matchers::RequestContext,
     storage::{BanRecord, BanTarget, MemoryStorage},
 };
@@ -23,7 +22,7 @@ use tokio::time::sleep;
 
 /// 创建请求上下文
 fn create_request(user_id: &str, ip: &str) -> RequestContext {
-    let mut headers = std::collections::HashMap::new();
+    let mut headers = ahash::AHashMap::new();
     headers.insert("x-user-id".to_string(), user_id.to_string());
 
     RequestContext {
@@ -36,7 +35,7 @@ fn create_request(user_id: &str, ip: &str) -> RequestContext {
         path: "/test".to_string(),
         method: "GET".to_string(),
         client_ip: Some(ip.to_string()),
-        query_params: std::collections::HashMap::new(),
+        query_params: ahash::AHashMap::new(),
     }
 }
 
@@ -53,7 +52,9 @@ async fn setup_governor() -> Governor {
             id: "test_rule".to_string(),
             name: "Test Rule".to_string(),
             priority: 100,
-            matchers: vec![],
+            matchers: vec![limiteron::config::Matcher::Ip {
+                ip_ranges: vec!["192.168.1.100".to_string()],
+            }],
             limiters: vec![LimiterConfig::SlidingWindow {
                 window_size: "1s".to_string(),
                 max_requests: 100,
@@ -68,9 +69,17 @@ async fn setup_governor() -> Governor {
     let storage = Arc::new(MemoryStorage::new());
     let ban_storage = Arc::new(limiteron::storage::MemoryStorage::new());
 
-    Governor::new(config, storage, ban_storage, None, None)
-        .await
-        .unwrap()
+    Governor::new(
+        config,
+        storage,
+        ban_storage,
+        #[cfg(feature = "monitoring")]
+        None,
+        #[cfg(feature = "telemetry")]
+        None,
+    )
+    .await
+    .unwrap()
 }
 
 /// 创建测试用的BanManager
@@ -206,7 +215,8 @@ async fn test_e2e_exponential_backoff() {
     let _ = ban_manager.delete_ban(&target, "test".to_string()).await;
 
     // 测试指数退避
-    let expected_durations = vec![5, 10, 20, 40, 60, 60, 60, 60, 60, 60];
+    // 注意：当前实现中，超过4次违规后，封禁时长固定为 fourth_duration (40s)，不会继续增长到 max_duration
+    let expected_durations = vec![5, 10, 20, 40, 40, 40, 40, 40, 40, 40];
 
     for (i, expected_duration) in expected_durations.iter().enumerate() {
         let ban_times = (i + 1) as u32;

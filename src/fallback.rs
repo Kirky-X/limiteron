@@ -9,8 +9,8 @@
 //! - **热更新**: 支持动态更新策略
 //! - **故障注入**: 支持模拟故障进行测试
 
+use crate::cache::l2::L2Cache;
 use crate::error::{FlowGuardError, StorageError};
-use crate::l2_cache::L2Cache;
 use ahash::AHashMap as HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -146,7 +146,7 @@ impl FallbackManager {
     /// # 示例
     /// ```rust
     /// use limiteron::fallback::{FallbackManager, FallbackStrategy, ComponentType};
-    /// use limiteron::l2_cache::L2Cache;
+    /// use limiteron::L2Cache;
     /// use std::time::Duration;
     ///
     /// # #[tokio::main]
@@ -234,7 +234,7 @@ impl FallbackManager {
     /// ```rust
     /// use limiteron::fallback::{FallbackManager, FallbackStrategy, ComponentType};
     /// use limiteron::error::FlowGuardError;
-    /// use limiteron::l2_cache::L2Cache;
+    /// use limiteron::L2Cache;
     /// use std::time::Duration;
     /// use std::sync::Arc;
     ///

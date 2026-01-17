@@ -37,8 +37,11 @@ limiteron/
 │   ├── storage.rs         # 存储接口定义
 │   ├── postgres_storage.rs # PostgreSQL 存储
 │   ├── redis_storage.rs   # Redis 存储
-│   ├── l2_cache.rs        # L2 缓存
-│   ├── l3_cache.rs        # L3 缓存
+│   ├── cache/             # 缓存模块
+│   │   ├── mod.rs         # 缓存模块入口
+│   │   ├── l2.rs          # L2 缓存
+│   │   ├── l3.rs          # L3 缓存
+│   │   └── smart.rs       # 智能缓存策略
 │   ├── matchers.rs        # 标识符匹配器
 │   ├── geo_matcher.rs     # 地理位置匹配器
 │   ├── device_matcher.rs  # 设备匹配器

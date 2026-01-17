@@ -17,14 +17,15 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, trace, warn};
 
+use crate::cache::l2::L2Cache;
 use crate::error::StorageError;
 use crate::fallback::{ComponentType, FallbackManager, FallbackStrategy};
-use crate::l2_cache::L2Cache;
 use crate::storage::Storage;
 
 #[cfg(feature = "redis")]
 use crate::redis_storage::{RedisConfig, RedisStorage};
 
+#[cfg(feature = "redis")]
 /// L3缓存配置
 #[derive(Debug, Clone)]
 pub struct L3CacheConfig {
@@ -61,6 +62,7 @@ impl Default for L3CacheConfig {
     }
 }
 
+#[cfg(feature = "redis")]
 impl L3CacheConfig {
     /// 创建新的L3缓存配置
     pub fn new(redis_url: impl Into<String>) -> Self {
@@ -226,7 +228,7 @@ impl L3Cache {
         info!("创建L3缓存, Redis URL: {}", config.redis_config.url);
 
         // 创建L2缓存
-        let l2_cache = Arc::new(L2Cache::with_config(crate::l2_cache::L2CacheConfig {
+        let l2_cache = Arc::new(L2Cache::with_config(crate::cache::l2::L2CacheConfig {
             capacity: config.l2_capacity,
             default_ttl: config.l2_default_ttl,
             cleanup_interval: config.l2_cleanup_interval,

@@ -5,13 +5,13 @@
 //! - 简化核心逻辑，提高可维护性
 //! - 保持向后兼容性
 
+use crate::cache::l2::L2Cache;
 use crate::config::{
     ChangeSource, ConfigChangeRecord, FlowControlConfig, LimiterConfig, Matcher as ConfigMatcher,
 };
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::{Decision, FlowGuardError};
 use crate::fallback::FallbackManager;
-use crate::l2_cache::L2Cache;
 use crate::limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter};
 use crate::matchers::{
     CompositeCondition, ConditionEvaluator, Identifier, IdentifierExtractor, IpRange,

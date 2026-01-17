@@ -66,12 +66,22 @@ limiteron/
 │   ├── redis_usage.rs
 │   └── geo_device_matching.rs
 ├── tests/                 # 测试文件
+│   ├── modules/            # 模块化测试
+│   │   ├── storage/       # 存储模块测试
+│   │   ├── limiters/      # 限流器模块测试
+│   │   ├── ban_manager/   # 封禁管理模块测试
+│   │   ├── quota/         # 配额控制模块测试
+│   │   ├── circuit_breaker/ # 熔断器模块测试
+│   │   ├── matchers/      # 匹配器模块测试
+│   │   ├── governor/      # 控制器模块测试
+│   │   └── cache/         # 缓存模块测试
+│   ├── e2e/               # 端到端测试
+│   ├── common/            # 公共测试工具
+│   ├── fixtures/          # 测试夹具
+│   ├── benches/           # 基准测试
 │   ├── common_tests.rs
 │   ├── integration_tests.rs
-│   ├── e2e_tests.rs
-│   ├── benches/           # 基准测试
-│   ├── integration/       # 集成测试
-│   └── e2e/              # 端到端测试
+│   └── e2e_tests.rs
 ├── scripts/               # 脚本文件
 │   ├── run-all-tests.sh   # 完整测试脚本
 │   ├── run-integration-tests.sh

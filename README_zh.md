@@ -8,10 +8,10 @@
   <img src="https://img.shields.io/badge/version-0.1.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust Version">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/build-passing-brightgreen.svg" alt="Build">
+  <img src="https://img.shields.io/badge/build-testing-yellow.svg" alt="Build">
   <img src="https://img.shields.io/badge/crates.io-0.1.0-orange.svg" alt="Crates.io">
-  <img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests">
-  <img src="https://img.shields.io/badge/docs-passing-brightgreen.svg" alt="Docs">
+  <img src="https://img.shields.io/badge/tests-testing-yellow.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/docs-building-yellow.svg" alt="Docs">
   <img src="https://img.shields.io/badge/dependencies-up%20to%20date-brightgreen.svg" alt="Dependencies">
 </p>
 

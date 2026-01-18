@@ -1,1 +1,0 @@
-/root/dev-craft-ai/rules/05-dependency.md

@@ -7,7 +7,8 @@
 
 use crate::cache::l2::L2Cache;
 use crate::config::{
-    ChangeSource, ConfigChangeRecord, FlowControlConfig, LimiterConfig, Matcher as ConfigMatcher,
+    ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig, LimiterConfig,
+    Matcher as ConfigMatcher, OverdraftConfig,
 };
 use crate::constants::{
     DEFAULT_L2_CACHE_CAPACITY, DEFAULT_L2_CACHE_TTL_SECS, SECONDS_PER_HOUR, SECONDS_PER_MINUTE,
@@ -15,6 +16,8 @@ use crate::constants::{
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::{Decision, FlowGuardError};
 use crate::fallback::FallbackManager;
+#[cfg(feature = "quota-control")]
+use crate::limiters::QuotaLimiter;
 use crate::limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter};
 use crate::log_redaction::{redact_enhanced, redact_ip, redact_user_id};
 use crate::matchers::{
@@ -22,6 +25,10 @@ use crate::matchers::{
     LogicalOperator, MatchCondition, RequestContext, Rule as MatcherRule, RuleMatcher,
 };
 use crate::storage::{BanStorage, BanTarget, Storage};
+#[cfg(feature = "quota-control")]
+use crate::QuotaConfig;
+#[cfg(feature = "quota-control")]
+use crate::QuotaType;
 use chrono::Utc;
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -105,6 +112,9 @@ pub struct Governor {
     #[cfg(feature = "audit-log")]
     audit_logger: Arc<RwLock<Option<Arc<AuditLogger>>>>,
 
+    /// 配置历史记录
+    config_history: Arc<RwLock<ConfigHistory>>,
+
     // 统计计数器
     total_requests: AtomicU64,
     allowed_requests: AtomicU64,
@@ -140,7 +150,10 @@ impl Governor {
             "s" => Ok(Duration::from_secs(val)),
             "m" => Ok(Duration::from_secs(val * SECONDS_PER_MINUTE)),
             "h" => Ok(Duration::from_secs(val * SECONDS_PER_HOUR)),
-            _ => unreachable!(),
+            _ => Err(FlowGuardError::ConfigError(format!(
+                "Invalid duration unit '{}'. Valid units: ms, s, m, h",
+                unit
+            ))),
         }
     }
 
@@ -182,15 +195,15 @@ impl Governor {
                         )
                     }
                     LimiterConfig::Quota {
-                        quota_type,
-                        limit,
-                        window,
+                        quota_type: _,
+                        limit: _,
+                        window: _,
                         overdraft: _,
                     } => {
-                        // TODO: Implement QuotaLimiter
+                        // Quota limiter requires quota-control feature
                         warn!(
-                            "QuotaLimiter not implemented yet, skipping: {} {}/{}",
-                            quota_type, limit, window
+                            "QuotaLimiter requires 'quota-control' feature to be enabled, \
+                             skipping Quota configuration"
                         );
                         continue;
                     }
@@ -370,6 +383,7 @@ impl Governor {
             _fallback_manager: fallback_manager,
             #[cfg(feature = "audit-log")]
             audit_logger,
+            config_history: Arc::new(RwLock::new(ConfigHistory::new(100))),
             total_requests: AtomicU64::new(0),
             allowed_requests: AtomicU64::new(0),
             rejected_requests: AtomicU64::new(0),
@@ -673,8 +687,7 @@ impl Governor {
 
     /// 获取配置历史
     pub async fn get_config_history(&self) -> Vec<ConfigChangeRecord> {
-        // self.config.read().await.history.clone()
-        vec![] // TODO: Implement configuration history
+        self.config_history.read().await.get_records().to_vec()
     }
 
     /*
@@ -789,7 +802,7 @@ impl Governor {
             Ok(())
         } else {
             Err(FlowGuardError::StorageError(
-                crate::error::StorageError::ConnectionError,
+                crate::error::StorageError::ConnectionError("Storage unhealthy".to_string()),
             ))
         }
     }

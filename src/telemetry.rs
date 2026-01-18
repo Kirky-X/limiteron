@@ -874,6 +874,9 @@ mod tests {
 
     #[test]
     fn test_span_duration() {
+        // NOTE: Using std::thread::sleep instead of tokio::time::sleep because this is a
+        // simple synchronous unit test that doesn't require async runtime overhead.
+        // The 10ms delay is minimal and won't significantly impact CI time.
         let span = Span::new();
         std::thread::sleep(Duration::from_millis(10));
         let elapsed = span.elapsed();

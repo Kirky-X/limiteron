@@ -136,10 +136,10 @@ git --version
 ```bash
 # 添加到 Cargo.toml
 [dependencies]
-limiteron = "0.1"
+limiteron = { version = "0.1", features = ["macros"] }
 
 # 或通过命令安装
-cargo add limiteron
+cargo add limiteron --features macros
 ```
 
 </td>
@@ -207,7 +207,7 @@ cargo new hello-limiteron
 cd hello-limiteron
 
 # 添加依赖
-cargo add limiteron
+cargo add limiteron --features macros
 
 # 将上面的代码复制到 src/main.rs
 
@@ -365,7 +365,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 或使用 Governor
     use limiteron::{Governor, FlowControlConfig};
-    let governor = Governor::new(FlowControlConfig::default()).await?;
+    use limiteron::storage::{MemoryStorage, MockBanStorage};
+    use std::sync::Arc;
+    
+    let storage = Arc::new(MemoryStorage::new());
+    let ban_storage = Arc::new(MockBanStorage::default());
+    let governor = Governor::new(FlowControlConfig::default(), storage, ban_storage).await?;
 
     Ok(())
 }
@@ -442,16 +447,23 @@ let governor = Governor::new(config).await?;
 **检查限流**
 ```rust
 let limiter = TokenBucketLimiter::new(10, 1);
-match limiter.check(key).await {
-    Ok(_) => println!("✅ 允许"),
-    Err(_) => println!("❌ 拒绝"),
+match limiter.allow(1).await {
+    Ok(true) => println!("✅ 允许"),
+    Ok(false) => println!("❌ 拒绝"),
+    Err(e) => println!("❌ 错误: {:?}", e),
 }
 ```
 
 **封禁用户**
 ```rust
-let ban_manager = BanManager::new().await?;
-ban_manager.ban("user123", "恶意", 3600).await?;
+use limiteron::ban_manager::{BanManager, BanTarget};
+use limiteron::storage::MockBanStorage;
+use std::sync::Arc;
+
+let storage = Arc::new(MockBanStorage::default());
+let ban_manager = BanManager::new(storage, None).await?;
+let target = BanTarget::UserId("user123".to_string());
+ban_manager.create_ban(target, "恶意".to_string(), Some(3600), None).await?;
 ```
 
 </td>

@@ -204,9 +204,7 @@ impl ConfigWatcher {
 
         watcher
             .watch(config_path, RecursiveMode::NonRecursive)
-            .map_err(|e| {
-                FlowGuardError::IoError(std::io::Error::other(e))
-            })?;
+            .map_err(|e| FlowGuardError::IoError(std::io::Error::other(e)))?;
 
         // 处理文件系统事件
         while *self.running.read().await {

@@ -89,7 +89,8 @@ impl ParallelBanChecker {
         &self,
         target: &BanTarget,
     ) -> Result<Option<BanInfo>, FlowGuardError> {
-        self.check_targets_parallel(std::slice::from_ref(target), None).await
+        self.check_targets_parallel(std::slice::from_ref(target), None)
+            .await
     }
 
     /// 检查用户ID是否被封禁

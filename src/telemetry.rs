@@ -1,3 +1,7 @@
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! 监控和追踪模块
 //!
 //! 集成Prometheus指标和OpenTelemetry分布式追踪。

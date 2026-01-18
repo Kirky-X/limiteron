@@ -17,7 +17,14 @@ pub use l2::{
 pub use l3::{L3Cache, L3CacheConfig, L3CacheStats};
 
 #[cfg(not(feature = "redis"))]
-pub use l3::L3Cache;
+mod l3_stub {
+    use crate::cache::l2::L2Cache;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    // L3Cache 存根 - 当 redis 特性未启用时使用 L2Cache 作为替代
+    pub type L3Cache = L2Cache;
+}
 
 // 重新导出智能缓存的公共 API
 pub use smart::{CacheStats as SmartCacheStats, SmartCacheStrategy};

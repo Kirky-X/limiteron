@@ -2,6 +2,9 @@
 //!
 //! 实现各种限流算法。
 
+#[cfg(feature = "quota-control")]
+mod quota_limiter;
+
 use crate::constants::MAX_COST;
 use crate::constants::MAX_SPIN_ITERATIONS;
 use crate::error::FlowGuardError;
@@ -688,6 +691,9 @@ impl Limiter for ConcurrencyLimiter {
         })
     }
 }
+
+#[cfg(feature = "quota-control")]
+pub use quota_limiter::QuotaLimiter;
 
 // ============================================================================
 // 单元测试

@@ -79,7 +79,6 @@ pub mod error;
 pub mod error_abstraction;
 pub mod factory;
 pub mod fallback;
-pub mod features;
 pub mod governor;
 pub mod limiter_manager;
 pub mod limiters;
@@ -134,6 +133,8 @@ pub use factory::LimiterFactory;
 pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
 pub use governor::{Governor, GovernorStats};
 pub use limiter_manager::GLOBAL_LIMITER_MANAGER;
+#[cfg(feature = "quota-control")]
+pub use limiters::QuotaLimiter;
 #[cfg(feature = "redis")]
 pub use lua_scripts::{LuaScriptInfo, LuaScriptManager, LuaScriptType};
 #[cfg(feature = "macros")]

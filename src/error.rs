@@ -1,3 +1,7 @@
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! 错误类型定义
 //!
 //! 使用thiserror定义所有错误类型。

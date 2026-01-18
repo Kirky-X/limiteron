@@ -1,3 +1,7 @@
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! 限流器模块
 //!
 //! 实现各种限流算法。

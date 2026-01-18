@@ -1,3 +1,7 @@
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! Limiteron - Unified Flow Control Framework
 //!
 //! Provides rate limiting, quota management, circuit breaking, and ban control.

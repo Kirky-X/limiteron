@@ -10,16 +10,26 @@
 //! - **自动恢复**: Redis恢复后自动恢复正常
 //! - **TTL管理**: 支持灵活的TTL配置
 
+#[cfg(feature = "redis")]
 use ahash::AHashMap as HashMap;
+#[cfg(feature = "redis")]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(feature = "redis")]
 use std::sync::Arc;
+#[cfg(feature = "redis")]
 use std::time::{Duration, Instant};
+#[cfg(feature = "redis")]
 use tokio::sync::RwLock;
+#[cfg(feature = "redis")]
 use tracing::{debug, error, info, trace, warn};
 
+#[cfg(feature = "redis")]
 use crate::cache::l2::L2Cache;
+#[cfg(feature = "redis")]
 use crate::error::StorageError;
+#[cfg(feature = "redis")]
 use crate::fallback::{ComponentType, FallbackManager, FallbackStrategy};
+#[cfg(feature = "redis")]
 use crate::storage::Storage;
 
 #[cfg(feature = "redis")]
@@ -105,6 +115,7 @@ impl L3CacheConfig {
 }
 
 /// L3缓存统计
+#[cfg(feature = "redis")]
 #[derive(Debug, Default)]
 pub struct L3CacheStats {
     /// L1命中次数
@@ -123,6 +134,7 @@ pub struct L3CacheStats {
     penetration_protections: AtomicU64,
 }
 
+#[cfg(feature = "redis")]
 impl L3CacheStats {
     pub fn l1_hits(&self) -> u64 {
         self.l1_hits.load(Ordering::Relaxed)
@@ -547,7 +559,7 @@ impl Drop for L3Cache {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "redis"))]
 mod tests {
     use super::*;
 

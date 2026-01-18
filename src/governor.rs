@@ -8,7 +8,7 @@
 use crate::cache::l2::L2Cache;
 use crate::config::{
     ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig, LimiterConfig,
-    Matcher as ConfigMatcher, OverdraftConfig,
+    Matcher as ConfigMatcher,
 };
 use crate::constants::{
     DEFAULT_L2_CACHE_CAPACITY, DEFAULT_L2_CACHE_TTL_SECS, SECONDS_PER_HOUR, SECONDS_PER_MINUTE,
@@ -16,19 +16,13 @@ use crate::constants::{
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::{Decision, FlowGuardError};
 use crate::fallback::FallbackManager;
-#[cfg(feature = "quota-control")]
-use crate::limiters::QuotaLimiter;
 use crate::limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter};
-use crate::log_redaction::{redact_enhanced, redact_ip, redact_user_id};
+use crate::log_redaction::{redact_ip, redact_user_id};
 use crate::matchers::{
     CompositeCondition, ConditionEvaluator, Identifier, IdentifierExtractor, IpRange,
     LogicalOperator, MatchCondition, RequestContext, Rule as MatcherRule, RuleMatcher,
 };
 use crate::storage::{BanStorage, BanTarget, Storage};
-#[cfg(feature = "quota-control")]
-use crate::QuotaConfig;
-#[cfg(feature = "quota-control")]
-use crate::QuotaType;
 use chrono::Utc;
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};

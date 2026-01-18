@@ -2,16 +2,21 @@
 //!
 //! 测试 PostgreSQL 存储的基础功能
 
+#[cfg(feature = "postgres")]
 use limiteron::postgres_storage::{PostgresStorage, PostgresStorageConfig};
+#[cfg(feature = "postgres")]
 use limiteron::storage::{BanStorage, QuotaStorage};
 use std::time::Duration;
 
+#[cfg(feature = "postgres")]
 const DEFAULT_LIMIT: u64 = 1000;
+#[cfg(feature = "postgres")]
 const DEFAULT_WINDOW: Duration = Duration::from_secs(60);
 
 /// 测试PostgreSQL连接
 #[tokio::test]
 #[ignore] // 需要PostgreSQL服务器运行
+#[cfg(feature = "postgres")]
 async fn test_postgres_connection() {
     let config =
         PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron");
@@ -25,6 +30,7 @@ async fn test_postgres_connection() {
 /// 测试PostgreSQL配额存储
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "postgres")]
 async fn test_postgres_quota_storage() {
     let config =
         PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron");
@@ -64,6 +70,7 @@ async fn test_postgres_quota_storage() {
 /// 测试PostgreSQL事务回滚
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "postgres")]
 async fn test_postgres_transaction_rollback() {
     let config =
         PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron");
@@ -100,8 +107,10 @@ async fn test_postgres_transaction_rollback() {
 /// 测试PostgreSQL封禁存储
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "postgres")]
 async fn test_postgres_ban_storage() {
     use chrono::Utc;
+    #[cfg(feature = "postgres")]
     use limiteron::storage::{BanRecord, BanTarget};
 
     let config =
@@ -140,8 +149,10 @@ async fn test_postgres_ban_storage() {
 /// 测试PostgreSQL封禁列表查询
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "postgres")]
 async fn test_postgres_list_bans() {
     use chrono::Utc;
+    #[cfg(feature = "postgres")]
     use limiteron::storage::{BanRecord, BanTarget};
 
     let config =
@@ -180,8 +191,10 @@ async fn test_postgres_list_bans() {
 /// 测试PostgreSQL过期封禁清理
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "postgres")]
 async fn test_postgres_cleanup_expired_bans() {
     use chrono::Utc;
+    #[cfg(feature = "postgres")]
     use limiteron::storage::{BanRecord, BanTarget};
 
     let config =
@@ -240,6 +253,7 @@ async fn test_postgres_cleanup_expired_bans() {
 /// 测试PostgreSQL连接池
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "postgres")]
 async fn test_postgres_connection_pool() {
     let config =
         PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron")
@@ -273,6 +287,7 @@ async fn test_postgres_connection_pool() {
 /// 测试PostgreSQL高并发场景
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "postgres")]
 async fn test_postgres_high_concurrency() {
     let config =
         PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron")
@@ -326,8 +341,10 @@ async fn test_postgres_high_concurrency() {
 /// 测试PostgreSQL封禁次数统计
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "postgres")]
 async fn test_postgres_ban_times_tracking() {
     use chrono::Utc;
+    #[cfg(feature = "postgres")]
     use limiteron::storage::{BanRecord, BanTarget};
 
     let config =

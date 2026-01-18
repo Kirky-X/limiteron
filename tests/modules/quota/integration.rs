@@ -2,11 +2,14 @@
 //!
 //! 测试配额控制模块的基本功能
 
+#[cfg(feature = "quota-control")]
 use limiteron::quota_controller::{QuotaConfig, QuotaController, QuotaType};
+#[cfg(feature = "quota-control")]
 use limiteron::storage::MemoryStorage;
 
 /// 测试配额控制器模块导入
 #[tokio::test]
+#[cfg(feature = "quota-control")]
 async fn test_quota_controller_module_import() {
     let storage = MemoryStorage::new();
     let config = QuotaConfig {

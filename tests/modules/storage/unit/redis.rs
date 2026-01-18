@@ -2,17 +2,23 @@
 //!
 //! 测试 Redis 存储的基础功能
 
+#[cfg(feature = "redis")]
 use limiteron::redis_storage::{RedisConfig, RedisStorage};
+#[cfg(feature = "redis")]
 use limiteron::storage::{BanStorage, QuotaStorage};
 use std::time::Duration;
+#[cfg(feature = "redis")]
 use tokio::time::sleep;
 
+#[cfg(feature = "redis")]
 const DEFAULT_LIMIT: u64 = 1000;
+#[cfg(feature = "redis")]
 const DEFAULT_WINDOW: Duration = Duration::from_secs(60);
 
 /// 测试Redis连接
 #[tokio::test]
 #[ignore] // 需要Redis服务器运行
+#[cfg(feature = "redis")]
 async fn test_redis_connection() {
     let config = RedisConfig::new("redis://localhost:6379").password("limiteron123");
     let storage = RedisStorage::new(config).await.unwrap();
@@ -25,6 +31,7 @@ async fn test_redis_connection() {
 /// 测试Redis配额存储
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "redis")]
 async fn test_redis_quota_storage() {
     let config = RedisConfig::new("redis://localhost:6379").password("limiteron123");
     let storage = RedisStorage::new(config).await.unwrap();
@@ -65,8 +72,10 @@ async fn test_redis_quota_storage() {
 /// 测试Redis封禁存储
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "redis")]
 async fn test_redis_ban_storage() {
     use chrono::Utc;
+    #[cfg(feature = "redis")]
     use limiteron::storage::{BanRecord, BanTarget};
 
     let config = RedisConfig::new("redis://localhost:6379").password("limiteron123");
@@ -104,6 +113,7 @@ async fn test_redis_ban_storage() {
 /// 测试Redis连接池
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "redis")]
 async fn test_redis_connection_pool() {
     let config = RedisConfig::new("redis://localhost:6379")
         .password("limiteron123")
@@ -141,8 +151,10 @@ async fn test_redis_connection_pool() {
 /// 测试Redis Lua脚本原子性
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "redis")]
 async fn test_redis_lua_atomicity() {
     use limiteron::error::ConsumeResult;
+    #[cfg(feature = "redis")]
     use limiteron::quota_controller::{QuotaConfig, QuotaController, QuotaType};
 
     let config = RedisConfig::new("redis://localhost:6379").password("limiteron123");
@@ -200,6 +212,7 @@ async fn test_redis_lua_atomicity() {
 /// 测试Redis故障恢复
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "redis")]
 async fn test_redis_failure_recovery() {
     let config = RedisConfig::new("redis://localhost:6379")
         .password("limiteron123")
@@ -223,6 +236,7 @@ async fn test_redis_failure_recovery() {
 /// 测试Redis批量操作
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "redis")]
 async fn test_redis_batch_operations() {
     let config = RedisConfig::new("redis://localhost:6379").password("limiteron123");
     let storage = RedisStorage::new(config).await.unwrap();
@@ -251,8 +265,10 @@ async fn test_redis_batch_operations() {
 /// 测试Redis过期清理
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "redis")]
 async fn test_redis_expiration_cleanup() {
     use chrono::Utc;
+    #[cfg(feature = "redis")]
     use limiteron::storage::{BanRecord, BanTarget};
 
     let config = RedisConfig::new("redis://localhost:6379").password("limiteron123");
@@ -288,6 +304,7 @@ async fn test_redis_expiration_cleanup() {
 /// 测试Redis高并发场景
 #[tokio::test]
 #[ignore]
+#[cfg(feature = "redis")]
 async fn test_redis_high_concurrency() {
     let config = RedisConfig::new("redis://localhost:6379")
         .password("limiteron123")

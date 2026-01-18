@@ -2,11 +2,13 @@
 //!
 //! 测试熔断器模块的基本功能
 
+#[cfg(feature = "circuit-breaker")]
 use limiteron::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use std::time::Duration;
 
 /// 测试熔断器模块导入
 #[tokio::test]
+#[cfg(feature = "circuit-breaker")]
 async fn test_circuit_breaker_module_import() {
     #[allow(unused_variables)]
     let config = CircuitBreakerConfig {

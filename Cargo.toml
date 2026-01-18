@@ -67,9 +67,9 @@ parking_lot.workspace = true
 tracing.workspace = true
 lru.workspace = true
 lazy_static.workspace = true
-regex = "1.12"
+regex = { version = "1.12", optional = true }
 secrecy = "0.8"
-futures = "0.3"
+futures = { version = "0.3", optional = true }
 
 sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "chrono", "uuid"], optional = true }
 redis = { version = "0.24", features = ["tokio-comp", "cluster", "connection-manager"], optional = true }
@@ -110,17 +110,25 @@ full = [
     "ban-manager",
     "quota-control",
     "circuit-breaker",
+    "fallback",
+    "custom-limiter",
+    "log-redaction",
+    "config-security",
+    "parallel-checker",
+    "smart-cache",
     "geo-matching",
     "device-matching",
+    "advanced-matchers",
     "telemetry",
     "monitoring",
     "audit-log",
     "macros",
     "config-watcher",
-    "webhook"
+    "webhook",
+    "code-review"
 ]
 # Legacy: Compatibility with v0.1.0 default behavior
-legacy-compat = ["postgres", "redis", "telemetry", "macros"]
+legacy-compat = ["postgres", "redis", "telemetry", "macros", "fallback"]
 default = ["memory"]
 
 # ============================================
@@ -144,14 +152,34 @@ quota-control = []
 circuit-breaker = []
 # Fallback strategy (alternative actions on limit exceeded)
 fallback = []
+# Custom limiter (runtime registration, custom algorithms)
+custom-limiter = []
 
 # ============================================
-# Matching Features (匹配增强 - 独立)
+# Security Features (安全功能 - 独立)
+# ============================================
+# Log redaction (sensitive data masking)
+log-redaction = ["dep:regex"]
+# Config security validation
+config-security = []
+
+# ============================================
+# Performance Features (性能优化 - 独立)
+# ============================================
+# Parallel ban checker (high-performance ban checking)
+parallel-checker = ["ban-manager", "dep:futures"]
+# Smart cache strategy (intelligent caching)
+smart-cache = []
+
+# ============================================
+# Advanced Matching (高级匹配 - 独立)
 # ============================================
 # Geo-location matching (MaxMindDB)
 geo-matching = ["dep:maxminddb"]
 # Device fingerprinting (Woothee)
 device-matching = ["dep:woothee"]
+# Advanced matchers (custom, composite, time-window)
+advanced-matchers = []
 
 # ============================================
 # Observability Features (可观测性 - 独立)
@@ -178,6 +206,8 @@ macros = ["dep:flowguard-macros", "dep:proc-macro2", "dep:syn", "dep:quote"]
 config-watcher = ["dep:notify"]
 # Webhook notifications
 webhook = ["dep:reqwest"]
+# Code review system (multi-agent code review)
+code-review = []
 
 [[example]]
 name = "simple_rate_limit"

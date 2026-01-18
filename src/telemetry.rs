@@ -701,7 +701,8 @@ pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result
                         if request.starts_with("GET /metrics") {
                             let response = metrics.gather();
                             let http_response = format!(
-                                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+                                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: \
+                                 {}\r\n\r\n{}",
                                 response.len(),
                                 response
                             );

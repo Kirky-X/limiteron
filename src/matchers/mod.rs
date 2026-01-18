@@ -1943,9 +1943,7 @@ mod tests {
     fn test_custom_condition() {
         let condition: Box<dyn ConditionEvaluator> = Box::new(MatchCondition::Custom(Arc::new(
             |context: &RequestContext| -> bool {
-                context
-                    .get_header("X-Special")
-                    .is_some_and(|v| v == "yes")
+                context.get_header("X-Special").is_some_and(|v| v == "yes")
             },
         )));
 

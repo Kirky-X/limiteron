@@ -999,7 +999,9 @@ mod tests {
     #[tokio::test]
     async fn test_device_matcher_parse_iphone() {
         let matcher = DeviceMatcher::new().await.unwrap();
-        let user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1";
+        let user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) \
+                          AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 \
+                          Safari/604.1";
         let info = matcher.parse(user_agent).unwrap();
         assert_eq!(info.device_type, DeviceType::Mobile);
         assert!(info.browser.as_ref().unwrap().contains("Safari"));
@@ -1010,7 +1012,8 @@ mod tests {
     #[tokio::test]
     async fn test_device_matcher_parse_desktop() {
         let matcher = DeviceMatcher::new().await.unwrap();
-        let user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+        let user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, \
+                          like Gecko) Chrome/91.0.4472.124 Safari/537.36";
         let info = matcher.parse(user_agent).unwrap();
         assert_eq!(info.device_type, DeviceType::Desktop);
         assert!(info.browser.as_ref().unwrap().contains("Chrome"));

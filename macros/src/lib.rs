@@ -219,8 +219,7 @@ impl QuotaLimit {
             "s" => quote!(std::time::Duration::from_secs(1)),
             "m" => quote!(std::time::Duration::from_secs(60)),
             "h" => quote!(std::time::Duration::from_secs(3600)),
-            "d" => quote!(std::time::Duration::from_secs(86400)),
-            _ => quote!(std::time::Duration::from_secs(3600)),
+            _ => quote!(std::time::Duration::from_secs(1)),
         }
     }
 }
@@ -243,8 +242,16 @@ fn generate_flow_control(
     let rate_check = if let Some(ref rate) = config.rate {
         let amount = rate.amount;
         let msg = reject_message.clone();
+        let fn_name_str = stringify!(#fn_name).to_string();
         quote! {
-            let rate_key = format!("rate:{}:{}", stringify!(#fn_name), identifier);
+            let rate_key = {
+                let sanitize = |s: &str| s
+                    .chars()
+                    .filter(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+                    .take(128)
+                    .collect::<String>();
+                format!("rate:{}:{}", #fn_name_str, sanitize(&identifier))
+            };
             let rate_limiter = limiteron::GLOBAL_LIMITER_MANAGER.get_rate_limiter(&rate_key, #amount, 1);
             if !rate_limiter.allow(1).await? {
                 return Err(limiteron::error::FlowGuardError::RateLimitExceeded(#msg.to_string()));
@@ -258,8 +265,16 @@ fn generate_flow_control(
         let max = quota.max;
         let duration = quota.to_duration();
         let msg = reject_message.clone();
+        let fn_name_str = stringify!(#fn_name).to_string();
         quote! {
-            let quota_key = format!("quota:{}:{}", stringify!(#fn_name), identifier);
+            let quota_key = {
+                let sanitize = |s: &str| s
+                    .chars()
+                    .filter(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+                    .take(128)
+                    .collect::<String>();
+                format!("quota:{}:{}", #fn_name_str, sanitize(&identifier))
+            };
             let quota_limiter = limiteron::GLOBAL_LIMITER_MANAGER.get_quota_limiter(&quota_key, #duration, #max);
             if !quota_limiter.allow(1).await? {
                 return Err(limiteron::error::FlowGuardError::QuotaExceeded(#msg.to_string()));
@@ -271,8 +286,16 @@ fn generate_flow_control(
 
     let concurrency_check = if let Some(concurrency) = config.concurrency {
         let msg = reject_message.clone();
+        let fn_name_str = stringify!(#fn_name).to_string();
         quote! {
-            let concurrency_key = format!("concurrency:{}:{}", stringify!(#fn_name), identifier);
+            let concurrency_key = {
+                let sanitize = |s: &str| s
+                    .chars()
+                    .filter(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+                    .take(128)
+                    .collect::<String>();
+                format!("concurrency:{}:{}", #fn_name_str, sanitize(&identifier))
+            };
             let concurrency_limiter = limiteron::GLOBAL_LIMITER_MANAGER.get_concurrency_limiter(&concurrency_key, #concurrency as u64);
             let _permit = concurrency_limiter.acquire(1).await.map_err(|_| limiteron::error::FlowGuardError::ConcurrencyLimitExceeded(#msg.to_string()))?;
         }

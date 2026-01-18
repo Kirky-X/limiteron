@@ -7,10 +7,11 @@ use limiteron::storage::MemoryStorage;
 /// 测试控制器模块导入
 #[tokio::test]
 async fn test_governor_module_import() {
+    #[allow(unused_variables)]
     let storage = std::sync::Arc::new(MemoryStorage::new());
+    #[allow(unused_variables)]
     let ban_storage = std::sync::Arc::new(MemoryStorage::new());
     
     // 由于 FlowControlConfig 是私有的，我们无法直接创建 Governor
     // 这里只测试导入是否正常
-    assert!(true);
 }

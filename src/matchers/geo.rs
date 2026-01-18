@@ -268,7 +268,7 @@ impl GeoMatcher {
         // 异步读取数据库文件
         let db_content = tokio::fs::read(db_path)
             .await
-            .map_err(|e| FlowGuardError::IoError(e))?;
+            .map_err(FlowGuardError::IoError)?;
 
         info!("GeoLite2数据库加载成功，大小: {} bytes", db_content.len());
 

@@ -385,7 +385,7 @@ impl Tracer {
     ///
     /// # 返回
     /// - Span实例
-    pub fn start_span(&self, name: &str) -> Span {
+    pub fn start_span(&self, _name: &str) -> Span {
         if !self.enabled {
             return Span::new_disabled();
         }
@@ -408,6 +408,7 @@ impl Default for Tracer {
 /// Span
 ///
 /// 表示一个追踪操作。
+#[allow(clippy::type_complexity)]
 pub struct Span {
     /// 开始时间
     started_at: Option<Instant>,

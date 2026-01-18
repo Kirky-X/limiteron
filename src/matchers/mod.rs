@@ -1521,6 +1521,7 @@ impl RuleMatcher {
 // ============================================================================
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
 
@@ -1944,7 +1945,7 @@ mod tests {
             |context: &RequestContext| -> bool {
                 context
                     .get_header("X-Special")
-                    .map_or(false, |v| v == "yes")
+                    .is_some_and(|v| v == "yes")
             },
         )));
 

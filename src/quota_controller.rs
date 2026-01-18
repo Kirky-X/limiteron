@@ -36,7 +36,7 @@ pub enum QuotaType {
 
 impl QuotaType {
     /// 从字符串解析配额类型
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "token" => Some(QuotaType::Token),
             "money" => Some(QuotaType::Money),
@@ -307,7 +307,7 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
             .storage
             .get_quota(user_id, resource)
             .await
-            .map_err(|e| FlowGuardError::StorageError(e))?;
+            .map_err(FlowGuardError::StorageError)?;
 
         if let Some(info) = quota_info {
             Ok(Some(QuotaState {
@@ -338,7 +338,7 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
                 StdDuration::from_secs(self.config.window_size),
             )
             .await
-            .map_err(|e| FlowGuardError::StorageError(e))?;
+            .map_err(FlowGuardError::StorageError)?;
 
         Ok(())
     }
@@ -436,7 +436,7 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
                 StdDuration::from_secs(self.config.window_size),
             )
             .await
-            .map_err(|e| FlowGuardError::StorageError(e))?;
+            .map_err(FlowGuardError::StorageError)?;
 
         Ok(())
     }
@@ -703,11 +703,11 @@ mod tests {
 
     /// 测试配额类型解析
     #[test]
-    fn test_quota_type_from_str() {
-        assert_eq!(QuotaType::from_str("token"), Some(QuotaType::Token));
-        assert_eq!(QuotaType::from_str("money"), Some(QuotaType::Money));
-        assert_eq!(QuotaType::from_str("count"), Some(QuotaType::Count));
-        assert_eq!(QuotaType::from_str("unknown"), None);
+    fn test_quota_type_parse() {
+        assert_eq!(QuotaType::parse("token"), Some(QuotaType::Token));
+        assert_eq!(QuotaType::parse("money"), Some(QuotaType::Money));
+        assert_eq!(QuotaType::parse("count"), Some(QuotaType::Count));
+        assert_eq!(QuotaType::parse("unknown"), None);
     }
 
     /// 测试配额类型字符串转换

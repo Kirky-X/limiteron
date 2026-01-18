@@ -89,7 +89,7 @@ impl ParallelBanChecker {
         &self,
         target: &BanTarget,
     ) -> Result<Option<BanInfo>, FlowGuardError> {
-        self.check_targets_parallel(&[target.clone()], None).await
+        self.check_targets_parallel(std::slice::from_ref(target), None).await
     }
 
     /// 检查用户ID是否被封禁
@@ -142,6 +142,7 @@ impl ParallelBanChecker {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_types)]
 mod tests {
     use super::*;
     #[cfg(feature = "ban-manager")]
@@ -153,6 +154,7 @@ mod tests {
     #[cfg(feature = "ban-manager")]
     use async_trait::async_trait;
     #[cfg(feature = "ban-manager")]
+    #[allow(clippy::disallowed_types)]
     use std::collections::HashMap;
     #[cfg(feature = "ban-manager")]
     use tokio::sync::Mutex;

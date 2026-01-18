@@ -168,19 +168,7 @@ async fn test_e2e_rate_limit_to_ban() {
     assert!(ban_detail.is_some(), "Should be banned");
 
     // Step 5: 检查被封禁期间的请求
-    let ctx = RequestContext {
-        user_id: Some(user_id.to_string()),
-        ip: Some(ip.to_string()),
-        mac: None,
-        device_id: None,
-        api_key: None,
-        headers: ahash::AHashMap::new(),
-        path: "/api/test".to_string(),
-        method: "GET".to_string(),
-        client_ip: Some(ip.to_string()),
-        query_params: ahash::AHashMap::new(),
-    };
-
+    // ctx is created but not used - the check is done via is_banned
     // 检查封禁记录
     let is_banned = ban_manager.is_banned(&target).await.unwrap().is_some();
     assert!(is_banned, "Should be banned");
@@ -216,7 +204,7 @@ async fn test_e2e_exponential_backoff() {
 
     // 测试指数退避
     // 注意：当前实现中，超过4次违规后，封禁时长固定为 fourth_duration (40s)，不会继续增长到 max_duration
-    let expected_durations = vec![5, 10, 20, 40, 40, 40, 40, 40, 40, 40];
+    let expected_durations = [5, 10, 20, 40, 40, 40, 40, 40, 40, 40];
 
     for (i, expected_duration) in expected_durations.iter().enumerate() {
         let ban_times = (i + 1) as u32;

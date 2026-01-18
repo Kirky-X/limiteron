@@ -535,6 +535,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::const_is_empty)]
     fn test_script_constants_validity() {
         // 验证脚本常量不为空
         assert!(!SLIDING_WINDOW_SCRIPT.is_empty());

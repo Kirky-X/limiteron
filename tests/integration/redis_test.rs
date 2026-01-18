@@ -142,7 +142,6 @@ async fn test_redis_connection_pool() {
 #[tokio::test]
 #[ignore]
 async fn test_redis_lua_atomicity() {
-    use limiteron::error::ConsumeResult;
     use limiteron::quota_controller::{QuotaConfig, QuotaController, QuotaType};
 
     let config = RedisConfig::new("redis://localhost:6379").password("limiteron123");

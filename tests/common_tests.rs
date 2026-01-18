@@ -7,7 +7,9 @@ mod modules;
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use super::common::*;
+    #[allow(unused_imports)]
     use super::modules::*;
     use limiteron::storage::{BanStorage, QuotaStorage};
 

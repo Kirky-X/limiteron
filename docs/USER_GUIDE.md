@@ -136,7 +136,7 @@ git --version
 ```bash
 # 添加到 Cargo.toml
 [dependencies]
-limiteron = "1.0"
+limiteron = "0.1"
 
 # 或通过命令安装
 cargo add limiteron
@@ -180,18 +180,18 @@ limiteron = { path = "/path/to/limiteron" }
 让我们用一个简单的 "Hello World" 来验证你的安装：
 
 ```rust
-use limiteron::limiters::TokenBucketLimiter;
+use limiteron::limiters::{Limiter, TokenBucketLimiter};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 创建限流器
-    let mut limiter = TokenBucketLimiter::new(10, 1);
-    let key = "user123";
+    let limiter = TokenBucketLimiter::new(10, 1);
 
     // 检查限流
-    match limiter.check(key).await {
-        Ok(_) => println!("✅ Limiteron 已就绪！"),
-        Err(_) => println!("❌ 请求被限流"),
+    match limiter.allow(1).await {
+        Ok(true) => println!("✅ Limiteron 已就绪！"),
+        Ok(false) => println!("❌ 请求被限流"),
+        Err(e) => println!("❌ 错误: {:?}", e),
     }
 
     Ok(())
@@ -299,10 +299,20 @@ limiter.check("user123").await?;
 
 **示例:**
 ```rust
-use limiteron::BanManager;
+use limiteron::ban_manager::{BanManager, BanTarget, BanSource};
+use limiteron::storage::MockBanStorage;
+use std::sync::Arc;
 
-let ban_manager = BanManager::new().await?;
-ban_manager.ban("192.168.1.100", "恶意请求", 3600).await?;
+let storage = Arc::new(MockBanStorage);
+let ban_manager = BanManager::new(storage, None).await?;
+
+let ip_target = BanTarget::Ip("192.168.1.100".to_string());
+ban_manager.create_ban(
+    ip_target,
+    "恶意请求".to_string(),
+    Some(3600),
+    Some(BanSource::Manual)
+).await?;
 ```
 
 ### 3️⃣ 配额控制
@@ -498,6 +508,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 use limiteron::{Governor, FlowControlConfig};
+use limiteron::storage::{MemoryStorage, MockBanStorage};
+use std::sync::Arc;
 
 let config = FlowControlConfig {
     rate_limit: Some("100/s".to_string()),
@@ -508,7 +520,9 @@ let config = FlowControlConfig {
     ..Default::default()
 };
 
-let governor = Governor::new(config).await?;
+let storage = Arc::new(MemoryStorage::new());
+let ban_storage = Arc::new(MockBanStorage);
+let governor = Governor::new(config, storage, ban_storage).await?;
 ```
 
 <details>
@@ -623,18 +637,22 @@ async fn api_handler(user_id: &str) -> Result<String, FlowGuardError> {
 use limiteron::error::FlowGuardError;
 
 async fn handle_request() -> Result<(), FlowGuardError> {
-    match limiter.check(key).await {
-        Ok(_) => {
+    match limiter.allow(1).await {
+        Ok(true) => {
             println!("✅ 请求允许");
             Ok(())
         }
-        Err(FlowGuardError::RateLimitExceeded(msg)) => {
-            println!("⚠️ 速率限制: {}", msg);
+        Ok(false) => {
+            println!("⚠️ 请求被限流");
             Ok(())
         }
-        Err(FlowGuardError::Banned(msg)) => {
+        Err(FlowGuardError::LimitError(msg)) => {
+            println!("⚠️ 限流错误: {}", msg);
+            Ok(())
+        }
+        Err(FlowGuardError::BanError(msg)) => {
             eprintln!("❌ 已封禁: {}", msg);
-            Err(FlowGuardError::Banned(msg))
+            Err(FlowGuardError::BanError(msg))
         }
         Err(e) => {
             eprintln!("❌ 错误: {:?}", e);
@@ -649,11 +667,13 @@ async fn handle_request() -> Result<(), FlowGuardError> {
 
 | 错误类型 | 描述 | 恢复策略 |
 |------------|-------------|-------------------|
+| `LimitError` | 限流错误 | 等待重试 |
 | `RateLimitExceeded` | 超过速率限制 | 等待重试 |
 | `QuotaExceeded` | 超过配额限制 | 等待下一个时间窗口 |
-| `Banned` | 已被封禁 | 联系管理员 |
-| `CircuitBreakerOpen` | 熔断器已打开 | 等待恢复 |
-| `InvalidInput` | 无效输入 | 验证输入 |
+| `BanError` | 已被封禁 | 联系管理员 |
+| `CircuitBreakerError` | 熔断器已打开 | 等待恢复 |
+| `ValidationError` | 无效输入 | 验证输入 |
+| `ConfigError` | 配置错误 | 检查配置 |
 
 </details>
 

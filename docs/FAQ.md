@@ -226,7 +226,7 @@
 
 ```toml
 [dependencies]
-limiteron = "1.0"
+limiteron = "0.1"
 ```
 
 或使用 cargo:
@@ -401,14 +401,14 @@ use limiteron::limiters::TokenBucketLimiter;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. 创建限流器
-    let mut limiter = TokenBucketLimiter::new(10, 1);
-    let key = "user123";
+    let limiter = TokenBucketLimiter::new(10, 1);
 
     // 2. 检查限流
     for i in 0..15 {
-        match limiter.check(key).await {
-            Ok(_) => println!("请求 {} ✅", i),
-            Err(_) => println!("请求 {} ❌", i),
+        match limiter.allow(1).await {
+            Ok(true) => println!("请求 {} ✅", i),
+            Ok(false) => println!("请求 {} ❌", i),
+            Err(e) => println!("请求 {} 错误: {:?}", i, e),
         }
     }
 
@@ -535,9 +535,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let limiter = TokenBucketLimiter::new(10, 1);
     
     // 在异步上下文中使用
-    match limiter.check("user123").await {
-        Ok(_) => println!("✅ 请求允许"),
-        Err(_) => println!("❌ 请求被限流"),
+    match limiter.allow(1).await {
+        Ok(true) => println!("✅ 请求允许"),
+        Ok(false) => println!("❌ 请求被限流"),
+        Err(e) => println!("❌ 错误: {:?}", e),
     }
     
     Ok(())
@@ -550,7 +551,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use limiteron::flow_control;
 
 #[flow_control(rate = "10/s")]
-async fn api_handler() -> Result<String, FlowGuardError> {
+async fn api_handler() -> Result<String, Box<dyn std::error::Error>> {
     Ok("Success".to_string())
 }
 ```

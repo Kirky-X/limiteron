@@ -125,8 +125,9 @@ impl crate::limiters::Limiter for QuotaLimiter {
         &self,
         key: &str,
     ) -> Pin<Box<dyn Future<Output = Result<(), FlowGuardError>> + Send + '_>> {
+        let key = key.to_string();
         Box::pin(async move {
-            self.check_and_consume(key).await?;
+            self.check_and_consume(&key).await?;
             Ok(())
         })
     }
@@ -135,7 +136,8 @@ impl crate::limiters::Limiter for QuotaLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::QuotaType;
+    use crate::limiters::Limiter;
+    use crate::QuotaType;
 
     fn create_test_config() -> QuotaConfig {
         QuotaConfig {

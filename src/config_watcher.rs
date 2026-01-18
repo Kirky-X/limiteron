@@ -53,20 +53,15 @@ pub struct ConfigWatcher {
 }
 
 /// 监视模式
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WatchMode {
     /// 轮询模式
+    #[default]
     Poll,
     /// Watch模式（文件系统事件）
     Watch,
     /// 混合模式（轮询 + Watch）
     Hybrid,
-}
-
-impl Default for WatchMode {
-    fn default() -> Self {
-        Self::Poll
-    }
 }
 
 impl ConfigWatcher {

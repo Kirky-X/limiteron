@@ -3,7 +3,6 @@
 //! 提供增强的配置安全验证功能，防止恶意配置注入和配置滥用。
 
 use crate::config::{FlowControlConfig, GlobalConfig, LimiterConfig, Matcher, Rule};
-use crate::error::FlowGuardError;
 
 /// 配置安全验证结果
 #[derive(Debug, Clone)]
@@ -214,7 +213,6 @@ impl ConfigSecurityValidator {
                     ));
                 }
             }
-            _ => {}
         }
     }
 

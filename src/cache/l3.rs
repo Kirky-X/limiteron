@@ -27,7 +27,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::cache::l2::L2Cache;
 #[cfg(feature = "redis")]
 use crate::error::StorageError;
-#[cfg(feature = "redis")]
+#[cfg(all(feature = "redis", feature = "fallback"))]
 use crate::fallback::{ComponentType, FallbackManager, FallbackStrategy};
 #[cfg(feature = "redis")]
 use crate::storage::Storage;

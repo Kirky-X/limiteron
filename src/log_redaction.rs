@@ -1,13 +1,101 @@
 //! 日志脱敏模块
 //!
 //! 提供日志脱敏功能，保护敏感信息不被泄露到日志中。
+//! 即使没有启用 log-redaction feature，基础脱敏函数也可用。
 
+/// 基础脱敏函数 - 即使没有启用 log-redaction feature 也可用
+#[inline]
+pub fn redact_basic(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "unknown".to_string();
+    };
+
+    let value = value.trim();
+    if value.is_empty() {
+        return "unknown".to_string();
+    }
+
+    if value.len() <= 4 {
+        return "***".to_string();
+    }
+
+    let prefix = &value[..2.min(value.len())];
+    let suffix_len = 2.min(value.len().saturating_sub(2));
+    let suffix = &value[value.len().saturating_sub(suffix_len)..];
+    format!("{}***{}", prefix, suffix)
+}
+
+/// 用户ID脱敏 - 即使没有启用 log-redaction feature 也可用
+#[inline]
+pub fn redact_user_id(value: Option<&str>) -> String {
+    redact_basic(value)
+}
+
+/// IP地址脱敏 - 即使没有启用 log-redaction feature 也可用
+#[inline]
+pub fn redact_ip(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "unknown".to_string();
+    };
+
+    let value = value.trim();
+    if value.is_empty() {
+        return "unknown".to_string();
+    }
+
+    // 如果是IP地址，保留前两段
+    let parts: Vec<&str> = value.split('.').collect();
+    if parts.len() == 4 {
+        return format!("{}.{}.***.***", parts[0], parts[1]);
+    }
+
+    // IPv6简化处理
+    if value.contains(':') {
+        let parts: Vec<&str> = value.split(':').collect();
+        if parts.len() >= 2 {
+            return format!("{}:***:***", parts[0]);
+        }
+    }
+
+    redact_basic(Some(value))
+}
+
+/// 邮箱脱敏 - 即使没有启用 log-redaction feature 也可用
+#[inline]
+pub fn redact_email(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "unknown".to_string();
+    };
+
+    let value = value.trim();
+    if value.is_empty() {
+        return "unknown".to_string();
+    }
+
+    if let Some(at_pos) = value.find('@') {
+        let local_part = &value[..at_pos];
+        let domain = &value[at_pos..];
+
+        if local_part.len() <= 2 {
+            return format!("***{}", domain);
+        }
+
+        return format!("{}***{}", &local_part[..1], domain);
+    }
+
+    redact_basic(Some(value))
+}
+
+#[cfg(feature = "log-redaction")]
 use regex::Regex;
+#[cfg(feature = "log-redaction")]
 use std::sync::Mutex as SyncMutex;
 
+#[cfg(feature = "log-redaction")]
 /// 敏感字段模式列表
 static SENSITIVE_PATTERNS: SyncMutex<Vec<(&str, Regex)>> = SyncMutex::new(Vec::new());
 
+#[cfg(feature = "log-redaction")]
 /// 初始化敏感字段模式
 fn initialize_patterns() {
     let mut patterns = SENSITIVE_PATTERNS.lock().unwrap();
@@ -49,29 +137,8 @@ fn initialize_patterns() {
     }
 }
 
-/// 基础脱敏函数
-#[inline]
-pub fn redact_basic(value: Option<&str>) -> String {
-    let Some(value) = value else {
-        return "unknown".to_string();
-    };
-
-    let value = value.trim();
-    if value.is_empty() {
-        return "unknown".to_string();
-    }
-
-    if value.len() <= 4 {
-        return "***".to_string();
-    }
-
-    let prefix = &value[..2.min(value.len())];
-    let suffix_len = 2.min(value.len().saturating_sub(2));
-    let suffix = &value[value.len().saturating_sub(suffix_len)..];
-    format!("{}***{}", prefix, suffix)
-}
-
-/// 增强版脱敏函数
+/// 增强版脱敏函数 - 需要 log-redaction feature
+#[cfg(feature = "log-redaction")]
 #[inline]
 pub fn redact_enhanced(value: Option<&str>, field_name: Option<&str>) -> String {
     let Some(value) = value else {
@@ -125,7 +192,8 @@ pub fn redact_enhanced(value: Option<&str>, field_name: Option<&str>) -> String 
     format!("{}***{}", prefix, suffix)
 }
 
-/// 敏感信息检测
+/// 敏感信息检测 - 需要 log-redaction feature
+#[cfg(feature = "log-redaction")]
 #[inline]
 pub fn contains_sensitive_info(value: &str) -> bool {
     initialize_patterns();
@@ -145,68 +213,8 @@ pub fn contains_sensitive_info(value: &str) -> bool {
         || lower_value.contains("authorization")
 }
 
-/// 用户ID脱敏
-#[inline]
-pub fn redact_user_id(value: Option<&str>) -> String {
-    redact_basic(value)
-}
-
-/// IP地址脱敏
-#[inline]
-pub fn redact_ip(value: Option<&str>) -> String {
-    let Some(value) = value else {
-        return "unknown".to_string();
-    };
-
-    let value = value.trim();
-    if value.is_empty() {
-        return "unknown".to_string();
-    }
-
-    // 如果是IP地址，保留前两段
-    let parts: Vec<&str> = value.split('.').collect();
-    if parts.len() == 4 {
-        return format!("{}.{}.***.***", parts[0], parts[1]);
-    }
-
-    // IPv6简化处理
-    if value.contains(':') {
-        let parts: Vec<&str> = value.split(':').collect();
-        if parts.len() >= 2 {
-            return format!("{}:***:***", parts[0]);
-        }
-    }
-
-    redact_basic(Some(value))
-}
-
-/// 邮箱脱敏
-#[inline]
-pub fn redact_email(value: Option<&str>) -> String {
-    let Some(value) = value else {
-        return "unknown".to_string();
-    };
-
-    let value = value.trim();
-    if value.is_empty() {
-        return "unknown".to_string();
-    }
-
-    if let Some(at_pos) = value.find('@') {
-        let local_part = &value[..at_pos];
-        let domain = &value[at_pos..];
-
-        if local_part.len() <= 2 {
-            return format!("***{}", domain);
-        }
-
-        return format!("{}***{}", &local_part[..1], domain);
-    }
-
-    redact_basic(Some(value))
-}
-
-/// HTTP请求/响应脱敏
+/// HTTP请求/响应脱敏 - 需要 log-redaction feature
+#[cfg(feature = "log-redaction")]
 #[inline]
 pub fn redact_http_content(content: &str) -> String {
     let mut result = content.to_string();
@@ -219,11 +227,13 @@ pub fn redact_http_content(content: &str) -> String {
     result
 }
 
-/// 批量脱敏结构体字段
+/// 批量脱敏结构体字段 - 需要 log-redaction feature
+#[cfg(feature = "log-redaction")]
 pub struct RedactionConfig<'a> {
     pub fields: Vec<(&'a str, bool)>, // (字段名, 是否为敏感字段)
 }
 
+#[cfg(feature = "log-redaction")]
 impl<'a> RedactionConfig<'a> {
     /// 创建新的脱敏配置
     #[inline]
@@ -259,6 +269,7 @@ impl<'a> RedactionConfig<'a> {
     }
 }
 
+#[cfg(feature = "log-redaction")]
 impl Default for RedactionConfig<'_> {
     #[inline]
     fn default() -> Self {
@@ -282,19 +293,6 @@ mod tests {
     }
 
     #[test]
-    fn test_redact_enhanced() {
-        // 敏感字段应该完全脱敏
-        assert_eq!(redact_enhanced(Some("secret123"), Some("password")), "***");
-        assert_eq!(redact_enhanced(Some("token123"), Some("api_key")), "***");
-
-        // 普通字段使用基础脱敏
-        assert_eq!(
-            redact_enhanced(Some("user123"), Some("username")),
-            "us***23"
-        );
-    }
-
-    #[test]
     fn test_redact_ip() {
         assert_eq!(redact_ip(None), "unknown");
         assert_eq!(redact_ip(Some("192.168.1.1")), "192.168.***.***");
@@ -310,37 +308,55 @@ mod tests {
         assert_eq!(redact_email(Some("ab@example.com")), "***@example.com");
     }
 
-    #[test]
-    fn test_contains_sensitive_info() {
-        assert!(contains_sensitive_info("password=secret123"));
-        assert!(contains_sensitive_info("api_key=abc123xyz"));
-        assert!(contains_sensitive_info(
-            "token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
-        ));
-        assert!(!contains_sensitive_info("username=user123"));
-    }
+    #[cfg(feature = "log-redaction")]
+    mod log_redaction_tests {
+        use super::*;
 
-    #[test]
-    fn test_redact_http_content() {
-        // Use format matching the regex pattern (key=value without quotes around value)
-        let content = r#"password=secret123, username=user123"#;
-        let redacted = redact_http_content(content);
-        assert!(!redacted.contains("secret123"));
-        assert!(redacted.contains("user123"));
-    }
+        #[test]
+        fn test_redact_enhanced() {
+            // 敏感字段应该完全脱敏
+            assert_eq!(redact_enhanced(Some("secret123"), Some("password")), "***");
+            assert_eq!(redact_enhanced(Some("token123"), Some("api_key")), "***");
 
-    #[test]
-    fn test_redaction_config() {
-        let config = RedactionConfig::new()
-            .add_field("password", true)
-            .add_field("username", false);
+            // 普通字段使用基础脱敏
+            assert_eq!(
+                redact_enhanced(Some("user123"), Some("username")),
+                "us***23"
+            );
+        }
 
-        let result = config.format(|field| match field {
-            "password" => Some("secret123".to_string()),
-            "username" => Some("user123".to_string()),
-            _ => None,
-        });
+        #[test]
+        fn test_contains_sensitive_info() {
+            assert!(contains_sensitive_info("password=secret123"));
+            assert!(contains_sensitive_info("api_key=abc123xyz"));
+            assert!(contains_sensitive_info(
+                "token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+            ));
+            assert!(!contains_sensitive_info("username=user123"));
+        }
 
-        assert_eq!(result, "{password=***, username=user123}");
+        #[test]
+        fn test_redact_http_content() {
+            // Use format matching the regex pattern (key=value without quotes around value)
+            let content = r#"password=secret123, username=user123"#;
+            let redacted = redact_http_content(content);
+            assert!(!redacted.contains("secret123"));
+            assert!(redacted.contains("user123"));
+        }
+
+        #[test]
+        fn test_redaction_config() {
+            let config = RedactionConfig::new()
+                .add_field("password", true)
+                .add_field("username", false);
+
+            let result = config.format(|field| match field {
+                "password" => Some("secret123".to_string()),
+                "username" => Some("user123".to_string()),
+                _ => None,
+            });
+
+            assert_eq!(result, "{password=***, username=user123}");
+        }
     }
 }

@@ -41,6 +41,7 @@ docs/uat.md
 # Tool Configs & Specs
 .iflow/
 .sisyphus/
+.opencode/
 .trae/
 openspec/
 IFLOW.md

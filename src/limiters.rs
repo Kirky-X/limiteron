@@ -227,10 +227,14 @@ impl TokenBucketLimiter {
                         return false;
                     }
 
-                    // 指数退避：第1次失败不等待，第2次等待1ms，第3次等待2ms
+                    // 指数退避：使用自旋提示替代阻塞睡眠
+                    // 避免在多线程环境下阻塞线程
                     if retry_count > 1 {
-                        let backoff_ms = 1u64 << (retry_count - 2); // 1, 2, 4...
-                        std::thread::sleep(std::time::Duration::from_millis(backoff_ms));
+                        let backoff = 1u64 << (retry_count - 2);
+                        // 使用自旋提示，让出CPU时间片
+                        for _ in 0..backoff.min(1000) {
+                            std::hint::spin_loop();
+                        }
                     }
                 }
             }

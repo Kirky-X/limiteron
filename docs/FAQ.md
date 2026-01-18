@@ -226,13 +226,13 @@
 
 ```toml
 [dependencies]
-limiteron = "0.1"
+limiteron = { version = "0.1", features = ["macros"] }
 ```
 
 或使用 cargo:
 
 ```bash
-cargo add limiteron
+cargo add limiteron --features macros
 ```
 
 **从源码安装:**
@@ -490,20 +490,26 @@ if decision.is_allowed() {
 
 ```rust
 use limiteron::error::FlowGuardError;
+use limiteron::limiters::TokenBucketLimiter;
 
 async fn process_request() -> Result<(), FlowGuardError> {
-    match limiter.check(key).await {
-        Ok(_) => {
+    let limiter = TokenBucketLimiter::new(10, 1);
+    match limiter.allow(1).await {
+        Ok(true) => {
             println!("✅ 成功");
+            Ok(())
+        }
+        Ok(false) => {
+            println!("⚠️ 速率限制");
             Ok(())
         }
         Err(FlowGuardError::RateLimitExceeded(msg)) => {
             println!("⚠️ 速率限制: {}", msg);
             Ok(())
         }
-        Err(FlowGuardError::Banned(msg)) => {
+        Err(FlowGuardError::BanError(msg)) => {
             eprintln!("❌ 已封禁: {}", msg);
-            Err(FlowGuardError::Banned(msg))
+            Err(FlowGuardError::BanError(msg))
         }
         Err(e) => {
             eprintln!("❌ 错误: {:?}", e);

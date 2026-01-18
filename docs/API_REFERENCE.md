@@ -259,7 +259,7 @@ use limiteron::ban_manager::{BanManager, BanManagerConfig};
 use limiteron::storage::MockBanStorage;
 use std::sync::Arc;
 
-let storage = Arc::new(MockBanStorage);
+let storage = Arc::new(MockBanStorage::default());
 let ban_manager = BanManager::new(storage, None).await?;
 ```
 
@@ -583,7 +583,7 @@ use limiteron::storage::{MemoryStorage, MockBanStorage};
 use std::sync::Arc;
 
 let storage = Arc::new(MemoryStorage::new());
-let ban_storage = Arc::new(MockBanStorage);
+let ban_storage = Arc::new(MockBanStorage::default());
 let governor = Governor::new(FlowControlConfig::default(), storage, ban_storage).await?;
 ```
 
@@ -903,7 +903,7 @@ use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let storage = Arc::new(MockBanStorage);
+    let storage = Arc::new(MockBanStorage::default());
     let ban_manager = BanManager::new(storage, None).await?;
 
     // 封禁 IP
@@ -935,7 +935,7 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let storage = Arc::new(MemoryStorage::new());
-    let ban_storage = Arc::new(MockBanStorage);
+    let ban_storage = Arc::new(MockBanStorage::default());
     let governor = Governor::new(FlowControlConfig::default(), storage, ban_storage).await?;
 
     let context = RequestContext::builder()

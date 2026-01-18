@@ -160,7 +160,7 @@ Suitable for enterprise applications requiring high concurrency and reliability.
 use limiteron::flow_control;
 
 #[flow_control(rate = "100/s", quota = "10000/m", concurrency = 50)]
-async fn api_handler(user_id: &str) -> Result<String, Box<dyn std::error::Error>> {
+async fn api_handler(user_id: &str) -> Result<String, limiteron::error::FlowGuardError> {
     // API business logic
     Ok("Success".to_string())
 }
@@ -182,7 +182,7 @@ use std::sync::Arc;
 
 async fn web_app() -> Result<(), Box<dyn std::error::Error>> {
     // Create storage and ban manager
-    let storage = Arc::new(MockBanStorage);
+    let storage = Arc::new(MockBanStorage::default());
     let ban_manager = BanManager::new(storage, None).await?;
 
     // Check if user is banned
@@ -216,7 +216,7 @@ Suitable for web applications that need to prevent malicious users and crawlers.
 
 ```toml
 [dependencies]
-limiteron = "0.1"
+limiteron = { version = "0.1", features = ["macros"] }
 ```
 
 </td>
@@ -226,12 +226,76 @@ limiteron = "0.1"
 
 ```toml
 [dependencies]
-limiteron = { version = "0.1", features = ["postgres", "redis"] }
+limiteron = { version = "0.1", features = ["postgres", "redis", "macros"] }
 ```
 
 </td>
 </tr>
 </table>
+
+### Feature Flags
+
+<div align="center">
+
+#### 🎛️ 可选特性配置
+
+</div>
+
+Limiteron 使用 feature flags 来控制功能启用，默认只启用内存存储：
+
+<table>
+<tr>
+<td width="50%">
+
+**预定义组合**
+```toml
+# 最小化：仅核心限流
+limiteron = { version = "0.1", features = ["minimal"] }
+
+# 标准：核心 + 基础高级功能
+limiteron = { version = "0.1", features = ["standard"] }
+
+# 完整：所有功能
+limiteron = { version = "0.1", features = ["full"] }
+```
+
+</td>
+<td width="50%">
+
+**单独特性**
+```toml
+# 存储后端
+limiteron = { version = "0.1", features = ["postgres", "redis"] }
+
+# 高级功能
+limiteron = { version = "0.1", features = ["ban-manager", "quota-control", "circuit-breaker"] }
+
+# 宏支持
+limiteron = { version = "0.1", features = ["macros"] }
+```
+
+</td>
+</tr>
+</table>
+
+<details>
+<summary><b>📋 完整特性列表</b></summary>
+
+<br>
+
+| 特性 | 描述 | 默认 |
+|------|------|------|
+| `memory` | 内存存储 | ✅ |
+| `postgres` | PostgreSQL 存储 | ❌ |
+| `redis` | Redis 存储 | ❌ |
+| `ban-manager` | 封禁管理 | ❌ |
+| `quota-control` | 配额控制 | ❌ |
+| `circuit-breaker` | 熔断器 | ❌ |
+| `macros` | 宏支持 | ❌ |
+| `telemetry` | 遥测和追踪 | ❌ |
+| `monitoring` | Prometheus 指标 | ❌ |
+
+</details>
 
 ### Basic Usage
 
@@ -249,7 +313,7 @@ limiteron = { version = "0.1", features = ["postgres", "redis"] }
 
 ```toml
 [dependencies]
-limiteron = "0.1"
+limiteron = { version = "0.1", features = ["macros"] }
 ```
 
 </td>
@@ -261,7 +325,7 @@ limiteron = "0.1"
 use limiteron::flow_control;
 
 #[flow_control(rate = "10/s")]
-async fn api_call() -> Result<String, Box<dyn std::error::Error>> {
+async fn api_call() -> Result<String, limiteron::error::FlowGuardError> {
     Ok("Success".to_string())
 }
 ```
@@ -284,7 +348,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let limiter = TokenBucketLimiter::new(10, 1); // 10 tokens, refill 1 per second
 
     // Step 2: Check rate limit
-    let key = "user123";
     match limiter.allow(1).await {
         Ok(true) => println!("✅ Request allowed"),
         Ok(false) => println!("❌ Request rate limited"),
@@ -412,7 +475,7 @@ Request 14 ❌
 use limiteron::flow_control;
 
 #[flow_control(rate = "100/s", quota = "10000/m", concurrency = 50)]
-async fn api_handler(user_id: &str) -> Result<String, Box<dyn std::error::Error>> {
+async fn api_handler(user_id: &str) -> Result<String, limiteron::error::FlowGuardError> {
     // API business logic
     Ok(format!("Processing request for user {}", user_id))
 }

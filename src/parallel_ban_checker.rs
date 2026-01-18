@@ -1,22 +1,19 @@
 //! 并行封禁检查器
 //!
 //! 专门负责高效的并行封禁检查，支持多种目标类型的并发验证。
+//! 需要同时启用 `ban-manager` 和 `parallel-checker` feature。
 
-#[cfg(feature = "ban-manager")]
-use crate::ban_manager::BanManager;
+#![cfg(feature = "parallel-checker")]
+
 use crate::error::{BanInfo, FlowGuardError};
-#[cfg(feature = "ban-manager")]
 use crate::matchers::RequestContext;
-#[cfg(not(feature = "ban-manager"))]
-use crate::storage::BanStorage;
 use crate::storage::BanTarget;
-#[cfg(feature = "ban-manager")]
 use futures::future::join_all;
 use std::sync::Arc;
-#[cfg(feature = "ban-manager")]
 use tracing::{debug, instrument};
 
-#[cfg(feature = "ban-manager")]
+use crate::ban_manager::BanManager;
+
 /// 并行封禁检查器
 ///
 /// 提供高性能的多目标并行封禁检查功能。
@@ -24,7 +21,6 @@ pub struct ParallelBanChecker {
     ban_manager: Arc<BanManager>,
 }
 
-#[cfg(feature = "ban-manager")]
 impl ParallelBanChecker {
     /// 创建新的并行封禁检查器
     pub fn new(ban_manager: Arc<BanManager>) -> Self {
@@ -103,69 +99,21 @@ impl ParallelBanChecker {
     }
 }
 
-#[cfg(not(feature = "ban-manager"))]
-/// 并行封禁检查器（无操作存根）
-///
-/// 当 ban-manager 特性未启用时提供空实现。
-pub struct ParallelBanChecker;
-
-#[cfg(not(feature = "ban-manager"))]
-impl ParallelBanChecker {
-    /// 创建新的并行封禁检查器（空操作）
-    pub fn new(_ban_storage: Arc<dyn BanStorage>) -> Self {
-        Self
-    }
-
-    /// 并行检查多个封禁目标（空操作）
-    pub async fn check_targets_parallel(
-        &self,
-        _targets: &[BanTarget],
-        _context: Option<&()>,
-    ) -> Result<Option<BanInfo>, FlowGuardError> {
-        Ok(None)
-    }
-
-    /// 快速检查单个封禁目标（空操作）
-    pub async fn check_single_target(
-        &self,
-        _target: &BanTarget,
-    ) -> Result<Option<BanInfo>, FlowGuardError> {
-        Ok(None)
-    }
-
-    /// 检查用户ID是否被封禁（空操作）
-    pub async fn check_user_banned(
-        &self,
-        _user_id: &str,
-    ) -> Result<Option<BanInfo>, FlowGuardError> {
-        Ok(None)
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::disallowed_types)]
 mod tests {
     use super::*;
-    #[cfg(feature = "ban-manager")]
     use crate::ban_manager::BanManager;
-    #[cfg(feature = "ban-manager")]
     use crate::error::StorageError;
-    #[cfg(feature = "ban-manager")]
     use crate::storage::{BanHistory, BanRecord, BanStorage};
-    #[cfg(feature = "ban-manager")]
     use async_trait::async_trait;
-    #[cfg(feature = "ban-manager")]
-    #[allow(clippy::disallowed_types)]
     use std::collections::HashMap;
-    #[cfg(feature = "ban-manager")]
     use tokio::sync::Mutex;
 
-    #[cfg(feature = "ban-manager")]
     struct TestBanStorage {
         bans: Mutex<HashMap<BanTarget, BanRecord>>,
     }
 
-    #[cfg(feature = "ban-manager")]
     impl TestBanStorage {
         fn new() -> Self {
             Self {
@@ -174,7 +122,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "ban-manager")]
     #[async_trait]
     impl BanStorage for TestBanStorage {
         async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, StorageError> {
@@ -214,7 +161,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg(feature = "ban-manager")]
     async fn test_parallel_ban_checker() {
         let ban_storage = Arc::new(TestBanStorage::new());
         let ban_manager = Arc::new(BanManager::new(ban_storage.clone(), None).await.unwrap());
@@ -250,13 +196,5 @@ mod tests {
         // 测试单个目标检查
         let user_result = checker.check_user_banned("banned_user").await.unwrap();
         assert!(user_result.is_some());
-    }
-
-    #[tokio::test]
-    #[cfg(not(feature = "ban-manager"))]
-    async fn test_parallel_ban_checker_stub() {
-        let checker = ParallelBanChecker;
-        let result = checker.check_user_banned("test_user").await.unwrap();
-        assert!(result.is_none());
     }
 }

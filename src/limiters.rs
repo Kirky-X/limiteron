@@ -2,6 +2,8 @@
 //!
 //! 实现各种限流算法。
 
+use crate::constants::MAX_COST;
+use crate::constants::MAX_SPIN_ITERATIONS;
 use crate::error::FlowGuardError;
 use std::collections::VecDeque;
 use std::future::Future;
@@ -10,32 +12,31 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 // ============================================================================
-// Cost 参数验证常量
+// Cost parameter validation
 // ============================================================================
-
-/// 最大 cost 值
-const MAX_COST: u64 = 1_000_000;
 
 // ============================================================================
 // Cost 参数验证函数
 // ============================================================================
 
-/// 验证 cost 参数
+/// Validates the cost parameter.
 ///
-/// # 参数
-/// - `cost`: cost 值
+/// # Arguments
+/// * `cost` - The cost value to validate
 ///
-/// # 返回
-/// - `Ok(u64)`: 验证通过的 cost 值
-/// - `Err(FlowGuardError)`: 验证失败
+/// # Returns
+/// * `Ok(u64)` - The validated cost value
+/// * `Err(FlowGuardError)` - Validation failed
 fn validate_cost(cost: u64) -> Result<u64, FlowGuardError> {
     if cost == 0 {
-        return Err(FlowGuardError::ConfigError("Cost 不能为零".to_string()));
+        return Err(FlowGuardError::ConfigError(
+            "Cost cannot be zero".to_string(),
+        ));
     }
 
     if cost > MAX_COST {
         return Err(FlowGuardError::ConfigError(format!(
-            "Cost 超过最大限制（最大 {}）",
+            "Cost exceeds maximum limit ({})",
             MAX_COST
         )));
     }
@@ -102,13 +103,13 @@ pub struct TokenBucketLimiter {
 }
 
 impl TokenBucketLimiter {
-    /// 创建新的令牌桶限流器
+    /// Creates a new token bucket limiter.
     ///
-    /// # 参数
-    /// - `capacity`: 桶的最大容量
-    /// - `refill_rate`: 令牌补充速率（令牌/秒）
+    /// # Arguments
+    /// * `capacity` - Maximum tokens in the bucket
+    /// * `refill_rate` - Tokens added per second
     ///
-    /// # 示例
+    /// # Examples
     /// ```rust
     /// use limiteron::limiters::TokenBucketLimiter;
     ///
@@ -128,27 +129,26 @@ impl TokenBucketLimiter {
         }
     }
 
-    /// 补充令牌
+    /// Refills tokens based on elapsed time.
     ///
-    /// 基于时间差计算应该补充的令牌数量，使用 CAS 循环确保原子性。
-    /// 使用 SeqCst 内存序确保在多线程环境下的一致性。
+    /// Uses CAS loop for atomicity with SeqCst ordering.
     fn refill_tokens(&self) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos() as u64;
 
-        // 使用 CAS 循环更新 last_refill 和 tokens
+        // Use CAS loop to update last_refill and tokens atomically
         loop {
             let last = self.last_refill.load(std::sync::atomic::Ordering::Acquire);
             let elapsed_nanos = now.saturating_sub(last);
 
-            // 如果时间差太小，不需要补充
+            // Skip if time delta is too small
             if elapsed_nanos < 1_000_000 {
                 break;
             }
 
-            // 计算应该补充的令牌数
+            // Calculate tokens to add
             let elapsed_seconds = elapsed_nanos as f64 / 1_000_000_000.0;
             let tokens_to_add = (elapsed_seconds * self.refill_rate as f64) as u64;
 
@@ -156,7 +156,7 @@ impl TokenBucketLimiter {
                 break;
             }
 
-            // 尝试更新 last_refill
+            // Try to update last_refill timestamp
             if self
                 .last_refill
                 .compare_exchange(
@@ -167,7 +167,7 @@ impl TokenBucketLimiter {
                 )
                 .is_ok()
             {
-                // 成功更新时间戳，现在更新令牌数
+                // Update token count
                 loop {
                     let current = self.tokens.load(std::sync::atomic::Ordering::Acquire);
                     let new_tokens = current.saturating_add(tokens_to_add).min(self.capacity);
@@ -187,7 +187,6 @@ impl TokenBucketLimiter {
                 }
                 break;
             }
-            // CAS 失败，重试
         }
     }
 
@@ -232,7 +231,7 @@ impl TokenBucketLimiter {
                     if retry_count > 1 {
                         let backoff = 1u64 << (retry_count - 2);
                         // 使用自旋提示，让出CPU时间片
-                        for _ in 0..backoff.min(1000) {
+                        for _ in 0..backoff.min(MAX_SPIN_ITERATIONS) {
                             std::hint::spin_loop();
                         }
                     }
@@ -302,13 +301,13 @@ pub struct SlidingWindowLimiter {
 }
 
 impl SlidingWindowLimiter {
-    /// 创建新的滑动窗口限流器
+    /// Creates a new sliding window limiter.
     ///
-    /// # 参数
-    /// - `window_size`: 滑动窗口大小
-    /// - `max_requests`: 窗口内最大请求数
+    /// # Arguments
+    /// * `window_size` - Sliding window duration
+    /// * `max_requests` - Maximum requests per window
     ///
-    /// # 示例
+    /// # Examples
     /// ```rust
     /// use limiteron::limiters::SlidingWindowLimiter;
     /// use std::time::Duration;
@@ -316,10 +315,12 @@ impl SlidingWindowLimiter {
     /// let limiter = SlidingWindowLimiter::new(Duration::from_secs(1), 100);
     /// ```
     pub fn new(window_size: Duration, max_requests: u64) -> Self {
+        // Pre-allocate deque capacity based on max_requests to reduce allocations
+        let capacity = (max_requests as usize).min(10_000);
         Self {
             window_size,
             max_requests,
-            requests: Arc::new(Mutex::new(VecDeque::new())),
+            requests: Arc::new(Mutex::new(VecDeque::with_capacity(capacity))),
         }
     }
 
@@ -415,13 +416,13 @@ pub struct FixedWindowLimiter {
 }
 
 impl FixedWindowLimiter {
-    /// 创建新的固定窗口限流器
+    /// Creates a new fixed window limiter.
     ///
-    /// # 参数
-    /// - `window_size`: 固定窗口大小
-    /// - `max_requests`: 窗口内最大请求数
+    /// # Arguments
+    /// * `window_size` - Fixed window duration
+    /// * `max_requests` - Maximum requests per window
     ///
-    /// # 示例
+    /// # Examples
     /// ```rust
     /// use limiteron::limiters::FixedWindowLimiter;
     /// use std::time::Duration;
@@ -442,9 +443,9 @@ impl FixedWindowLimiter {
         }
     }
 
-    /// 检查并重置窗口
+    /// Checks and resets the window if expired.
     ///
-    /// 如果当前时间已经超过窗口结束时间，则重置窗口。
+    /// Uses CAS for atomic window reset with proper alignment.
     fn check_and_reset_window(&self) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -457,17 +458,17 @@ impl FixedWindowLimiter {
             let current_start = self.window_start.load(std::sync::atomic::Ordering::Acquire);
             let window_end = current_start.saturating_add(window_size_nanos);
 
-            // 如果当前时间还在当前窗口内，不需要重置
+            // Current time still within window
             if now < window_end {
                 break;
             }
 
-            // 计算新窗口的开始时间（对齐到窗口边界）
+            // Calculate aligned window start
             let elapsed = now.saturating_sub(current_start);
             let windows_passed = elapsed / window_size_nanos;
             let new_start = current_start.saturating_add(windows_passed * window_size_nanos);
 
-            // 尝试更新窗口开始时间
+            // Attempt atomic update
             match self.window_start.compare_exchange(
                 current_start,
                 new_start,
@@ -475,11 +476,10 @@ impl FixedWindowLimiter {
                 std::sync::atomic::Ordering::Relaxed,
             ) {
                 Ok(_) => {
-                    // 成功更新窗口开始时间，重置计数
                     self.count.store(0, std::sync::atomic::Ordering::Release);
                     break;
                 }
-                Err(_) => continue, // CAS 失败，重试
+                Err(_) => continue,
             }
         }
     }

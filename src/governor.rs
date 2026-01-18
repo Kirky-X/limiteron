@@ -9,6 +9,9 @@ use crate::cache::l2::L2Cache;
 use crate::config::{
     ChangeSource, ConfigChangeRecord, FlowControlConfig, LimiterConfig, Matcher as ConfigMatcher,
 };
+use crate::constants::{
+    DEFAULT_L2_CACHE_CAPACITY, DEFAULT_L2_CACHE_TTL_SECS, SECONDS_PER_HOUR, SECONDS_PER_MINUTE,
+};
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::{Decision, FlowGuardError};
 use crate::fallback::FallbackManager;
@@ -135,8 +138,8 @@ impl Governor {
         match unit {
             "ms" => Ok(Duration::from_millis(val)),
             "s" => Ok(Duration::from_secs(val)),
-            "m" => Ok(Duration::from_secs(val * 60)),
-            "h" => Ok(Duration::from_secs(val * 3600)),
+            "m" => Ok(Duration::from_secs(val * SECONDS_PER_MINUTE)),
+            "h" => Ok(Duration::from_secs(val * SECONDS_PER_HOUR)),
             _ => unreachable!(),
         }
     }
@@ -321,7 +324,10 @@ impl Governor {
         }));
 
         // 创建 L2Cache 用于 FallbackManager
-        let fallback_l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+        let fallback_l2_cache = Arc::new(L2Cache::new(
+            DEFAULT_L2_CACHE_CAPACITY,
+            Duration::from_secs(DEFAULT_L2_CACHE_TTL_SECS),
+        ));
         // 创建降级管理器
         let fallback_manager = Arc::new(FallbackManager::new(fallback_l2_cache));
 
@@ -390,12 +396,11 @@ impl Governor {
             context.method
         );
 
-        // 提取标识符
-        let identifier = self
-            .identifier_extractor
-            .extract(context)
-            .ok_or_else(|| FlowGuardError::ConfigError("无法提取标识符".to_string()))?;
-        trace!("提取标识符: {}", identifier.key());
+        // Extracted identifier
+        let identifier = self.identifier_extractor.extract(context).ok_or_else(|| {
+            FlowGuardError::ConfigError("Failed to extract identifier".to_string())
+        })?;
+        trace!("Extracted identifier: {}", identifier.key());
 
         // 尝试转换为 BanTarget 进行检查
         let ban_target = match &identifier {
@@ -414,7 +419,7 @@ impl Governor {
 
             if let Some(info) = ban_info {
                 warn!(
-                    "请求被封禁: 用户={}, 原因={}",
+                    "Request banned: 用户={}, 原因={}",
                     identifier.key(),
                     info.reason
                 );
@@ -509,14 +514,14 @@ impl Governor {
 
         match ban_info {
             Some(info) => {
-                warn!("资源被封禁: 资源={}, 原因={}", resource, info.reason);
+                warn!("Resource banned: 资源={}, 原因={}", resource, info.reason);
                 Ok(Decision::Banned(info))
             }
             None => Ok(Decision::Allowed(None)),
         }
     }
 
-    /// 手动封禁用户
+    /// 手动Ban user
     #[cfg(feature = "ban-manager")]
     #[instrument(skip(self))]
     pub async fn ban_identifier(
@@ -525,7 +530,7 @@ impl Governor {
         reason: &str,
         source: Option<ChangeSource>,
     ) -> Result<(), FlowGuardError> {
-        debug!("封禁用户: {} 原因: {}", identifier.key(), reason);
+        debug!("Ban user: {} 原因: {}", identifier.key(), reason);
 
         let ban_target = match identifier {
             Identifier::UserId(id) => Some(BanTarget::UserId(id.clone())),
@@ -554,7 +559,7 @@ impl Governor {
             info!("用户 {} 已被封禁", identifier.key());
         } else {
             return Err(FlowGuardError::ValidationError(
-                "不支持的标识符类型".to_string(),
+                "Unsupported identifier type".to_string(),
             ));
         }
 
@@ -565,7 +570,7 @@ impl Governor {
     #[cfg(feature = "ban-manager")]
     #[instrument(skip(self))]
     pub async fn unban_identifier(&self, identifier: &Identifier) -> Result<(), FlowGuardError> {
-        debug!("取消封禁用户: {}", identifier.key());
+        debug!("取消Ban user: {}", identifier.key());
 
         let ban_target = match identifier {
             Identifier::UserId(id) => Some(BanTarget::UserId(id.clone())),
@@ -581,7 +586,7 @@ impl Governor {
             info!("用户 {} 封禁已取消", identifier.key());
         } else {
             return Err(FlowGuardError::ValidationError(
-                "不支持的标识符类型".to_string(),
+                "Unsupported identifier type".to_string(),
             ));
         }
 
@@ -784,7 +789,7 @@ impl Governor {
             Ok(())
         } else {
             Err(FlowGuardError::StorageError(
-                crate::error::StorageError::ConnectionError("系统不健康".to_string()),
+                crate::error::StorageError::ConnectionError,
             ))
         }
     }

@@ -1,42 +1,65 @@
-//! Limiteron - 统一流量治理框架
+//! Limiteron - Unified Flow Control Framework
 //!
-//! 提供限流、配额、速率控制和封禁管理功能。
+//! Provides rate limiting, quota management, circuit breaking, and ban control.
 //!
-//! # 特性
+//! # API Layers
 //!
-//! - **多种限流算法**：令牌桶、滑动窗口、固定窗口、并发控制
-//! - **配额管理**：支持周期性配额和配额告警
-//! - **封禁管理**：自动封禁和手动封禁
-//! - **声明式宏**：使用 `#[flow_control]` 宏简化限流配置
-//! - **监控追踪**：集成Prometheus指标和OpenTelemetry追踪
-//! - **高性能**：零运行时开销（编译期优化）
+//! ## Prelude (Quick Start)
 //!
-//! # 快速开始
+//! Use `use limiteron::prelude::*;` to import all commonly used types.
+//!
+//! ## Core API
+//!
+//! - [`Governor`] - Main controller for flow control
+//! - [`FlowControlConfig`] - Configuration for flow control
+//! - [`Decision`] - Decision result from flow control checks
+//! - [`FlowGuardError`] - Error types
+//!
+//! ## Matchers
+//!
+//! Identifier extractors: IP, User ID, Device ID, API Key, etc.
+//!
+//! ## Limiters
+//!
+//! Low-level rate limiting algorithms: Token bucket, sliding window, fixed window.
+//!
+//! ## Extensions (feature-gated)
+//!
+//! - Ban management (requires `ban-manager` feature)
+//! - Circuit breaker (requires `circuit-breaker` feature)
+//! - Quota control (requires `quota-control` feature)
+//! - Macros (requires `macros` feature)
+//!
+//! # Examples
 //!
 //! ```rust
-//! use limiteron::flow_control;
+//! use limiteron::prelude::*;
 //!
-//! #[flow_control(rate = "100/s")]
-//! async fn my_api_function(user_id: &str) -> String {
-//!     format!("Hello, {}", user_id)
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let config = FlowControlConfig::default();
+//!     let governor = Governor::new(config).await?;
+//!
+//!     let decision = governor.check_request("user123", "/api/v1/data").await?;
+//!     if decision.is_allowed() {
+//!         // Process request
+//!     }
+//!
+//!     Ok(())
 //! }
 //! ```
 //!
-//! # 模块
+//! # Features
 //!
-//! - `ban_manager`: 封禁管理器
-//! - `config`: 配置管理
-//! - `decision_chain`: 决策链
-//! - `error`: 错误类型
-//! - `governor`: 主控制器
-//! - `limiters`: 限流器实现
-//! - `l2_cache`: L2缓存
-//! - `macros`: 宏定义
-//! - `matchers`: 标识符匹配
-//! - `postgres_storage`: PostgreSQL存储
-//! - `quota_controller`: 配额控制
-//! - `storage`: 存储接口
-//! - `telemetry`: 监控和追踪
+//! - **Multiple rate limiting algorithms**: Token bucket, sliding window, fixed window, concurrency control
+//! - **Ban management**: Automatic and manual ban management with priority support
+//! - **Quota control**: Periodic quota allocation and alerting
+//! - **Circuit breaker**: Automatic failover and state recovery
+//! - **Declarative macros**: Use `#[flow_control]` macro to simplify rate limiting configuration
+//! - **Monitoring**: Integrated Prometheus metrics and OpenTelemetry tracing
+//! - **High performance**: Zero runtime overhead through compile-time optimization
+
+pub mod prelude;
 
 pub mod audit_log;
 #[cfg(feature = "ban-manager")]
@@ -49,12 +72,14 @@ pub mod config;
 pub mod config_security;
 #[cfg(feature = "config-watcher")]
 pub mod config_watcher;
+pub mod constants;
 pub mod custom_limiter;
 pub mod decision_chain;
 pub mod error;
 pub mod error_abstraction;
 pub mod factory;
 pub mod fallback;
+pub mod features;
 pub mod governor;
 pub mod limiter_manager;
 pub mod limiters;

@@ -1,3 +1,7 @@
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! 配置监视器
 //!
 //! 实现配置变更检测功能，支持轮询和Watch两种模式。

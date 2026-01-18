@@ -1,4 +1,8 @@
 #![cfg(feature = "code-review")]
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! 多代理代码审查系统
 //!
 //! 提供综合的安全、性能、代码质量和架构审查功能。

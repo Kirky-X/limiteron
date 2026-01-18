@@ -1,3 +1,7 @@
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! 设备类型匹配器
 //!
 //! 基于User-Agent解析设备类型、浏览器和操作系统信息。

@@ -414,11 +414,13 @@ impl BanManager {
                 debug!("Running auto-unban task");
 
                 // 清理过期封禁
+                #[cfg(feature = "postgres")]
                 if let Some(storage) = storage
                     .clone()
                     .as_any()
                     .downcast_ref::<crate::postgres_storage::PostgresStorage>()
                 {
+                    #[cfg(feature = "postgres")]
                     if let Err(e) = storage.cleanup_expired_bans().await {
                         error!("Auto-unban task failed: {}", e);
                     }
@@ -713,6 +715,7 @@ impl BanManager {
     ///
     /// # 返回
     /// - 封禁记录列表
+    #[cfg(any(feature = "telemetry", feature = "monitoring"))]
     #[instrument(skip(self))]
     pub async fn list_bans(&self, filter: BanFilter) -> Result<Vec<BanDetail>, FlowGuardError> {
         debug!("Listing bans with filter: {:?}", filter);
@@ -928,6 +931,7 @@ impl BanManager {
         }
 
         // 使用 select! 实现提前退出
+        #[cfg(feature = "parallel-checker")]
         match futures::future::select_all(check_futures).await {
             (Some((priority, detail)), _, _) => {
                 debug!(
@@ -937,6 +941,21 @@ impl BanManager {
                 Ok(Some(detail))
             }
             _ => Ok(None),
+        }
+
+        #[cfg(not(feature = "parallel-checker"))]
+        {
+            // 顺序检查（当 parallel-checker 未启用时）
+            for future in check_futures {
+                if let Some((priority, detail)) = future.await {
+                    debug!(
+                        "Found ban with priority {:?}: target={:?}",
+                        priority, detail.target
+                    );
+                    return Ok(Some(detail));
+                }
+            }
+            Ok(None)
         }
     }
 

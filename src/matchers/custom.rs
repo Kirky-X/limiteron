@@ -53,6 +53,7 @@ use crate::matchers::RequestContext;
 use ahash::AHashMap as HashMap;
 use async_trait::async_trait;
 use chrono::Timelike;
+#[cfg(feature = "advanced-matchers")]
 use regex::Regex;
 use serde_json::Value;
 use std::sync::Arc;
@@ -230,6 +231,7 @@ fn validate_regex_complexity(pattern: &str) -> Result<(), FlowGuardError> {
     }
 
     // 尝试编译正则表达式以验证语法
+    #[cfg(feature = "advanced-matchers")]
     Regex::new(pattern)
         .map_err(|e| FlowGuardError::ConfigError(format!("无效的正则表达式: {}", e)))?;
 

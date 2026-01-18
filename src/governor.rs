@@ -15,6 +15,7 @@ use crate::constants::{
 };
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::{Decision, FlowGuardError};
+#[cfg(feature = "fallback")]
 use crate::fallback::FallbackManager;
 use crate::limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter};
 use crate::log_redaction::{redact_ip, redact_user_id};
@@ -80,6 +81,7 @@ pub struct Governor {
     ban_manager: Arc<BanManager>,
 
     /// 并行封禁检查器（新增）
+    #[cfg(feature = "parallel-checker")]
     parallel_ban_checker: Arc<crate::parallel_ban_checker::ParallelBanChecker>,
 
     /// 决策链
@@ -100,6 +102,7 @@ pub struct Governor {
     circuit_breaker: Arc<CircuitBreaker>,
 
     /// 降级管理器
+    #[cfg(feature = "fallback")]
     _fallback_manager: Arc<FallbackManager>,
 
     /// 审计日志记录器
@@ -331,11 +334,13 @@ impl Governor {
         }));
 
         // 创建 L2Cache 用于 FallbackManager
+        #[cfg(feature = "fallback")]
         let fallback_l2_cache = Arc::new(L2Cache::new(
             DEFAULT_L2_CACHE_CAPACITY,
             Duration::from_secs(DEFAULT_L2_CACHE_TTL_SECS),
         ));
         // 创建降级管理器
+        #[cfg(feature = "fallback")]
         let fallback_manager = Arc::new(FallbackManager::new(fallback_l2_cache));
 
         // 创建审计日志记录器 (仅当 audit-log 特性启用时)
@@ -346,8 +351,8 @@ impl Governor {
         #[cfg(feature = "ban-manager")]
         let ban_manager = Arc::new(BanManager::new(ban_storage.clone(), None).await?);
 
-        // 创建并行封禁检查器
-        #[cfg(feature = "ban-manager")]
+        // 创建并行封禁检查器 (仅当 parallel-checker 特性启用时)
+        #[cfg(feature = "parallel-checker")]
         let parallel_ban_checker = Arc::new(crate::parallel_ban_checker::ParallelBanChecker::new(
             ban_manager.clone(),
         ));
@@ -356,17 +361,13 @@ impl Governor {
         let rule_chains_map = Self::build_rule_chains(&config)?;
         let rule_chains = Arc::new(RwLock::new(rule_chains_map));
 
-        #[cfg(not(feature = "ban-manager"))]
-        let parallel_ban_checker = Arc::new(crate::parallel_ban_checker::ParallelBanChecker::new(
-            ban_storage.clone(),
-        ));
-
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
             _storage: storage,
             _ban_storage: ban_storage,
             #[cfg(feature = "ban-manager")]
             ban_manager,
+            #[cfg(feature = "parallel-checker")]
             parallel_ban_checker,
             decision_chain,
             rule_matcher,
@@ -374,6 +375,7 @@ impl Governor {
             identifier_extractor,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker,
+            #[cfg(feature = "fallback")]
             _fallback_manager: fallback_manager,
             #[cfg(feature = "audit-log")]
             audit_logger,
@@ -418,6 +420,8 @@ impl Governor {
             _ => None,
         };
 
+        // 并行封禁检查 (仅当 parallel-checker 特性启用时)
+        #[cfg(feature = "parallel-checker")]
         if let Some(target) = ban_target {
             // 使用专门的并行封禁检查器
             let ban_info = self
@@ -509,6 +513,7 @@ impl Governor {
     }
 
     /// 并行资源检查 - 保持原有接口兼容性
+    #[cfg(feature = "parallel-checker")]
     #[instrument(skip(self))]
     pub async fn check_resource_parallel(
         &self,
@@ -527,6 +532,16 @@ impl Governor {
             }
             None => Ok(Decision::Allowed(None)),
         }
+    }
+
+    /// 并行资源检查 - 未启用 parallel-checker 时的存根实现
+    #[cfg(not(feature = "parallel-checker"))]
+    #[instrument(skip(self))]
+    pub async fn check_resource_parallel(
+        &self,
+        _resource: &str,
+    ) -> Result<Decision, FlowGuardError> {
+        Ok(Decision::Allowed(None))
     }
 
     /// 手动Ban user

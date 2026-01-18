@@ -1,3 +1,7 @@
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! Centralized configuration constants for Limiteron.
 //!
 //! This module provides well-documented constants used throughout the library.

@@ -1,3 +1,7 @@
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! L2缓存实现
 //!
 //! 使用DashMap实现高性能并发缓存，支持TTL、LRU淘汰、单飞模式和批量操作。

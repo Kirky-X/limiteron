@@ -1,4 +1,8 @@
 #![cfg(feature = "config-security")]
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! 配置安全验证模块
 //!
 //! 提供增强的配置安全验证功能，防止恶意配置注入和配置滥用。

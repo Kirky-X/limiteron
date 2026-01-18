@@ -1,3 +1,7 @@
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! Quota Limiter
 //!
 //! Implements a simple quota-based limiter that tracks usage per key

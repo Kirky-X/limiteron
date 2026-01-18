@@ -1,4 +1,8 @@
 #![cfg(feature = "fallback")]
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! 降级策略实现
 //!
 //! 提供降级策略管理，支持故障时自动降级到备用方案。

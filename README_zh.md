@@ -8,11 +8,11 @@
   <img src="https://img.shields.io/badge/version-0.1.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust Version">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/build-testing-yellow.svg" alt="Build">
-  <img src="https://img.shields.io/badge/crates.io-0.1.0-orange.svg" alt="Crates.io">
-  <img src="https://img.shields.io/badge/tests-testing-yellow.svg" alt="Tests">
-  <img src="https://img.shields.io/badge/docs-building-yellow.svg" alt="Docs">
-  <img src="https://img.shields.io/badge/dependencies-up%20to%20date-brightgreen.svg" alt="Dependencies">
+  <img src="https://github.com/Kirky-X/limiteron/workflows/CI/badge.svg" alt="Build">
+  <img src="https://img.shields.io/github/stars/Kirky-X/limiteron?style=social" alt="GitHub Stars">
+  <img src="https://img.shields.io/github/forks/Kirky-X/limiteron?style=social" alt="GitHub Forks">
+  <img src="https://img.shields.io/github/issues/Kirky-X/limiteron" alt="GitHub Issues">
+  <img src="https://img.shields.io/github/license/Kirky-X/limiteron" alt="License">
 </p>
 
 <p align="center">

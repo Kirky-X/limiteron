@@ -1,11 +1,18 @@
 <div align="center">
 
-# 🚀 Limiteron
+<p>
+  <img src="docs/image/limiteron.png" alt="Limiteron Logo" width="200">
+</p>
 
 <p>
-  <img src="https://img.shields.io/badge/version-1.0.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.1.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust Version">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/build-passing-brightgreen.svg" alt="Build">
+  <img src="https://img.shields.io/badge/crates.io-0.1.0-orange.svg" alt="Crates.io">
+  <img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/docs-passing-brightgreen.svg" alt="Docs">
+  <img src="https://img.shields.io/badge/dependencies-up%20to%20date-brightgreen.svg" alt="Dependencies">
 </p>
 
 <p align="center">
@@ -29,28 +36,28 @@
 <details open>
 <summary>Click to expand</summary>
 
-- [✨ Features](#-features)
-- [🎯 Use Cases](#-use-cases)
-- [🚀 Quick Start](#-quick-start)
+- [✨ Features](#✨-features)
+- [🎯 Use Cases](#🎯-use-cases)
+- [🚀 Quick Start](#🚀-quick-start)
   - [Installation](#installation)
   - [Basic Usage](#basic-usage)
-- [📚 Documentation](#-documentation)
-- [🎨 Examples](#-examples)
-- [🏗️ Architecture](#️-architecture)
-- [⚙️ Configuration](#️-configuration)
-- [🧪 Testing](#-testing)
-- [📊 Performance](#-performance)
-- [🔒 Security](#-security)
-- [🗺️ Roadmap](#️-roadmap)
-- [🤝 Contributing](#-contributing)
-- [📄 License](#-license)
-- [🙏 Acknowledgments](#-acknowledgments)
+- [📚 Documentation](#📚-documentation)
+- [🎨 Examples](#🎨-examples)
+- [🏗️ Architecture](#🏗️-architecture)
+- [⚙️ Configuration](#⚙️-configuration)
+- [🧪 Testing](#🧪-testing)
+- [📊 Performance](#📊-performance)
+- [🔒 Security](#🔒-security)
+- [🗺️ Roadmap](#🗺️-roadmap)
+- [🤝 Contributing](#🤝-contributing)
+- [📄 License](#📄-license)
+- [🙏 Acknowledgments](#🙏-acknowledgments)
 
 </details>
 
 ---
 
-## ✨ Features
+## ✨ Features {#✨-features}
 
 <table>
 <tr>
@@ -113,19 +120,30 @@ graph LR
 <br>
 
 ```rust
-use limiteron::{Governor, FlowControlConfig};
+use limiteron::limiters::{Limiter, TokenBucketLimiter};
 
-async fn enterprise_api() -> Result<(), limiteron::error::FlowGuardError> {
-    let governor = Governor::new(FlowControlConfig::default()).await?;
+async fn enterprise_api() -> Result<(), Box<dyn std::error::Error>> {
+    let limiter = TokenBucketLimiter::new(100, 10); // 100 tokens, refill 10 per second
 
     // Rate limiting check
-    let decision = governor.check_request("user123", "/api/v1/data").await?;
-    if decision.is_allowed() {
-        // Process request
-        process_request().await;
+    match limiter.allow(1).await {
+        Ok(true) => {
+            // Process request
+            process_request().await;
+        }
+        Ok(false) => {
+            eprintln!("Rate limit exceeded");
+        }
+        Err(e) => {
+            eprintln!("Error: {:?}", e);
+        }
     }
 
     Ok(())
+}
+
+async fn process_request() {
+    println!("Processing request...");
 }
 ```
 
@@ -142,7 +160,7 @@ Suitable for enterprise applications requiring high concurrency and reliability.
 use limiteron::flow_control;
 
 #[flow_control(rate = "100/s", quota = "10000/m", concurrency = 50)]
-async fn api_handler(user_id: &str) -> Result<String, limiteron::error::FlowGuardError> {
+async fn api_handler(user_id: &str) -> Result<String, Box<dyn std::error::Error>> {
     // API business logic
     Ok("Success".to_string())
 }
@@ -158,17 +176,24 @@ Suitable for protecting API services from abuse and DDoS attacks.
 <br>
 
 ```rust
-use limiteron::BanManager;
+use limiteron::ban_manager::{BanManager, BanTarget};
+use limiteron::storage::MockBanStorage;
+use std::sync::Arc;
 
-async fn web_app() -> Result<(), limiteron::error::FlowGuardError> {
-    let ban_manager = BanManager::new().await?;
+async fn web_app() -> Result<(), Box<dyn std::error::Error>> {
+    // Create storage and ban manager
+    let storage = Arc::new(MockBanStorage);
+    let ban_manager = BanManager::new(storage, None).await?;
 
     // Check if user is banned
-    if ban_manager.is_banned("user123").await? {
-        return Err(limiteron::error::FlowGuardError::Banned("User is banned".into()));
+    let user_target = BanTarget::UserId("user123".to_string());
+    if let Some(ban_record) = ban_manager.is_banned(&user_target).await? {
+        println!("User is banned: {:?}", ban_record);
+        return Err("User is banned".into());
     }
 
     // Process request
+    println!("Processing request for user123");
     Ok(())
 }
 ```
@@ -179,7 +204,7 @@ Suitable for web applications that need to prevent malicious users and crawlers.
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start {#🚀-quick-start}
 
 ### Installation
 
@@ -191,7 +216,7 @@ Suitable for web applications that need to prevent malicious users and crawlers.
 
 ```toml
 [dependencies]
-limiteron = "1.0"
+limiteron = "0.1"
 ```
 
 </td>
@@ -201,7 +226,7 @@ limiteron = "1.0"
 
 ```toml
 [dependencies]
-limiteron = { version = "1.0", features = ["postgres", "redis"] }
+limiteron = { version = "0.1", features = ["postgres", "redis"] }
 ```
 
 </td>
@@ -224,7 +249,7 @@ limiteron = { version = "1.0", features = ["postgres", "redis"] }
 
 ```toml
 [dependencies]
-limiteron = "1.0"
+limiteron = "0.1"
 ```
 
 </td>
@@ -251,25 +276,27 @@ async fn api_call() -> Result<String, Box<dyn std::error::Error>> {
 <br>
 
 ```rust
-use limiteron::{Governor, FlowControlConfig};
-use limiteron::limiters::TokenBucketLimiter;
+use limiteron::limiters::{Limiter, TokenBucketLimiter};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 1: Create limiter
-    let mut limiter = TokenBucketLimiter::new(10, 1); // 10 tokens, refill 1 per second
+    let limiter = TokenBucketLimiter::new(10, 1); // 10 tokens, refill 1 per second
 
     // Step 2: Check rate limit
     let key = "user123";
-    match limiter.check(key).await {
-        Ok(_) => println!("✅ Request allowed"),
-        Err(_) => println!("❌ Request rate limited"),
+    match limiter.allow(1).await {
+        Ok(true) => println!("✅ Request allowed"),
+        Ok(false) => println!("❌ Request rate limited"),
+        Err(e) => println!("❌ Error: {:?}", e),
     }
 
-    // Step 3: Use Governor
-    let governor = Governor::new(FlowControlConfig::default()).await?;
-    let decision = governor.check_request(key, "/api/v1/users").await?;
-    println!("Decision: {:?}", decision);
+    // Step 3: Use with cost
+    match limiter.allow(2).await {
+        Ok(true) => println!("✅ Request with cost 2 allowed"),
+        Ok(false) => println!("❌ Request with cost 2 rate limited"),
+        Err(e) => println!("❌ Error: {:?}", e),
+    }
 
     Ok(())
 }
@@ -279,7 +306,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
-## 📚 Documentation
+## 📚 Documentation {#📚-documentation}
 
 <div align="center">
 
@@ -327,7 +354,7 @@ Code examples
 
 ---
 
-## 🎨 Examples
+## 🎨 Examples {#🎨-examples}
 
 <div align="center">
 
@@ -342,17 +369,17 @@ Code examples
 #### 📝 Example 1: Basic Rate Limiting
 
 ```rust
-use limiteron::limiters::TokenBucketLimiter;
+use limiteron::limiters::{Limiter, TokenBucketLimiter};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut limiter = TokenBucketLimiter::new(10, 1);
-    let key = "user123";
+    let limiter = TokenBucketLimiter::new(10, 1);
 
     for i in 0..15 {
-        match limiter.check(key).await {
-            Ok(_) => println!("Request {} ✅", i),
-            Err(_) => println!("Request {} ❌", i),
+        match limiter.allow(1).await {
+            Ok(true) => println!("Request {} ✅", i),
+            Ok(false) => println!("Request {} ❌", i),
+            Err(e) => println!("Request {} Error: {:?}", i, e),
         }
     }
 
@@ -385,7 +412,7 @@ Request 14 ❌
 use limiteron::flow_control;
 
 #[flow_control(rate = "100/s", quota = "10000/m", concurrency = 50)]
-async fn api_handler(user_id: &str) -> Result<String, limiteron::error::FlowGuardError> {
+async fn api_handler(user_id: &str) -> Result<String, Box<dyn std::error::Error>> {
     // API business logic
     Ok(format!("Processing request for user {}", user_id))
 }
@@ -420,7 +447,7 @@ Processing request for user123
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Architecture {#🏗️-architecture}
 
 <div align="center">
 
@@ -484,7 +511,7 @@ graph TB
 
 ---
 
-## ⚙️ Configuration
+## ⚙️ Configuration {#⚙️-configuration}
 
 <div align="center">
 
@@ -553,7 +580,7 @@ enable_tracing = true
 
 ---
 
-## 🧪 Testing
+## 🧪 Testing {#🧪-testing}
 
 ```bash
 # Run all tests
@@ -571,13 +598,15 @@ cargo bench
 
 ---
 
-## 📊 Performance
+## 📊 Performance {#📊-performance}
 
 <div align="center">
 
 ### ⚡ Benchmark Results
 
 </div>
+
+> **Note:** The following data represents example benchmark results. Actual performance may vary depending on hardware configuration, network environment, and specific use cases. We recommend conducting performance testing before deployment.
 
 <table>
 <tr>
@@ -625,7 +654,7 @@ test concurrency_check ... bench: 3,000 ns/iter (+/- 150)
 
 ---
 
-## 🔒 Security
+## 🔒 Security {#🔒-security}
 
 <div align="center">
 
@@ -679,7 +708,7 @@ Please report security vulnerabilities through GitHub Issues.
 
 ---
 
-## 🗺️ Roadmap
+## 🗺️ Roadmap {#🗺️-roadmap}
 
 <div align="center">
 
@@ -753,7 +782,7 @@ gantt
 
 ---
 
-## 🤝 Contributing
+## 🤝 Contributing {#🤝-contributing}
 
 <div align="center">
 
@@ -817,7 +846,7 @@ Want to contribute?<br>
 
 ---
 
-## 📄 License
+## 📄 License {#📄-license}
 
 <div align="center">
 
@@ -829,7 +858,7 @@ This project is licensed under Apache 2.0:
 
 ---
 
-## 🙏 Acknowledgments
+## 🙏 Acknowledgments {#🙏-acknowledgments}
 
 <div align="center">
 
@@ -897,7 +926,7 @@ Report bugs and errors
 Ask questions and share ideas
 </td>
 <td align="center" width="33%">
-<a href="https://github.com/kirkyx/limiteron">
+<a href="https://github.com/Kirky-X/limiteron">
 <img src="https://img.icons8.com/fluency/96/000000/github.png" width="48" height="48"><br>
 <b>GitHub</b>
 </a><br>
@@ -908,7 +937,7 @@ View source code
 
 ### Stay Connected
 
-[![GitHub](https://img.shields.io/badge/GitHub-View%20Repo-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/kirkyx/limiteron)
+[![GitHub](https://img.shields.io/badge/GitHub-View%20Repo-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Kirky-X/limiteron)
 
 </div>
 
@@ -918,7 +947,7 @@ View source code
 
 <div align="center">
 
-[![Star History Chart](https://api.star-history.com/svg?repos=kirkyx/limiteron&type=Date)](https://star-history.com/#kirkyx/limiteron&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=Kirky-X/limiteron&type=Date)](https://star-history.com/#Kirky-X/limiteron&Date)
 
 </div>
 
@@ -932,7 +961,7 @@ If you find this project useful, please consider giving it a ⭐️!
 
 **Built with ❤️ by Kirky.X**
 
-[⬆ Back to Top](#-limiteron)
+[⬆ Back to Top](#readme)
 
 ---
 

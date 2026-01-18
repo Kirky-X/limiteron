@@ -132,7 +132,7 @@ async fn test_e2e_multi_rule_cascade() {
 
     // VIP用户应该有1000次允许
     assert!(
-        vip_allowed >= 1000 && vip_allowed <= 1005,
+        (1000..=1005).contains(&vip_allowed),
         "VIP user should have ~1000 allowed requests, got {}",
         vip_allowed
     );
@@ -156,7 +156,7 @@ async fn test_e2e_multi_rule_cascade() {
 
     // 普通用户应该有100次允许
     assert!(
-        normal_allowed >= 100 && normal_allowed <= 105,
+        (100..=105).contains(&normal_allowed),
         "Normal user should have ~100 allowed requests, got {}",
         normal_allowed
     );
@@ -184,7 +184,7 @@ async fn test_e2e_multi_rule_cascade() {
 
     // 未知用户应该有 ~3900 次允许
     assert!(
-        unknown_allowed >= 3890 && unknown_allowed <= 3910,
+        (3890..=3910).contains(&unknown_allowed),
         "Unknown user should have ~3900 allowed requests (shared quota), got {}",
         unknown_allowed
     );
@@ -298,7 +298,7 @@ async fn test_e2e_rule_disabled() {
 
     // 应该有100次允许（来自启用的规则）
     assert!(
-        allowed_count >= 100 && allowed_count <= 105,
+        (100..=105).contains(&allowed_count),
         "Should have ~100 allowed requests, got {}",
         allowed_count
     );
@@ -436,7 +436,7 @@ async fn test_e2e_rule_hot_reload() {
     }
 
     assert!(
-        allowed_count >= 100 && allowed_count <= 105,
+        (100..=105).contains(&allowed_count),
         "Initial: Should have ~100 allowed requests, got {}",
         allowed_count
     );

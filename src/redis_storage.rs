@@ -53,34 +53,6 @@ fn sanitize_key_component(input: &str) -> String {
         .collect()
 }
 
-/// 验证键组件
-///
-/// # 参数
-/// - `component`: 键组件
-///
-/// # 返回
-/// - `Ok(())`: 验证通过
-/// - `Err(StorageError)`: 验证失败
-fn validate_key_component(component: &str) -> Result<(), StorageError> {
-    if component.is_empty() {
-        return Err(StorageError::QueryError("键组件不能为空".to_string()));
-    }
-
-    if component.len() > MAX_KEY_COMPONENT_LENGTH {
-        return Err(StorageError::QueryError(format!(
-            "键组件长度超过限制（最大 {} 字符）",
-            MAX_KEY_COMPONENT_LENGTH
-        )));
-    }
-
-    // 检查是否包含危险字符
-    if component.contains(':') || component.contains('*') || component.contains('?') {
-        return Err(StorageError::QueryError("键组件包含非法字符".to_string()));
-    }
-
-    Ok(())
-}
-
 /// 验证完整键
 ///
 /// # 参数
@@ -1103,7 +1075,7 @@ impl BanStorage for RedisStorage {
                 })?;
 
             // 设置过期时间
-            let ttl = (record.expires_at - chrono::Utc::now()).num_seconds() as i64;
+            let ttl = (record.expires_at - chrono::Utc::now()).num_seconds();
             if ttl > 0 {
                 let _: () = conn.expire(&key, ttl).await.map_err(|e| {
                     error!("Redis EXPIRE失败: {}", e);

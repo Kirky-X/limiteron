@@ -5,7 +5,6 @@
 use limiteron::postgres_storage::{PostgresStorage, PostgresStorageConfig};
 use limiteron::storage::{BanStorage, QuotaStorage};
 use std::time::Duration;
-use tokio::time::sleep;
 
 const DEFAULT_LIMIT: u64 = 1000;
 const DEFAULT_WINDOW: Duration = Duration::from_secs(60);
@@ -328,8 +327,7 @@ async fn test_postgres_high_concurrency() {
 #[tokio::test]
 #[ignore]
 async fn test_postgres_ban_times_tracking() {
-    use chrono::Utc;
-    use limiteron::storage::{BanRecord, BanTarget};
+    use limiteron::storage::BanTarget;
 
     let config =
         PostgresStorageConfig::new("postgresql://limiteron:limiteron123@localhost:5432/limiteron");

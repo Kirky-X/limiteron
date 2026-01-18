@@ -18,7 +18,7 @@ async fn test_quota_controller_module_import() {
         alert_config: Default::default(),
     };
 
+    #[allow(unused_variables)]
     let controller = QuotaController::new(storage, config);
     // 验证配额控制器可以创建
-    assert!(true);
 }

@@ -200,12 +200,12 @@ impl ConfigWatcher {
                 }
             }
         })
-        .map_err(|e| FlowGuardError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+        .map_err(|e| FlowGuardError::IoError(std::io::Error::other(e)))?;
 
         watcher
             .watch(config_path, RecursiveMode::NonRecursive)
             .map_err(|e| {
-                FlowGuardError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e))
+                FlowGuardError::IoError(std::io::Error::other(e))
             })?;
 
         // 处理文件系统事件
@@ -331,7 +331,7 @@ impl ConfigWatcher {
     ) -> Result<FlowControlConfig, FlowGuardError> {
         let content = tokio::fs::read_to_string(path)
             .await
-            .map_err(|e| FlowGuardError::IoError(e))?;
+            .map_err(FlowGuardError::IoError)?;
 
         let extension = path
             .extension()
@@ -517,7 +517,6 @@ mod tests {
     use crate::storage::MemoryStorage;
     use chrono::Utc;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use tempfile::NamedTempFile;
     use tokio::fs;
 
     fn create_test_config(version: &str) -> FlowControlConfig {

@@ -124,12 +124,15 @@ impl CircuitBreaker {
             config,
         }
     }
+}
 
-    /// 使用默认配置创建熔断器
-    pub fn default() -> Self {
+impl Default for CircuitBreaker {
+    fn default() -> Self {
         Self::new(CircuitBreakerConfig::default())
     }
+}
 
+impl CircuitBreaker {
     /// 执行操作，自动处理熔断逻辑
     ///
     /// # 参数

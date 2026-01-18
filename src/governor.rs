@@ -18,8 +18,8 @@ use crate::matchers::{
     LogicalOperator, MatchCondition, RequestContext, Rule as MatcherRule, RuleMatcher,
 };
 use crate::storage::{BanStorage, BanTarget, Storage};
+use dashmap::DashMap;
 use chrono::Utc;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -84,13 +84,14 @@ pub struct Governor {
     rule_matcher: Arc<RwLock<RuleMatcher>>,
 
     /// 规则对应的决策链
-    rule_chains: Arc<RwLock<HashMap<String, DecisionChain>>>,
+    rule_chains: Arc<RwLock<DashMap<String, DecisionChain>>>,
 
     /// 标识符提取器
     identifier_extractor: Arc<dyn IdentifierExtractor>,
 
     /// 熔断器
     #[cfg(feature = "circuit-breaker")]
+    #[allow(dead_code)]
     circuit_breaker: Arc<CircuitBreaker>,
 
     /// 降级管理器
@@ -160,8 +161,8 @@ impl Governor {
 
     fn build_rule_chains(
         config: &FlowControlConfig,
-    ) -> Result<HashMap<String, DecisionChain>, FlowGuardError> {
-        let mut chains = HashMap::new();
+    ) -> Result<DashMap<String, DecisionChain>, FlowGuardError> {
+        let chains = DashMap::new();
 
         for rule in &config.rules {
             let mut nodes: Vec<DecisionNode> = Vec::new();
@@ -444,6 +445,7 @@ impl Governor {
         // 规则匹配
         let matched_rules = {
             let matcher = self.rule_matcher.read().await;
+            #[allow(clippy::disallowed_methods)]
             matcher
                 .match_all(context)
                 .into_iter()

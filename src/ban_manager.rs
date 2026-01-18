@@ -578,7 +578,7 @@ impl BanManager {
 
         let record = self.storage.is_banned(target).await?;
 
-        Ok(record.map(|r| BanDetail::from(r)))
+        Ok(record.map(BanDetail::from))
     }
 
     /// 更新封禁信息
@@ -1024,6 +1024,7 @@ mod tests {
     use super::*;
     use crate::storage::MockBanStorage;
 
+    #[allow(dead_code)]
     fn create_test_ban_manager() -> BanManager {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
             let storage = Arc::new(MockBanStorage);

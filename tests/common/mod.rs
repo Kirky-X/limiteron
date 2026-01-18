@@ -238,7 +238,7 @@ impl QuotaStorage for MockQuotaStorage {
 
         Ok(ConsumeResult {
             allowed,
-            remaining: if limit > *used { limit - *used } else { 0 },
+            remaining: limit.saturating_sub(*used),
             alert_triggered: false,
         })
     }
@@ -304,11 +304,7 @@ pub fn create_concurrency_limiter(max_concurrent: u64) -> ConcurrencyLimiter {
 }
 
 pub fn assert_approx_eq(actual: u64, expected: u64, tolerance_percent: f64) {
-    let diff = if actual > expected {
-        actual - expected
-    } else {
-        expected - actual
-    };
+    let diff = actual.abs_diff(expected);
 
     let tolerance = (expected as f64 * tolerance_percent / 100.0) as u64;
     assert!(

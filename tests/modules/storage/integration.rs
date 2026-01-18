@@ -7,7 +7,7 @@ use limiteron::storage::MemoryStorage;
 /// 测试存储模块导入
 #[tokio::test]
 async fn test_storage_module_import() {
+    #[allow(unused_variables)]
     let storage = MemoryStorage::new();
     // 验证存储可以创建
-    assert!(true);
 }

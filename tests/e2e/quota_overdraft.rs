@@ -60,7 +60,7 @@ async fn test_e2e_quota_overdraft_alert() {
     println!("✓ Step 2: Consumed 150 (overdraft to 1050), alert triggered");
 
     // Step 3: 尝试再消费151（应该失败，总共1201超过透支上限1200）
-    let total_limit = 1200; // 1000 + 200 overdraft
+    // total_limit = 1200; // 1000 + 200 overdraft
     let result = controller.consume(user_id, resource, 151).await.unwrap();
     assert!(
         !result.allowed,

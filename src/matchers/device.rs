@@ -41,7 +41,6 @@
 #[cfg(feature = "device-matching")]
 use crate::error::FlowGuardError;
 use dashmap::DashMap;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{debug, info, instrument, warn};
@@ -54,121 +53,9 @@ use woothee::parser::Parser;
 /// 最大 User-Agent 长度
 const MAX_USER_AGENT_LENGTH: usize = 2048;
 
-/// 最大自定义规则数量
-const MAX_CUSTOM_RULES_COUNT: usize = 100;
-
-/// 最大正则表达式模式长度
-const MAX_REGEX_PATTERN_LENGTH: usize = 500;
-
 // ============================================================================
 // 输入验证函数
 // ============================================================================
-
-/// 验证 User-Agent 字符串
-///
-/// # 参数
-/// - `user_agent`: User-Agent 字符串
-///
-/// # 返回
-/// - `Ok(())`: 验证通过
-/// - `Err(FlowGuardError)`: 验证失败
-fn validate_user_agent(user_agent: &str) -> Result<(), FlowGuardError> {
-    let trimmed = user_agent.trim();
-
-    if trimmed.is_empty() {
-        return Err(FlowGuardError::ConfigError(
-            "User-Agent 不能为空".to_string(),
-        ));
-    }
-
-    if trimmed.len() > MAX_USER_AGENT_LENGTH {
-        return Err(FlowGuardError::ConfigError(format!(
-            "User-Agent 长度超过限制（最大 {} 字符）",
-            MAX_USER_AGENT_LENGTH
-        )));
-    }
-
-    // 检查是否包含空字节（潜在的攻击向量）
-    if trimmed.contains('\0') {
-        return Err(FlowGuardError::ConfigError(
-            "User-Agent 包含无效字符".to_string(),
-        ));
-    }
-
-    Ok(())
-}
-
-/// 验证正则表达式模式
-///
-/// # 参数
-/// - `pattern`: 正则表达式模式
-///
-/// # 返回
-/// - `Ok(())`: 验证通过
-/// - `Err(FlowGuardError)`: 验证失败
-fn validate_regex_pattern(pattern: &str) -> Result<(), FlowGuardError> {
-    if pattern.is_empty() {
-        return Err(FlowGuardError::ConfigError(
-            "正则表达式模式不能为空".to_string(),
-        ));
-    }
-
-    if pattern.len() > MAX_REGEX_PATTERN_LENGTH {
-        return Err(FlowGuardError::ConfigError(format!(
-            "正则表达式模式长度超过限制（最大 {} 字符）",
-            MAX_REGEX_PATTERN_LENGTH
-        )));
-    }
-
-    // 检查嵌套深度
-    let mut depth = 0;
-    let mut max_depth = 0;
-    for c in pattern.chars() {
-        match c {
-            '(' => {
-                depth += 1;
-                max_depth = max_depth.max(depth);
-            }
-            ')' => {
-                if depth > 0 {
-                    depth -= 1;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    if max_depth > 10 {
-        return Err(FlowGuardError::ConfigError(
-            "正则表达式嵌套深度过大（最大 10）".to_string(),
-        ));
-    }
-
-    // 检查危险模式（可能导致指数回溯）
-    let dangerous_patterns = [
-        "(.+)+",
-        "(.+)*",
-        "(.+){2,}",
-        "([a-z]+)+",
-        "([a-z]+)*",
-        ".*.*.*",
-    ];
-
-    for dangerous in &dangerous_patterns {
-        if pattern.contains(dangerous) {
-            return Err(FlowGuardError::ConfigError(format!(
-                "正则表达式包含危险模式: {}",
-                dangerous
-            )));
-        }
-    }
-
-    // 尝试编译以验证语法
-    Regex::new(pattern)
-        .map_err(|e| FlowGuardError::ConfigError(format!("无效的正则表达式: {}", e)))?;
-
-    Ok(())
-}
 
 /// 清理 User-Agent 字符串
 ///
@@ -206,7 +93,7 @@ pub enum DeviceType {
 
 impl DeviceType {
     /// 从字符串解析设备类型
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "mobile" | "smartphone" => DeviceType::Mobile,
             "desktop" | "pc" => DeviceType::Desktop,
@@ -319,7 +206,7 @@ impl DeviceInfo {
 
     /// 从woothee结果创建设备信息
     fn from_woothee(result: &woothee::parser::WootheeResult) -> Self {
-        let device_type = Self::map_woothee_device_type(&result.category);
+        let device_type = Self::map_woothee_device_type(result.category);
 
         let browser = if device_type != DeviceType::API {
             Some(result.name.to_string())
@@ -920,12 +807,12 @@ mod tests {
 
     #[test]
     fn test_device_type_from_str() {
-        assert_eq!(DeviceType::from_str("mobile"), DeviceType::Mobile);
-        assert_eq!(DeviceType::from_str("desktop"), DeviceType::Desktop);
-        assert_eq!(DeviceType::from_str("tablet"), DeviceType::Tablet);
-        assert_eq!(DeviceType::from_str("api"), DeviceType::API);
-        assert_eq!(DeviceType::from_str("unknown"), DeviceType::Unknown);
-        assert_eq!(DeviceType::from_str("invalid"), DeviceType::Unknown);
+        assert_eq!(DeviceType::parse("mobile"), DeviceType::Mobile);
+        assert_eq!(DeviceType::parse("desktop"), DeviceType::Desktop);
+        assert_eq!(DeviceType::parse("tablet"), DeviceType::Tablet);
+        assert_eq!(DeviceType::parse("api"), DeviceType::API);
+        assert_eq!(DeviceType::parse("unknown"), DeviceType::Unknown);
+        assert_eq!(DeviceType::parse("invalid"), DeviceType::Unknown);
     }
 
     #[test]

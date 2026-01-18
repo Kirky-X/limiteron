@@ -2,9 +2,9 @@
 //!
 //! 测试各种操作的延迟性能
 
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use limiteron::{
-    l2_cache::L2Cache,
+    cache::l2::L2Cache,
     limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter},
 };
 use std::sync::Arc;
@@ -103,7 +103,8 @@ fn bench_l2_cache_set_latency(c: &mut Criterion) {
         b.iter(|| {
             let key = format!("key_{}", black_box(42));
             rt.block_on(async {
-                let _ = black_box(
+                #[allow(clippy::unit_arg)]
+                black_box(
                     cache
                         .set(&key, "value", Some(Duration::from_secs(60)))
                         .await,

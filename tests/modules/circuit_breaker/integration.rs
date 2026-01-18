@@ -8,6 +8,7 @@ use std::time::Duration;
 /// 测试熔断器模块导入
 #[tokio::test]
 async fn test_circuit_breaker_module_import() {
+    #[allow(unused_variables)]
     let config = CircuitBreakerConfig {
         failure_threshold: 3,
         success_threshold: 2,
@@ -15,7 +16,7 @@ async fn test_circuit_breaker_module_import() {
         half_open_max_calls: 3,
     };
 
+    #[allow(unused_variables)]
     let circuit_breaker = CircuitBreaker::new(config);
     // 验证熔断器可以创建
-    assert!(true);
 }

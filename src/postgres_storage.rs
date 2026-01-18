@@ -1,3 +1,7 @@
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! PostgreSQL存储实现
 //!
 //! 使用sqlx实现PostgreSQL存储，支持连接池、事务和完整的错误处理。

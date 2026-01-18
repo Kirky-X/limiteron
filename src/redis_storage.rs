@@ -1,3 +1,7 @@
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! Redis客户端封装
 //!
 //! 实现基于Redis的存储层，支持单机和集群模式，提供连接池、重试机制和Lua脚本支持。

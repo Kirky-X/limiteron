@@ -136,9 +136,9 @@ let limiter = TokenBucketLimiter::new(10, 1); // 10 个令牌，每秒补充 1 �
 
 ---
 
-#### `TokenBucketLimiter::check()`
+#### `TokenBucketLimiter::allow()`
 
-检查是否允许通过。
+检查是否允许通过指定成本。
 
 <table>
 <tr>
@@ -146,7 +146,7 @@ let limiter = TokenBucketLimiter::new(10, 1); // 10 个令牌，每秒补充 1 �
 <td width="70%">
 
 ```rust
-pub fn check(&mut self, key: &str) -> Result<(), FlowGuardError>
+pub async fn allow(&self, cost: u64) -> Result<bool, FlowGuardError>
 ```
 
 </td>
@@ -155,19 +155,20 @@ pub fn check(&mut self, key: &str) -> Result<(), FlowGuardError>
 <td><b>参数</b></td>
 <td>
 
-- `key: &str` - 限流键（通常为用户ID或IP）
+- `cost: u64` - 请求成本（通常为1）
 
 </td>
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;(), FlowGuardError&gt;</code> - Ok 表示允许，Err 表示被限流</td>
+<td><code>Result&lt;bool, FlowGuardError&gt;</code> - Ok(true) 表示允许，Ok(false) 表示被限流</td>
 </tr>
 <tr>
 <td><b>错误</b></td>
 <td>
 
-- `FlowGuardError::RateLimitExceeded` - 超过速率限制
+- `FlowGuardError::LimitError` - 限流错误
+- `FlowGuardError::ValidationError` - 成本验证错误
 
 </td>
 </tr>
@@ -177,11 +178,11 @@ pub fn check(&mut self, key: &str) -> Result<(), FlowGuardError>
 
 ```rust
 let limiter = TokenBucketLimiter::new(10, 1);
-let key = "user123";
 
-match limiter.check(key).await {
-    Ok(_) => println!("✅ 请求允许"),
-    Err(_) => println!("❌ 请求被限流"),
+match limiter.allow(1).await {
+    Ok(true) => println!("✅ 请求允许"),
+    Ok(false) => println!("❌ 请求被限流"),
+    Err(e) => println!("❌ 错误: {:?}", e),
 }
 ```
 
@@ -228,8 +229,20 @@ pub struct BanManager {
 <td width="70%">
 
 ```rust
-pub async fn new() -> Result<Self, FlowGuardError>
+pub async fn new(
+    storage: Arc<dyn BanStorage>,
+    config: Option<BanManagerConfig>
+) -> Result<Self, FlowGuardError>
 ```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `storage: Arc<dyn BanStorage>` - 封禁存储后端
+- `config: Option<BanManagerConfig>` - 可选配置
 
 </td>
 </tr>
@@ -242,16 +255,19 @@ pub async fn new() -> Result<Self, FlowGuardError>
 **示例:**
 
 ```rust
-use limiteron::BanManager;
+use limiteron::ban_manager::{BanManager, BanManagerConfig};
+use limiteron::storage::MockBanStorage;
+use std::sync::Arc;
 
-let ban_manager = BanManager::new().await?;
+let storage = Arc::new(MockBanStorage);
+let ban_manager = BanManager::new(storage, None).await?;
 ```
 
 ---
 
-#### `BanManager::ban()`
+#### `BanManager::create_ban()`
 
-封禁指定标识符。
+创建封禁记录。
 
 <table>
 <tr>
@@ -259,7 +275,13 @@ let ban_manager = BanManager::new().await?;
 <td width="70%">
 
 ```rust
-pub async fn ban(&self, identifier: &str, reason: &str, duration_secs: u64) -> Result<(), FlowGuardError>
+pub async fn create_ban(
+    &self,
+    target: BanTarget,
+    reason: String,
+    duration_secs: Option<u64>,
+    source: Option<BanSource>
+) -> Result<BanDetail, FlowGuardError>
 ```
 
 </td>
@@ -268,29 +290,38 @@ pub async fn ban(&self, identifier: &str, reason: &str, duration_secs: u64) -> R
 <td><b>参数</b></td>
 <td>
 
-- `identifier: &str` - 要封禁的标识符（IP、用户ID等）
-- `reason: &str` - 封禁原因
-- `duration_secs: u64` - 封禁时长（秒）
+- `target: BanTarget` - 封禁目标（IP、用户ID等）
+- `reason: String` - 封禁原因
+- `duration_secs: Option<u64>` - 封禁时长（秒），None表示永久
+- `source: Option<BanSource>` - 封禁来源
 
 </td>
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;(), FlowGuardError&gt;</code></td>
+<td><code>Result&lt;BanDetail, FlowGuardError&gt;</code> - 封禁详情</td>
 </tr>
 </table>
 
 **示例:**
 
 ```rust
-ban_manager.ban("192.168.1.100", "恶意请求", 3600).await?;
+use limiteron::ban_manager::{BanTarget, BanSource};
+
+let target = BanTarget::Ip("192.168.1.100".to_string());
+let ban_detail = ban_manager.create_ban(
+    target,
+    "恶意请求".to_string(),
+    Some(3600),
+    Some(BanSource::Manual)
+).await?;
 ```
 
 ---
 
 #### `BanManager::is_banned()`
 
-检查标识符是否被封禁。
+检查目标是否被封禁。
 
 <table>
 <tr>
@@ -298,7 +329,7 @@ ban_manager.ban("192.168.1.100", "恶意请求", 3600).await?;
 <td width="70%">
 
 ```rust
-pub async fn is_banned(&self, identifier: &str) -> Result<bool, FlowGuardError>
+pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, FlowGuardError>
 ```
 
 </td>
@@ -307,21 +338,25 @@ pub async fn is_banned(&self, identifier: &str) -> Result<bool, FlowGuardError>
 <td><b>参数</b></td>
 <td>
 
-- `identifier: &str` - 要检查的标识符
+- `target: &BanTarget` - 要检查的目标
 
 </td>
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;bool, FlowGuardError&gt;</code> - true 表示被封禁</td>
+<td><code>Result&lt;Option&lt;BanRecord&gt;, FlowGuardError&gt;</code> - Some表示被封禁，None表示未封禁</td>
 </tr>
 </table>
 
 **示例:**
 
 ```rust
-if ban_manager.is_banned("user123").await? {
-    return Err(FlowGuardError::Banned("User is banned".into()));
+use limiteron::ban_manager::BanTarget;
+
+let user_target = BanTarget::UserId("user123".to_string());
+if let Some(ban_record) = ban_manager.is_banned(&user_target).await? {
+    println!("User is banned: {:?}", ban_record);
+    return Err("User is banned".into());
 }
 ```
 
@@ -515,7 +550,11 @@ pub struct Governor {
 <td width="70%">
 
 ```rust
-pub async fn new(config: FlowControlConfig) -> Result<Self, FlowGuardError>
+pub async fn new(
+    config: FlowControlConfig,
+    storage: Arc<dyn Storage>,
+    ban_storage: Arc<dyn BanStorage>
+) -> Result<Self, FlowGuardError>
 ```
 
 </td>
@@ -525,6 +564,8 @@ pub async fn new(config: FlowControlConfig) -> Result<Self, FlowGuardError>
 <td>
 
 - `config: FlowControlConfig` - 流量控制配置
+- `storage: Arc<dyn Storage>` - 存储后端
+- `ban_storage: Arc<dyn BanStorage>` - 封禁存储后端
 
 </td>
 </tr>
@@ -538,13 +579,17 @@ pub async fn new(config: FlowControlConfig) -> Result<Self, FlowGuardError>
 
 ```rust
 use limiteron::{Governor, FlowControlConfig};
+use limiteron::storage::{MemoryStorage, MockBanStorage};
+use std::sync::Arc;
 
-let governor = Governor::new(FlowControlConfig::default()).await?;
+let storage = Arc::new(MemoryStorage::new());
+let ban_storage = Arc::new(MockBanStorage);
+let governor = Governor::new(FlowControlConfig::default(), storage, ban_storage).await?;
 ```
 
 ---
 
-#### `Governor::check_request()`
+#### `Governor::check()`
 
 检查请求是否允许通过。
 
@@ -554,7 +599,7 @@ let governor = Governor::new(FlowControlConfig::default()).await?;
 <td width="70%">
 
 ```rust
-pub async fn check_request(&self, identifier: &str, path: &str) -> Result<Decision, FlowGuardError>
+pub async fn check(&self, context: &RequestContext) -> Result<Decision, FlowGuardError>
 ```
 
 </td>
@@ -563,8 +608,7 @@ pub async fn check_request(&self, identifier: &str, path: &str) -> Result<Decisi
 <td><b>参数</b></td>
 <td>
 
-- `identifier: &str` - 请求标识符
-- `path: &str` - 请求路径
+- `context: &RequestContext` - 请求上下文
 
 </td>
 </tr>
@@ -577,7 +621,15 @@ pub async fn check_request(&self, identifier: &str, path: &str) -> Result<Decisi
 **示例:**
 
 ```rust
-let decision = governor.check_request("user123", "/api/v1/users").await?;
+use limiteron::governor::RequestContext;
+
+let context = RequestContext::builder()
+    .identifier("user123")
+    .path("/api/v1/users")
+    .method("GET")
+    .build();
+
+let decision = governor.check(&context).await?;
 if decision.is_allowed() {
     // 处理请求
 }
@@ -697,13 +749,22 @@ let extractor = IpExtractor::new(
 
 ```rust
 pub enum FlowGuardError {
+    ConfigError(String),
+    StorageError(#[from] StorageError),
+    LimitError(String),
+    BanError(String),
+    CircuitBreakerError(String),
+    FallbackError(String),
+    AuditLogError(String),
+    IoError(#[from] std::io::Error),
+    SerdeError(#[from] serde_json::Error),
+    YamlError(#[from] serde_yaml::Error),
     RateLimitExceeded(String),
     QuotaExceeded(String),
-    Banned(String),
-    CircuitBreakerOpen(String),
-    InvalidInput(String),
-    StorageError(String),
-    ConfigError(String),
+    ConcurrencyLimitExceeded(String),
+    ValidationError(String),
+    LockError(String),
+    Other(String),
 }
 ```
 
@@ -715,15 +776,18 @@ pub enum FlowGuardError {
 
 **模式匹配**
 ```rust
-match limiter.check(key).await {
-    Ok(_) => {
+match limiter.allow(1).await {
+    Ok(true) => {
         println!("✅ 请求允许");
     }
-    Err(FlowGuardError::RateLimitExceeded(msg)) => {
-        eprintln!("❌ 速率限制: {}", msg);
+    Ok(false) => {
+        println!("❌ 请求被限流");
     }
-    Err(FlowGuardError::Banned(msg)) => {
-        eprintln!("❌ 已封禁: {}", msg);
+    Err(FlowGuardError::LimitError(msg)) => {
+        eprintln!("❌ 限流错误: {}", msg);
+    }
+    Err(FlowGuardError::BanError(msg)) => {
+        eprintln!("❌ 封禁错误: {}", msg);
     }
     Err(e) => {
         eprintln!("❌ 错误: {:?}", e);
@@ -738,9 +802,8 @@ match limiter.check(key).await {
 ```rust
 async fn process_request() -> Result<(), FlowGuardError> {
     let limiter = TokenBucketLimiter::new(10, 1);
-    limiter.check(key).await?;
+    limiter.allow(1).await?;
     
-    // 处理请求
     Ok(())
 }
 ```
@@ -813,17 +876,17 @@ pub struct FlowControlConfig {
 ### 示例 1: 基础限流
 
 ```rust
-use limiteron::limiters::TokenBucketLimiter;
+use limiteron::limiters::{Limiter, TokenBucketLimiter};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut limiter = TokenBucketLimiter::new(10, 1);
-    let key = "user123";
+    let limiter = TokenBucketLimiter::new(10, 1);
 
     for i in 0..15 {
-        match limiter.check(key).await {
-            Ok(_) => println!("请求 {} ✅", i),
-            Err(_) => println!("请求 {} ❌", i),
+        match limiter.allow(1).await {
+            Ok(true) => println!("请求 {} ✅", i),
+            Ok(false) => println!("请求 {} ❌", i),
+            Err(e) => println!("请求 {} 错误: {:?}", i, e),
         }
     }
 
@@ -834,18 +897,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### 示例 2: 封禁管理
 
 ```rust
-use limiteron::BanManager;
+use limiteron::ban_manager::{BanManager, BanTarget, BanSource};
+use limiteron::storage::MockBanStorage;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ban_manager = BanManager::new().await?;
+    let storage = Arc::new(MockBanStorage);
+    let ban_manager = BanManager::new(storage, None).await?;
 
     // 封禁 IP
-    ban_manager.ban("192.168.1.100", "恶意请求", 3600).await?;
+    let ip_target = BanTarget::Ip("192.168.1.100".to_string());
+    ban_manager.create_ban(
+        ip_target,
+        "恶意请求".to_string(),
+        Some(3600),
+        Some(BanSource::Manual)
+    ).await?;
 
     // 检查是否被封禁
-    if ban_manager.is_banned("192.168.1.100").await? {
-        println!("❌ IP 已被封禁");
+    if let Some(ban_record) = ban_manager.is_banned(&ip_target).await? {
+        println!("❌ IP 已被封禁: {:?}", ban_record);
     }
 
     Ok(())
@@ -856,12 +928,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 use limiteron::{Governor, FlowControlConfig};
+use limiteron::governor::RequestContext;
+use limiteron::storage::{MemoryStorage, MockBanStorage};
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let governor = Governor::new(FlowControlConfig::default()).await?;
+    let storage = Arc::new(MemoryStorage::new());
+    let ban_storage = Arc::new(MockBanStorage);
+    let governor = Governor::new(FlowControlConfig::default(), storage, ban_storage).await?;
 
-    let decision = governor.check_request("user123", "/api/v1/users").await?;
+    let context = RequestContext::builder()
+        .identifier("user123")
+        .path("/api/v1/users")
+        .method("GET")
+        .build();
+
+    let decision = governor.check(&context).await?;
     if decision.is_allowed() {
         println!("✅ 请求允许");
         // 处理请求

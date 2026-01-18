@@ -37,3 +37,11 @@ docs/tdd.md
 docs/test.md
 docs/uat.md
 .claude/
+
+# Tool Configs & Specs
+.iflow/
+.sisyphus/
+.trae/
+openspec/
+IFLOW.md
+TEST_SUMMARY_2026_01_17.md

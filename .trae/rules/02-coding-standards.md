@@ -1,1 +1,0 @@
-/root/dev-craft-ai/rules/02-coding-standards.md

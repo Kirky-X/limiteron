@@ -1,1 +1,0 @@
-/root/dev-craft-ai/rules/11-git-workflow.md

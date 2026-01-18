@@ -1,3 +1,7 @@
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! Lua脚本管理器
 //!
 //! 提供Redis Lua脚本的预加载、SHA缓存和版本管理功能。

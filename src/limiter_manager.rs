@@ -1,3 +1,7 @@
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! 全局限流器管理器
 //!
 //! 为 `flow_control` 宏提供全局共享的 limiter 实例。

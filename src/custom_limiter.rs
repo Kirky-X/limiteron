@@ -1,4 +1,8 @@
 #![cfg(feature = "custom-limiter")]
+//! Copyright (c) 2026, Kirky.X
+//!
+//! MIT License
+//!
 //! 自定义限流器扩展模块
 //!
 //! 提供自定义限流器接口和注册机制，允许用户在运行时动态注册和使用自定义限流器。

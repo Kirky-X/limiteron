@@ -67,17 +67,23 @@ pub mod ban_manager;
 pub mod cache;
 #[cfg(feature = "circuit-breaker")]
 pub mod circuit_breaker;
+#[cfg(feature = "code-review")]
 pub mod code_review;
 pub mod config;
+#[cfg(feature = "config-security")]
 pub mod config_security;
+#[cfg(feature = "config-security")]
+pub use config_security::{ConfigSecurityReport, ConfigSecurityValidator};
 #[cfg(feature = "config-watcher")]
 pub mod config_watcher;
 pub mod constants;
+#[cfg(feature = "custom-limiter")]
 pub mod custom_limiter;
 pub mod decision_chain;
 pub mod error;
 pub mod error_abstraction;
 pub mod factory;
+#[cfg(feature = "fallback")]
 pub mod fallback;
 pub mod governor;
 pub mod limiter_manager;
@@ -88,6 +94,7 @@ pub mod lua_scripts;
 #[cfg(feature = "macros")]
 pub mod macros;
 pub mod matchers;
+#[cfg(feature = "parallel-checker")]
 pub mod parallel_ban_checker;
 #[cfg(feature = "postgres")]
 pub mod postgres_storage;
@@ -111,6 +118,7 @@ pub use cache::{L2Cache, L2CacheConfig, SmartCacheStrategy};
 pub use cache::{L3Cache, L3CacheConfig, L3CacheStats};
 #[cfg(feature = "circuit-breaker")]
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+#[cfg(feature = "code-review")]
 pub use code_review::{
     CodeReviewConfig, CodeReviewIssue, CodeReviewManager, CodeReviewReport, CodeReviewStats,
     IssueCategory, ReviewConclusion, ReviewStatus, ReviewSummary, Severity,
@@ -121,6 +129,7 @@ pub use config::{
 };
 #[cfg(feature = "config-watcher")]
 pub use config_watcher::{ConfigChangeCallback, ConfigWatcher, PostgresConfigStorage, WatchMode};
+#[cfg(feature = "custom-limiter")]
 pub use custom_limiter::{
     CustomLimiter, CustomLimiterRegistry, LeakyBucketLimiter, LimiterStats, TokenBucketLimiter,
 };
@@ -130,6 +139,7 @@ pub use error::{
     StorageError,
 };
 pub use factory::LimiterFactory;
+#[cfg(feature = "fallback")]
 pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
 pub use governor::{Governor, GovernorStats};
 pub use limiter_manager::GLOBAL_LIMITER_MANAGER;

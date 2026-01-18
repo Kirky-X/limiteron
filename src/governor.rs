@@ -13,13 +13,14 @@ use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::{Decision, FlowGuardError};
 use crate::fallback::FallbackManager;
 use crate::limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter};
+use crate::log_redaction::{redact_enhanced, redact_ip, redact_user_id};
 use crate::matchers::{
     CompositeCondition, ConditionEvaluator, Identifier, IdentifierExtractor, IpRange,
     LogicalOperator, MatchCondition, RequestContext, Rule as MatcherRule, RuleMatcher,
 };
 use crate::storage::{BanStorage, BanTarget, Storage};
-use dashmap::DashMap;
 use chrono::Utc;
+use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -107,25 +108,6 @@ pub struct Governor {
     rejected_requests: AtomicU64,
     banned_requests: AtomicU64,
     error_count: AtomicU64,
-}
-
-fn redact_for_log(value: Option<&str>) -> String {
-    let Some(value) = value else {
-        return "unknown".to_string();
-    };
-
-    let value = value.trim();
-    if value.is_empty() {
-        return "unknown".to_string();
-    }
-
-    if value.len() <= 4 {
-        return "***".to_string();
-    }
-
-    let prefix = &value[..2];
-    let suffix = &value[value.len() - 2..];
-    format!("{}***{}", prefix, suffix)
 }
 
 impl Governor {
@@ -392,8 +374,8 @@ impl Governor {
 
     /// 检查请求 - 简化版本使用并行检查器
     #[instrument(skip(self), fields(
-        user_id = %redact_for_log(context.user_id.as_deref()),
-        ip = %redact_for_log(context.ip.as_deref()),
+        user_id = %redact_user_id(context.user_id.as_deref()),
+        ip = %redact_ip(context.ip.as_deref()),
         path = %context.path,
         method = %context.method
     ))]
@@ -402,8 +384,8 @@ impl Governor {
 
         debug!(
             "开始请求检查: user_id={}, ip={}, path={}, method={}",
-            redact_for_log(context.user_id.as_deref()),
-            redact_for_log(context.ip.as_deref()),
+            redact_user_id(context.user_id.as_deref()),
+            redact_ip(context.ip.as_deref()),
             context.path,
             context.method
         );

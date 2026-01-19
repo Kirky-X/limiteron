@@ -23,7 +23,7 @@
 //! ```
 
 // 重新导出过程宏
-pub use flowguard_macros::flow_control;
+pub use limiteron_macros::flow_control;
 
 /// 流量控制配置
 #[derive(Debug, Clone)]

@@ -89,7 +89,7 @@ notify = { version = "6.1", optional = true }
 proc-macro2 = { version = "1.0", optional = true }
 syn = { version = "2.0", features = ["full"], optional = true }
 quote = { version = "1.0", optional = true }
-flowguard-macros = { path = "macros", version = "0.1.0", optional = true }
+limiteron-macros = { path = "macros", version = "0.1.0", optional = true }
 ahash = { version = "0.8.12", features = ["serde"] }
 
 [dev-dependencies]
@@ -205,7 +205,7 @@ audit-log = ["telemetry"]
 # Tooling Features (工具 - 独立)
 # ============================================
 # Macro system (#[flow_control] attribute macro)
-macros = ["dep:flowguard-macros", "dep:proc-macro2", "dep:syn", "dep:quote"]
+macros = ["dep:limiteron-macros", "dep:proc-macro2", "dep:syn", "dep:quote"]
 # Configuration file hot reload
 config-watcher = ["dep:notify"]
 # Webhook notifications

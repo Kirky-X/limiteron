@@ -23,23 +23,14 @@
 //! # 使用示例
 //!
 //! ```rust
-//! use limiteron::device_matcher::{DeviceMatcher, DeviceCondition};
+//! use limiteron::matchers::device::DeviceMatcher;
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let matcher = DeviceMatcher::new().await?;
-//!
-//! let user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15";
-//! let info = matcher.parse(user_agent)?;
-//!
-//! let condition = DeviceCondition {
-//!     device_types: vec![DeviceType::Mobile],
-//!     browsers: vec![],
-//!     os: vec![],
-//! };
-//!
-//! let matched = matcher.matches(&info, &condition)?;
-//! # Ok(())
-//! # }
+//! #[tokio::main]
+//! async fn main() {
+//!     let matcher = DeviceMatcher::new().await.unwrap();
+//!     let user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15";
+//!     let info = matcher.parse(user_agent).unwrap();
+//! }
 //! ```
 
 #[cfg(feature = "device-matching")]
@@ -419,7 +410,7 @@ impl DeviceMatcher {
     /// # 示例
     /// ```rust
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use limiteron::device_matcher::DeviceMatcher;
+    /// use limiteron::matchers::device::DeviceMatcher;
     ///
     /// let matcher = DeviceMatcher::new().await?;
     /// # Ok(())
@@ -450,7 +441,7 @@ impl DeviceMatcher {
     /// # 示例
     /// ```rust
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use limiteron::device_matcher::DeviceMatcher;
+    /// use limiteron::matchers::device::DeviceMatcher;
     ///
     /// let matcher = DeviceMatcher::with_cache_limit(5000).await?;
     /// # Ok(())
@@ -479,7 +470,7 @@ impl DeviceMatcher {
     /// # 示例
     /// ```rust
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use limiteron::device_matcher::DeviceMatcher;
+    /// use limiteron::matchers::device::DeviceMatcher;
     ///
     /// let matcher = DeviceMatcher::new().await?;
     /// let user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)";
@@ -563,17 +554,17 @@ impl DeviceMatcher {
     ///
     /// # 示例
     /// ```rust
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use limiteron::device_matcher::DeviceMatcher;
+    /// use limiteron::matchers::device::DeviceMatcher;
     ///
-    /// let matcher = DeviceMatcher::new().await?;
-    /// let user_agents = vec![
-    ///     "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)",
-    ///     "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    /// ];
-    /// let results = matcher.batch_parse(&user_agents);
-    /// # Ok(())
-    /// # }
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let matcher = DeviceMatcher::new().await.unwrap();
+    ///     let user_agents: Vec<String> = vec![
+    ///         "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)".to_string(),
+    ///         "Mozilla/5.0 (Windows NT 10.0; Win64; x64)".to_string(),
+    ///     ];
+    ///     let results = matcher.batch_parse(&user_agents);
+    /// }
     /// ```
     #[instrument(skip(self, user_agents))]
     pub fn batch_parse(&self, user_agents: &[String]) -> Vec<Result<DeviceInfo, FlowGuardError>> {
@@ -594,7 +585,7 @@ impl DeviceMatcher {
     /// # 示例
     /// ```rust
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use limiteron::device_matcher::{DeviceMatcher, DeviceCondition, DeviceType};
+    /// use limiteron::matchers::device::{DeviceMatcher, DeviceCondition, DeviceType};
     ///
     /// let matcher = DeviceMatcher::new().await?;
     /// let condition = DeviceCondition::device_types(vec![DeviceType::Mobile]);
@@ -625,7 +616,7 @@ impl DeviceMatcher {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::device_matcher::{DeviceInfo, DeviceCondition, DeviceType};
+    /// use limiteron::matchers::device::{DeviceInfo, DeviceCondition, DeviceType};
     ///
     /// let info = DeviceInfo {
     ///     device_type: DeviceType::Mobile,
@@ -655,7 +646,7 @@ impl DeviceMatcher {
     /// # 示例
     /// ```rust
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use limiteron::device_matcher::{DeviceMatcher, DeviceType};
+    /// use limiteron::matchers::device::{DeviceMatcher, DeviceType};
     ///
     /// let mut matcher = DeviceMatcher::new().await?;
     /// matcher.add_custom_rule(

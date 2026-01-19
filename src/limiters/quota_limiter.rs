@@ -45,7 +45,8 @@ impl QuotaLimiter {
     /// # Examples
     /// ```rust
     /// use limiteron::limiters::QuotaLimiter;
-    /// use limiteron::config::QuotaConfig;
+    /// use limiteron::QuotaConfig;
+    /// use limiteron::QuotaType;
     ///
     /// let config = QuotaConfig {
     ///     quota_type: QuotaType::Count,

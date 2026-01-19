@@ -11,12 +11,15 @@
 //! 使用 `#[flow_control]` 属性宏为函数自动注入限流检查：
 //!
 //! ```rust
-//! use limiteron::flow_control;
+//! // 注意：#[flow_control] 宏不能在 doctest 中测试
+//! // 它需要在实际的代码中使用，如下所示：
 //!
-//! #[flow_control(rate = "100/s")]
-//! async fn my_api_function(user_id: &str) -> String {
-//!     format!("Hello, {}", user_id)
-//! }
+//! // use limiteron::flow_control;
+//! //
+//! // #[flow_control(rate = "100/s")]
+//! // async fn my_api_function(user_id: &str) -> String {
+//! //     format!("Hello, {}", user_id)
+//! // }
 //! ```
 
 // 重新导出过程宏

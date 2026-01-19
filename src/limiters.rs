@@ -85,7 +85,7 @@ pub trait Limiter: Send + Sync {
 ///
 /// # 示例
 /// ```rust
-/// use limiteron::limiters::TokenBucketLimiter;
+/// use limiteron::limiters::{TokenBucketLimiter, Limiter};
 /// use std::time::Duration;
 ///
 /// #[tokio::main]
@@ -285,7 +285,7 @@ impl Limiter for TokenBucketLimiter {
 ///
 /// # 示例
 /// ```rust
-/// use limiteron::limiters::SlidingWindowLimiter;
+/// use limiteron::limiters::{SlidingWindowLimiter, Limiter};
 /// use std::time::Duration;
 ///
 /// #[tokio::main]
@@ -398,7 +398,7 @@ impl Limiter for SlidingWindowLimiter {
 ///
 /// # 示例
 /// ```rust
-/// use limiteron::limiters::FixedWindowLimiter;
+/// use limiteron::limiters::{FixedWindowLimiter, Limiter};
 /// use std::time::Duration;
 ///
 /// #[tokio::main]

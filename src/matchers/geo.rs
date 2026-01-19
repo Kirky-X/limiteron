@@ -22,23 +22,16 @@
 //! # 使用示例
 //!
 //! ```rust
-//! use limiteron::geo_matcher::{GeoMatcher, GeoCondition};
+//! use limiteron::matchers::geo::GeoMatcher;
 //! use std::net::IpAddr;
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let matcher = GeoMatcher::new("GeoLite2-City.mmdb").await?;
-//!
-//! let condition = GeoCondition {
-//!     countries: vec!["CN".to_string(), "US".to_string()],
-//!     cities: vec![],
-//!     continents: vec![],
-//! };
-//!
-//! let ip: IpAddr = "114.114.114.114".parse()?;
-//! let info = matcher.lookup(ip)?;
-//! let matched = matcher.matches(&info, &condition)?;
-//! # Ok(())
-//! # }
+//! #[tokio::main]
+//! async fn main() {
+//!     // 注意：需要有效的 GeoLite2-City.mmdb 文件
+//!     // let matcher = GeoMatcher::new("GeoLite2-City.mmdb").await.unwrap();
+//!     // let ip: IpAddr = "114.114.114.114".parse().unwrap();
+//!     // let info = matcher.lookup(ip).unwrap();
+//! }
 //! ```
 
 #[cfg(feature = "geo-matching")]
@@ -249,7 +242,7 @@ impl GeoMatcher {
     /// # 示例
     /// ```rust
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use limiteron::geo_matcher::GeoMatcher;
+    /// use limiteron::matchers::geo::GeoMatcher;
     ///
     /// let matcher = GeoMatcher::new("GeoLite2-City.mmdb").await?;
     /// # Ok(())
@@ -359,7 +352,7 @@ impl GeoMatcher {
     /// # 示例
     /// ```rust
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use limiteron::geo_matcher::GeoMatcher;
+    /// use limiteron::matchers::geo::GeoMatcher;
     ///
     /// let matcher = GeoMatcher::with_cache_limit("GeoLite2-City.mmdb", 5000).await?;
     /// # Ok(())
@@ -391,7 +384,7 @@ impl GeoMatcher {
     /// # 示例
     /// ```rust
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use limiteron::geo_matcher::GeoMatcher;
+    /// use limiteron::matchers::geo::GeoMatcher;
     /// use std::net::IpAddr;
     ///
     /// let matcher = GeoMatcher::new("GeoLite2-City.mmdb").await?;
@@ -452,7 +445,7 @@ impl GeoMatcher {
     /// # 示例
     /// ```rust
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use limiteron::geo_matcher::GeoMatcher;
+    /// use limiteron::matchers::geo::GeoMatcher;
     /// use std::net::IpAddr;
     ///
     /// let matcher = GeoMatcher::new("GeoLite2-City.mmdb").await?;
@@ -483,7 +476,7 @@ impl GeoMatcher {
     /// # 示例
     /// ```rust
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use limiteron::geo_matcher::{GeoMatcher, GeoCondition};
+    /// use limiteron::matchers::geo::{GeoMatcher, GeoCondition};
     /// use std::net::IpAddr;
     ///
     /// let matcher = GeoMatcher::new("GeoLite2-City.mmdb").await?;
@@ -511,7 +504,7 @@ impl GeoMatcher {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::geo_matcher::{GeoInfo, GeoCondition};
+    /// use limiteron::matchers::geo::{GeoInfo, GeoCondition};
     ///
     /// let info = GeoInfo {
     ///     country_code: Some("CN".to_string()),

@@ -384,7 +384,7 @@ impl IpExtractor {
     /// ```rust
     /// use limiteron::matchers::IpExtractor;
     ///
-    /// let extractor = IpExtractor::default();
+    /// let extractor = IpExtractor::new_default();
     /// ```
     pub fn new_default() -> Self {
         Self::new(vec![], true)
@@ -854,7 +854,7 @@ impl CompositeExtractor {
     /// let extractor = CompositeExtractor::new(
     ///     vec![
     ///         Box::new(UserIdExtractor::from_header("X-User-Id")),
-    ///         Box::new(IpExtractor::default()),
+    ///         Box::new(IpExtractor::new_default()),
     ///     ],
     ///     true,
     /// );

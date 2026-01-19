@@ -9,6 +9,7 @@
 //! - 简化核心逻辑，提高可维护性
 //! - 保持向后兼容性
 
+#[cfg(feature = "fallback")]
 use crate::cache::l2::L2Cache;
 use crate::config::{
     ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig, LimiterConfig,

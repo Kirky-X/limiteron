@@ -398,6 +398,120 @@ impl Governor {
         })
     }
 
+    /// 从配置文件创建 Governor 实例
+    ///
+    /// # 参数
+    /// - `config_path`: 配置文件路径（支持 YAML、TOML、JSON）
+    /// - `storage`: 存储后端
+    /// - `ban_storage`: 封禁存储后端
+    ///
+    /// # 示例
+    ///
+    /// ```rust,no_run
+    /// use limiteron::Governor;
+    /// use limiteron::storage::MemoryStorage;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let storage = std::sync::Arc::new(MemoryStorage::new());
+    ///     let ban_storage = std::sync::Arc::new(MemoryStorage::new());
+    ///
+    ///     let governor = Governor::from_config_file(
+    ///         "/path/to/config.yaml",
+    ///         storage,
+    ///         ban_storage,
+    ///     ).await?;
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    #[cfg(feature = "confers")]
+    pub async fn from_config_file<P: AsRef<std::path::Path>>(
+        config_path: P,
+        storage: Arc<dyn Storage>,
+        ban_storage: Arc<dyn BanStorage>,
+    ) -> Result<Self, FlowGuardError> {
+        // 使用 ConfigLoader 加载配置
+        let config = crate::config_loader::ConfigLoader::load_from_file(config_path)?;
+
+        #[cfg(all(feature = "monitoring", feature = "telemetry"))]
+        {
+            Self::new(config, storage, ban_storage, None, None).await
+        }
+        #[cfg(all(feature = "monitoring", not(feature = "telemetry")))]
+        {
+            Self::new(config, storage, ban_storage, None).await
+        }
+        #[cfg(all(not(feature = "monitoring"), feature = "telemetry"))]
+        {
+            Self::new(config, storage, ban_storage, None, None).await
+        }
+        #[cfg(all(not(feature = "monitoring"), not(feature = "telemetry")))]
+        {
+            Self::new(config, storage, ban_storage).await
+        }
+    }
+
+    /// 从配置文件和环境变量创建 Governor 实例
+    ///
+    /// 环境变量可以覆盖配置文件中的值。环境变量命名规则：
+    /// `LIMITERON_<SECTION>_<FIELD>`
+    ///
+    /// # 参数
+    /// - `config_path`: 配置文件路径（支持 YAML、TOML、JSON）
+    /// - `storage`: 存储后端
+    /// - `ban_storage`: 封禁存储后端
+    ///
+    /// # 示例
+    ///
+    /// ```rust,no_run
+    /// use limiteron::Governor;
+    /// use limiteron::storage::MemoryStorage;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let storage = std::sync::Arc::new(MemoryStorage::new());
+    ///     let ban_storage = std::sync::Arc::new(MemoryStorage::new());
+    ///
+    ///     // 设置环境变量覆盖
+    ///     std::env::set_var("LIMITERON_GLOBAL_STORAGE", "redis");
+    ///
+    ///     let governor = Governor::from_config_with_env(
+    ///         "/path/to/config.yaml",
+    ///         storage,
+    ///         ban_storage,
+    ///     ).await?;
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    #[cfg(feature = "confers")]
+    pub async fn from_config_with_env<P: AsRef<std::path::Path>>(
+        config_path: P,
+        storage: Arc<dyn Storage>,
+        ban_storage: Arc<dyn BanStorage>,
+    ) -> Result<Self, FlowGuardError> {
+        // 使用 ConfigLoader 加载配置，支持环境变量覆盖
+        let config = crate::config_loader::ConfigLoader::load_from_file_with_env(config_path)?;
+
+        #[cfg(all(feature = "monitoring", feature = "telemetry"))]
+        {
+            Self::new(config, storage, ban_storage, None, None).await
+        }
+        #[cfg(all(feature = "monitoring", not(feature = "telemetry")))]
+        {
+            Self::new(config, storage, ban_storage, None).await
+        }
+        #[cfg(all(not(feature = "monitoring"), feature = "telemetry"))]
+        {
+            Self::new(config, storage, ban_storage, None, None).await
+        }
+        #[cfg(all(not(feature = "monitoring"), not(feature = "telemetry")))]
+        {
+            Self::new(config, storage, ban_storage).await
+        }
+    }
+
     /// 检查请求 - 简化版本使用并行检查器
     #[instrument(skip(self), fields(
         user_id = %redact_user_id(context.user_id.as_deref()),

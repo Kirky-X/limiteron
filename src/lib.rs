@@ -76,6 +76,12 @@ pub mod config;
 pub mod config_security;
 #[cfg(feature = "config-security")]
 pub use config_security::{ConfigSecurityReport, ConfigSecurityValidator};
+#[cfg(feature = "confers")]
+pub mod config_loader;
+#[cfg(feature = "config-watcher")]
+pub mod config_watcher;
+#[cfg(feature = "config-security")]
+pub use config_security::{ConfigSecurityReport, ConfigSecurityValidator};
 #[cfg(feature = "config-watcher")]
 pub mod config_watcher;
 pub mod constants;
@@ -129,6 +135,8 @@ pub use config::{
     ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig,
     LimiterConfig, Matcher as ConfigMatcher, Rule as ConfigRule,
 };
+#[cfg(feature = "confers")]
+pub use config_loader::ConfigLoader;
 #[cfg(feature = "config-watcher")]
 pub use config_watcher::{ConfigChangeCallback, ConfigWatcher, PostgresConfigStorage, WatchMode};
 #[cfg(feature = "custom-limiter")]

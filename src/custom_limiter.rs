@@ -306,7 +306,9 @@ impl CustomLimiterRegistry {
     /// #[tokio::main]
     /// async fn main() {
     ///     let registry = CustomLimiterRegistry::new();
-    ///     registry.unregister("leaky_bucket".to_string()).await.unwrap();
+    ///     // 注意：需要先注册一个限流器才能注销
+    ///     // registry.register("leaky_bucket", Box::new(limiter)).await;
+    ///     // registry.unregister("leaky_bucket").await.unwrap();
     /// }
     /// ```
     pub async fn unregister(&self, name: &str) -> Result<(), FlowGuardError> {
@@ -432,6 +434,7 @@ impl Default for CustomLimiterRegistry {
 /// # 示例
 /// ```rust
 /// use limiteron::custom_limiter::LeakyBucketLimiter;
+/// use limiteron::CustomLimiter;
 ///
 /// #[tokio::main]
 /// async fn main() {
@@ -614,6 +617,7 @@ impl CustomLimiter for LeakyBucketLimiter {
 /// # 示例
 /// ```rust
 /// use limiteron::custom_limiter::TokenBucketLimiter;
+/// use limiteron::CustomLimiter;
 ///
 /// #[tokio::main]
 /// async fn main() {

@@ -149,15 +149,16 @@ impl FallbackManager {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::fallback::{FallbackManager, FallbackStrategy, ComponentType};
+    /// use limiteron::fallback::{FallbackManager, ComponentType};
     /// use limiteron::L2Cache;
+    /// use std::sync::Arc;
     /// use std::time::Duration;
     ///
-    /// # #[tokio::main]
-    /// # async fn main() {
-    /// let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
-    /// let manager = FallbackManager::new(l2_cache);
-    /// # }
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+    ///     let manager = FallbackManager::new(l2_cache);
+    /// }
     /// ```
     pub fn new(l2_cache: Arc<L2Cache>) -> Self {
         info!("创建降级策略管理器");

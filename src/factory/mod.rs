@@ -47,7 +47,7 @@ const MAX_CONCURRENT_REQUESTS: u64 = 100_000;
 ///     capacity: 1000,
 ///     refill_rate: 100,
 /// };
-/// let limiter = LimiterFactory::create(&config)?;
+/// let limiter = LimiterFactory::create(&config).unwrap();
 /// ```
 pub struct LimiterFactory;
 
@@ -71,7 +71,7 @@ impl LimiterFactory {
     ///     capacity: 1000,
     ///     refill_rate: 100,
     /// };
-    /// let limiter = LimiterFactory::create(&config)?;
+    /// let limiter = LimiterFactory::create(&config).unwrap();
     /// ```
     pub fn create(config: &LimiterConfig) -> Result<Arc<dyn Limiter>, FlowGuardError> {
         match config {
@@ -135,7 +135,7 @@ impl LimiterFactory {
     ///     LimiterConfig::TokenBucket { capacity: 1000, refill_rate: 100 },
     ///     LimiterConfig::Concurrency { max_concurrent: 50 },
     /// ];
-    /// let limiters = LimiterFactory::create_batch(&configs)?;
+    /// let limiters = LimiterFactory::create_batch(&configs).unwrap();
     /// ```
     pub fn create_batch(
         configs: &[LimiterConfig],
@@ -174,7 +174,7 @@ impl LimiterFactory {
     /// use limiteron::factory::LimiterFactory;
     /// use std::time::Duration;
     ///
-    /// let duration = LimiterFactory::parse_window_size("5m")?;
+    /// let duration = LimiterFactory::parse_window_size("5m").unwrap();
     /// assert_eq!(duration, Duration::from_secs(300));
     /// ```
     pub fn parse_window_size(window_size: &str) -> Result<std::time::Duration, FlowGuardError> {
@@ -237,8 +237,9 @@ impl LimiterFactory {
     /// use limiteron::config::LimiterConfig;
     ///
     /// let config = LimiterConfig::TokenBucket { capacity: 1000, refill_rate: 100 };
-    /// LimiterFactory::validate_config(&config)?;
+    /// LimiterFactory::validate_config(&config).unwrap();
     /// ```
+
     /// 验证窗口配置（适用于滑动窗口和固定窗口）
     fn validate_window_config(
         window_size: &str,

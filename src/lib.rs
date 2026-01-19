@@ -38,18 +38,16 @@
 //!
 //! ```rust
 //! use limiteron::prelude::*;
+//! use limiteron::limiters::{TokenBucketLimiter, Limiter};
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let config = FlowControlConfig::default();
-//!     let governor = Governor::new(config).await?;
+//! async fn main() {
+//!     // 创建一个简单的令牌桶限流器
+//!     let limiter = TokenBucketLimiter::new(100, 10);
 //!
-//!     let decision = governor.check_request("user123", "/api/v1/data").await?;
-//!     if decision.is_allowed() {
-//!         // Process request
-//!     }
-//!
-//!     Ok(())
+//!     // 检查请求是否被允许
+//!     let decision = limiter.allow(1).await.unwrap();
+//!     assert!(decision);
 //! }
 //! ```
 //!

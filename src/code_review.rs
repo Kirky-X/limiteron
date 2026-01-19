@@ -19,9 +19,12 @@
 //! ```rust
 //! use limiteron::code_review::{CodeReviewConfig, CodeReviewManager};
 //!
-//! let config = CodeReviewConfig::default();
-//! let manager = CodeReviewManager::new(config);
-//! let report = manager.run_review().await;
+//! #[tokio::main]
+//! async fn main() {
+//!     let config = CodeReviewConfig::default();
+//!     let manager = CodeReviewManager::new(config);
+//!     let report = manager.run_review().await;
+//! }
 //! ```
 
 use crate::error::FlowGuardError;

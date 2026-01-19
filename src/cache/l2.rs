@@ -33,7 +33,7 @@
 //!     }
 //!
 //!     // 单飞模式加载
-//!     let value = cache.get_or_load("key2", async {
+//!     let value = cache.get_or_load("key2", || async {
 //!         // 从数据库加载
 //!         Ok("loaded_value".to_string())
 //!     }).await.unwrap();

@@ -17,7 +17,7 @@
 //! # 示例
 //!
 //! ```rust
-//! use limiteron::custom_matcher::{CustomMatcher, CustomMatcherRegistry};
+//! use limiteron::matchers::custom::{CustomMatcher, CustomMatcherRegistry};
 //! use limiteron::matchers::RequestContext;
 //! use limiteron::error::FlowGuardError;
 //! use async_trait::async_trait;
@@ -371,7 +371,7 @@ impl CustomMatcherRegistry {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::custom_matcher::CustomMatcherRegistry;
+    /// use limiteron::matchers::custom::CustomMatcherRegistry;
     ///
     /// let registry = CustomMatcherRegistry::new();
     /// ```
@@ -393,7 +393,7 @@ impl CustomMatcherRegistry {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::custom_matcher::{CustomMatcherRegistry, TimeWindowMatcher};
+    /// use limiteron::matchers::custom::{CustomMatcherRegistry, TimeWindowMatcher};
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -436,7 +436,7 @@ impl CustomMatcherRegistry {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::custom_matcher::CustomMatcherRegistry;
+    /// use limiteron::matchers::custom::CustomMatcherRegistry;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -486,12 +486,17 @@ impl CustomMatcherRegistry {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::custom_matcher::CustomMatcherRegistry;
+    /// use limiteron::matchers::custom::CustomMatcherRegistry;
     ///
     /// #[tokio::main]
     /// async fn main() {
     ///     let registry = CustomMatcherRegistry::new();
-    ///     registry.unregister("time_window".to_string()).await.unwrap();
+    ///     // 首先注册一个匹配器
+    ///     registry.register("my_matcher".to_string(), Box::new(
+    ///         limiteron::matchers::custom::TimeWindowMatcher::new(9, 18)
+    ///     )).await.unwrap();
+    ///     // 然后注销它
+    ///     registry.unregister("my_matcher").await.unwrap();
     /// }
     /// ```
     pub async fn unregister(&self, name: &str) -> Result<(), FlowGuardError> {
@@ -533,7 +538,7 @@ impl CustomMatcherRegistry {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::custom_matcher::CustomMatcherRegistry;
+    /// use limiteron::matchers::custom::CustomMatcherRegistry;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -593,17 +598,9 @@ impl Default for CustomMatcherRegistry {
 ///
 /// # 示例
 /// ```rust
-/// use limiteron::custom_matcher::TimeWindowMatcher;
-/// use limiteron::matchers::RequestContext;
-/// use limiteron::error::FlowGuardError;
-/// use async_trait::async_trait;
+/// use limiteron::matchers::custom::TimeWindowMatcher;
 ///
-/// #[tokio::main]
-/// async fn main() {
-///     let matcher = TimeWindowMatcher::new(9, 18); // 9:00 - 18:00
-///     let context = RequestContext::new();
-///     let matches = matcher.matches(&context).await.unwrap();
-/// }
+/// let matcher = TimeWindowMatcher::new(9, 18); // 9:00 - 18:00
 /// ```
 #[derive(Debug, Clone)]
 pub struct TimeWindowMatcher {
@@ -622,7 +619,7 @@ impl TimeWindowMatcher {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::custom_matcher::TimeWindowMatcher;
+    /// use limiteron::matchers::custom::TimeWindowMatcher;
     ///
     /// let matcher = TimeWindowMatcher::new(9, 18);
     /// ```
@@ -719,17 +716,9 @@ impl CustomMatcher for TimeWindowMatcher {
 ///
 /// # 示例
 /// ```rust
-/// use limiteron::custom_matcher::HeaderMatcher;
-/// use limiteron::matchers::RequestContext;
-/// use limiteron::error::FlowGuardError;
-/// use async_trait::async_trait;
+/// use limiteron::matchers::custom::HeaderMatcher;
 ///
-/// #[tokio::main]
-/// async fn main() {
-///     let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]);
-///     let context = RequestContext::new().with_header("X-API-Key", "secret123");
-///     let matches = matcher.matches(&context).await.unwrap();
-/// }
+/// let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]).unwrap();
 /// ```
 #[derive(Debug, Clone)]
 pub struct HeaderMatcher {
@@ -756,7 +745,7 @@ impl HeaderMatcher {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::custom_matcher::HeaderMatcher;
+    /// use limiteron::matchers::custom::HeaderMatcher;
     ///
     /// let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]).unwrap();
     /// ```

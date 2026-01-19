@@ -20,6 +20,18 @@ use crate::limiters::{
 };
 use std::sync::Arc;
 
+/// 配置限制常量
+/// 
+/// 这些限制值基于以下考虑：
+/// - MAX_TOKEN_BUCKET_CAPACITY: 防止内存过度消耗，假设每个令牌占用1字节，10M令牌约10MB内存
+/// - MAX_TOKEN_BUCKET_REFILL_RATE: 防止CPU过度消耗，每秒100万次补充操作可能导致性能问题
+/// - MAX_WINDOW_REQUESTS: 防止窗口数据结构过大，影响内存和性能
+/// - MAX_CONCURRENT_REQUESTS: 防止并发控制结构过大，影响系统稳定性
+const MAX_TOKEN_BUCKET_CAPACITY: u64 = 10_000_000;
+const MAX_TOKEN_BUCKET_REFILL_RATE: u64 = 1_000_000;
+const MAX_WINDOW_REQUESTS: u64 = 10_000_000;
+const MAX_CONCURRENT_REQUESTS: u64 = 100_000;
+
 /// 限流器工厂
 ///
 /// 提供统一的限流器创建接口，支持从配置创建各种限流器。
@@ -227,6 +239,27 @@ impl LimiterFactory {
     /// let config = LimiterConfig::TokenBucket { capacity: 1000, refill_rate: 100 };
     /// LimiterFactory::validate_config(&config)?;
     /// ```
+    
+    /// 验证窗口配置（适用于滑动窗口和固定窗口）
+    fn validate_window_config(
+        window_size: &str,
+        max_requests: u64,
+        limiter_type: &str,
+    ) -> Result<(), FlowGuardError> {
+        Self::parse_window_size(window_size)?;
+        if max_requests == 0 {
+            return Err(FlowGuardError::ConfigError(
+                format!("{}最大请求数必须大于0", limiter_type)
+            ));
+        }
+        if max_requests > MAX_WINDOW_REQUESTS {
+            return Err(FlowGuardError::ConfigError(
+                format!("{}最大请求数过大，最大值为{}", limiter_type, MAX_WINDOW_REQUESTS)
+            ));
+        }
+        Ok(())
+    }
+
     pub fn validate_config(config: &LimiterConfig) -> Result<(), FlowGuardError> {
         match config {
             LimiterConfig::TokenBucket {
@@ -243,14 +276,14 @@ impl LimiterFactory {
                         "令牌桶补充速率必须大于0".to_string(),
                     ));
                 }
-                if *capacity > 10_000_000 {
+                if *capacity > MAX_TOKEN_BUCKET_CAPACITY {
                     return Err(FlowGuardError::ConfigError(
-                        "令牌桶容量过大，最大值为10000000".to_string(),
+                        format!("令牌桶容量过大，最大值为{}", MAX_TOKEN_BUCKET_CAPACITY)
                     ));
                 }
-                if *refill_rate > 1_000_000 {
+                if *refill_rate > MAX_TOKEN_BUCKET_REFILL_RATE {
                     return Err(FlowGuardError::ConfigError(
-                        "令牌桶补充速率过大，最大值为1000000".to_string(),
+                        format!("令牌桶补充速率过大，最大值为{}", MAX_TOKEN_BUCKET_REFILL_RATE)
                     ));
                 }
             }
@@ -258,33 +291,13 @@ impl LimiterFactory {
                 window_size,
                 max_requests,
             } => {
-                Self::parse_window_size(window_size)?;
-                if *max_requests == 0 {
-                    return Err(FlowGuardError::ConfigError(
-                        "滑动窗口最大请求数必须大于0".to_string(),
-                    ));
-                }
-                if *max_requests > 10_000_000 {
-                    return Err(FlowGuardError::ConfigError(
-                        "滑动窗口最大请求数过大，最大值为10000000".to_string(),
-                    ));
-                }
+                Self::validate_window_config(window_size, *max_requests, "滑动窗口")?;
             }
             LimiterConfig::FixedWindow {
                 window_size,
                 max_requests,
             } => {
-                Self::parse_window_size(window_size)?;
-                if *max_requests == 0 {
-                    return Err(FlowGuardError::ConfigError(
-                        "固定窗口最大请求数必须大于0".to_string(),
-                    ));
-                }
-                if *max_requests > 10_000_000 {
-                    return Err(FlowGuardError::ConfigError(
-                        "固定窗口最大请求数过大，最大值为10000000".to_string(),
-                    ));
-                }
+                Self::validate_window_config(window_size, *max_requests, "固定窗口")?;
             }
             LimiterConfig::Concurrency { max_concurrent } => {
                 if *max_concurrent == 0 {
@@ -292,9 +305,9 @@ impl LimiterFactory {
                         "并发限制数必须大于0".to_string(),
                     ));
                 }
-                if *max_concurrent > 100_000 {
+                if *max_concurrent > MAX_CONCURRENT_REQUESTS {
                     return Err(FlowGuardError::ConfigError(
-                        "并发限制数过大，最大值为100000".to_string(),
+                        format!("并发限制数过大，最大值为{}", MAX_CONCURRENT_REQUESTS)
                     ));
                 }
             }

@@ -8,6 +8,7 @@
 
 use ahash::AHashMap as HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, error, info, trace};
 
 use crate::error::StorageError;
@@ -377,6 +378,11 @@ impl LuaScriptManager {
     }
 
     /// 执行脚本（使用SHA）
+    ///
+    /// # 安全说明
+    /// - 添加超时保护，防止脚本执行时间过长
+    /// - 限制参数数量，防止参数过多导致资源消耗
+    /// - 验证脚本类型，防止执行未授权的脚本
     pub async fn execute_script<C, T>(
         &self,
         conn: &mut C,
@@ -388,6 +394,26 @@ impl LuaScriptManager {
         C: AsyncCommands + redis::aio::ConnectionLike,
         T: redis::FromRedisValue,
     {
+        // 验证参数数量，防止参数过多导致资源消耗
+        const MAX_KEYS: usize = 100;
+        const MAX_ARGS: usize = 100;
+
+        if keys.len() > MAX_KEYS {
+            return Err(StorageError::ValidationError(format!(
+                "Keys 数量超过限制: {} (最大 {})",
+                keys.len(),
+                MAX_KEYS
+            )));
+        }
+
+        if args.len() > MAX_ARGS {
+            return Err(StorageError::ValidationError(format!(
+                "Args 数量超过限制: {} (最大 {})",
+                args.len(),
+                MAX_ARGS
+            )));
+        }
+
         let script_info = self
             .get_script(script_type)
             .ok_or_else(|| StorageError::QueryError(format!("未找到脚本: {:?}", script_type)))?;
@@ -398,38 +424,59 @@ impl LuaScriptManager {
 
         trace!("执行脚本: {:?}, SHA: {}", script_type, sha);
 
+        // 添加超时保护（5秒）
+        let timeout = Duration::from_secs(5);
+
         // 尝试使用SHA执行
-        match redis::cmd("EVALSHA")
-            .arg(&sha)
-            .arg(keys.len())
-            .arg(keys)
-            .arg(args)
-            .query_async::<_, T>(conn)
-            .await
-        {
-            Ok(result) => Ok(result),
-            Err(e) => {
+        let result = tokio::time::timeout(
+            timeout,
+            redis::cmd("EVALSHA")
+                .arg(&sha)
+                .arg(keys.len())
+                .arg(keys)
+                .arg(args)
+                .query_async::<_, T>(conn),
+        )
+        .await;
+
+        match result {
+            Ok(Ok(result)) => Ok(result),
+            Ok(Err(e)) => {
                 // 如果SHA不存在，重新加载脚本
                 if e.to_string().contains("NOSCRIPT") {
                     debug!("脚本SHA不存在，重新加载: {:?}", script_type);
                     self.preload_script(conn, script_info).await?;
 
-                    // 重试执行
-                    redis::cmd("EVALSHA")
-                        .arg(&sha)
-                        .arg(keys.len())
-                        .arg(keys)
-                        .arg(args)
-                        .query_async::<_, T>(conn)
-                        .await
-                        .map_err(|e| {
+                    // 重试执行（带超时）
+                    match tokio::time::timeout(
+                        timeout,
+                        redis::cmd("EVALSHA")
+                            .arg(&sha)
+                            .arg(keys.len())
+                            .arg(keys)
+                            .arg(args)
+                            .query_async::<_, T>(conn),
+                    )
+                    .await
+                    {
+                        Ok(Ok(result)) => Ok(result),
+                        Ok(Err(e)) => {
                             error!("脚本执行失败: {:?}, 错误: {}", script_type, e);
-                            StorageError::QueryError(format!("脚本执行失败: {}", e))
-                        })
+                            Err(StorageError::QueryError(format!("脚本执行失败: {}", e)))
+                        }
+                        Err(_) => {
+                            error!("脚本执行超时: {:?}", script_type);
+                            Err(StorageError::TimeoutError("脚本执行超时".to_string()))
+                        }
+                    }
                 } else {
                     error!("脚本执行失败: {:?}, 错误: {}", script_type, e);
                     Err(StorageError::QueryError(format!("脚本执行失败: {}", e)))
                 }
+            }
+            Err(_) => {
+                error!("脚本执行超时: {:?}", script_type);
+                Err(StorageError::TimeoutError("脚本执行超时".to_string()))
             }
         }
     }

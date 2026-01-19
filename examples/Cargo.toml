@@ -8,4 +8,5 @@ description = "Limiteron examples - demonstrating all features"
 limiteron = { path = "..", features = ["full"] }
 
 [dev-dependencies]
+futures = "0.3"
 tokio = { version = "1.35", features = ["full"] }

@@ -418,12 +418,12 @@ pub struct Span {
     started_at: Option<Instant>,
     /// 是否启用
     enabled: bool,
-    /// 属性
-    attributes: std::sync::Arc<parking_lot::RwLock<Vec<(String, String)>>>,
-    /// 事件
-    events: std::sync::Arc<parking_lot::RwLock<Vec<(String, Vec<(String, String)>)>>>,
-    /// 错误
-    error: std::sync::Arc<parking_lot::RwLock<Option<String>>>,
+    /// 属性（使用 Mutex 代替 RwLock，简化并发控制）
+    attributes: std::sync::Arc<tokio::sync::Mutex<Vec<(String, String)>>>,
+    /// 事件（使用 Mutex 代替 RwLock，简化并发控制）
+    events: std::sync::Arc<tokio::sync::Mutex<Vec<(String, Vec<(String, String)>)>>>,
+    /// 错误（使用 Mutex 代替 RwLock，简化并发控制）
+    error: std::sync::Arc<tokio::sync::Mutex<Option<String>>>,
 }
 
 impl Span {
@@ -432,9 +432,9 @@ impl Span {
         Self {
             started_at: Some(Instant::now()),
             enabled: true,
-            attributes: std::sync::Arc::new(parking_lot::RwLock::new(Vec::new())),
-            events: std::sync::Arc::new(parking_lot::RwLock::new(Vec::new())),
-            error: std::sync::Arc::new(parking_lot::RwLock::new(None)),
+            attributes: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            events: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            error: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 
@@ -443,9 +443,9 @@ impl Span {
         Self {
             started_at: None,
             enabled: false,
-            attributes: std::sync::Arc::new(parking_lot::RwLock::new(Vec::new())),
-            events: std::sync::Arc::new(parking_lot::RwLock::new(Vec::new())),
-            error: std::sync::Arc::new(parking_lot::RwLock::new(None)),
+            attributes: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            events: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            error: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
         }
     }
 
@@ -456,9 +456,9 @@ impl Span {
     /// - `value`: 属性值
     pub fn set_attribute(&self, key: &str, value: &str) {
         if self.enabled {
-            self.attributes
-                .write()
-                .push((key.to_string(), value.to_string()));
+            if let Ok(mut attrs) = self.attributes.try_lock() {
+                attrs.push((key.to_string(), value.to_string()));
+            }
         }
     }
 
@@ -469,7 +469,9 @@ impl Span {
     /// - `attributes`: 事件属性
     pub fn add_event(&self, name: &str, attributes: Vec<(String, String)>) {
         if self.enabled {
-            self.events.write().push((name.to_string(), attributes));
+            if let Ok(mut evts) = self.events.try_lock() {
+                evts.push((name.to_string(), attributes));
+            }
         }
     }
 
@@ -479,7 +481,9 @@ impl Span {
     /// - `error`: 错误信息
     pub fn record_error(&self, error: &str) {
         if self.enabled {
-            *self.error.write() = Some(error.to_string());
+            if let Ok(mut err) = self.error.try_lock() {
+                *err = Some(error.to_string());
+            }
         }
     }
 
@@ -501,17 +505,26 @@ impl Span {
 
     /// 获取所有属性
     pub fn attributes(&self) -> Vec<(String, String)> {
-        self.attributes.read().clone()
+        self.attributes
+            .try_lock()
+            .map(|attrs| attrs.clone())
+            .unwrap_or_default()
     }
 
     /// 获取所有事件
     pub fn events(&self) -> Vec<(String, Vec<(String, String)>)> {
-        self.events.read().clone()
+        self.events
+            .try_lock()
+            .map(|evts| evts.clone())
+            .unwrap_or_default()
     }
 
     /// 获取错误信息
     pub fn error(&self) -> Option<String> {
-        self.error.read().clone()
+        self.error
+            .try_lock()
+            .map(|err| err.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -687,6 +700,13 @@ fn init_console_tracer(config: &TelemetryConfig) -> Result<(), String> {
 pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result<(), String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+    use tokio::time::{timeout, Duration};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    // 并发连接限制
+    const MAX_CONCURRENT_CONNECTIONS: usize = 100;
+    let connection_count = Arc::new(AtomicUsize::new(0));
 
     let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
         .await
@@ -696,28 +716,74 @@ pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result
 
     loop {
         match listener.accept().await {
-            Ok((mut socket, _addr)) => {
+            Ok((mut socket, addr)) => {
+                // 检查并发连接数
+                let current_connections = connection_count.load(Ordering::Relaxed);
+                if current_connections >= MAX_CONCURRENT_CONNECTIONS {
+                    warn!("Too many concurrent connections, rejecting: {}", addr);
+                    let response = "HTTP/1.1 503 Service Unavailable\r\n\r\n";
+                    let _ = socket.write_all(response.as_bytes()).await;
+                    continue;
+                }
+
+                connection_count.fetch_add(1, Ordering::Relaxed);
                 let metrics = metrics.clone();
+                let connection_count_clone = connection_count.clone();
+
                 tokio::spawn(async move {
+                    // 确保连接计数被正确减少
+                    let _guard = scopeguard::guard((), move |_| {
+                        connection_count_clone.fetch_sub(1, Ordering::Relaxed);
+                    });
+
                     let mut buffer = [0u8; 1024];
-                    if let Ok(n) = socket.read(&mut buffer).await {
-                        let request = String::from_utf8_lossy(&buffer[..n]);
-                        if request.starts_with("GET /metrics") {
-                            let response = metrics.gather();
-                            let http_response = format!(
-                                "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: \
-                                 {}\r\n\r\n{}",
-                                response.len(),
-                                response
-                            );
-                            if socket.write_all(http_response.as_bytes()).await.is_err() {
-                                warn!("Failed to send metrics response");
+                    
+                    // 添加读取超时（5秒）
+                    let read_result = timeout(
+                        Duration::from_secs(5),
+                        socket.read(&mut buffer)
+                    ).await;
+                    
+                    match read_result {
+                        Ok(Ok(n)) => {
+                            let request = String::from_utf8_lossy(&buffer[..n]);
+                            
+                            // 简单的 HTTP 请求验证
+                            if request.starts_with("GET /metrics") {
+                                let response = metrics.gather();
+                                let http_response = format!(
+                                    "HTTP/1.1 200 OK\r\n\
+                                     Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n\
+                                     Content-Length: {}\r\n\
+                                     Connection: close\r\n\
+                                     \r\n{}",
+                                    response.len(),
+                                    response
+                                );
+                                
+                                // 添加写入超时（5秒）
+                                let write_result = timeout(
+                                    Duration::from_secs(5),
+                                    socket.write_all(http_response.as_bytes())
+                                ).await;
+                                
+                                if let Err(_) = write_result {
+                                    warn!("Failed to send metrics response: timeout");
+                                }
+                            } else if request.starts_with("GET /health") {
+                                // 添加健康检查端点
+                                let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK\r\n";
+                                let _ = socket.write_all(response.as_bytes()).await;
+                            } else {
+                                let response = "HTTP/1.1 404 Not Found\r\n\r\n";
+                                let _ = socket.write_all(response.as_bytes()).await;
                             }
-                        } else {
-                            let response = "HTTP/1.1 404 Not Found\r\n\r\n";
-                            if socket.write_all(response.as_bytes()).await.is_err() {
-                                warn!("Failed to send 404 response");
-                            }
+                        }
+                        Ok(Err(e)) => {
+                            warn!("Failed to read from socket: {}", e);
+                        }
+                        Err(_) => {
+                            warn!("Read timeout from socket");
                         }
                     }
                 });

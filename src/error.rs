@@ -94,6 +94,48 @@ pub enum StorageError {
     /// 未找到
     #[error("未找到: {0}")]
     NotFound(String),
+
+    /// 认证错误
+    #[error("认证错误: {0}")]
+    AuthenticationError(String),
+
+    /// 权限错误
+    #[error("权限错误: {0}")]
+    PermissionError(String),
+
+    /// 无效配置
+    #[error("无效配置: {0}")]
+    InvalidConfig(String),
+
+    /// 速率限制
+    #[error("速率限制: {0}")]
+    RateLimitError(String),
+
+    /// 验证错误
+    #[error("验证错误: {0}")]
+    ValidationError(String),
+}
+
+impl StorageError {
+    /// 判断是否为临时错误（可重试）
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            StorageError::TimeoutError(_)
+                | StorageError::ConnectionError(_)
+                | StorageError::RateLimitError(_)
+        )
+    }
+
+    /// 判断是否为永久错误（不可重试）
+    pub fn is_permanent(&self) -> bool {
+        matches!(
+            self,
+            StorageError::AuthenticationError(_)
+                | StorageError::PermissionError(_)
+                | StorageError::InvalidConfig(_)
+        )
+    }
 }
 
 #[cfg(feature = "postgres")]

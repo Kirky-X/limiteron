@@ -216,28 +216,59 @@ fn validate_regex_complexity(pattern: &str) -> Result<(), FlowGuardError> {
         )));
     }
 
-    // 检查危险模式（可能导致指数回溯）
+    // 检查危险模式（可能导致指数回溯 - ReDoS 攻击）
+    // 这些模式可能导致正则表达式引擎进行指数级回溯
     let dangerous_patterns = [
-        "(.+)+",     // 嵌套量词
-        "(.+)*",     // 嵌套量词
-        "(.+){2,}",  // 嵌套量词
-        "([a-z]+)+", // 嵌套量词
-        "([a-z]+)*", // 嵌套量词
+        // 嵌套量词 - 最常见的 ReDoS 模式
+        "(.+)+", "(.+)*", "(.+){2,}", "(.+){2,}",
+        "([a-z]+)+", "([a-z]+)*", "([a-z]+){2,}",
+        "(\\d+)+", "(\\d+)*", "(\\d+){2,}",
+        "(\\w+)+", "(\\w+)*", "(\\w+){2,}",
+
+        // 非贪婪量词也可能导致问题
+        "(.+?)+", "(.+?)*", "(.+?){2,}",
+        "([a-z]+?)+", "([a-z]+?)*", "([a-z]+?){2,}",
+
+        // 占有量词
+        "(.*+)+", "(.*+)*", "(.*+){2,}",
+
+        // 字符类中的嵌套量词
+        "([a-zA-Z]+)+", "([0-9]+)+", "([\\w\\d]+)+",
+
+        // 复杂的交替模式
+        "(a+)+", "(b+)+", "(c+)+",
+        "(x+)+", "(y+)+", "(z+)+",
+
+        // 嵌套的字符类
+        "[a-z]+[a-z]+", "[0-9]+[0-9]+",
+
+        // 重复的量词
+        "**", "++", "??", "{,}", "{,2}", "{2,}", "{2,1}",
     ];
 
     for dangerous in &dangerous_patterns {
         if pattern.contains(dangerous) {
             return Err(FlowGuardError::ConfigError(format!(
-                "正则表达式包含危险模式: {}",
+                "正则表达式包含危险模式（可能导致 ReDoS 攻击）: {}",
                 dangerous
             )));
         }
     }
 
+    // 检查是否有多个连续的量词
+    if pattern.matches("+*?{}").count() > pattern.len() / 2 {
+        return Err(FlowGuardError::ConfigError(
+            "正则表达式包含过多量词，可能存在性能问题".to_string(),
+        ));
+    }
+
     // 尝试编译正则表达式以验证语法
     #[cfg(feature = "advanced-matchers")]
-    Regex::new(pattern)
-        .map_err(|e| FlowGuardError::ConfigError(format!("无效的正则表达式: {}", e)))?;
+    {
+        use regex::Regex;
+        Regex::new(pattern)
+            .map_err(|e| FlowGuardError::ConfigError(format!("无效的正则表达式: {}", e)))?;
+    }
 
     Ok(())
 }

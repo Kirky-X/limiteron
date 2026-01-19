@@ -12,6 +12,9 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
+#[cfg(feature = "smart-cache")]
+use base64;
+
 /// 智能缓存策略
 pub struct SmartCacheStrategy {
     /// L2缓存层
@@ -64,10 +67,20 @@ impl SmartCacheStrategy {
     /// 智能缓存决策
     ///
     /// 基于访问频率和缓存项大小决定是否预取或压缩
-    pub async fn should_prefetch(&self, _key: &str, _entry_size: usize) -> bool {
-        // 这里可以实现基于历史访问模式的智能预取逻辑
-        // 简单实现：基于访问频率决定
-        false
+    pub async fn should_prefetch(&self, _key: &str, entry_size: usize) -> bool {
+        // 检查缓存统计信息
+        let stats = self.stats.read().await;
+        let total_requests = stats.hits + stats.misses;
+        
+        if total_requests == 0 {
+            return false;
+        }
+        
+        // 基于命中率决定是否预取
+        let hit_rate = stats.hits as f64 / total_requests as f64;
+        
+        // 如果命中率较高且数据量适中，则预取
+        hit_rate > 0.5 && entry_size < 10_000
     }
 
     /// 智能压缩决策
@@ -143,17 +156,43 @@ impl SmartCacheStrategy {
     /// 从存储加载数据
     async fn load_from_storage(&self, key: &str) -> Option<String> {
         // 这里应该从实际存储（如数据库、Redis等）加载数据
-        // 目前返回 None，表示未实现
+        // 这是一个框架实现，用户需要注入存储
         debug!("从存储加载数据: {}", key);
+        
+        // 暂时返回 None，表示未实现
+        // 在实际应用中，这里应该:
+        // 1. 从 Redis/PostgreSQL 等存储加载数据
+        // 2. 处理加载失败的情况
+        // 3. 考虑加载超时
+        
         None
     }
 
     /// 数据压缩
-    async fn compress(&self, _data: &str) -> Option<String> {
-        // 这里可以实现简单的压缩算法
-        // 目前返回 None，表示不压缩
-        // 未来可以实现 LZ4、Snappy 等高效压缩算法
-        None
+    async fn compress(&self, data: &str) -> Option<String> {
+        // 简单的压缩示例：移除重复的空白字符
+        // 在实际应用中，应该使用真正的压缩库如 snap、lz4 等
+        
+        // 小数据不压缩
+        if data.len() < 100 {
+            return None;
+        }
+        
+        // 检查数据是否可压缩（简单启发式）
+        if !self.is_compressible(data) {
+            return None;
+        }
+        
+        // 简单压缩：移除多余的空白字符
+        let compressed = data.split_whitespace().collect::<Vec<&str>>().join(" ");
+        
+        // 检查压缩率
+        let compression_ratio = compressed.len() as f64 / data.len() as f64;
+        if compression_ratio < 0.8 {
+            Some(compressed)
+        } else {
+            None
+        }
     }
 
     /// 更新统计信息

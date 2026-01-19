@@ -359,6 +359,22 @@ impl FallbackManager {
         info!("组件恢复: {:?}", component);
     }
 
+    /// 记录组件故障
+    pub async fn record_failure(&self, component: ComponentType, _error: &str) {
+        warn!("组件故障记录: {:?}", component);
+        self.set_failure(component).await;
+    }
+
+    /// 获取组件故障计数
+    pub async fn get_failure_count(&self, component: ComponentType) -> u32 {
+        let states = self.failure_states.read().await;
+        if *states.get(&component).unwrap_or(&false) {
+            1
+        } else {
+            0
+        }
+    }
+
     /// 检查组件是否故障
     pub async fn is_failed(&self, component: ComponentType) -> bool {
         let states = self.failure_states.read().await;

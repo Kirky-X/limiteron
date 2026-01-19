@@ -55,12 +55,11 @@ pub const DEFAULT_EVICTION_THRESHOLD: f64 = 0.9;
 use ahash::AHashMap as HashMap;
 use dashmap::DashMap;
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 
 use crate::error::StorageError;
 
@@ -126,8 +125,10 @@ impl SingleFlightLoader {
     {
         use dashmap::mapref::entry::Entry;
 
+        let key_owned = key.to_string(); // 提前克隆，用于清理
+
         // 尝试插入新任务或获取现有任务
-        let tx = match self.pending.entry(key.to_string()) {
+        match self.pending.entry(key_owned.clone()) {
             Entry::Occupied(entry) => {
                 // 已有其他请求在加载，等待结果
                 trace!("等待其他请求加载 key={}", key);
@@ -140,35 +141,51 @@ impl SingleFlightLoader {
                     return res;
                 }
 
-                // 等待变更
-                if rx.changed().await.is_ok() {
-                    if let Some(res) = rx.borrow().clone() {
-                        return res;
+                // 添加超时保护
+                let timeout = tokio::time::timeout(
+                    Duration::from_secs(30),
+                    rx.changed()
+                );
+
+                match timeout.await {
+                    Ok(Ok(())) => {
+                        if let Some(res) = rx.borrow().clone() {
+                            return res;
+                        }
+                    }
+                    Ok(Err(_)) | Err(_) => {
+                        // 超时或 channel 关闭，清理 pending 条目
+                        warn!("加载超时或 channel 关闭，清理 pending 条目: key={}", key);
+                        self.pending.remove(&key_owned);
+                        return Err(StorageError::TimeoutError(
+                            "Loader timeout or channel closed".to_string(),
+                        ));
                     }
                 }
 
-                return Err(StorageError::TimeoutError(
+                // 如果走到这里，说明没有获取到结果，清理 pending 条目
+                self.pending.remove(&key_owned);
+                Err(StorageError::TimeoutError(
                     "Loader dropped without result".to_string(),
-                ));
+                ))
             }
             Entry::Vacant(entry) => {
                 // 创建新任务
                 let (tx, _) = watch::channel(None);
                 entry.insert(tx.clone());
-                tx
+
+                // 执行加载
+                let result = loader().await;
+
+                // 通知等待者
+                let _ = tx.send(Some(result.clone()));
+
+                // 清理单飞条目
+                self.pending.remove(&key_owned);
+
+                result
             }
-        };
-
-        // 执行加载
-        let result = loader().await;
-
-        // 通知等待者
-        let _ = tx.send(Some(result.clone()));
-
-        // 清理单飞条目
-        self.pending.remove(key);
-
-        result
+        }
     }
 }
 
@@ -202,30 +219,79 @@ impl L2CacheConfig {
     }
 
     pub fn capacity(mut self, capacity: usize) -> Self {
-        self.capacity = capacity;
+        // 验证容量
+        if capacity == 0 {
+            warn!("缓存容量设置为0，将使用最小值1");
+            self.capacity = 1;
+        } else if capacity > 1_000_000 {
+            warn!("缓存容量过大({})，可能影响性能", capacity);
+            self.capacity = capacity;
+        } else {
+            self.capacity = capacity;
+        }
         self
     }
 
     pub fn default_ttl(mut self, ttl: Duration) -> Self {
-        self.default_ttl = Some(ttl);
+        // 验证TTL
+        if ttl.as_secs() == 0 {
+            warn!("默认TTL不能为0，将使用默认值");
+            self.default_ttl = Some(Duration::from_secs(DEFAULT_TTL_SECS));
+        } else if ttl.as_secs() > 86400 * 30 {
+            warn!("默认TTL过大({:?})，超过30天", ttl);
+            self.default_ttl = Some(ttl);
+        } else {
+            self.default_ttl = Some(ttl);
+        }
         self
     }
 
     pub fn cleanup_interval(mut self, interval: Duration) -> Self {
-        self.cleanup_interval = interval;
+        // 验证清理间隔
+        if interval.as_secs() < 10 {
+            warn!("清理间隔过短({:?})，最小值为10秒", interval);
+            self.cleanup_interval = Duration::from_secs(10);
+        } else if interval.as_secs() > 3600 {
+            warn!("清理间隔过长({:?})，最大值为1小时", interval);
+            self.cleanup_interval = Duration::from_secs(3600);
+        } else {
+            self.cleanup_interval = interval;
+        }
         self
     }
 
     pub fn eviction_threshold(mut self, threshold: f64) -> Self {
-        self.eviction_threshold = threshold;
+        // 验证淘汰阈值
+        if !(0.0..=1.0).contains(&threshold) {
+            warn!("淘汰阈值{}超出范围[0.0, 1.0]，将使用默认值", threshold);
+            self.eviction_threshold = DEFAULT_EVICTION_THRESHOLD;
+        } else {
+            self.eviction_threshold = threshold;
+        }
         self
+    }
+
+    /// 验证配置
+    pub fn validate(&self) -> Result<(), String> {
+        if self.capacity == 0 {
+            return Err("缓存容量不能为0".to_string());
+        }
+        if !(0.0..=1.0).contains(&self.eviction_threshold) {
+            return Err("淘汰阈值必须在[0.0, 1.0]范围内".to_string());
+        }
+        if let Some(ttl) = self.default_ttl {
+            if ttl.as_secs() == 0 {
+                return Err("默认TTL不能为0".to_string());
+            }
+        }
+        Ok(())
     }
 }
 
 /// L2缓存实现
 pub struct L2Cache {
     /// 缓存数据（使用 LRU Cache 实现自动淘汰）
-    data: Arc<parking_lot::Mutex<lru::LruCache<String, CacheEntry>>>,
+    data: Arc<tokio::sync::Mutex<lru::LruCache<String, CacheEntry>>>,
     /// 单飞加载器
     single_flight: Arc<SingleFlightLoader>,
     /// 配置
@@ -237,47 +303,91 @@ pub struct L2Cache {
 }
 
 /// 缓存统计信息
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct CacheStats {
+    /// 内部统计数据（使用 Mutex 保证一致性）
+    inner: Arc<std::sync::Mutex<StatsData>>,
+}
+
+/// 内部统计数据
+#[derive(Debug, Default, Clone)]
+struct StatsData {
     /// 命中次数
-    hits: AtomicU64,
+    hits: u64,
     /// 未命中次数
-    misses: AtomicU64,
+    misses: u64,
     /// 过期次数
-    expirations: AtomicU64,
+    expirations: u64,
     /// 淘汰次数
-    evictions: AtomicU64,
+    evictions: u64,
     /// 写入次数
-    writes: AtomicU64,
+    writes: u64,
 }
 
 impl CacheStats {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(std::sync::Mutex::new(StatsData::default())),
+        }
+    }
+
+    /// 记录命中
+    pub fn record_hit(&self) {
+        let mut stats = self.inner.lock().unwrap();
+        stats.hits += 1;
+    }
+
+    /// 记录未命中
+    pub fn record_miss(&self) {
+        let mut stats = self.inner.lock().unwrap();
+        stats.misses += 1;
+    }
+
+    /// 记录过期
+    pub fn record_expiration(&self) {
+        let mut stats = self.inner.lock().unwrap();
+        stats.expirations += 1;
+    }
+
+    /// 记录淘汰
+    pub fn record_eviction(&self) {
+        let mut stats = self.inner.lock().unwrap();
+        stats.evictions += 1;
+    }
+
+    /// 记录写入
+    pub fn record_write(&self) {
+        let mut stats = self.inner.lock().unwrap();
+        stats.writes += 1;
+    }
+
     pub fn hits(&self) -> u64 {
-        self.hits.load(Ordering::Relaxed)
+        self.inner.lock().unwrap().hits
     }
 
     pub fn misses(&self) -> u64 {
-        self.misses.load(Ordering::Relaxed)
+        self.inner.lock().unwrap().misses
     }
 
     pub fn expirations(&self) -> u64 {
-        self.expirations.load(Ordering::Relaxed)
+        self.inner.lock().unwrap().expirations
     }
 
     pub fn evictions(&self) -> u64 {
-        self.evictions.load(Ordering::Relaxed)
+        self.inner.lock().unwrap().evictions
     }
 
     pub fn writes(&self) -> u64 {
-        self.writes.load(Ordering::Relaxed)
+        self.inner.lock().unwrap().writes
     }
 
     pub fn hit_rate(&self) -> f64 {
-        let total = self.hits() + self.misses();
+        let stats = self.inner.lock().unwrap();
+        let total = stats.hits + stats.misses;
         if total == 0 {
             0.0
         } else {
-            self.hits() as f64 / total as f64
+            stats.hits as f64 / total as f64
         }
     }
 }
@@ -299,12 +409,17 @@ impl L2Cache {
 
     /// 使用配置创建L2缓存
     pub fn with_config(config: L2CacheConfig) -> Self {
-        let stats = Arc::new(CacheStats::default());
+        // 验证配置
+        if let Err(e) = config.validate() {
+            panic!("L2Cache配置无效: {}", e);
+        }
+
+        let stats = Arc::new(CacheStats::new());
         let single_flight = Arc::new(SingleFlightLoader::new());
         let cleanup_handle = Self::start_cleanup_task(Arc::clone(&stats), config.cleanup_interval);
 
         Self {
-            data: Arc::new(parking_lot::Mutex::new(lru::LruCache::new(
+            data: Arc::new(tokio::sync::Mutex::new(lru::LruCache::new(
                 NonZeroUsize::new(config.capacity).unwrap_or(NonZeroUsize::new(1).unwrap()),
             ))),
             single_flight,
@@ -328,21 +443,21 @@ impl L2Cache {
 
     /// 获取值
     pub async fn get(&self, key: &str) -> Option<String> {
-        let mut cache = self.data.lock();
+        let mut cache = self.data.lock().await;
         if let Some(entry) = cache.get_mut(key) {
             // 检查是否过期
             if entry.is_expired() {
                 cache.pop(key);
-                self.__stats.expirations.fetch_add(1, Ordering::Relaxed);
+                self.__stats.record_expiration();
                 return None;
             }
 
             // 更新访问信息
             entry.update_access();
-            self.__stats.hits.fetch_add(1, Ordering::Relaxed);
+            self.__stats.record_hit();
             Some(entry.value.clone())
         } else {
-            self.__stats.misses.fetch_add(1, Ordering::Relaxed);
+            self.__stats.record_miss();
             None
         }
     }
@@ -352,30 +467,30 @@ impl L2Cache {
         let ttl = ttl.or(self.config.default_ttl);
         let entry = CacheEntry::new(value.to_string(), ttl);
 
-        let mut cache = self.data.lock();
+        let mut cache = self.data.lock().await;
 
         // 检查是否需要淘汰
         if cache.len() >= self.config.capacity {
             // 放置新键会自动淘汰LRU，所以不需要手动evict
             // 但为了统计信息，我们记录一次eviction
             if cache.len() >= self.config.capacity {
-                self.__stats.evictions.fetch_add(1, Ordering::Relaxed);
+                self.__stats.record_eviction();
             }
         }
 
         cache.put(key.to_string(), entry);
-        self.__stats.writes.fetch_add(1, Ordering::Relaxed);
+        self.__stats.record_write();
     }
 
     /// 删除值
     pub async fn delete(&self, key: &str) {
-        let mut cache = self.data.lock();
+        let mut cache = self.data.lock().await;
         cache.pop(key);
     }
 
     /// 检查键是否存在
     pub async fn contains(&self, key: &str) -> bool {
-        let mut cache = self.data.lock();
+        let mut cache = self.data.lock().await;
         if let Some(entry) = cache.get(key) {
             !entry.is_expired()
         } else {
@@ -385,19 +500,19 @@ impl L2Cache {
 
     /// 清空缓存
     pub async fn clear(&self) {
-        let mut cache = self.data.lock();
+        let mut cache = self.data.lock().await;
         cache.clear();
     }
 
     /// 获取缓存大小
     pub async fn len(&self) -> usize {
-        let cache = self.data.lock();
+        let cache = self.data.lock().await;
         cache.len()
     }
 
     /// 检查缓存是否为空
     pub async fn is_empty(&self) -> bool {
-        let cache = self.data.lock();
+        let cache = self.data.lock().await;
         cache.is_empty()
     }
 
@@ -451,7 +566,7 @@ impl L2Cache {
 
     /// 清理过期数据
     pub async fn cleanup_expired(&self) -> usize {
-        let mut cache = self.data.lock();
+        let mut cache = self.data.lock().await;
 
         // 收集所有过期的键
         let expired_keys: Vec<String> = cache
@@ -465,7 +580,7 @@ impl L2Cache {
         // 移除过期的键
         for key in expired_keys {
             cache.pop(&key);
-            self.__stats.expirations.fetch_add(1, Ordering::Relaxed);
+            self.__stats.record_expiration();
         }
 
         if count > 0 {
@@ -477,11 +592,11 @@ impl L2Cache {
 
     /// LRU淘汰
     #[allow(dead_code)]
-    fn evict_lru(&self) {
+    async fn evict_lru(&self) {
         // 使用 LruCache 的 pop_lru() 方法，这是 O(1) 的
-        let mut cache = self.data.lock();
+        let mut cache = self.data.lock().await;
         if cache.pop_lru().is_some() {
-            self.__stats.evictions.fetch_add(1, Ordering::Relaxed);
+            self.__stats.record_eviction();
             debug!("LRU淘汰成功");
         }
     }

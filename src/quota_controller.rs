@@ -252,14 +252,20 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
         // 检查窗口是否需要重置
         let updated_state = self.check_and_reset_window(quota_state).await?;
 
-        // 计算可透支上限
+        // 计算可透支上限（使用 checked_mul 防止整数溢出）
         let overdraft_limit = if self.config.allow_overdraft {
-            self.config.limit * self.config.overdraft_limit_percent as u64 / 100
+            self.config.limit
+                .checked_mul(self.config.overdraft_limit_percent as u64)
+                .and_then(|v| v.checked_div(100))
+                .unwrap_or(u64::MAX / 2) // 如果溢出，使用安全值
         } else {
             0
         };
 
-        let total_limit = self.config.limit + overdraft_limit;
+        // 计算总限制（使用 checked_add 防止整数溢出）
+        let total_limit = self.config.limit
+            .checked_add(overdraft_limit)
+            .unwrap_or(u64::MAX / 2); // 如果溢出，使用安全值
 
         // 检查是否超过总限制
         if updated_state.consumed + cost > total_limit {
@@ -389,8 +395,10 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
         let elapsed = now.signed_duration_since(state.window_start);
         let windows_passed = (elapsed.num_seconds() / window_duration.num_seconds()) as u64;
 
-        // 计算新窗口时间
-        let new_window_start = state.window_start + window_duration * windows_passed as i32;
+        // 计算新窗口时间（使用 checked_mul 防止整数溢出）
+        // 限制 windows_passed 避免溢出
+        let safe_windows_passed = windows_passed.min(i32::MAX as u64) as i32;
+        let new_window_start = state.window_start + window_duration * safe_windows_passed;
         let new_window_end = new_window_start + window_duration;
 
         // 滑动窗口重置：根据时间比例保留消费量
@@ -425,18 +433,27 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
         new_consumed: u64,
     ) -> Result<(), FlowGuardError> {
         // 使用存储的 consume 方法更新配额
+        // 计算总限制（防止整数溢出）
+        let overdraft_limit = if self.config.allow_overdraft {
+            self.config.limit
+                .checked_mul(self.config.overdraft_limit_percent as u64)
+                .and_then(|v| v.checked_div(100))
+                .unwrap_or(u64::MAX / 2)
+        } else {
+            0
+        };
+
+        let total_limit = self.config.limit
+            .checked_add(overdraft_limit)
+            .unwrap_or(u64::MAX / 2);
+
         let _result = self
             .storage
             .consume(
                 user_id,
                 resource,
-                new_consumed - state.consumed,
-                self.config.limit
-                    + if self.config.allow_overdraft {
-                        self.config.limit * self.config.overdraft_limit_percent as u64 / 100
-                    } else {
-                        0
-                    },
+                new_consumed.saturating_sub(state.consumed),
+                total_limit,
                 StdDuration::from_secs(self.config.window_size),
             )
             .await

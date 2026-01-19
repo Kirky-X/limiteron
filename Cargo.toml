@@ -91,7 +91,8 @@ syn = { version = "2.0", features = ["full"], optional = true }
 quote = { version = "1.0", optional = true }
 limiteron-macros = { path = "macros", version = "0.1.0", optional = true }
 ahash = { version = "0.8.12", features = ["serde"] }
-confers = { version = "0.1.1", optional = true }
+# Confers configuration loader (仅使用核心功能：文件加载、环境变量覆盖、serde 反序列化)
+confers = { version = "0.1.1", optional = true, default-features = false }
 
 [dev-dependencies]
 tokio-test = "0.4"

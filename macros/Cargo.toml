@@ -1,11 +1,11 @@
 [package]
-name = "flowguard-macros"
+name = "limiteron-macros"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Procedural macros for flowguard rate limiting"
+description = "Procedural macros for limiteron rate limiting"
 
 [lib]
 proc-macro = true

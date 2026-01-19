@@ -136,6 +136,49 @@ impl AuditLogStats {
 }
 
 #[cfg(feature = "audit-log")]
+/// 敏感数据脱敏
+///
+/// 对标识符和其他敏感数据进行脱敏处理
+fn sanitize_identifier(identifier: &str) -> String {
+    // 检查是否是 IP 地址
+    if identifier.contains('.') && identifier.parse::<std::net::IpAddr>().is_ok() {
+        // IP 地址：保留前两段，后两段掩码
+        let parts: Vec<&str> = identifier.split('.').collect();
+        if parts.len() == 4 {
+            return format!("{}.{}.xxx.xxx", parts[0], parts[1]);
+        }
+    }
+    
+    // 检查是否是邮箱
+    if identifier.contains('@') {
+        // 邮箱：保留用户名前3位和域名
+        let parts: Vec<&str> = identifier.split('@').collect();
+        if parts.len() == 2 {
+            let username = parts[0];
+            let masked_username = if username.len() > 3 {
+                format!("{}***", &username[..3])
+            } else {
+                "***".to_string()
+            };
+            return format!("{}@{}", masked_username, parts[1]);
+        }
+    }
+    
+    // 检查是否是 User ID（假设是数字或UUID）
+    if identifier.len() > 10 {
+        // User ID：只显示前3位和后3位
+        return format!("{}***{}", &identifier[..3], &identifier[identifier.len()-3..]);
+    }
+    
+    // 其他情况：部分掩码
+    if identifier.len() > 6 {
+        format!("{}***{}", &identifier[..3], &identifier[identifier.len()-3..])
+    } else {
+        "***".to_string()
+    }
+}
+
+#[cfg(feature = "audit-log")]
 #[derive(Debug, Clone)]
 pub struct AuditLogConfig {
     pub channel_capacity: usize,
@@ -143,6 +186,10 @@ pub struct AuditLogConfig {
     pub batch_timeout: Duration,
     pub enabled: bool,
     pub output_path: Option<String>,
+    /// 日志轮转：最大文件大小（字节）
+    pub max_file_size: Option<u64>,
+    /// 日志轮转：保留的文件数量
+    pub max_files: Option<usize>,
 }
 
 #[cfg(feature = "audit-log")]
@@ -154,6 +201,8 @@ impl Default for AuditLogConfig {
             batch_timeout: Duration::from_secs(5),
             enabled: true,
             output_path: None,
+            max_file_size: Some(100 * 1024 * 1024), // 100MB
+            max_files: Some(10), // 保留10个文件
         }
     }
 }
@@ -260,13 +309,13 @@ impl AuditLogger {
                             }
 
                             if batch.len() >= config.batch_size {
-                                Self::write_batch(&batch, &stats);
+                                Self::write_batch(&batch, &config, &stats);
                                 batch.clear();
                             }
                         }
                         None => {
                             if !batch.is_empty() {
-                                Self::write_batch(&batch, &stats);
+                                Self::write_batch(&batch, &config, &stats);
                             }
                             break;
                         }
@@ -274,7 +323,7 @@ impl AuditLogger {
                 }
                 _ = timeout.tick() => {
                     if !batch.is_empty() {
-                        Self::write_batch(&batch, &stats);
+                        Self::write_batch(&batch, &config, &stats);
                         batch.clear();
                     }
                 }
@@ -284,13 +333,24 @@ impl AuditLogger {
         info!("审计日志写入任务结束");
     }
 
-    fn write_batch(batch: &[AuditEvent], stats: &AuditLogStats) {
+    fn write_batch(batch: &[AuditEvent], config: &AuditLogConfig, stats: &AuditLogStats) {
         stats.batch_writes.fetch_add(1, Ordering::Relaxed);
 
         for event in batch {
             match serde_json::to_string_pretty(event) {
                 Ok(json) => {
-                    trace!("审计日志: {}", json);
+                    // 使用 info 级别记录日志（生产环境可见）
+                    info!("审计日志: {}", json);
+
+                    // 如果配置了输出路径，写入文件
+                    if let Some(ref path) = config.output_path {
+                        if let Err(e) = Self::write_to_file(path, &json, config) {
+                            stats.write_failures.fetch_add(1, Ordering::Relaxed);
+                            error!("写入审计日志文件失败: {}: {}", path, e);
+                        } else {
+                            trace!("成功写入审计日志文件: {}", path);
+                        }
+                    }
                 }
                 Err(e) => {
                     stats.write_failures.fetch_add(1, Ordering::Relaxed);
@@ -298,6 +358,77 @@ impl AuditLogger {
                 }
             }
         }
+    }
+
+    /// 写入审计日志到文件
+    ///
+    /// # 安全说明
+    /// - 使用追加模式写入，避免覆盖已有日志
+    /// - 自动创建目录（如果不存在）
+    /// - 添加换行符分隔日志条目
+    /// - 支持日志轮转
+    fn write_to_file(path: &str, content: &str, config: &AuditLogConfig) -> std::io::Result<()> {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+
+        // 检查是否需要轮转
+        if let Some(max_size) = config.max_file_size {
+            if let Ok(metadata) = std::fs::metadata(path) {
+                if metadata.len() >= max_size {
+                    // 执行日志轮转
+                    Self::rotate_log_file(path, config.max_files)?;
+                }
+            }
+        }
+
+        // 确保目录存在
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        // 以追加模式打开文件
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+
+        // 写入内容并添加换行符
+        writeln!(file, "{}", content)?;
+
+        Ok(())
+    }
+
+    /// 日志轮转
+    ///
+    /// 将当前日志文件重命名，并删除旧的日志文件
+    fn rotate_log_file(path: &str, max_files: Option<usize>) -> std::io::Result<()> {
+        let path_obj = std::path::Path::new(path);
+        let parent = path_obj.parent().unwrap_or(std::path::Path::new("."));
+        let stem = path_obj.file_stem().unwrap_or(std::ffi::OsStr::new("audit"));
+        let extension = path_obj.extension().and_then(|e| e.to_str()).unwrap_or("log");
+
+        // 删除最旧的日志文件（如果超过 max_files）
+        if let Some(max_files) = max_files {
+            let old_file = parent.join(format!("{}.{}.{}", stem.to_str().unwrap(), max_files, extension));
+            if old_file.exists() {
+                std::fs::remove_file(&old_file)?;
+            }
+
+            // 重命名中间的日志文件
+            for i in (1..max_files).rev() {
+                let old_name = parent.join(format!("{}.{}.{}", stem.to_str().unwrap(), i, extension));
+                let new_name = parent.join(format!("{}.{}.{}", stem.to_str().unwrap(), i + 1, extension));
+                if old_name.exists() {
+                    std::fs::rename(&old_name, &new_name)?;
+                }
+            }
+        }
+
+        // 重命名当前日志文件
+        let rotated_name = parent.join(format!("{}.1.{}", stem.to_str().unwrap(), extension));
+        std::fs::rename(path, &rotated_name)?;
+
+        Ok(())
     }
 
     pub async fn log_decision(
@@ -311,9 +442,12 @@ impl AuditLogger {
             return;
         }
 
+        // 对敏感数据进行脱敏
+        let sanitized_identifier = sanitize_identifier(&identifier);
+
         let event = AuditEvent::Decision {
             timestamp: Utc::now(),
-            identifier,
+            identifier: sanitized_identifier,
             decision,
             reason,
             request_id,

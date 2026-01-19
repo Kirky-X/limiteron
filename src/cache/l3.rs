@@ -385,8 +385,29 @@ impl L3Cache {
                     }
                     Err(e) => {
                         error!("L3缓存读取失败: key={}, error={}", key, e);
-                        // 标记为降级
-                        self.set_degraded(true).await;
+                        
+                        // 永久错误立即降级
+                        if e.is_permanent() {
+                            self.set_degraded(true).await;
+                            self.fallback_manager
+                                .record_failure(ComponentType::L3Cache, &e.to_string())
+                                .await;
+                        } 
+                        // 临时错误记录但不立即降级
+                        else if e.is_transient() {
+                            warn!("L3缓存临时错误: {}", e);
+                            self.fallback_manager
+                                .record_failure(ComponentType::L3Cache, &e.to_string())
+                                .await;
+                            
+                            // 连续多次临时错误才降级
+                            let failure_count = self.fallback_manager
+                                .get_failure_count(ComponentType::L3Cache)
+                                .await;
+                            if failure_count >= 3 {
+                                self.set_degraded(true).await;
+                            }
+                        }
                     }
                 }
             }

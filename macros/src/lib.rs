@@ -62,7 +62,8 @@ impl FlowControlConfig {
                         .ok_or_else(|| "Expected identifier".to_string())?;
                     let ident_str = ident.to_string();
 
-                    match ident_str.as_str() {
+                    let ident_ref: &str = &ident_str;
+                    match ident_ref {
                         "rate" => {
                             if let syn::Expr::Lit(expr_lit) = nv.value {
                                 if let syn::Lit::Str(lit) = expr_lit.lit {
@@ -165,7 +166,8 @@ impl RateLimit {
             .map_err(|_| format!("Invalid rate amount: '{}'", parts[0]))?;
 
         let unit = parts[1].to_lowercase();
-        if !["s", "m", "h"].contains(&unit.as_str()) {
+        let unit_str: &str = &unit;
+        if !["s", "m", "h"].contains(&unit_str) {
             return Err(format!(
                 "Invalid rate unit: '{}', expected one of: s, m, h",
                 unit
@@ -208,7 +210,8 @@ impl QuotaLimit {
             .map_err(|_| format!("Invalid quota max: '{}'", parts[0]))?;
 
         let period = parts[1].to_lowercase();
-        if !["s", "m", "h", "d"].contains(&period.as_str()) {
+        let period_str: &str = &period;
+        if !["s", "m", "h", "d"].contains(&period_str) {
             return Err(format!(
                 "Invalid quota period: '{}', expected one of: s, m, h, d",
                 period
@@ -251,7 +254,7 @@ fn generate_flow_control(
             let rate_key = {
                 let sanitize = |s: &str| s
                     .chars()
-                    .filter(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+                    .filter(|c: &char| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
                     .take(128)
                     .collect::<String>();
                 format!("rate:{}:{}", #fn_name_str, sanitize(&identifier))
@@ -274,7 +277,7 @@ fn generate_flow_control(
             let quota_key = {
                 let sanitize = |s: &str| s
                     .chars()
-                    .filter(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+                    .filter(|c: &char| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
                     .take(128)
                     .collect::<String>();
                 format!("quota:{}:{}", #fn_name_str, sanitize(&identifier))
@@ -295,7 +298,7 @@ fn generate_flow_control(
             let concurrency_key = {
                 let sanitize = |s: &str| s
                     .chars()
-                    .filter(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.')
+                    .filter(|c: &char| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
                     .take(128)
                     .collect::<String>();
                 format!("concurrency:{}:{}", #fn_name_str, sanitize(&identifier))

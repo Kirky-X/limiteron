@@ -269,16 +269,70 @@ impl GeoMatcher {
 
         info!("加载GeoLite2数据库: {}", db_path.display());
 
+        // 获取文件元数据
+        let metadata = tokio::fs::metadata(db_path)
+            .await
+            .map_err(FlowGuardError::IoError)?;
+
+        // 验证文件大小（GeoLite2-City.mmdb 通常大于 50MB）
+        const MIN_DB_SIZE: u64 = 50 * 1024 * 1024; // 50MB
+        const MAX_DB_SIZE: u64 = 500 * 1024 * 1024; // 500MB
+
+        let file_size = metadata.len();
+        if file_size < MIN_DB_SIZE {
+            return Err(FlowGuardError::ConfigError(format!(
+                "GeoLite2数据库文件大小异常（{} bytes），可能已损坏或不是完整文件。最小要求: {} bytes",
+                file_size, MIN_DB_SIZE
+            )));
+        }
+
+        if file_size > MAX_DB_SIZE {
+            warn!("GeoLite2数据库文件过大（{} bytes），可能不是标准文件", file_size);
+        }
+
         // 异步读取数据库文件
         let db_content = tokio::fs::read(db_path)
             .await
             .map_err(FlowGuardError::IoError)?;
 
+        // 验证文件大小一致性
+        if db_content.len() as u64 != file_size {
+            return Err(FlowGuardError::ConfigError(
+                "GeoLite2数据库文件读取不完整，可能被截断".to_string()
+            ));
+        }
+
         info!("GeoLite2数据库加载成功，大小: {} bytes", db_content.len());
+
+        // 验证文件头（MaxMind 数据库文件以特定 magic number 开头）
+        // MaxMind DB 格式: 0x00 0x00 0x02 0x00 (v2) 或 0x00 0x00 0x00 0x00 (v1)
+        if db_content.len() < 4 {
+            return Err(FlowGuardError::ConfigError(
+                "GeoLite2数据库文件过短，无法读取文件头".to_string()
+            ));
+        }
+
+        let header = &db_content[0..4];
+        // 检查是否是 MaxMind 数据库格式
+        let is_valid_header = header == &[0x00, 0x00, 0x02, 0x00] || // v2 format
+                              header == &[0x00, 0x00, 0x00, 0x00] || // v1 format
+                              header == &[0x00, 0x00, 0x03, 0x00]; // 可能的 v3 格式
+
+        if !is_valid_header {
+            warn!("GeoLite2数据库文件头格式异常: {:02X?}", header);
+            // 不直接返回错误，因为某些版本可能有不同的文件头
+            // 让后续的 Reader::from_source 来验证
+        }
 
         // 创建读取器
         let reader = Reader::from_source(db_content)
             .map_err(|e| FlowGuardError::ConfigError(format!("无效的GeoLite2数据库文件: {}", e)))?;
+
+        // 验证数据库元数据
+        info!("GeoLite2数据库元数据: 版本={}, 构建日期={}, 记录数={}",
+              reader.metadata.binary_format_major_version,
+              reader.metadata.build_epoch,
+              reader.metadata.node_count);
 
         let matcher = Self {
             reader: Arc::new(reader),

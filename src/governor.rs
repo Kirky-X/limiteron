@@ -24,10 +24,10 @@ use crate::fallback::FallbackManager;
 use crate::limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter};
 use crate::log_redaction::{redact_ip, redact_user_id};
 use crate::matchers::{
-    CompositeCondition, ConditionEvaluator, Identifier, IdentifierExtractor, IpRange,
+    CompositeCondition, ConditionEvaluator, IdentifierExtractor, IpRange,
     LogicalOperator, MatchCondition, RequestContext, Rule as MatcherRule, RuleMatcher,
 };
-use crate::storage::{BanStorage, BanTarget, Storage};
+use crate::storage::{BanStorage, Storage};
 use chrono::Utc;
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -49,6 +49,10 @@ use crate::telemetry::Metrics;
 use crate::telemetry::Tracer;
 #[cfg(feature = "ban-manager")]
 use crate::BanSource;
+#[cfg(feature = "parallel-checker")]
+use crate::matchers::Identifier;
+#[cfg(feature = "parallel-checker")]
+use crate::storage::BanTarget;
 
 /// Governor 统计信息
 #[derive(Debug, Clone, Default)]
@@ -416,31 +420,33 @@ impl Governor {
         })?;
         trace!("Extracted identifier: {}", identifier.key());
 
-        // 尝试转换为 BanTarget 进行检查
-        let ban_target = match &identifier {
-            Identifier::UserId(id) => Some(BanTarget::UserId(id.clone())),
-            Identifier::Ip(ip) => Some(BanTarget::Ip(ip.clone())),
-            Identifier::Mac(mac) => Some(BanTarget::Mac(mac.clone())),
-            _ => None,
-        };
-
         // 并行封禁检查 (仅当 parallel-checker 特性启用时)
         #[cfg(feature = "parallel-checker")]
-        if let Some(target) = ban_target {
-            // 使用专门的并行封禁检查器
-            let ban_info = self
-                .parallel_ban_checker
-                .check_single_target(&target)
-                .await?;
+        {
+            // 尝试转换为 BanTarget 进行检查
+            let ban_target = match &identifier {
+                Identifier::UserId(id) => Some(BanTarget::UserId(id.clone())),
+                Identifier::Ip(ip) => Some(BanTarget::Ip(ip.clone())),
+                Identifier::Mac(mac) => Some(BanTarget::Mac(mac.clone())),
+                _ => None,
+            };
 
-            if let Some(info) = ban_info {
-                warn!(
-                    "Request banned: 用户={}, 原因={}",
-                    identifier.key(),
-                    info.reason
-                );
-                self.banned_requests.fetch_add(1, Ordering::Relaxed);
-                return Ok(Decision::Banned(info));
+            if let Some(target) = ban_target {
+                // 使用专门的并行封禁检查器
+                let ban_info = self
+                    .parallel_ban_checker
+                    .check_single_target(&target)
+                    .await?;
+
+                if let Some(info) = ban_info {
+                    warn!(
+                        "Request banned: 用户={}, 原因={}",
+                        identifier.key(),
+                        info.reason
+                    );
+                    self.banned_requests.fetch_add(1, Ordering::Relaxed);
+                    return Ok(Decision::Banned(info));
+                }
             }
         }
 

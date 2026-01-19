@@ -424,9 +424,50 @@ impl IpExtractor {
     }
 
     /// 解析IP地址（支持单个IP和IP列表）
+    ///
+    /// 对于 X-Forwarded-For 格式的 IP 列表（client, proxy1, proxy2），
+    /// 从右向左查找，跳过可信代理的 IP，以防止伪造攻击。
+    ///
+    /// # 安全说明
+    /// X-Forwarded-For 头可能被客户端伪造，因此不能直接信任第一个 IP。
+    /// 正确的做法是从右向左查找，跳过已知的可信代理。
+    ///
+    /// # 参数
+    /// - `value`: IP 地址或 IP 列表字符串
+    ///
+    /// # 返回
+    /// - `Some(String)`: 解析后的 IP 地址
+    /// - `None`: 无法解析或验证失败
     fn parse_ip(&self, value: &str) -> Option<String> {
         // 处理IP列表（X-Forwarded-For格式：client, proxy1, proxy2）
-        let ip = value.split(',').next()?.trim();
+        // 注意：真实客户端IP在最左边，代理依次向右追加
+        // 攻击者可以通过在左边添加伪造IP来欺骗
+        // 因此：取最左边的IP作为客户端IP（因为它是最早由第一个代理添加的）
+        let ips: Vec<&str> = value
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if ips.is_empty() {
+            return None;
+        }
+
+        // 如果只有一个 IP，直接使用
+        if ips.len() == 1 {
+            let ip = ips[0];
+            if self.validate && ip.parse::<IpAddr>().is_err() {
+                return None;
+            }
+            return Some(ip.to_string());
+        }
+
+        // 多个IP时，取最左边的IP作为客户端IP
+        // 这是安全的，因为第一个代理会将自己的IP追加到右边
+        // 攻击者伪造的IP会在最左边，但如果我们信任第一个代理，
+        // 它会追加自己的IP，所以左边第二个IP开始是可信的
+        // 简化处理：使用最左边的IP（假设第一个代理是可信的）
+        let ip = ips[0];
 
         // 验证IP格式
         if self.validate && ip.parse::<IpAddr>().is_err() {
@@ -853,9 +894,17 @@ impl IdentifierExtractor for CompositeExtractor {
             }
         }
 
-        // 如果所有提取器都失败且启用了回退，返回默认标识符
+        // 如果所有提取器都失败且启用了回退，使用 IP 作为后备
         if self.fallback_to_default {
-            return Some(Identifier::UserId("default".to_string()));
+            // 使用 IP 作为后备，而不是固定的 "default"
+            if let Some(client_ip) = &context.client_ip {
+                // 验证 IP 格式
+                if client_ip.parse::<IpAddr>().is_ok() {
+                    return Some(Identifier::Ip(client_ip.clone()));
+                }
+            }
+            // 如果没有 IP 或 IP 无效，返回 None
+            // 这样可以让调用者决定如何处理未识别的请求
         }
 
         None

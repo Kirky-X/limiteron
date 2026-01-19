@@ -70,6 +70,8 @@ lazy_static.workspace = true
 regex = { version = "1.12", optional = true }
 secrecy = "0.8"
 futures = { version = "0.3", optional = true }
+scopeguard = { version = "1.2", optional = true }
+base64 = { version = "0.22", optional = true }
 
 sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "chrono", "uuid"], optional = true }
 redis = { version = "0.24", features = ["tokio-comp", "cluster", "connection-manager"], optional = true }
@@ -169,7 +171,7 @@ config-security = []
 # Parallel ban checker (high-performance ban checking)
 parallel-checker = ["ban-manager", "dep:futures"]
 # Smart cache strategy (intelligent caching)
-smart-cache = []
+smart-cache = ["dep:base64"]
 
 # ============================================
 # Advanced Matching (高级匹配 - 独立)
@@ -190,7 +192,8 @@ telemetry = [
     "dep:tracing-opentelemetry",
     "dep:opentelemetry",
     "dep:opentelemetry-jaeger",
-    "dep:opentelemetry_sdk"
+    "dep:opentelemetry_sdk",
+    "dep:scopeguard"
 ]
 # Monitoring (Prometheus metrics)
 monitoring = ["dep:prometheus"]

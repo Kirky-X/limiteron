@@ -1,4 +1,3 @@
-#![cfg(feature = "config-security")]
 //! Copyright (c) 2026, Kirky.X
 //!
 //! MIT License

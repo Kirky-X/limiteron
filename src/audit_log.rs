@@ -148,7 +148,7 @@ fn sanitize_identifier(identifier: &str) -> String {
             return format!("{}.{}.xxx.xxx", parts[0], parts[1]);
         }
     }
-    
+
     // 检查是否是邮箱
     if identifier.contains('@') {
         // 邮箱：保留用户名前3位和域名
@@ -163,16 +163,24 @@ fn sanitize_identifier(identifier: &str) -> String {
             return format!("{}@{}", masked_username, parts[1]);
         }
     }
-    
+
     // 检查是否是 User ID（假设是数字或UUID）
     if identifier.len() > 10 {
         // User ID：只显示前3位和后3位
-        return format!("{}***{}", &identifier[..3], &identifier[identifier.len()-3..]);
+        return format!(
+            "{}***{}",
+            &identifier[..3],
+            &identifier[identifier.len() - 3..]
+        );
     }
-    
+
     // 其他情况：部分掩码
     if identifier.len() > 6 {
-        format!("{}***{}", &identifier[..3], &identifier[identifier.len()-3..])
+        format!(
+            "{}***{}",
+            &identifier[..3],
+            &identifier[identifier.len() - 3..]
+        )
     } else {
         "***".to_string()
     }
@@ -202,7 +210,7 @@ impl Default for AuditLogConfig {
             enabled: true,
             output_path: None,
             max_file_size: Some(100 * 1024 * 1024), // 100MB
-            max_files: Some(10), // 保留10个文件
+            max_files: Some(10),                    // 保留10个文件
         }
     }
 }
@@ -387,10 +395,7 @@ impl AuditLogger {
         }
 
         // 以追加模式打开文件
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
+        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
 
         // 写入内容并添加换行符
         writeln!(file, "{}", content)?;
@@ -404,20 +409,36 @@ impl AuditLogger {
     fn rotate_log_file(path: &str, max_files: Option<usize>) -> std::io::Result<()> {
         let path_obj = std::path::Path::new(path);
         let parent = path_obj.parent().unwrap_or(std::path::Path::new("."));
-        let stem = path_obj.file_stem().unwrap_or(std::ffi::OsStr::new("audit"));
-        let extension = path_obj.extension().and_then(|e| e.to_str()).unwrap_or("log");
+        let stem = path_obj
+            .file_stem()
+            .unwrap_or(std::ffi::OsStr::new("audit"));
+        let extension = path_obj
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("log");
 
         // 删除最旧的日志文件（如果超过 max_files）
         if let Some(max_files) = max_files {
-            let old_file = parent.join(format!("{}.{}.{}", stem.to_str().unwrap(), max_files, extension));
+            let old_file = parent.join(format!(
+                "{}.{}.{}",
+                stem.to_str().unwrap(),
+                max_files,
+                extension
+            ));
             if old_file.exists() {
                 std::fs::remove_file(&old_file)?;
             }
 
             // 重命名中间的日志文件
             for i in (1..max_files).rev() {
-                let old_name = parent.join(format!("{}.{}.{}", stem.to_str().unwrap(), i, extension));
-                let new_name = parent.join(format!("{}.{}.{}", stem.to_str().unwrap(), i + 1, extension));
+                let old_name =
+                    parent.join(format!("{}.{}.{}", stem.to_str().unwrap(), i, extension));
+                let new_name = parent.join(format!(
+                    "{}.{}.{}",
+                    stem.to_str().unwrap(),
+                    i + 1,
+                    extension
+                ));
                 if old_name.exists() {
                     std::fs::rename(&old_name, &new_name)?;
                 }

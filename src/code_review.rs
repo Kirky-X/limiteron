@@ -1,4 +1,3 @@
-#![cfg(feature = "code-review")]
 //! Copyright (c) 2026, Kirky.X
 //!
 //! MIT License

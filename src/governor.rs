@@ -15,6 +15,7 @@ use crate::config::{
     ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig, LimiterConfig,
     Matcher as ConfigMatcher,
 };
+#[allow(unused_imports)]
 use crate::constants::{
     DEFAULT_L2_CACHE_CAPACITY, DEFAULT_L2_CACHE_TTL_SECS, SECONDS_PER_HOUR, SECONDS_PER_MINUTE,
 };
@@ -25,8 +26,8 @@ use crate::fallback::FallbackManager;
 use crate::limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter};
 use crate::log_redaction::{redact_ip, redact_user_id};
 use crate::matchers::{
-    CompositeCondition, ConditionEvaluator, IdentifierExtractor, IpRange,
-    LogicalOperator, MatchCondition, RequestContext, Rule as MatcherRule, RuleMatcher,
+    CompositeCondition, ConditionEvaluator, IdentifierExtractor, IpRange, LogicalOperator,
+    MatchCondition, RequestContext, Rule as MatcherRule, RuleMatcher,
 };
 use crate::storage::{BanStorage, Storage};
 use chrono::Utc;
@@ -44,16 +45,16 @@ use crate::audit_log::AuditLogger;
 use crate::ban_manager::BanManager;
 #[cfg(feature = "circuit-breaker")]
 use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+#[cfg(feature = "parallel-checker")]
+use crate::matchers::Identifier;
+#[cfg(feature = "parallel-checker")]
+use crate::storage::BanTarget;
 #[cfg(feature = "monitoring")]
 use crate::telemetry::Metrics;
 #[cfg(feature = "telemetry")]
 use crate::telemetry::Tracer;
 #[cfg(feature = "ban-manager")]
 use crate::BanSource;
-#[cfg(feature = "parallel-checker")]
-use crate::matchers::Identifier;
-#[cfg(feature = "parallel-checker")]
-use crate::storage::BanTarget;
 
 /// Governor 统计信息
 #[derive(Debug, Clone, Default)]
@@ -345,8 +346,8 @@ impl Governor {
         // 创建 L2Cache 用于 FallbackManager
         #[cfg(feature = "fallback")]
         let fallback_l2_cache = Arc::new(L2Cache::new(
-            DEFAULT_L2_CACHE_CAPACITY,
-            Duration::from_secs(DEFAULT_L2_CACHE_TTL_SECS),
+            crate::constants::DEFAULT_L2_CACHE_CAPACITY,
+            Duration::from_secs(crate::constants::DEFAULT_L2_CACHE_TTL_SECS),
         ));
         // 创建降级管理器
         #[cfg(feature = "fallback")]

@@ -7,8 +7,6 @@
 //! 专门负责高效的并行封禁检查，支持多种目标类型的并发验证。
 //! 需要同时启用 `ban-manager` 和 `parallel-checker` feature。
 
-#![cfg(feature = "parallel-checker")]
-
 use crate::error::{BanInfo, FlowGuardError};
 use crate::matchers::RequestContext;
 use crate::storage::BanTarget;

@@ -698,11 +698,11 @@ fn init_console_tracer(config: &TelemetryConfig) -> Result<(), String> {
 /// - `Err(_)`: 服务器启动失败
 #[cfg(feature = "monitoring")]
 pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result<(), String> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
     use tokio::time::{timeout, Duration};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
 
     // 并发连接限制
     const MAX_CONCURRENT_CONNECTIONS: usize = 100;
@@ -737,42 +737,40 @@ pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result
                     });
 
                     let mut buffer = [0u8; 1024];
-                    
+
                     // 添加读取超时（5秒）
-                    let read_result = timeout(
-                        Duration::from_secs(5),
-                        socket.read(&mut buffer)
-                    ).await;
-                    
+                    let read_result =
+                        timeout(Duration::from_secs(5), socket.read(&mut buffer)).await;
+
                     match read_result {
                         Ok(Ok(n)) => {
                             let request = String::from_utf8_lossy(&buffer[..n]);
-                            
+
                             // 简单的 HTTP 请求验证
                             if request.starts_with("GET /metrics") {
                                 let response = metrics.gather();
                                 let http_response = format!(
-                                    "HTTP/1.1 200 OK\r\n\
-                                     Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n\
-                                     Content-Length: {}\r\n\
-                                     Connection: close\r\n\
-                                     \r\n{}",
+                                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4; \
+                                     charset=utf-8\r\nContent-Length: {}\r\nConnection: \
+                                     close\r\n\r\n{}",
                                     response.len(),
                                     response
                                 );
-                                
+
                                 // 添加写入超时（5秒）
                                 let write_result = timeout(
                                     Duration::from_secs(5),
-                                    socket.write_all(http_response.as_bytes())
-                                ).await;
-                                
-                                if let Err(_) = write_result {
+                                    socket.write_all(http_response.as_bytes()),
+                                )
+                                .await;
+
+                                if write_result.is_err() {
                                     warn!("Failed to send metrics response: timeout");
                                 }
                             } else if request.starts_with("GET /health") {
                                 // 添加健康检查端点
-                                let response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK\r\n";
+                                let response =
+                                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK\r\n";
                                 let _ = socket.write_all(response.as_bytes()).await;
                             } else {
                                 let response = "HTTP/1.1 404 Not Found\r\n\r\n";

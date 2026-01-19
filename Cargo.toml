@@ -91,6 +91,7 @@ syn = { version = "2.0", features = ["full"], optional = true }
 quote = { version = "1.0", optional = true }
 limiteron-macros = { path = "macros", version = "0.1.0", optional = true }
 ahash = { version = "0.8.12", features = ["serde"] }
+confers = { version = "0.1.1", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -105,7 +106,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Minimal: Only core rate limiting with memory storage
 minimal = ["memory"]
 # Standard: Core + essential advanced features for API rate limiting
-standard = ["memory", "ban-manager", "quota-control", "circuit-breaker"]
+standard = ["memory", "ban-manager", "quota-control", "circuit-breaker", "confers"]
 # Full: All features enabled (equivalent to v0.1.0 default)
 full = [
     "postgres",
@@ -128,7 +129,8 @@ full = [
     "macros",
     "config-watcher",
     "webhook",
-    "code-review"
+    "code-review",
+    "confers"
 ]
 # Legacy: Compatibility with v0.1.0 default behavior
 legacy-compat = ["postgres", "redis", "telemetry", "macros", "fallback"]
@@ -212,6 +214,8 @@ config-watcher = ["dep:notify"]
 webhook = ["dep:reqwest"]
 # Code review system (multi-agent code review)
 code-review = []
+# Confers configuration loader
+confers = ["dep:confers"]
 
 [[example]]
 name = "simple_rate_limit"

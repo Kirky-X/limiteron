@@ -21,7 +21,7 @@ use crate::limiters::{
 use std::sync::Arc;
 
 /// 配置限制常量
-/// 
+///
 /// 这些限制值基于以下考虑：
 /// - MAX_TOKEN_BUCKET_CAPACITY: 防止内存过度消耗，假设每个令牌占用1字节，10M令牌约10MB内存
 /// - MAX_TOKEN_BUCKET_REFILL_RATE: 防止CPU过度消耗，每秒100万次补充操作可能导致性能问题
@@ -239,7 +239,6 @@ impl LimiterFactory {
     /// let config = LimiterConfig::TokenBucket { capacity: 1000, refill_rate: 100 };
     /// LimiterFactory::validate_config(&config)?;
     /// ```
-    
     /// 验证窗口配置（适用于滑动窗口和固定窗口）
     fn validate_window_config(
         window_size: &str,
@@ -248,14 +247,16 @@ impl LimiterFactory {
     ) -> Result<(), FlowGuardError> {
         Self::parse_window_size(window_size)?;
         if max_requests == 0 {
-            return Err(FlowGuardError::ConfigError(
-                format!("{}最大请求数必须大于0", limiter_type)
-            ));
+            return Err(FlowGuardError::ConfigError(format!(
+                "{}最大请求数必须大于0",
+                limiter_type
+            )));
         }
         if max_requests > MAX_WINDOW_REQUESTS {
-            return Err(FlowGuardError::ConfigError(
-                format!("{}最大请求数过大，最大值为{}", limiter_type, MAX_WINDOW_REQUESTS)
-            ));
+            return Err(FlowGuardError::ConfigError(format!(
+                "{}最大请求数过大，最大值为{}",
+                limiter_type, MAX_WINDOW_REQUESTS
+            )));
         }
         Ok(())
     }
@@ -277,14 +278,16 @@ impl LimiterFactory {
                     ));
                 }
                 if *capacity > MAX_TOKEN_BUCKET_CAPACITY {
-                    return Err(FlowGuardError::ConfigError(
-                        format!("令牌桶容量过大，最大值为{}", MAX_TOKEN_BUCKET_CAPACITY)
-                    ));
+                    return Err(FlowGuardError::ConfigError(format!(
+                        "令牌桶容量过大，最大值为{}",
+                        MAX_TOKEN_BUCKET_CAPACITY
+                    )));
                 }
                 if *refill_rate > MAX_TOKEN_BUCKET_REFILL_RATE {
-                    return Err(FlowGuardError::ConfigError(
-                        format!("令牌桶补充速率过大，最大值为{}", MAX_TOKEN_BUCKET_REFILL_RATE)
-                    ));
+                    return Err(FlowGuardError::ConfigError(format!(
+                        "令牌桶补充速率过大，最大值为{}",
+                        MAX_TOKEN_BUCKET_REFILL_RATE
+                    )));
                 }
             }
             LimiterConfig::SlidingWindow {
@@ -306,9 +309,10 @@ impl LimiterFactory {
                     ));
                 }
                 if *max_concurrent > MAX_CONCURRENT_REQUESTS {
-                    return Err(FlowGuardError::ConfigError(
-                        format!("并发限制数过大，最大值为{}", MAX_CONCURRENT_REQUESTS)
-                    ));
+                    return Err(FlowGuardError::ConfigError(format!(
+                        "并发限制数过大，最大值为{}",
+                        MAX_CONCURRENT_REQUESTS
+                    )));
                 }
             }
             LimiterConfig::Quota { .. } => {

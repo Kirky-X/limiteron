@@ -142,10 +142,7 @@ impl SingleFlightLoader {
                 }
 
                 // 添加超时保护
-                let timeout = tokio::time::timeout(
-                    Duration::from_secs(30),
-                    rx.changed()
-                );
+                let timeout = tokio::time::timeout(Duration::from_secs(30), rx.changed());
 
                 match timeout.await {
                     Ok(Ok(())) => {

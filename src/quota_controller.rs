@@ -254,7 +254,8 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
 
         // 计算可透支上限（使用 checked_mul 防止整数溢出）
         let overdraft_limit = if self.config.allow_overdraft {
-            self.config.limit
+            self.config
+                .limit
                 .checked_mul(self.config.overdraft_limit_percent as u64)
                 .and_then(|v| v.checked_div(100))
                 .unwrap_or(u64::MAX / 2) // 如果溢出，使用安全值
@@ -263,7 +264,9 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
         };
 
         // 计算总限制（使用 checked_add 防止整数溢出）
-        let total_limit = self.config.limit
+        let total_limit = self
+            .config
+            .limit
             .checked_add(overdraft_limit)
             .unwrap_or(u64::MAX / 2); // 如果溢出，使用安全值
 
@@ -435,7 +438,8 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
         // 使用存储的 consume 方法更新配额
         // 计算总限制（防止整数溢出）
         let overdraft_limit = if self.config.allow_overdraft {
-            self.config.limit
+            self.config
+                .limit
                 .checked_mul(self.config.overdraft_limit_percent as u64)
                 .and_then(|v| v.checked_div(100))
                 .unwrap_or(u64::MAX / 2)
@@ -443,7 +447,9 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
             0
         };
 
-        let total_limit = self.config.limit
+        let total_limit = self
+            .config
+            .limit
             .checked_add(overdraft_limit)
             .unwrap_or(u64::MAX / 2);
 

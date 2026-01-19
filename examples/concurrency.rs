@@ -4,7 +4,6 @@
 //!
 //! 运行方式: `cargo run --example concurrency`
 
-use futures::future::join_all;
 use limiteron::limiters::ConcurrencyLimiter;
 use std::sync::Arc;
 use std::time::Duration;

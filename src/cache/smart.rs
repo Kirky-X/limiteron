@@ -12,9 +12,6 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
-#[cfg(feature = "smart-cache")]
-use base64;
-
 /// 智能缓存策略
 pub struct SmartCacheStrategy {
     /// L2缓存层
@@ -71,14 +68,14 @@ impl SmartCacheStrategy {
         // 检查缓存统计信息
         let stats = self.stats.read().await;
         let total_requests = stats.hits + stats.misses;
-        
+
         if total_requests == 0 {
             return false;
         }
-        
+
         // 基于命中率决定是否预取
         let hit_rate = stats.hits as f64 / total_requests as f64;
-        
+
         // 如果命中率较高且数据量适中，则预取
         hit_rate > 0.5 && entry_size < 10_000
     }
@@ -158,13 +155,13 @@ impl SmartCacheStrategy {
         // 这里应该从实际存储（如数据库、Redis等）加载数据
         // 这是一个框架实现，用户需要注入存储
         debug!("从存储加载数据: {}", key);
-        
+
         // 暂时返回 None，表示未实现
         // 在实际应用中，这里应该:
         // 1. 从 Redis/PostgreSQL 等存储加载数据
         // 2. 处理加载失败的情况
         // 3. 考虑加载超时
-        
+
         None
     }
 
@@ -172,20 +169,20 @@ impl SmartCacheStrategy {
     async fn compress(&self, data: &str) -> Option<String> {
         // 简单的压缩示例：移除重复的空白字符
         // 在实际应用中，应该使用真正的压缩库如 snap、lz4 等
-        
+
         // 小数据不压缩
         if data.len() < 100 {
             return None;
         }
-        
+
         // 检查数据是否可压缩（简单启发式）
         if !self.is_compressible(data) {
             return None;
         }
-        
+
         // 简单压缩：移除多余的空白字符
         let compressed = data.split_whitespace().collect::<Vec<&str>>().join(" ");
-        
+
         // 检查压缩率
         let compression_ratio = compressed.len() as f64 / data.len() as f64;
         if compression_ratio < 0.8 {

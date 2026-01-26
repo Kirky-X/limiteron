@@ -3,10 +3,8 @@
 //! 测试各种操作的延迟性能
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use limiteron::{
-    cache::l2::L2Cache,
-    limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter},
-};
+use limiteron::limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter};
+use oxcache::Cache;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -56,59 +54,79 @@ fn bench_fixed_window_latency(c: &mut Criterion) {
     });
 }
 
-/// 基准测试：L2缓存命中延迟
-fn bench_l2_cache_hit_latency(c: &mut Criterion) {
+/// 基准测试：缓存命中延迟
+fn bench_cache_hit_latency(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let cache = Arc::new(rt.block_on(L2Cache::new(10000, Duration::from_secs(60))));
+    let cache: Arc<Cache<String, String>> = Arc::new(
+        rt.block_on(
+            Cache::builder()
+                .capacity(10000)
+                .ttl(Duration::from_secs(60))
+                .build(),
+        )
+        .unwrap(),
+    );
 
     // 预热缓存
     rt.block_on(async {
         cache
-            .set("hot_key", "hot_value", Some(Duration::from_secs(60)))
+            .set(&"hot_key".to_string(), &"hot_value".to_string())
             .await;
     });
 
     let cache = cache.clone();
-    c.bench_function("l2_cache_hit", |b| {
+    c.bench_function("cache_hit", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let _ = black_box(cache.get("hot_key").await);
+                let _ = black_box(cache.get(&"hot_key".to_string()).await);
             });
         });
     });
 }
 
-/// 基准测试：L2缓存未命中延迟
-fn bench_l2_cache_miss_latency(c: &mut Criterion) {
+/// 基准测试：缓存未命中延迟
+fn bench_cache_miss_latency(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let cache = Arc::new(rt.block_on(L2Cache::new(10000, Duration::from_secs(60))));
+    let cache: Arc<Cache<String, String>> = Arc::new(
+        rt.block_on(
+            Cache::builder()
+                .capacity(10000)
+                .ttl(Duration::from_secs(60))
+                .build(),
+        )
+        .unwrap(),
+    );
 
     let cache = cache.clone();
-    c.bench_function("l2_cache_miss", |b| {
+    c.bench_function("cache_miss", |b| {
         b.iter(|| {
             rt.block_on(async {
-                let _ = black_box(cache.get("cold_key").await);
+                let _ = black_box(cache.get(&"cold_key".to_string()).await);
             });
         });
     });
 }
 
-/// 基准测试：L2缓存写入延迟
-fn bench_l2_cache_set_latency(c: &mut Criterion) {
+/// 基准测试：缓存写入延迟
+fn bench_cache_set_latency(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let cache = Arc::new(rt.block_on(L2Cache::new(10000, Duration::from_secs(60))));
+    let cache: Arc<Cache<String, String>> = Arc::new(
+        rt.block_on(
+            Cache::builder()
+                .capacity(10000)
+                .ttl(Duration::from_secs(60))
+                .build(),
+        )
+        .unwrap(),
+    );
 
     let cache = cache.clone();
-    c.bench_function("l2_cache_set", |b| {
+    c.bench_function("cache_set", |b| {
         b.iter(|| {
             let key = format!("key_{}", black_box(42));
             rt.block_on(async {
                 #[allow(clippy::unit_arg)]
-                black_box(
-                    cache
-                        .set(&key, "value", Some(Duration::from_secs(60)))
-                        .await,
-                );
+                black_box(cache.set(&key, &"value".to_string()).await);
             });
         });
     });

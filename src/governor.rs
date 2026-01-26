@@ -9,8 +9,6 @@
 //! - 简化核心逻辑，提高可维护性
 //! - 保持向后兼容性
 
-#[cfg(feature = "fallback")]
-use crate::cache::l2::L2Cache;
 use crate::config::{
     ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig, LimiterConfig,
     Matcher as ConfigMatcher,
@@ -38,6 +36,8 @@ use crate::matchers::{
 use crate::storage::{BanStorage, ConfigStorage, Storage};
 use chrono::Utc;
 use dashmap::DashMap;
+#[cfg(feature = "fallback")]
+use oxcache::Cache;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -361,14 +361,17 @@ impl Governor {
             half_open_max_calls: 3,
         }));
 
-        // 创建 L2Cache 用于 FallbackManager
+        // 创建内存缓存用于 FallbackManager（使用 oxcache 直接）
         #[cfg(feature = "fallback")]
-        let fallback_l2_cache = Arc::new(
-            L2Cache::new(
-                crate::constants::DEFAULT_L2_CACHE_CAPACITY,
-                Duration::from_secs(crate::constants::DEFAULT_L2_CACHE_TTL_SECS),
-            )
-            .await,
+        let fallback_l2_cache: Arc<Cache<String, String>> = Arc::new(
+            Cache::builder()
+                .capacity(crate::constants::DEFAULT_L2_CACHE_CAPACITY as u64)
+                .ttl(Duration::from_secs(
+                    crate::constants::DEFAULT_L2_CACHE_TTL_SECS,
+                ))
+                .build()
+                .await
+                .expect("Failed to create oxcache for FallbackManager"),
         );
         // 创建降级管理器
         #[cfg(feature = "fallback")]

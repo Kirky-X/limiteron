@@ -542,10 +542,15 @@ pub fn assert_false(value: bool, msg: &str) {
     assert!(!value, "{}", msg);
 }
 
-use limiteron::L2Cache;
+use oxcache::Cache;
 
-pub async fn create_test_l2_cache() -> L2Cache {
-    L2Cache::new(1000, Duration::from_secs(60)).await
+pub async fn create_test_cache() -> Cache<String, String> {
+    Cache::builder()
+        .capacity(1000)
+        .ttl(Duration::from_secs(60))
+        .build()
+        .await
+        .unwrap()
 }
 
 pub fn create_token_bucket_limiter(capacity: u64, refill_rate: u64) -> TokenBucketLimiter {

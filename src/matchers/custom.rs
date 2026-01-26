@@ -672,17 +672,23 @@ impl CustomMatcher for TimeWindowMatcher {
     }
 
     fn load_config(&mut self, config: Value) -> Result<(), FlowGuardError> {
-        let start_hour_u64 = config["start_hour"].as_u64().expect("缺少 start_hour 配置");
+        // 先获取 start_hour 并验证
+        let start_hour_u64 = config["start_hour"]
+            .as_u64()
+            .ok_or_else(|| FlowGuardError::ConfigError("缺少 start_hour 配置".to_string()))?;
         let start_hour: u8 = start_hour_u64 as u8;
-
-        let end_hour_u64 = config["end_hour"].as_u64().expect("缺少 end_hour 配置");
-        let end_hour: u8 = end_hour_u64 as u8;
 
         if start_hour > 23 {
             return Err(FlowGuardError::ConfigError(
                 "start_hour 必须在 0-23 范围内".to_string(),
             ));
         }
+
+        // 然后获取 end_hour 并验证
+        let end_hour_u64 = config["end_hour"]
+            .as_u64()
+            .ok_or_else(|| FlowGuardError::ConfigError("缺少 end_hour 配置".to_string()))?;
+        let end_hour: u8 = end_hour_u64 as u8;
 
         if end_hour > 23 {
             return Err(FlowGuardError::ConfigError(

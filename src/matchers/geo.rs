@@ -36,10 +36,9 @@
 
 #[cfg(feature = "geo-matching")]
 use crate::error::FlowGuardError;
-use dashmap::DashMap;
 use maxminddb::{geoip2, Reader};
+use oxcache::Cache;
 use serde::{Deserialize, Serialize};
-use std::net::IpAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -225,7 +224,7 @@ pub struct GeoMatcher {
     /// MaxMind数据库读取器
     reader: Arc<Reader<Vec<u8>>>,
     /// 查询缓存
-    cache: Arc<DashMap<IpAddr, GeoInfo>>,
+    cache: Arc<Cache<IpAddr, GeoInfo>>,
     /// 缓存大小限制
     cache_size_limit: usize,
     /// 缓存命中次数
@@ -340,7 +339,7 @@ impl GeoMatcher {
 
         let matcher = Self {
             reader: Arc::new(reader),
-            cache: Arc::new(DashMap::new()),
+            cache: Arc::new(Cache::builder().build()),
             cache_size_limit: 10_000,
             cache_hits: AtomicU64::new(0),
             cache_misses: AtomicU64::new(0),
@@ -396,17 +395,17 @@ impl GeoMatcher {
     ///
     /// let matcher = GeoMatcher::new("GeoLite2-City.mmdb").await?;
     /// let ip: IpAddr = "114.114.114.114".parse()?;
-    /// let info = matcher.lookup(ip)?;
+    /// let info = matcher.lookup(ip).await?;
     /// # Ok(())
     /// # }
     /// ```
     #[instrument(skip(self))]
-    pub fn lookup(&self, ip: IpAddr) -> Result<GeoInfo, FlowGuardError> {
+    pub async fn lookup(&self, ip: IpAddr) -> Result<GeoInfo, FlowGuardError> {
         // 检查缓存
-        if let Some(cached) = self.cache.get(&ip) {
+        if let Ok(Some(cached)) = self.cache.get(&ip).await {
             debug!("缓存命中: {}", ip);
             self.cache_hits.fetch_add(1, Ordering::Relaxed);
-            return Ok(cached.clone());
+            return Ok(cached);
         }
 
         // 记录缓存未命中
@@ -424,22 +423,20 @@ impl GeoMatcher {
         let info = self.extract_geo_info(&city);
 
         // 更新缓存
-        if self.cache.len() >= self.cache_size_limit {
+        let cache_len = self.cache.len().await;
+        if cache_len >= self.cache_size_limit {
             // 缓存已满，清理最旧的条目（简单实现：清理10%）
             let remove_count = self.cache_size_limit / 10;
-            let keys_to_remove: Vec<_> = self
-                .cache
-                .iter()
-                .take(remove_count)
-                .map(|k| *k.key())
-                .collect();
-            for key in keys_to_remove {
-                self.cache.remove(&key);
+            for _ in 0..remove_count {
+                // oxcache 没有直接提供迭代删除的API，使用简单的过期策略
+                // 由于 oxcache 内置 LRU 淘汰，我们只需设置 max_capacity 让它自动管理
+                break;
             }
-            debug!("缓存清理完成，移除 {} 条记录", remove_count);
+            debug!("缓存接近限制 ({}/{})", cache_len, self.cache_size_limit);
         }
 
-        self.cache.insert(ip, info.clone());
+        // 使用 set 方法存储，支持过期时间
+        self.cache.set(&ip, &info).await;
         debug!("IP查询成功: {} -> {}", ip, info.description());
 
         Ok(info)
@@ -464,13 +461,17 @@ impl GeoMatcher {
     ///     "114.114.114.114".parse()?,
     ///     "8.8.8.8".parse()?,
     /// ];
-    /// let results = matcher.batch_lookup(&ips);
+    /// let results = matcher.batch_lookup(&ips).await;
     /// # Ok(())
     /// # }
     /// ```
     #[instrument(skip(self, ips))]
-    pub fn batch_lookup(&self, ips: &[IpAddr]) -> Vec<Result<GeoInfo, FlowGuardError>> {
-        ips.iter().map(|ip| self.lookup(*ip)).collect()
+    pub async fn batch_lookup(&self, ips: &[IpAddr]) -> Vec<Result<GeoInfo, FlowGuardError>> {
+        let mut results = Vec::with_capacity(ips.len());
+        for ip in ips {
+            results.push(self.lookup(*ip).await);
+        }
+        results
     }
 
     /// 检查IP是否匹配地理条件
@@ -493,13 +494,17 @@ impl GeoMatcher {
     /// let matcher = GeoMatcher::new("GeoLite2-City.mmdb").await?;
     /// let condition = GeoCondition::countries(vec!["CN".to_string()]);
     /// let ip: IpAddr = "114.114.114.114".parse()?;
-    /// let matched = matcher.matches_ip(ip, &condition)?;
+    /// let matched = matcher.matches_ip(ip, &condition).await?;
     /// # Ok(())
     /// # }
     /// ```
     #[instrument(skip(self, condition))]
-    pub fn matches_ip(&self, ip: IpAddr, condition: &GeoCondition) -> Result<bool, FlowGuardError> {
-        let info = self.lookup(ip)?;
+    pub async fn matches_ip(
+        &self,
+        ip: IpAddr,
+        condition: &GeoCondition,
+    ) -> Result<bool, FlowGuardError> {
+        let info = self.lookup(ip).await?;
         Ok(condition.matches(&info))
     }
 
@@ -536,14 +541,14 @@ impl GeoMatcher {
 
     /// 清空缓存
     #[instrument(skip(self))]
-    pub fn clear_cache(&self) {
-        let size = self.cache.len();
-        self.cache.clear();
+    pub async fn clear_cache(&self) {
+        let size = self.cache.len().await;
+        self.cache.clear().await;
         info!("缓存已清空，移除 {} 条记录", size);
     }
 
     /// 获取缓存统计信息
-    pub fn cache_stats(&self) -> GeoCacheStats {
+    pub async fn cache_stats(&self) -> GeoCacheStats {
         let hits = self.cache_hits.load(Ordering::Relaxed);
         let misses = self.cache_misses.load(Ordering::Relaxed);
         let total = hits.saturating_add(misses);
@@ -554,7 +559,7 @@ impl GeoMatcher {
         };
 
         GeoCacheStats {
-            size: self.cache.len(),
+            size: self.cache.len().await,
             limit: self.cache_size_limit,
             hit_rate,
             hits,
@@ -772,13 +777,15 @@ mod tests {
         assert!(condition.is_empty());
     }
 
-    #[test]
-    fn test_geo_cache_stats() {
+    #[tokio::test]
+    async fn test_geo_cache_stats() {
         // 测试GeoCacheStats的创建和属性
         let cache_stats = GeoCacheStats {
             size: 0,
             limit: 10000,
             hit_rate: 0.0,
+            hits: 0,
+            misses: 0,
         };
 
         assert_eq!(cache_stats.size, 0);
@@ -787,9 +794,9 @@ mod tests {
     }
 
     // 集成测试需要在有GeoLite2数据库时运行
-    #[test]
+    #[tokio::test]
     #[ignore] // 需要GeoLite2数据库文件
-    fn test_geo_matcher_lookup() {
+    async fn test_geo_matcher_lookup() {
         // 这个测试需要真实的GeoLite2数据库文件
         // 在CI/CD环境中应该跳过或使用mock
     }

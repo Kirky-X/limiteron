@@ -66,7 +66,6 @@ pub mod prelude;
 pub mod audit_log;
 #[cfg(feature = "ban-manager")]
 pub mod ban_manager;
-pub mod cache;
 #[cfg(feature = "circuit-breaker")]
 pub mod circuit_breaker;
 #[cfg(feature = "code-review")]
@@ -118,8 +117,6 @@ pub use audit_log::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
 pub use ban_manager::{
     BackoffConfig, BanDetail, BanFilter, BanManager, BanManagerConfig, BanPriority, BanSource,
 };
-#[cfg(feature = "redis")]
-pub use cache::{L2Cache, L2CacheConfig, L2CacheStats};
 #[cfg(feature = "circuit-breaker")]
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 #[cfg(feature = "code-review")]

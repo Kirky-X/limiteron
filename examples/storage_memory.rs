@@ -21,8 +21,8 @@ async fn main() {
     println!("  - remove_ban(): 移除封禁");
     println!("  - list_bans(): 列出封禁");
 
-    println!("\n--- L2 缓存 ---\n");
-    println!("L2Cache 提供内存缓存功能:");
+    println!("\n--- 缓存 ---\n");
+    println!("使用 oxcache 提供内存缓存功能:");
     println!("  - set(): 设置缓存值");
     println!("  - get(): 获取缓存值");
     println!("  - delete(): 删除缓存");

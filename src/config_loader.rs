@@ -4,31 +4,29 @@
 //!
 //! 配置加载器模块
 //!
-//! 支持两种配置加载模式：
-//! - confers模式：使用confers库进行配置加载（启用confers特性时）
-//! - 构造器模式：使用GovernorBuilder进行配置构建（默认模式）
+//! 统一使用Confers库进行配置加载，支持：
+//! - 多格式配置文件（TOML、YAML、JSON）
+//! - 环境变量覆盖
+//! - ConfigBuilder程序化配置构建
 
 use crate::config::FlowControlConfig;
 use crate::error::FlowGuardError;
 
-#[cfg(feature = "confers")]
 use confers::{ConfigLoader as ConfersConfigLoader, OptionalValidate as ConfersOptionalValidate};
-
-#[cfg(feature = "confers")]
 use std::path::Path;
 
 // ============================================================================
-// 无confers特性：使用构造器模式
+// ConfigBuilder - 程序化配置构建
 // ============================================================================
 
-/// 配置构建器（当不启用confers特性时使用）
+/// 配置构建器
 ///
 /// 提供流式API构建FlowControlConfig配置。
 ///
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::config_builder::ConfigBuilder;
+/// use limiteron::config_loader::ConfigBuilder;
 ///
 /// let config = ConfigBuilder::new()
 ///     .with_storage("memory")
@@ -255,45 +253,39 @@ impl RuleBuilder {
 }
 
 // ============================================================================
-// 有confers特性：使用confers配置加载
+// ConfigLoader - 使用Confers配置加载
 // ============================================================================
 
-/// 配置加载器（当启用confers特性时使用）
+/// 配置加载器
 ///
 /// 使用confers库进行配置加载，支持：
-/// - 多格式配置文件（YAML、TOML、JSON）
-/// - 环境变量覆盖
-/// - 文件监听和热重载
+/// - 多格式配置文件（TOML、YAML、JSON）
+/// - 环境变量覆盖（使用LIMITERON_前缀）
+/// - 文件监听和热重载（通过ConfigWatcher）
 ///
 /// # 示例
 ///
 /// ```rust,no_run
 /// use limiteron::config_loader::ConfigLoader;
 ///
-/// // 从文件加载配置
-/// let config = ConfigLoader::load_from_file("config.yaml")?;
+/// // 从TOML文件加载配置（主要格式）
+/// let config = ConfigLoader::load_from_file("config.toml")?;
 ///
 /// // 从文件加载配置并支持环境变量覆盖
-/// let config = ConfigLoader::load_from_file_with_env("config.yaml")?;
+/// let config = ConfigLoader::load_from_file("config.toml")?;
 ///
-/// // 使用confers的完整功能
-/// use limiteron::config_loader::ConfersConfigLoader;
-///
-/// let config = ConfersConfigLoader::new()
-///     .with_file("config.yaml")
-///     .with_env_prefix("LIMITERON")
-///     .load_sync()?;
+/// // 使用默认配置文件（优先config.toml）
+/// let config = ConfigLoader::load_default()?;
 /// # Ok::<(), limiteron::error::FlowGuardError>(())
 /// ```
-#[cfg(feature = "confers")]
 #[derive(Clone)]
 pub struct ConfigLoader;
 
-#[cfg(feature = "confers")]
 impl ConfigLoader {
     /// 从文件加载配置
     ///
-    /// 支持YAML、TOML、JSON格式的配置文件。
+    /// 支持TOML、YAML、JSON格式的配置文件。
+    /// 环境变量可覆盖配置文件中的值（使用LIMITERON_前缀）。
     ///
     /// # 参数
     /// - `path`: 配置文件路径
@@ -307,7 +299,7 @@ impl ConfigLoader {
     /// ```rust,no_run
     /// use limiteron::config_loader::ConfigLoader;
     ///
-    /// let config = ConfigLoader::load_from_file("config.yaml")?;
+    /// let config = ConfigLoader::load_from_file("config.toml")?;
     /// # Ok::<(), limiteron::error::FlowGuardError>(())
     /// ```
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<FlowControlConfig, FlowGuardError> {
@@ -322,39 +314,11 @@ impl ConfigLoader {
             .map_err(|e| FlowGuardError::ConfigError(e.to_string()))
     }
 
-    /// 从文件加载配置，支持环境变量覆盖
-    ///
-    /// 环境变量命名规则：`LIMITERON_<SECTION>_<FIELD>`
-    ///
-    /// # 参数
-    /// - `path`: 配置文件路径
-    ///
-    /// # 返回
-    /// - `Ok(FlowControlConfig)`: 成功加载的配置（已应用环境变量覆盖）
-    /// - `Err(FlowGuardError)`: 加载失败
-    ///
-    /// # 示例
-    ///
-    /// ```rust,no_run
-    /// use limiteron::config_loader::ConfigLoader;
-    ///
-    /// // 设置环境变量覆盖
-    /// std::env::set_var("LIMITERON_GLOBAL_STORAGE", "redis");
-    ///
-    /// let config = ConfigLoader::load_from_file_with_env("config.yaml")?;
-    /// # Ok::<(), limiteron::error::FlowGuardError>(())
-    /// ```
-    pub fn load_from_file_with_env<P: AsRef<Path>>(
-        path: P,
-    ) -> Result<FlowControlConfig, FlowGuardError> {
-        Self::load_from_file(path)
-    }
-
     /// 使用默认配置文件名加载配置
     ///
     /// 按以下顺序查找配置文件：
-    /// 1. 当前目录下的 `config.yaml`
-    /// 2. 当前目录下的 `config.toml`
+    /// 1. 当前目录下的 `config.toml`（主要格式）
+    /// 2. 当前目录下的 `config.yaml`
     /// 3. 当前目录下的 `config.json`
     ///
     /// # 返回
@@ -370,7 +334,8 @@ impl ConfigLoader {
     /// # Ok::<(), limiteron::error::FlowGuardError>(())
     /// ```
     pub fn load_default() -> Result<FlowControlConfig, FlowGuardError> {
-        let config_paths = ["config.yaml", "config.toml", "config.json"];
+        // 优先查找TOML文件（主要格式）
+        let config_paths = ["config.toml", "config.yaml", "config.json"];
 
         for config_path in &config_paths {
             if Path::new(config_path).exists() {
@@ -379,45 +344,48 @@ impl ConfigLoader {
         }
 
         Err(FlowGuardError::ConfigError(
-            "未找到默认配置文件 (config.yaml/toml/json)".to_string(),
+            "未找到默认配置文件 (config.toml/yaml/json)".to_string(),
         ))
     }
 }
 
 /// 实现confers的OptionalValidate trait
-#[cfg(feature = "confers")]
 impl ConfersOptionalValidate for FlowControlConfig {}
 
 #[cfg(test)]
-#[cfg(feature = "confers")]
 mod confers_tests {
     use super::*;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
-    fn create_test_config_yaml() -> NamedTempFile {
-        let mut temp_file = NamedTempFile::with_suffix(".yaml").unwrap();
+    fn create_test_config_toml() -> NamedTempFile {
+        let mut temp_file = NamedTempFile::with_suffix(".toml").unwrap();
         writeln!(
             temp_file,
             r#"
-version: "1.0"
-global:
-  storage: "memory"
-  cache: "memory"
-  metrics: "prometheus"
-rules:
-  - id: "test_rule"
-    name: "Test Rule"
-    priority: 100
-    matchers:
-      - type: User
-        user_ids: ["*"]
-    limiters:
-      - type: TokenBucket
-        capacity: 1000
-        refill_rate: 100
-    action:
-      on_exceed: "reject"
+version = "1.0"
+
+[global]
+storage = "memory"
+cache = "memory"
+metrics = "prometheus"
+
+[[rules]]
+id = "test_rule"
+name = "Test Rule"
+priority = 100
+
+[rules.matchers]
+type = "User"
+user_ids = ["*"]
+
+[[rules.limiters]]
+type = "TokenBucket"
+capacity = 1000
+refill_rate = 100
+
+[rules.action]
+on_exceed = "reject"
 "#
         )
         .unwrap();
@@ -425,8 +393,8 @@ rules:
     }
 
     #[test]
-    fn test_load_yaml_config() {
-        let temp_file = create_test_config_yaml();
+    fn test_load_toml_config() {
+        let temp_file = create_test_config_toml();
         let config = ConfigLoader::load_from_file(temp_file.path()).unwrap();
         assert_eq!(config.version, "1.0");
         assert_eq!(config.rules.len(), 1);
@@ -435,14 +403,14 @@ rules:
 
     #[test]
     fn test_load_nonexistent_file() {
-        let result = ConfigLoader::load_from_file("/nonexistent/path/config.yaml");
+        let result = ConfigLoader::load_from_file("/nonexistent/path/config.toml");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_load_invalid_config() {
         let mut temp_file = NamedTempFile::new().unwrap();
-        writeln!(temp_file, "invalid: yaml: content:").unwrap();
+        writeln!(temp_file, "invalid: toml: content:").unwrap();
         let result = ConfigLoader::load_from_file(temp_file.path());
         assert!(result.is_err());
     }

@@ -5,8 +5,6 @@
 #[allow(unused_imports)]
 pub mod ban_manager;
 #[allow(unused_imports)]
-pub mod cache;
-#[allow(unused_imports)]
 pub mod circuit_breaker;
 #[allow(unused_imports)]
 pub mod governor;
@@ -21,8 +19,6 @@ pub mod storage;
 
 #[allow(unused_imports)]
 pub use ban_manager::*;
-#[allow(unused_imports)]
-pub use cache::*;
 #[allow(unused_imports)]
 pub use circuit_breaker::*;
 #[allow(unused_imports)]

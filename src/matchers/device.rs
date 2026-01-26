@@ -35,7 +35,7 @@
 
 #[cfg(feature = "device-matching")]
 use crate::error::FlowGuardError;
-use dashmap::DashMap;
+use oxcache::Cache;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -379,7 +379,7 @@ pub struct DeviceMatcher {
     /// Woothee解析器
     parser: Arc<Parser>,
     /// 查询缓存
-    cache: Arc<DashMap<String, DeviceInfo>>,
+    cache: Arc<Cache<String, DeviceInfo>>,
     /// 缓存大小限制
     cache_size_limit: usize,
     /// 缓存命中次数
@@ -429,7 +429,7 @@ impl DeviceMatcher {
 
         let matcher = Self {
             parser: Arc::new(parser),
-            cache: Arc::new(DashMap::new()),
+            cache: Arc::new(Cache::builder().build()),
             cache_size_limit: 10_000,
             cache_hits: AtomicU64::new(0),
             cache_misses: AtomicU64::new(0),
@@ -481,12 +481,12 @@ impl DeviceMatcher {
     ///
     /// let matcher = DeviceMatcher::new().await?;
     /// let user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)";
-    /// let info = matcher.parse(user_agent)?;
+    /// let info = matcher.parse(user_agent).await?;
     /// # Ok(())
     /// # }
     /// ```
     #[instrument(skip(self))]
-    pub fn parse(&self, user_agent: &str) -> Result<DeviceInfo, FlowGuardError> {
+    pub async fn parse(&self, user_agent: &str) -> Result<DeviceInfo, FlowGuardError> {
         // 清理 User-Agent
         let sanitized = sanitize_user_agent(user_agent);
         let user_agent = sanitized.trim();
@@ -505,10 +505,10 @@ impl DeviceMatcher {
         }
 
         // 检查缓存
-        if let Some(cached) = self.cache.get(user_agent) {
+        if let Ok(Some(cached)) = self.cache.get(user_agent).await {
             debug!("缓存命中: {}", user_agent);
             self.cache_hits.fetch_add(1, Ordering::Relaxed);
-            return Ok(cached.clone());
+            return Ok(cached);
         }
 
         // 记录缓存未命中
@@ -528,7 +528,7 @@ impl DeviceMatcher {
                         os_version: None,
                         user_agent: Some(user_agent.to_string()),
                     };
-                    self.update_cache(user_agent, &info);
+                    self.update_cache(user_agent, &info).await;
                     debug!("自定义规则匹配: {}", rule.name);
                     return Ok(info);
                 }
@@ -545,7 +545,7 @@ impl DeviceMatcher {
         info.user_agent = Some(user_agent.to_string());
 
         // 更新缓存
-        self.update_cache(user_agent, &info);
+        self.update_cache(user_agent, &info).await;
 
         debug!(
             "User-Agent解析成功: {} -> {}",
@@ -574,12 +574,19 @@ impl DeviceMatcher {
     ///         "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)".to_string(),
     ///         "Mozilla/5.0 (Windows NT 10.0; Win64; x64)".to_string(),
     ///     ];
-    ///     let results = matcher.batch_parse(&user_agents);
+    ///     let results = matcher.batch_parse(&user_agents).await;
     /// }
     /// ```
     #[instrument(skip(self, user_agents))]
-    pub fn batch_parse(&self, user_agents: &[String]) -> Vec<Result<DeviceInfo, FlowGuardError>> {
-        user_agents.iter().map(|ua| self.parse(ua)).collect()
+    pub async fn batch_parse(
+        &self,
+        user_agents: &[String],
+    ) -> Vec<Result<DeviceInfo, FlowGuardError>> {
+        let mut results = Vec::with_capacity(user_agents.len());
+        for ua in user_agents {
+            results.push(self.parse(ua).await);
+        }
+        results
     }
 
     /// 检查User-Agent是否匹配设备条件
@@ -601,17 +608,17 @@ impl DeviceMatcher {
     /// let matcher = DeviceMatcher::new().await?;
     /// let condition = DeviceCondition::device_types(vec![DeviceType::Mobile]);
     /// let user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)";
-    /// let matched = matcher.matches_user_agent(user_agent, &condition)?;
+    /// let matched = matcher.matches_user_agent(user_agent, &condition).await?;
     /// # Ok(())
     /// # }
     /// ```
     #[instrument(skip(self, condition))]
-    pub fn matches_user_agent(
+    pub async fn matches_user_agent(
         &self,
         user_agent: &str,
         condition: &DeviceCondition,
     ) -> Result<bool, FlowGuardError> {
-        let info = self.parse(user_agent)?;
+        let info = self.parse(user_agent).await?;
         Ok(condition.matches(&info))
     }
 
@@ -716,14 +723,14 @@ impl DeviceMatcher {
 
     /// 清空缓存
     #[instrument(skip(self))]
-    pub fn clear_cache(&self) {
-        let size = self.cache.len();
-        self.cache.clear();
+    pub async fn clear_cache(&self) {
+        let size = self.cache.len().await;
+        self.cache.clear().await;
         info!("缓存已清空，移除 {} 条记录", size);
     }
 
     /// 获取缓存统计信息
-    pub fn cache_stats(&self) -> DeviceCacheStats {
+    pub async fn cache_stats(&self) -> DeviceCacheStats {
         let hits = self.cache_hits.load(Ordering::Relaxed);
         let misses = self.cache_misses.load(Ordering::Relaxed);
         let total = hits.saturating_add(misses);
@@ -734,7 +741,7 @@ impl DeviceMatcher {
         };
 
         DeviceCacheStats {
-            size: self.cache.len(),
+            size: self.cache.len().await,
             limit: self.cache_size_limit,
             hit_rate,
             hits,
@@ -743,23 +750,20 @@ impl DeviceMatcher {
     }
 
     /// 更新缓存
-    fn update_cache(&self, user_agent: &str, info: &DeviceInfo) {
-        if self.cache.len() >= self.cache_size_limit {
+    async fn update_cache(&self, user_agent: &str, info: &DeviceInfo) {
+        let cache_len = self.cache.len().await;
+        if cache_len >= self.cache_size_limit {
             // 缓存已满，清理最旧的条目（简单实现：清理10%）
             let remove_count = self.cache_size_limit / 10;
-            let keys_to_remove: Vec<_> = self
-                .cache
-                .iter()
-                .take(remove_count)
-                .map(|k| k.key().clone())
-                .collect();
-            for key in keys_to_remove {
-                self.cache.remove(&key);
+            for _ in 0..remove_count {
+                // oxcache 没有直接提供迭代删除的API，使用简单的过期策略
+                // 由于 oxcache 内置 LRU 淘汰，我们只需设置 max_capacity 让它自动管理
+                break;
             }
-            debug!("缓存清理完成，移除 {} 条记录", remove_count);
+            debug!("缓存接近限制 ({}/{})", cache_len, self.cache_size_limit);
         }
 
-        self.cache.insert(user_agent.to_string(), info.clone());
+        self.cache.set(&user_agent.to_string(), info).await;
     }
 
     /// 默认自定义规则

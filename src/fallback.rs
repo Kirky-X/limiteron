@@ -13,9 +13,9 @@
 //! - **热更新**: 支持动态更新策略
 //! - **故障注入**: 支持模拟故障进行测试
 
-use crate::cache::l2::L2Cache;
 use crate::error::{FlowGuardError, StorageError};
 use ahash::AHashMap as HashMap;
+use oxcache::Cache;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -135,8 +135,8 @@ impl FallbackConfig {
 pub struct FallbackManager {
     /// 策略配置
     strategies: Arc<RwLock<HashMap<ComponentType, FallbackConfig>>>,
-    /// L2缓存（用于降级）
-    l2_cache: Arc<L2Cache>,
+    /// 缓存（用于降级）
+    l2_cache: Arc<Cache<String, String>>,
     /// 故障状态
     failure_states: Arc<RwLock<HashMap<ComponentType, bool>>>,
 }
@@ -145,22 +145,28 @@ impl FallbackManager {
     /// 创建新的降级策略管理器
     ///
     /// # 参数
-    /// - `l2_cache`: L2缓存实例
+    /// - `l2_cache`: 缓存实例
     ///
     /// # 示例
     /// ```rust
     /// use limiteron::fallback::{FallbackManager, ComponentType};
-    /// use limiteron::L2Cache;
+    /// use oxcache::Cache;
     /// use std::sync::Arc;
     /// use std::time::Duration;
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await.await);
+    ///     let cache: Cache<String, String> = Cache::builder()
+    ///         .capacity(10000)
+    ///         .ttl(Duration::from_secs(60))
+    ///         .build()
+    ///         .await
+    ///         .unwrap();
+    ///     let l2_cache = Arc::new(cache);
     ///     let manager = FallbackManager::new(l2_cache);
     /// }
     /// ```
-    pub fn new(l2_cache: Arc<L2Cache>) -> Self {
+    pub fn new(l2_cache: Arc<Cache<String, String>>) -> Self {
         info!("创建降级策略管理器");
 
         // 默认策略
@@ -239,21 +245,19 @@ impl FallbackManager {
     /// ```rust
     /// use limiteron::fallback::{FallbackManager, FallbackStrategy, ComponentType};
     /// use limiteron::error::FlowGuardError;
-    /// use limiteron::L2Cache;
-    /// use std::time::Duration;
-    /// use std::sync::Arc;
+    /// use oxcache::Cache;
     ///
-    /// # #[tokio::main]
-    /// # async fn main() {
-    /// let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
-    /// let manager = FallbackManager::new(l2_cache);
-    ///
-    /// let result = manager.execute_with_fallback(
-    ///     ComponentType::Redis,
-    ///     || async { Ok::<String, FlowGuardError>("primary".to_string()) },
-    ///     || async { Ok::<String, FlowGuardError>("fallback".to_string()) }
-    /// ).await;
-    /// # }
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let cache: Cache<String, String> = Cache::builder()
+    ///         .capacity(10000)
+    ///         .ttl(Duration::from_secs(60))
+    ///         .build()
+    ///         .await
+    ///         .unwrap();
+    ///     let l2_cache = Arc::new(cache);
+    ///     let manager = FallbackManager::new(l2_cache);
+    /// }
     /// ```
     pub async fn execute_with_fallback<F, Fut, FB, FBFut, T>(
         &self,
@@ -403,8 +407,8 @@ impl FallbackManager {
             .collect()
     }
 
-    /// 获取L2缓存
-    pub fn l2_cache(&self) -> &Arc<L2Cache> {
+    /// 获取缓存
+    pub fn l2_cache(&self) -> &Arc<Cache<String, String>> {
         &self.l2_cache
     }
 }
@@ -468,7 +472,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_new() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let l2_cache = Arc::new(cache);
         let manager = FallbackManager::new(l2_cache);
 
         // 验证默认策略
@@ -486,7 +496,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_set_strategy() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let l2_cache = Arc::new(cache);
         let manager = FallbackManager::new(l2_cache);
 
         let config = FallbackConfig::new(ComponentType::Redis, FallbackStrategy::FailOpen);
@@ -499,7 +515,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_execute_success() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let l2_cache = Arc::new(cache);
         let manager = FallbackManager::new(l2_cache);
 
         let result = manager
@@ -517,7 +539,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_execute_fail_degraded() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let l2_cache = Arc::new(cache);
         let manager = FallbackManager::new(l2_cache);
 
         let config = FallbackConfig::new(ComponentType::Redis, FallbackStrategy::Degraded);
@@ -542,7 +570,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_execute_fail_fail_open() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let l2_cache = Arc::new(cache);
         let manager = FallbackManager::new(l2_cache);
 
         let config = FallbackConfig::new(ComponentType::Redis, FallbackStrategy::FailOpen);
@@ -569,7 +603,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_execute_fail_fail_closed() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let l2_cache = Arc::new(cache);
         let manager = FallbackManager::new(l2_cache);
 
         let config = FallbackConfig::new(ComponentType::Redis, FallbackStrategy::FailClosed);
@@ -596,7 +636,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_inject_failure() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let l2_cache = Arc::new(cache);
         let manager = FallbackManager::new(l2_cache);
 
         assert!(!manager.is_failed(ComponentType::Redis).await);
@@ -610,7 +656,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_get_all_failures() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let l2_cache = Arc::new(cache);
         let manager = FallbackManager::new(l2_cache);
 
         manager.inject_failure(ComponentType::Redis).await;
@@ -624,7 +676,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_recovery() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let l2_cache = Arc::new(cache);
         let manager = FallbackManager::new(l2_cache);
 
         // 第一次失败
@@ -659,7 +717,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_l2_cache() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let l2_cache = Arc::new(cache);
         let manager = FallbackManager::new(l2_cache);
 
         let cache = manager.l2_cache();

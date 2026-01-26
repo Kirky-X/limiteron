@@ -7,6 +7,7 @@
 //! 提供增强的配置安全验证功能，防止恶意配置注入和配置滥用。
 
 use crate::config::{FlowControlConfig, GlobalConfig, LimiterConfig, Matcher, Rule};
+use crate::constants::{VALID_CACHE_TYPES, VALID_METRICS_TYPES, VALID_STORAGE_TYPES};
 
 /// 配置安全验证结果
 #[derive(Debug, Clone)]
@@ -96,29 +97,26 @@ impl ConfigSecurityValidator {
     /// 验证全局配置
     fn validate_global_config(global: &GlobalConfig, report: &mut ConfigSecurityReport) {
         // 验证存储类型
-        let valid_storages = ["memory", "redis", "postgresql"];
-        if !valid_storages.contains(&global.storage.as_str()) {
+        if !VALID_STORAGE_TYPES.contains(&global.storage.as_str()) {
             report.add_warning(format!(
                 "无效的存储类型: {}，仅支持 {:?}",
-                global.storage, valid_storages
+                global.storage, VALID_STORAGE_TYPES
             ));
         }
 
         // 验证缓存类型
-        let valid_caches = ["memory", "redis"];
-        if !valid_caches.contains(&global.cache.as_str()) {
+        if !VALID_CACHE_TYPES.contains(&global.cache.as_str()) {
             report.add_warning(format!(
                 "无效的缓存类型: {}，仅支持 {:?}",
-                global.cache, valid_caches
+                global.cache, VALID_CACHE_TYPES
             ));
         }
 
         // 验证指标类型
-        let valid_metrics = ["prometheus", "opentelemetry"];
-        if !valid_metrics.contains(&global.metrics.as_str()) {
+        if !VALID_METRICS_TYPES.contains(&global.metrics.as_str()) {
             report.add_warning(format!(
                 "无效的指标类型: {}，仅支持 {:?}",
-                global.metrics, valid_metrics
+                global.metrics, VALID_METRICS_TYPES
             ));
         }
     }
@@ -469,15 +467,10 @@ impl ConfigSecurityValidator {
             ));
         }
 
-        // 检查格式
-        if !window_size.ends_with("ms")
-            && !window_size.ends_with('s')
-            && !window_size.ends_with('m')
-            && !window_size.ends_with('h')
-        {
+        if let Err(error) = crate::config::parse_window_size(window_size) {
             report.add_warning(format!(
                 "规则[{}]限流器[{}]的窗口大小格式无效: {}",
-                rule_index, limiter_index, window_size
+                rule_index, limiter_index, error
             ));
         }
     }

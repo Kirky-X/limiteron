@@ -41,6 +41,7 @@ use maxminddb::{geoip2, Reader};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tracing::{debug, info, instrument, warn};
 
@@ -218,8 +219,8 @@ impl Default for GeoCondition {
 
 /// 地理匹配器
 ///
-#[cfg(feature = "geo-matching")]
 /// 使用MaxMind GeoLite2数据库查询IP地理位置。
+#[cfg(feature = "geo-matching")]
 pub struct GeoMatcher {
     /// MaxMind数据库读取器
     reader: Arc<Reader<Vec<u8>>>,
@@ -227,6 +228,10 @@ pub struct GeoMatcher {
     cache: Arc<DashMap<IpAddr, GeoInfo>>,
     /// 缓存大小限制
     cache_size_limit: usize,
+    /// 缓存命中次数
+    cache_hits: AtomicU64,
+    /// 缓存未命中次数
+    cache_misses: AtomicU64,
 }
 
 impl GeoMatcher {
@@ -337,6 +342,8 @@ impl GeoMatcher {
             reader: Arc::new(reader),
             cache: Arc::new(DashMap::new()),
             cache_size_limit: 10_000,
+            cache_hits: AtomicU64::new(0),
+            cache_misses: AtomicU64::new(0),
         };
 
         info!("GeoMatcher创建成功");
@@ -398,8 +405,12 @@ impl GeoMatcher {
         // 检查缓存
         if let Some(cached) = self.cache.get(&ip) {
             debug!("缓存命中: {}", ip);
+            self.cache_hits.fetch_add(1, Ordering::Relaxed);
             return Ok(cached.clone());
         }
+
+        // 记录缓存未命中
+        self.cache_misses.fetch_add(1, Ordering::Relaxed);
 
         debug!("查询IP地理位置: {}", ip);
 
@@ -533,10 +544,21 @@ impl GeoMatcher {
 
     /// 获取缓存统计信息
     pub fn cache_stats(&self) -> GeoCacheStats {
+        let hits = self.cache_hits.load(Ordering::Relaxed);
+        let misses = self.cache_misses.load(Ordering::Relaxed);
+        let total = hits.saturating_add(misses);
+        let hit_rate = if total > 0 {
+            (hits as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        };
+
         GeoCacheStats {
             size: self.cache.len(),
             limit: self.cache_size_limit,
-            hit_rate: 0.0, // 需要额外统计
+            hit_rate,
+            hits,
+            misses,
         }
     }
 
@@ -595,8 +617,12 @@ pub struct GeoCacheStats {
     pub size: usize,
     /// 缓存大小限制
     pub limit: usize,
-    /// 缓存命中率（需要额外统计）
+    /// 缓存命中率（百分比）
     pub hit_rate: f64,
+    /// 缓存命中次数
+    pub hits: u64,
+    /// 缓存未命中次数
+    pub misses: u64,
 }
 
 // ============================================================================

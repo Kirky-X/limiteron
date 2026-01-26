@@ -40,7 +40,7 @@ pub enum ComponentType {
     /// PostgreSQL存储
     Postgres,
     /// L3缓存
-    L3Cache,
+    L2Cache,
     /// 配置服务
     Config,
     /// 封禁服务
@@ -56,7 +56,7 @@ impl From<&str> for ComponentType {
         match s.to_lowercase().as_str() {
             "redis" => ComponentType::Redis,
             "postgres" => ComponentType::Postgres,
-            "l3_cache" => ComponentType::L3Cache,
+            "l2_cache" => ComponentType::L2Cache,
             "config" => ComponentType::Config,
             "ban" => ComponentType::Ban,
             "quota" => ComponentType::Quota,
@@ -70,7 +70,7 @@ impl ComponentType {
         match self {
             ComponentType::Redis => "redis",
             ComponentType::Postgres => "postgres",
-            ComponentType::L3Cache => "l3_cache",
+            ComponentType::L2Cache => "l2_cache",
             ComponentType::Config => "config",
             ComponentType::Ban => "ban",
             ComponentType::Quota => "quota",
@@ -156,7 +156,7 @@ impl FallbackManager {
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+    ///     let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await.await);
     ///     let manager = FallbackManager::new(l2_cache);
     /// }
     /// ```
@@ -174,8 +174,8 @@ impl FallbackManager {
             FallbackConfig::new(ComponentType::Postgres, FallbackStrategy::Degraded),
         );
         strategies.insert(
-            ComponentType::L3Cache,
-            FallbackConfig::new(ComponentType::L3Cache, FallbackStrategy::Degraded),
+            ComponentType::L2Cache,
+            FallbackConfig::new(ComponentType::L2Cache, FallbackStrategy::Degraded),
         );
         strategies.insert(
             ComponentType::Config,
@@ -245,7 +245,7 @@ impl FallbackManager {
     ///
     /// # #[tokio::main]
     /// # async fn main() {
-    /// let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+    /// let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
     /// let manager = FallbackManager::new(l2_cache);
     ///
     /// let result = manager.execute_with_fallback(
@@ -429,7 +429,7 @@ mod tests {
     fn test_component_type_from_str() {
         assert_eq!(ComponentType::from("redis"), ComponentType::Redis);
         assert_eq!(ComponentType::from("postgres"), ComponentType::Postgres);
-        assert_eq!(ComponentType::from("l3_cache"), ComponentType::L3Cache);
+        assert_eq!(ComponentType::from("l2_cache"), ComponentType::L2Cache);
         assert_eq!(
             ComponentType::from("other"),
             ComponentType::Other("other".to_string())
@@ -440,7 +440,7 @@ mod tests {
     fn test_component_type_as_str() {
         assert_eq!(ComponentType::Redis.as_str(), "redis");
         assert_eq!(ComponentType::Postgres.as_str(), "postgres");
-        assert_eq!(ComponentType::L3Cache.as_str(), "l3_cache");
+        assert_eq!(ComponentType::L2Cache.as_str(), "l2_cache");
     }
 
     #[test]
@@ -468,7 +468,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_new() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
         let manager = FallbackManager::new(l2_cache);
 
         // 验证默认策略
@@ -486,7 +486,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_set_strategy() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
         let manager = FallbackManager::new(l2_cache);
 
         let config = FallbackConfig::new(ComponentType::Redis, FallbackStrategy::FailOpen);
@@ -499,7 +499,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_execute_success() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
         let manager = FallbackManager::new(l2_cache);
 
         let result = manager
@@ -517,7 +517,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_execute_fail_degraded() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
         let manager = FallbackManager::new(l2_cache);
 
         let config = FallbackConfig::new(ComponentType::Redis, FallbackStrategy::Degraded);
@@ -542,7 +542,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_execute_fail_fail_open() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
         let manager = FallbackManager::new(l2_cache);
 
         let config = FallbackConfig::new(ComponentType::Redis, FallbackStrategy::FailOpen);
@@ -569,7 +569,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_execute_fail_fail_closed() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
         let manager = FallbackManager::new(l2_cache);
 
         let config = FallbackConfig::new(ComponentType::Redis, FallbackStrategy::FailClosed);
@@ -596,7 +596,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_inject_failure() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
         let manager = FallbackManager::new(l2_cache);
 
         assert!(!manager.is_failed(ComponentType::Redis).await);
@@ -610,7 +610,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_get_all_failures() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
         let manager = FallbackManager::new(l2_cache);
 
         manager.inject_failure(ComponentType::Redis).await;
@@ -624,7 +624,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_recovery() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
         let manager = FallbackManager::new(l2_cache);
 
         // 第一次失败
@@ -659,7 +659,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_manager_l2_cache() {
-        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+        let l2_cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)).await);
         let manager = FallbackManager::new(l2_cache);
 
         let cache = manager.l2_cache();

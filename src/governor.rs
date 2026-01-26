@@ -20,16 +20,22 @@ use crate::constants::{
     DEFAULT_L2_CACHE_CAPACITY, DEFAULT_L2_CACHE_TTL_SECS, SECONDS_PER_HOUR, SECONDS_PER_MINUTE,
 };
 use crate::decision_chain::{DecisionChain, DecisionNode};
-use crate::error::{Decision, FlowGuardError};
+#[cfg(feature = "ban-manager")]
+use crate::error::BanInfo;
+#[cfg(not(feature = "ban-manager"))]
+use crate::error::Decision;
+use crate::error::FlowGuardError;
 #[cfg(feature = "fallback")]
 use crate::fallback::FallbackManager;
-use crate::limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter};
+use crate::limiters::{
+    ConcurrencyLimiter, FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter,
+};
 use crate::log_redaction::{redact_ip, redact_user_id};
 use crate::matchers::{
     CompositeCondition, ConditionEvaluator, IdentifierExtractor, IpRange, LogicalOperator,
     MatchCondition, RequestContext, Rule as MatcherRule, RuleMatcher,
 };
-use crate::storage::{BanStorage, Storage};
+use crate::storage::{BanStorage, ConfigStorage, Storage};
 use chrono::Utc;
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -79,6 +85,9 @@ pub struct GovernorStats {
 pub struct Governor {
     /// 配置
     config: Arc<RwLock<FlowControlConfig>>,
+
+    /// 配置存储（用于重新加载配置）
+    config_storage: Arc<RwLock<Option<Box<dyn ConfigStorage>>>>,
 
     /// 存储后端
     _storage: Arc<dyn Storage>,
@@ -205,6 +214,7 @@ impl Governor {
                         quota_type: _,
                         limit: _,
                         window: _,
+                        alert_threshold: _,
                         overdraft: _,
                     } => {
                         // Quota limiter requires quota-control feature
@@ -214,15 +224,23 @@ impl Governor {
                         );
                         continue;
                     }
-                    LimiterConfig::Concurrency { max_concurrent } => {
-                        warn!(
-                            "ConcurrencyLimiter not implemented yet, skipping: {}",
-                            max_concurrent
-                        );
-                        continue;
-                    }
+                    LimiterConfig::Concurrency { max_concurrent } => (
+                        Arc::new(ConcurrencyLimiter::new(*max_concurrent)),
+                        "Concurrency",
+                    ),
                     LimiterConfig::Custom { name, config: _ } => {
-                        warn!("CustomLimiter not implemented yet, skipping: {}", name);
+                        // CustomLimiter integration requires custom-limiter feature and
+                        // manual registration via CustomLimiterRegistry
+                        #[cfg(feature = "custom-limiter")]
+                        warn!(
+                            "CustomLimiter '{}' requires registration via CustomLimiterRegistry, skipping",
+                            name
+                        );
+                        #[cfg(not(feature = "custom-limiter"))]
+                        warn!(
+                            "CustomLimiter '{}' skipped - custom-limiter feature not enabled",
+                            name
+                        );
                         continue;
                     }
                 };
@@ -345,13 +363,16 @@ impl Governor {
 
         // 创建 L2Cache 用于 FallbackManager
         #[cfg(feature = "fallback")]
-        let fallback_l2_cache = Arc::new(L2Cache::new(
-            crate::constants::DEFAULT_L2_CACHE_CAPACITY,
-            Duration::from_secs(crate::constants::DEFAULT_L2_CACHE_TTL_SECS),
-        ));
+        let fallback_l2_cache = Arc::new(
+            L2Cache::new(
+                crate::constants::DEFAULT_L2_CACHE_CAPACITY,
+                Duration::from_secs(crate::constants::DEFAULT_L2_CACHE_TTL_SECS),
+            )
+            .await,
+        );
         // 创建降级管理器
         #[cfg(feature = "fallback")]
-        let fallback_manager = Arc::new(FallbackManager::new(fallback_l2_cache));
+        let fallback_manager = Arc::new(FallbackManager::new(fallback_l2_cache.clone()));
 
         // 创建审计日志记录器 (仅当 audit-log 特性启用时)
         #[cfg(feature = "audit-log")]
@@ -390,6 +411,7 @@ impl Governor {
             #[cfg(feature = "audit-log")]
             audit_logger,
             config_history: Arc::new(RwLock::new(ConfigHistory::new(100))),
+            config_storage: Arc::new(RwLock::new(None)),
             total_requests: AtomicU64::new(0),
             allowed_requests: AtomicU64::new(0),
             rejected_requests: AtomicU64::new(0),
@@ -665,9 +687,30 @@ impl Governor {
     #[instrument(skip(self))]
     pub async fn check_resource_parallel(
         &self,
-        _resource: &str,
+        resource: &str,
     ) -> Result<Decision, FlowGuardError> {
-        Ok(Decision::Allowed(None))
+        #[cfg(feature = "ban-manager")]
+        {
+            let target = BanTarget::UserId(resource.to_string());
+            let ban_record = self.ban_manager.is_banned(&target).await?;
+
+            if let Some(record) = ban_record {
+                return Ok(Decision::Banned(BanInfo {
+                    reason: record.reason,
+                    banned_until: record.expires_at,
+                    ban_times: record.ban_times,
+                }));
+            }
+
+            return Ok(Decision::Allowed(None));
+        }
+
+        #[cfg(not(feature = "ban-manager"))]
+        {
+            Err(FlowGuardError::ConfigError(
+                "并行检查已禁用且未启用封禁管理器，无法执行资源封禁检查".to_string(),
+            ))
+        }
     }
 
     /// 手动Ban user
@@ -797,27 +840,160 @@ impl Governor {
     }
 
     /// 重新加载配置
+    ///
+    /// 从配置存储重新加载配置，并更新所有运行时组件。
     #[instrument(skip(self))]
     pub async fn reload_config(&self) -> Result<(), FlowGuardError> {
         info!("重新加载配置");
 
-        let _config = self.config.read().await.clone();
+        // 获取配置存储
+        let config_storage = self.config_storage.read().await;
+        let Some(storage) = config_storage.as_ref() else {
+            return Err(FlowGuardError::ConfigError(
+                "未配置配置存储，无法重新加载配置".to_string(),
+            ));
+        };
 
-        // 这里应该从配置存储重新加载配置
-        // 具体实现取决于配置存储类型
+        // 从存储加载配置
+        let config_str = storage
+            .load_config()
+            .await?
+            .ok_or_else(|| FlowGuardError::ConfigError("配置存储中没有保存的配置".to_string()))?;
 
+        // 解析配置
+        let new_config: FlowControlConfig = serde_yaml::from_str(&config_str)
+            .map_err(|e| FlowGuardError::ConfigError(format!("配置解析失败: {}", e)))?;
+
+        // 校验新配置
+        new_config
+            .validate()
+            .map_err(|e| FlowGuardError::ConfigError(format!("新配置校验失败: {}", e)))?;
+
+        // 保存当前配置到历史记录
+        let old_config = self.config.read().await.clone();
+        let change_record =
+            new_config.create_change_record(Some(&old_config), ChangeSource::Reload);
+        self.config_history.write().await.add_record(change_record);
+
+        // 更新配置
+        let mut config = self.config.write().await;
+        *config = new_config.clone();
+        drop(config);
+
+        // 重建规则匹配器
+        let rules = Self::build_rules(&new_config)?;
+        let mut rule_matcher = self.rule_matcher.write().await;
+        *rule_matcher = RuleMatcher::new(rules);
+        drop(rule_matcher);
+
+        // 重建决策链
+        let rule_chains_map = Self::build_rule_chains(&new_config)?;
+        let mut rule_chains = self.rule_chains.write().await;
+        *rule_chains = rule_chains_map;
+        drop(rule_chains);
+
+        info!("配置重新加载成功，版本: {}", new_config.version);
         Ok(())
     }
 
     /// 回滚配置
+    ///
+    /// 从配置历史记录恢复上一个配置版本。
     #[instrument(skip(self))]
     pub async fn rollback_config(&self) -> Result<(), FlowGuardError> {
         info!("回滚配置");
 
-        // 这里应该从历史记录恢复上一个配置
-        // 具体实现取决于配置存储类型
+        // 获取历史记录中的上一个配置
+        let history = self.config_history.read().await;
+        let Some(last_record) = history.get_latest().cloned() else {
+            return Err(FlowGuardError::ConfigError(
+                "配置历史记录为空，无法回滚".to_string(),
+            ));
+        };
 
+        // 检查是否有可回滚的旧版本
+        let Some(old_version) = last_record.old_version.clone() else {
+            return Err(FlowGuardError::ConfigError(
+                "无法获取上一个配置版本".to_string(),
+            ));
+        };
+
+        drop(history);
+
+        // 从配置存储加载旧版本配置
+        let config_storage = self.config_storage.read().await;
+        let Some(storage) = config_storage.as_ref() else {
+            return Err(FlowGuardError::ConfigError(
+                "未配置配置存储，无法回滚配置".to_string(),
+            ));
+        };
+
+        // 加载配置字符串
+        let config_str = storage
+            .load_config()
+            .await?
+            .ok_or_else(|| FlowGuardError::ConfigError("配置存储中没有保存的配置".to_string()))?;
+
+        // 解析配置
+        let new_config: FlowControlConfig = serde_yaml::from_str(&config_str)
+            .map_err(|e| FlowGuardError::ConfigError(format!("配置解析失败: {}", e)))?;
+
+        // 确保版本匹配
+        if new_config.version != old_version {
+            warn!(
+                "回滚的配置版本不匹配，期望: {}, 实际: {}",
+                old_version, new_config.version
+            );
+        }
+
+        // 校验新配置
+        new_config
+            .validate()
+            .map_err(|e| FlowGuardError::ConfigError(format!("回滚配置校验失败: {}", e)))?;
+
+        // 创建变更记录
+        let current_config = self.config.read().await.clone();
+        let change_record = new_config.create_change_record(
+            Some(&current_config),
+            ChangeSource::Rollback {
+                target_version: old_version.clone(),
+            },
+        );
+        self.config_history.write().await.add_record(change_record);
+
+        // 更新配置
+        let mut config = self.config.write().await;
+        *config = new_config.clone();
+        drop(config);
+
+        // 重建规则匹配器
+        let rules = Self::build_rules(&new_config)?;
+        let mut rule_matcher = self.rule_matcher.write().await;
+        *rule_matcher = RuleMatcher::new(rules);
+        drop(rule_matcher);
+
+        // 重建决策链
+        let rule_chains_map = Self::build_rule_chains(&new_config)?;
+        let mut rule_chains = self.rule_chains.write().await;
+        *rule_chains = rule_chains_map;
+
+        info!("配置回滚成功，回滚到版本: {}", old_version);
         Ok(())
+    }
+
+    /// 设置配置存储
+    ///
+    /// 用于支持配置的持久化和重新加载。
+    pub async fn set_config_storage(&self, storage: Box<dyn ConfigStorage>) {
+        let mut config_storage = self.config_storage.write().await;
+        *config_storage = Some(storage);
+
+        // 保存当前配置到存储
+        let config = self.config.read().await.clone();
+        if let Ok(config_str) = serde_yaml::to_string(&config) {
+            let storage_ref = config_storage.as_mut().unwrap();
+            let _ = storage_ref.save_config(&config_str).await;
+        }
     }
 
     /// 获取配置历史

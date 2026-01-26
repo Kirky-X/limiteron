@@ -100,6 +100,7 @@ impl LimiterFactory {
                 quota_type: _,
                 limit: _limit,
                 window: _window,
+                alert_threshold: _,
                 overdraft: _,
             } => {
                 // Quota 类型由QuotaController处理
@@ -178,47 +179,7 @@ impl LimiterFactory {
     /// assert_eq!(duration, Duration::from_secs(300));
     /// ```
     pub fn parse_window_size(window_size: &str) -> Result<std::time::Duration, FlowGuardError> {
-        if window_size.is_empty() {
-            return Err(FlowGuardError::ConfigError("窗口大小不能为空".to_string()));
-        }
-
-        let (num_part, unit_part) = window_size.split_at(
-            window_size
-                .find(|c: char| c.is_alphabetic())
-                .unwrap_or(window_size.len()),
-        );
-
-        let num_str = num_part.trim();
-        let unit = unit_part.trim().to_lowercase();
-
-        if num_str.is_empty() {
-            return Err(FlowGuardError::ConfigError(
-                "窗口大小格式错误：缺少数字部分".to_string(),
-            ));
-        }
-
-        let num: u64 = num_str
-            .parse()
-            .map_err(|_| FlowGuardError::ConfigError(format!("无效的数字格式: {}", num_str)))?;
-
-        if num == 0 {
-            return Err(FlowGuardError::ConfigError("窗口大小必须大于0".to_string()));
-        }
-
-        let duration = match unit.as_str() {
-            "s" | "sec" | "second" | "seconds" => std::time::Duration::from_secs(num),
-            "m" | "min" | "minute" | "minutes" => std::time::Duration::from_secs(num * 60),
-            "h" | "hr" | "hour" | "hours" => std::time::Duration::from_secs(num * 3600),
-            "d" | "day" | "days" => std::time::Duration::from_secs(num * 86400),
-            _ => {
-                return Err(FlowGuardError::ConfigError(format!(
-                    "不支持的单位: {}。支持的单位: s, m, h, d",
-                    unit
-                )));
-            }
-        };
-
-        Ok(duration)
+        crate::config::parse_window_size(window_size).map_err(FlowGuardError::ConfigError)
     }
 
     /// 验证限流器配置
@@ -239,7 +200,6 @@ impl LimiterFactory {
     /// let config = LimiterConfig::TokenBucket { capacity: 1000, refill_rate: 100 };
     /// LimiterFactory::validate_config(&config).unwrap();
     /// ```
-
     /// 验证窗口配置（适用于滑动窗口和固定窗口）
     fn validate_window_config(
         window_size: &str,

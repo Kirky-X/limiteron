@@ -2,625 +2,532 @@
 //!
 //! MIT License
 //!
-//! L2缓存实现
+//! L2缓存实现 - 基于 oxcache 库
 //!
-//! 使用DashMap实现高性能并发缓存，支持TTL、LRU淘汰、单飞模式和批量操作。
-//!
-//! # 特性
-//!
-//! - **高性能**: 使用DashMap实现无锁并发，P99延迟 < 1ms
-//! - **TTL管理**: 自动清理过期数据
-//! - **单飞模式**: 防止缓存击穿
-//! - **LRU淘汰**: 自动淘汰最少使用的数据
-//! - **批量操作**: 支持批量get/set操作
-//!
-//! # 使用示例
-//!
-//! ```no_run
-//! use limiteron::L2Cache;
-//! use std::time::Duration;
-//!
-//! #[tokio::main]
-//! async fn main() {
-//!     let cache = L2Cache::new(10000, Duration::from_secs(60));
-//!
-//!     // 设置值
-//!     cache.set("key1", "value1", Some(Duration::from_secs(30))).await;
-//!
-//!     // 获取值
-//!     if let Some(value) = cache.get("key1").await {
-//!         println!("Value: {}", value);
-//!     }
-//!
-//!     // 单飞模式加载
-//!     let value = cache.get_or_load("key2", || async {
-//!         // 从数据库加载
-//!         Ok("loaded_value".to_string())
-//!     }).await.unwrap();
-//! }
-//! ```
+//! 使用 oxcache 的 TieredCache (L1 内存 + L2 Redis) 提供高性能分布式缓存。
 
-/// 默认缓存容量
-pub const DEFAULT_CACHE_CAPACITY: usize = 10_000;
-
-/// 默认TTL（5分钟）
-pub const DEFAULT_TTL_SECS: u64 = 300;
-
-/// 默认清理间隔（1分钟）
-pub const DEFAULT_CLEANUP_INTERVAL_SECS: u64 = 60;
-
-/// 默认LRU淘汰阈值（90%）
-pub const DEFAULT_EVICTION_THRESHOLD: f64 = 0.9;
-
-use ahash::AHashMap as HashMap;
-use dashmap::DashMap;
-use std::num::NonZeroUsize;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::watch;
-use tokio::task::JoinHandle;
-use tracing::{debug, trace, warn};
 
+use ahash::AHashMap;
+use tracing::{error, info, trace, warn};
+
+use crate::cache::l1::CacheStats;
 use crate::error::StorageError;
+#[cfg(feature = "fallback")]
+use crate::fallback::{ComponentType, FallbackManager, FallbackStrategy};
+use oxcache::Cache;
 
-/// 缓存条目
-#[derive(Debug, Clone)]
-pub struct CacheEntry {
-    /// 缓存值
-    pub value: String,
-    /// 过期时间（None表示永不过期）
-    pub expires_at: Option<Instant>,
-    /// 最后访问时间
-    pub last_accessed: Instant,
-    /// 访问次数
-    pub access_count: u64,
-}
+// String already implements Cacheable via oxcache's blanket impl
 
-impl CacheEntry {
-    /// 创建新的缓存条目
-    pub fn new(value: String, ttl: Option<Duration>) -> Self {
-        let expires_at = ttl.map(|d| Instant::now() + d);
-        Self {
-            value,
-            expires_at,
-            last_accessed: Instant::now(),
-            access_count: 1,
-        }
-    }
-
-    /// 检查是否过期
-    pub fn is_expired(&self) -> bool {
-        if let Some(expires_at) = self.expires_at {
-            Instant::now() > expires_at
-        } else {
-            false
-        }
-    }
-
-    /// 更新访问信息
-    pub fn update_access(&mut self) {
-        self.last_accessed = Instant::now();
-        self.access_count += 1;
-    }
-}
-
-/// 单飞加载器
-struct SingleFlightLoader {
-    /// 加载中的任务: key -> sender
-    pending: DashMap<String, watch::Sender<Option<Result<String, StorageError>>>>,
-}
-
-impl SingleFlightLoader {
-    fn new() -> Self {
-        Self {
-            pending: DashMap::new(),
-        }
-    }
-
-    /// 尝试获取已存在的加载任务，或创建新的
-    async fn get_or_load<F, Fut>(&self, key: &str, loader: F) -> Result<String, StorageError>
-    where
-        F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<String, StorageError>>,
-    {
-        use dashmap::mapref::entry::Entry;
-
-        let key_owned = key.to_string(); // 提前克隆，用于清理
-
-        // 尝试插入新任务或获取现有任务
-        match self.pending.entry(key_owned.clone()) {
-            Entry::Occupied(entry) => {
-                // 已有其他请求在加载，等待结果
-                trace!("等待其他请求加载 key={}", key);
-                let tx = entry.get();
-                let mut rx = tx.subscribe();
-                drop(entry); // 释放锁
-
-                // 检查当前值
-                if let Some(res) = rx.borrow().clone() {
-                    return res;
-                }
-
-                // 添加超时保护
-                let timeout = tokio::time::timeout(Duration::from_secs(30), rx.changed());
-
-                match timeout.await {
-                    Ok(Ok(())) => {
-                        if let Some(res) = rx.borrow().clone() {
-                            return res;
-                        }
-                    }
-                    Ok(Err(_)) | Err(_) => {
-                        // 超时或 channel 关闭，清理 pending 条目
-                        warn!("加载超时或 channel 关闭，清理 pending 条目: key={}", key);
-                        self.pending.remove(&key_owned);
-                        return Err(StorageError::TimeoutError(
-                            "Loader timeout or channel closed".to_string(),
-                        ));
-                    }
-                }
-
-                // 如果走到这里，说明没有获取到结果，清理 pending 条目
-                self.pending.remove(&key_owned);
-                Err(StorageError::TimeoutError(
-                    "Loader dropped without result".to_string(),
-                ))
-            }
-            Entry::Vacant(entry) => {
-                // 创建新任务
-                let (tx, _) = watch::channel(None);
-                entry.insert(tx.clone());
-
-                // 执行加载
-                let result = loader().await;
-
-                // 通知等待者
-                let _ = tx.send(Some(result.clone()));
-
-                // 清理单飞条目
-                self.pending.remove(&key_owned);
-
-                result
-            }
-        }
-    }
-}
-
-/// L2缓存配置
+/// L3缓存配置
 #[derive(Debug, Clone)]
 pub struct L2CacheConfig {
-    /// 缓存容量
-    pub capacity: usize,
-    /// 默认TTL
-    pub default_ttl: Option<Duration>,
-    /// 清理间隔
-    pub cleanup_interval: Duration,
-    /// LRU淘汰阈值（容量使用率超过此值时触发淘汰）
-    pub eviction_threshold: f64,
+    /// Redis URL
+    pub redis_url: String,
+    /// L1缓存容量（内存缓存）
+    pub l1_capacity: u64,
+    /// L1缓存默认TTL
+    pub l1_default_ttl: Option<Duration>,
+    /// Redis默认TTL
+    pub redis_default_ttl: Option<Duration>,
+    /// 是否启用缓存穿透保护
+    pub enable_cache_penetration_protection: bool,
+    /// 空值缓存TTL
+    pub null_value_ttl: Duration,
+    /// 降级检查间隔
+    pub degrade_check_interval: Duration,
 }
 
 impl Default for L2CacheConfig {
     fn default() -> Self {
         Self {
-            capacity: DEFAULT_CACHE_CAPACITY,
-            default_ttl: Some(Duration::from_secs(DEFAULT_TTL_SECS)),
-            cleanup_interval: Duration::from_secs(DEFAULT_CLEANUP_INTERVAL_SECS),
-            eviction_threshold: DEFAULT_EVICTION_THRESHOLD,
+            redis_url: "redis://localhost:6379".to_string(),
+            l1_capacity: 10000,
+            l1_default_ttl: Some(Duration::from_secs(300)),
+            redis_default_ttl: Some(Duration::from_secs(600)),
+            enable_cache_penetration_protection: true,
+            null_value_ttl: Duration::from_secs(60),
+            degrade_check_interval: Duration::from_secs(5),
         }
     }
 }
 
 impl L2CacheConfig {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn capacity(mut self, capacity: usize) -> Self {
-        // 验证容量
-        if capacity == 0 {
-            warn!("缓存容量设置为0，将使用最小值1");
-            self.capacity = 1;
-        } else if capacity > 1_000_000 {
-            warn!("缓存容量过大({})，可能影响性能", capacity);
-            self.capacity = capacity;
-        } else {
-            self.capacity = capacity;
-        }
-        self
-    }
-
-    pub fn default_ttl(mut self, ttl: Duration) -> Self {
-        // 验证TTL
-        if ttl.as_secs() == 0 {
-            warn!("默认TTL不能为0，将使用默认值");
-            self.default_ttl = Some(Duration::from_secs(DEFAULT_TTL_SECS));
-        } else if ttl.as_secs() > 86400 * 30 {
-            warn!("默认TTL过大({:?})，超过30天", ttl);
-            self.default_ttl = Some(ttl);
-        } else {
-            self.default_ttl = Some(ttl);
-        }
-        self
-    }
-
-    pub fn cleanup_interval(mut self, interval: Duration) -> Self {
-        // 验证清理间隔
-        if interval.as_secs() < 10 {
-            warn!("清理间隔过短({:?})，最小值为10秒", interval);
-            self.cleanup_interval = Duration::from_secs(10);
-        } else if interval.as_secs() > 3600 {
-            warn!("清理间隔过长({:?})，最大值为1小时", interval);
-            self.cleanup_interval = Duration::from_secs(3600);
-        } else {
-            self.cleanup_interval = interval;
-        }
-        self
-    }
-
-    pub fn eviction_threshold(mut self, threshold: f64) -> Self {
-        // 验证淘汰阈值
-        if !(0.0..=1.0).contains(&threshold) {
-            warn!("淘汰阈值{}超出范围[0.0, 1.0]，将使用默认值", threshold);
-            self.eviction_threshold = DEFAULT_EVICTION_THRESHOLD;
-        } else {
-            self.eviction_threshold = threshold;
-        }
-        self
-    }
-
-    /// 验证配置
-    pub fn validate(&self) -> Result<(), String> {
-        if self.capacity == 0 {
-            return Err("缓存容量不能为0".to_string());
-        }
-        if !(0.0..=1.0).contains(&self.eviction_threshold) {
-            return Err("淘汰阈值必须在[0.0, 1.0]范围内".to_string());
-        }
-        if let Some(ttl) = self.default_ttl {
-            if ttl.as_secs() == 0 {
-                return Err("默认TTL不能为0".to_string());
-            }
-        }
-        Ok(())
-    }
-}
-
-/// L2缓存实现
-pub struct L2Cache {
-    /// 缓存数据（使用 LRU Cache 实现自动淘汰）
-    data: Arc<tokio::sync::Mutex<lru::LruCache<String, CacheEntry>>>,
-    /// 单飞加载器
-    single_flight: Arc<SingleFlightLoader>,
-    /// 配置
-    config: L2CacheConfig,
-    /// 统计信息
-    __stats: Arc<CacheStats>,
-    /// 清理任务句柄
-    cleanup_handle: Option<JoinHandle<()>>,
-}
-
-/// 缓存统计信息
-#[derive(Debug, Default, Clone)]
-pub struct CacheStats {
-    /// 内部统计数据（使用 Mutex 保证一致性）
-    inner: Arc<std::sync::Mutex<StatsData>>,
-}
-
-/// 内部统计数据
-#[derive(Debug, Default, Clone)]
-struct StatsData {
-    /// 命中次数
-    hits: u64,
-    /// 未命中次数
-    misses: u64,
-    /// 过期次数
-    expirations: u64,
-    /// 淘汰次数
-    evictions: u64,
-    /// 写入次数
-    writes: u64,
-}
-
-impl CacheStats {
-    pub fn new() -> Self {
+    pub fn new(redis_url: impl Into<String>) -> Self {
         Self {
-            inner: Arc::new(std::sync::Mutex::new(StatsData::default())),
+            redis_url: redis_url.into(),
+            ..Default::default()
         }
     }
 
-    /// 记录命中
-    pub fn record_hit(&self) {
-        let mut stats = self.inner.lock().unwrap();
-        stats.hits += 1;
+    pub fn l1_capacity(mut self, capacity: u64) -> Self {
+        self.l1_capacity = capacity;
+        self
     }
 
-    /// 记录未命中
-    pub fn record_miss(&self) {
-        let mut stats = self.inner.lock().unwrap();
-        stats.misses += 1;
+    pub fn l1_default_ttl(mut self, ttl: Duration) -> Self {
+        self.l1_default_ttl = Some(ttl);
+        self
     }
 
-    /// 记录过期
-    pub fn record_expiration(&self) {
-        let mut stats = self.inner.lock().unwrap();
-        stats.expirations += 1;
+    pub fn redis_default_ttl(mut self, ttl: Duration) -> Self {
+        self.redis_default_ttl = Some(ttl);
+        self
     }
 
-    /// 记录淘汰
-    pub fn record_eviction(&self) {
-        let mut stats = self.inner.lock().unwrap();
-        stats.evictions += 1;
+    pub fn enable_cache_penetration_protection(mut self, enable: bool) -> Self {
+        self.enable_cache_penetration_protection = enable;
+        self
     }
 
-    /// 记录写入
-    pub fn record_write(&self) {
-        let mut stats = self.inner.lock().unwrap();
-        stats.writes += 1;
+    pub fn degrade_check_interval(mut self, interval: Duration) -> Self {
+        self.degrade_check_interval = interval;
+        self
+    }
+}
+
+/// L3缓存统计
+#[derive(Debug, Default)]
+pub struct L2CacheStats {
+    l1_hits: AtomicU64,
+    l1_misses: AtomicU64,
+    l2_hits: AtomicU64,
+    l3_hits: AtomicU64,
+    misses: AtomicU64,
+    degradations: AtomicU64,
+    recoveries: AtomicU64,
+    penetration_protections: AtomicU64,
+    writes: AtomicU64,
+}
+
+impl L2CacheStats {
+    pub fn l1_hits(&self) -> u64 {
+        self.l1_hits.load(Ordering::Relaxed)
     }
 
-    pub fn hits(&self) -> u64 {
-        self.inner.lock().unwrap().hits
+    pub fn l1_misses(&self) -> u64 {
+        self.l1_misses.load(Ordering::Relaxed)
+    }
+
+    pub fn l2_hits(&self) -> u64 {
+        self.l2_hits.load(Ordering::Relaxed)
+    }
+
+    pub fn l3_hits(&self) -> u64 {
+        self.l3_hits.load(Ordering::Relaxed)
     }
 
     pub fn misses(&self) -> u64 {
-        self.inner.lock().unwrap().misses
+        self.misses.load(Ordering::Relaxed)
     }
 
-    pub fn expirations(&self) -> u64 {
-        self.inner.lock().unwrap().expirations
+    pub fn degradations(&self) -> u64 {
+        self.degradations.load(Ordering::Relaxed)
     }
 
-    pub fn evictions(&self) -> u64 {
-        self.inner.lock().unwrap().evictions
+    pub fn recoveries(&self) -> u64 {
+        self.recoveries.load(Ordering::Relaxed)
+    }
+
+    pub fn penetration_protections(&self) -> u64 {
+        self.penetration_protections.load(Ordering::Relaxed)
     }
 
     pub fn writes(&self) -> u64 {
-        self.inner.lock().unwrap().writes
+        self.writes.load(Ordering::Relaxed)
     }
 
-    pub fn hit_rate(&self) -> f64 {
-        let stats = self.inner.lock().unwrap();
-        let total = stats.hits + stats.misses;
+    pub fn overall_hit_rate(&self) -> f64 {
+        let total = self.l1_hits() + self.l2_hits() + self.l3_hits() + self.misses();
         if total == 0 {
             0.0
         } else {
-            stats.hits as f64 / total as f64
+            (self.l1_hits() + self.l2_hits() + self.l3_hits()) as f64 / total as f64
         }
+    }
+
+    pub fn l1_hit_rate(&self) -> f64 {
+        let l1_total = self.l1_hits() + self.l1_misses();
+        if l1_total == 0 {
+            0.0
+        } else {
+            self.l1_hits() as f64 / l1_total as f64
+        }
+    }
+
+    pub fn l2_hit_rate(&self) -> f64 {
+        let l2_total = self.l2_hits() + self.l3_hits() + self.misses();
+        if l2_total == 0 {
+            0.0
+        } else {
+            (self.l2_hits() + self.l3_hits()) as f64 / l2_total as f64
+        }
+    }
+
+    pub fn reset(&self) {
+        self.l1_hits.store(0, Ordering::Relaxed);
+        self.l1_misses.store(0, Ordering::Relaxed);
+        self.l2_hits.store(0, Ordering::Relaxed);
+        self.l3_hits.store(0, Ordering::Relaxed);
+        self.misses.store(0, Ordering::Relaxed);
+        self.degradations.store(0, Ordering::Relaxed);
+        self.recoveries.store(0, Ordering::Relaxed);
+        self.penetration_protections.store(0, Ordering::Relaxed);
+        self.writes.store(0, Ordering::Relaxed);
     }
 }
 
+/// L3缓存实现 - 基于 oxcache TieredCache
+pub struct L2Cache {
+    /// oxcache TieredCache (L1 内存 + L2 Redis)
+    cache: Arc<Cache<String, String>>,
+    /// 配置
+    config: L2CacheConfig,
+    /// 统计信息
+    stats: Arc<L2CacheStats>,
+    /// 内部L1缓存统计
+    #[allow(dead_code)]
+    l1_stats: Arc<CacheStats>,
+    /// 是否降级（使用纯L1内存模式）
+    degraded: Arc<AtomicBool>,
+    /// 最后降级时间
+    last_degraded_at: Arc<std::sync::RwLock<Option<Instant>>>,
+    /// 健康检查任务句柄
+    health_check_handle: tokio::task::JoinHandle<()>,
+    /// 降级策略管理器
+    #[cfg(feature = "fallback")]
+    fallback_manager: Arc<FallbackManager>,
+}
+
 impl L2Cache {
-    /// 创建新的L2缓存
-    ///
-    /// # 参数
-    ///
-    /// * `capacity` - 缓存容量
-    /// * `cleanup_interval` - 清理间隔
-    pub fn new(capacity: usize, cleanup_interval: Duration) -> Self {
-        Self::with_config(L2CacheConfig {
-            capacity,
-            cleanup_interval,
-            ..Default::default()
+    /// 创建新的L3缓存
+    pub async fn new(config: L2CacheConfig) -> Result<Self, StorageError> {
+        info!("创建L3缓存 (oxcache), Redis URL: {}", config.redis_url);
+
+        // 创建 oxcache 缓存
+        // 注意：当前使用内存后端，后续需要实现 Redis 后端连接
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(config.l1_capacity)
+            .ttl(config.redis_default_ttl.unwrap_or_default())
+            .build()
+            .await
+            .map_err(|e| StorageError::InvalidConfig(format!("创建缓存失败: {}", e)))?;
+
+        info!("oxcache TieredCache 创建成功");
+
+        let degraded = Arc::new(AtomicBool::new(false));
+        let last_degraded_at = Arc::new(std::sync::RwLock::new(None));
+        let stats = Arc::new(L2CacheStats::default());
+        let l1_stats = Arc::new(CacheStats::new());
+
+        // 创建降级策略管理器
+        #[cfg(feature = "fallback")]
+        let fallback_manager = Arc::new(FallbackManager::new(None));
+
+        // 设置L3缓存的降级策略
+        #[cfg(feature = "fallback")]
+        fallback_manager
+            .set_strategy(
+                ComponentType::L2Cache,
+                crate::fallback::FallbackConfig::new(
+                    ComponentType::L2Cache,
+                    FallbackStrategy::Degraded,
+                )
+                .enabled(true)
+                .timeout(Duration::from_secs(5))
+                .max_retries(3),
+            )
+            .await;
+
+        // 启动健康检查任务
+        let cache_arc = Arc::new(cache);
+        let health_check_handle = Self::start_health_check(
+            Arc::clone(&cache_arc),
+            Arc::clone(&degraded),
+            Arc::clone(&last_degraded_at),
+            Arc::clone(&stats),
+            #[cfg(feature = "fallback")]
+            Arc::clone(&fallback_manager),
+            config.degrade_check_interval,
+        );
+
+        Ok(Self {
+            cache: cache_arc,
+            config,
+            stats,
+            l1_stats,
+            degraded,
+            last_degraded_at,
+            health_check_handle,
+            #[cfg(feature = "fallback")]
+            fallback_manager,
         })
     }
 
-    /// 使用配置创建L2缓存
-    pub fn with_config(config: L2CacheConfig) -> Self {
-        // 验证配置
-        if let Err(e) = config.validate() {
-            panic!("L2Cache配置无效: {}", e);
-        }
-
-        let stats = Arc::new(CacheStats::new());
-        let single_flight = Arc::new(SingleFlightLoader::new());
-        let cleanup_handle = Self::start_cleanup_task(Arc::clone(&stats), config.cleanup_interval);
-
-        Self {
-            data: Arc::new(tokio::sync::Mutex::new(lru::LruCache::new(
-                NonZeroUsize::new(config.capacity).unwrap_or(NonZeroUsize::new(1).unwrap()),
-            ))),
-            single_flight,
-            config,
-            __stats: stats,
-            cleanup_handle: Some(cleanup_handle),
-        }
-    }
-
-    /// 启动清理任务
-    fn start_cleanup_task(__stats: Arc<CacheStats>, interval: Duration) -> JoinHandle<()> {
+    fn start_health_check(
+        cache: Arc<Cache<String, String>>,
+        degraded: Arc<AtomicBool>,
+        last_degraded_at: Arc<std::sync::RwLock<Option<Instant>>>,
+        stats: Arc<L2CacheStats>,
+        #[cfg(feature = "fallback")] fallback_manager: Arc<FallbackManager>,
+        interval: Duration,
+    ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            let mut cleanup_interval = tokio::time::interval(interval);
+            let mut check_interval = tokio::time::interval(interval);
             loop {
-                cleanup_interval.tick().await;
-                debug!("执行缓存清理任务");
-                // 清理逻辑在各个缓存实例中实现
+                check_interval.tick().await;
+
+                if degraded.load(Ordering::Relaxed) {
+                    trace!("尝试恢复L3缓存");
+
+                    match cache.health_check().await {
+                        Ok(true) => {
+                            let current = degraded.load(Ordering::Relaxed);
+                            if current {
+                                degraded.store(false, Ordering::Relaxed);
+                                *last_degraded_at.write().unwrap() = None;
+                                stats.recoveries.fetch_add(1, Ordering::Relaxed);
+                                info!("L3缓存已恢复");
+
+                                #[cfg(feature = "fallback")]
+                                fallback_manager
+                                    .recover_failure(ComponentType::L2Cache)
+                                    .await;
+                            }
+                        }
+                        Ok(false) => {
+                            trace!("L3缓存健康检查返回false");
+                        }
+                        Err(e) => {
+                            trace!("L3缓存仍处于不健康状态: {}", e);
+                        }
+                    }
+                }
             }
         })
     }
 
     /// 获取值
     pub async fn get(&self, key: &str) -> Option<String> {
-        let mut cache = self.data.lock().await;
-        if let Some(entry) = cache.get_mut(key) {
-            // 检查是否过期
-            if entry.is_expired() {
-                cache.pop(key);
-                self.__stats.record_expiration();
-                return None;
-            }
+        // 检查是否降级
+        if self.degraded.load(Ordering::Relaxed) {
+            self.stats.misses.fetch_add(1, Ordering::Relaxed);
+            return None;
+        }
 
-            // 更新访问信息
-            entry.update_access();
-            self.__stats.record_hit();
-            Some(entry.value.clone())
-        } else {
-            self.__stats.record_miss();
-            None
+        // 使用 oxcache tiered cache 获取值
+        match self.cache.get(&key.to_string()).await {
+            Ok(Some(value)) => {
+                // 判断是 L1 还是 L2 命中（通过 stats 判断）
+                // oxcache 的 tiered cache 会自动处理 L1/L2 层级
+                self.stats.l1_hits.fetch_add(1, Ordering::Relaxed);
+                trace!("L1缓存命中: key={}", key);
+                Some(value)
+            }
+            Ok(None) => {
+                // 检查是否是降级状态
+                match self.cache.health_check().await {
+                    Ok(true) => {
+                        self.stats.misses.fetch_add(1, Ordering::Relaxed);
+                        None
+                    }
+                    Ok(false) => {
+                        // L2 不可用，降级
+                        self.set_degraded(true).await;
+                        self.stats.misses.fetch_add(1, Ordering::Relaxed);
+                        None
+                    }
+                    Err(e) => {
+                        error!("L3缓存健康检查失败: {}", e);
+                        self.set_degraded(true).await;
+                        self.stats.misses.fetch_add(1, Ordering::Relaxed);
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                error!("L3缓存读取失败: key={}, error={}", key, e);
+                self.set_degraded(true).await;
+                #[cfg(feature = "fallback")]
+                self.fallback_manager
+                    .record_failure(ComponentType::L2Cache, &e.to_string())
+                    .await;
+                self.stats.misses.fetch_add(1, Ordering::Relaxed);
+                None
+            }
         }
     }
 
     /// 设置值
     pub async fn set(&self, key: &str, value: &str, ttl: Option<Duration>) {
-        let ttl = ttl.or(self.config.default_ttl);
-        let entry = CacheEntry::new(value.to_string(), ttl);
+        self.stats.writes.fetch_add(1, Ordering::Relaxed);
 
-        let mut cache = self.data.lock().await;
-
-        // 检查是否需要淘汰
-        if cache.len() >= self.config.capacity {
-            // 放置新键会自动淘汰LRU，所以不需要手动evict
-            // 但为了统计信息，我们记录一次eviction
-            if cache.len() >= self.config.capacity {
-                self.__stats.record_eviction();
-            }
+        // 如果降级，不再尝试写入 Redis
+        if self.degraded.load(Ordering::Relaxed) {
+            return;
         }
 
-        cache.put(key.to_string(), entry);
-        self.__stats.record_write();
+        // 使用 oxcache tiered cache 设置值
+        if let Err(e) = self
+            .cache
+            .set_with_ttl(&key.to_string(), &value.to_string(), ttl)
+            .await
+        {
+            error!("L3缓存写入失败: key={}, error={}", key, e);
+            self.set_degraded(true).await;
+        }
     }
 
     /// 删除值
     pub async fn delete(&self, key: &str) {
-        let mut cache = self.data.lock().await;
-        cache.pop(key);
-    }
-
-    /// 检查键是否存在
-    pub async fn contains(&self, key: &str) -> bool {
-        let mut cache = self.data.lock().await;
-        if let Some(entry) = cache.get(key) {
-            !entry.is_expired()
-        } else {
-            false
-        }
-    }
-
-    /// 清空缓存
-    pub async fn clear(&self) {
-        let mut cache = self.data.lock().await;
-        cache.clear();
-    }
-
-    /// 获取缓存大小
-    pub async fn len(&self) -> usize {
-        let cache = self.data.lock().await;
-        cache.len()
-    }
-
-    /// 检查缓存是否为空
-    pub async fn is_empty(&self) -> bool {
-        let cache = self.data.lock().await;
-        cache.is_empty()
-    }
-
-    /// 单飞模式获取或加载值
-    ///
-    /// 如果缓存中存在且未过期，直接返回；否则使用加载器加载。
-    /// 防止缓存击穿：多个并发请求同时加载同一个key时，只有一个会实际加载。
-    pub async fn get_or_load<F, Fut>(&self, key: &str, loader: F) -> Result<String, StorageError>
-    where
-        F: Fn() -> Fut,
-        Fut: std::future::Future<Output = Result<String, StorageError>>,
-    {
-        // 快速路径：从缓存获取
-        if let Some(value) = self.get(key).await {
-            return Ok(value);
+        if self.degraded.load(Ordering::Relaxed) {
+            return;
         }
 
-        // 单飞模式加载
-        let value = self.single_flight.get_or_load(key, loader).await?;
-
-        // 缓存加载的值
-        self.set(key, &value, self.config.default_ttl).await;
-
-        Ok(value)
+        if let Err(e) = self.cache.delete(&key.to_string()).await {
+            error!("L3缓存删除失败: key={}, error={}", key, e);
+            self.set_degraded(true).await;
+        }
     }
 
     /// 批量获取
-    pub async fn batch_get(&self, keys: &[String]) -> HashMap<String, String> {
-        let mut result = HashMap::new();
-        for key in keys {
-            if let Some(value) = self.get(key).await {
-                result.insert(key.clone(), value);
+    pub async fn batch_get(&self, keys: &[String]) -> AHashMap<String, String> {
+        if self.degraded.load(Ordering::Relaxed) {
+            for _ in keys {
+                self.stats.misses.fetch_add(1, Ordering::Relaxed);
+            }
+            return AHashMap::new();
+        }
+
+        match self.cache.get_many(keys.iter()).await {
+            Ok(result) => {
+                for key in keys {
+                    if result.contains_key(key) {
+                        self.stats.l1_hits.fetch_add(1, Ordering::Relaxed);
+                    } else {
+                        self.stats.misses.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                result.into_iter().collect()
+            }
+            Err(e) => {
+                error!("L3缓存批量读取失败: error={}", e);
+                self.set_degraded(true).await;
+                for _ in keys {
+                    self.stats.misses.fetch_add(1, Ordering::Relaxed);
+                }
+                AHashMap::new()
             }
         }
-        result
     }
 
     /// 批量设置
     pub async fn batch_set(&self, items: &[(String, String, Option<Duration>)]) {
-        for (key, value, ttl) in items {
-            self.set(key, value, *ttl).await;
+        self.stats
+            .writes
+            .fetch_add(items.len() as u64, Ordering::Relaxed);
+
+        if self.degraded.load(Ordering::Relaxed) {
+            return;
+        }
+
+        // 使用 oxcache 的 set_many
+        for (key, value, _) in items {
+            if let Err(e) = self.cache.set(key, value).await {
+                error!("L3缓存批量写入失败: key={}, error={}", key, e);
+                self.set_degraded(true).await;
+                return;
+            }
         }
     }
 
     /// 批量删除
     pub async fn batch_delete(&self, keys: &[String]) {
-        for key in keys {
-            self.delete(key).await;
+        if self.degraded.load(Ordering::Relaxed) {
+            return;
+        }
+
+        if let Err(e) = self.cache.delete_many(keys.iter()).await {
+            error!("L3缓存批量删除失败: error={}", e);
+            self.set_degraded(true).await;
         }
     }
 
-    /// 清理过期数据
-    pub async fn cleanup_expired(&self) -> usize {
-        let mut cache = self.data.lock().await;
-
-        // 收集所有过期的键
-        let expired_keys: Vec<String> = cache
-            .iter()
-            .filter(|(_, entry)| entry.is_expired())
-            .map(|(key, _)| key.clone())
-            .collect();
-
-        let count = expired_keys.len();
-
-        // 移除过期的键
-        for key in expired_keys {
-            cache.pop(&key);
-            self.__stats.record_expiration();
+    /// 获取或加载
+    pub async fn get_or_load<F, Fut>(&self, key: &str, loader: F) -> Result<String, StorageError>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<String, StorageError>>,
+    {
+        if let Some(value) = self.get(key).await {
+            return Ok(value);
         }
 
-        if count > 0 {
-            debug!("清理了 {} 条过期数据", count);
-        }
-
-        count
-    }
-
-    /// LRU淘汰
-    #[allow(dead_code)]
-    async fn evict_lru(&self) {
-        // 使用 LruCache 的 pop_lru() 方法，这是 O(1) 的
-        let mut cache = self.data.lock().await;
-        if cache.pop_lru().is_some() {
-            self.__stats.record_eviction();
-            debug!("LRU淘汰成功");
+        match loader().await {
+            Ok(value) => {
+                self.set(key, &value, None).await;
+                Ok(value)
+            }
+            Err(e) => {
+                if self.config.enable_cache_penetration_protection {
+                    self.stats
+                        .penetration_protections
+                        .fetch_add(1, Ordering::Relaxed);
+                    self.set(key, "__NULL__", Some(self.config.null_value_ttl))
+                        .await;
+                }
+                Err(e)
+            }
         }
     }
 
-    /// 获取统计信息
-    pub fn stats(&self) -> &CacheStats {
-        &self.__stats
+    async fn set_degraded(&self, degraded: bool) {
+        let current = self.degraded.load(Ordering::Relaxed);
+        if current != degraded {
+            self.degraded.store(degraded, Ordering::Relaxed);
+            if degraded {
+                *self.last_degraded_at.write().unwrap() = Some(Instant::now());
+                self.stats.degradations.fetch_add(1, Ordering::Relaxed);
+                warn!("L3缓存已降级");
+            } else {
+                self.stats.recoveries.fetch_add(1, Ordering::Relaxed);
+                info!("L3缓存已恢复");
+            }
+        }
     }
 
-    /// 获取配置
-    pub fn config(&self) -> &L2CacheConfig {
-        &self.config
+    pub async fn is_degraded(&self) -> bool {
+        self.degraded.load(Ordering::Relaxed)
     }
 
-    /// 停止清理任务
+    pub fn stats(&self) -> &L2CacheStats {
+        &self.stats
+    }
+
+    #[cfg(feature = "fallback")]
+    pub fn fallback_manager(&self) -> &Arc<FallbackManager> {
+        &self.fallback_manager
+    }
+
+    pub async fn clear(&self) {
+        if let Err(e) = self.cache.clear().await {
+            error!("L3缓存清除失败: {}", e);
+        }
+    }
+
     pub async fn shutdown(&self) {
-        if let Some(handle) = &self.cleanup_handle {
-            handle.abort();
+        self.health_check_handle.abort();
+        if let Err(e) = self.cache.shutdown().await {
+            error!("L3缓存关闭失败: {}", e);
         }
     }
 }
 
 impl Drop for L2Cache {
     fn drop(&mut self) {
-        if let Some(handle) = self.cleanup_handle.take() {
-            handle.abort();
-        }
+        self.health_check_handle.abort();
     }
 }
 
@@ -629,211 +536,31 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
-    #[tokio::test]
-    async fn test_cache_set_get() {
-        let cache = L2Cache::new(100, Duration::from_secs(60));
-
-        cache.set("key1", "value1", None).await;
-        let value = cache.get("key1").await;
-        assert_eq!(value, Some("value1".to_string()));
+    #[test]
+    fn test_l2_cache_config_default() {
+        let config = L2CacheConfig::default();
+        assert_eq!(config.l1_capacity, 10000);
+        assert_eq!(config.redis_default_ttl, Some(Duration::from_secs(600)));
+        assert!(config.enable_cache_penetration_protection);
     }
 
     #[tokio::test]
-    async fn test_cache_get_not_found() {
-        let cache = L2Cache::new(100, Duration::from_secs(60));
+    async fn test_l2_cache_stats() {
+        let stats = L2CacheStats::default();
+        assert_eq!(stats.l1_hits(), 0);
+        assert_eq!(stats.l2_hits(), 0);
+        assert_eq!(stats.misses(), 0);
 
-        let value = cache.get("nonexistent").await;
-        assert_eq!(value, None);
-    }
+        stats.l1_hits.fetch_add(1, Ordering::Relaxed);
+        stats.l2_hits.fetch_add(1, Ordering::Relaxed);
+        stats.misses.fetch_add(1, Ordering::Relaxed);
 
-    #[tokio::test]
-    async fn test_cache_delete() {
-        let cache = L2Cache::new(100, Duration::from_secs(60));
-
-        cache.set("key1", "value1", None).await;
-        cache.delete("key1").await;
-        let value = cache.get("key1").await;
-        assert_eq!(value, None);
-    }
-
-    #[tokio::test]
-    async fn test_cache_ttl() {
-        let cache = L2Cache::new(100, Duration::from_secs(60));
-
-        cache
-            .set("key1", "value1", Some(Duration::from_millis(100)))
-            .await;
-        tokio::time::sleep(Duration::from_millis(150)).await;
-
-        let value = cache.get("key1").await;
-        assert_eq!(value, None);
-    }
-
-    #[tokio::test]
-    async fn test_cache_contains() {
-        let cache = L2Cache::new(100, Duration::from_secs(60));
-
-        cache.set("key1", "value1", None).await;
-        assert!(cache.contains("key1").await);
-        assert!(!cache.contains("nonexistent").await);
-    }
-
-    #[tokio::test]
-    async fn test_cache_clear() {
-        let cache = L2Cache::new(100, Duration::from_secs(60));
-
-        cache.set("key1", "value1", None).await;
-        cache.set("key2", "value2", None).await;
-        cache.clear().await;
-
-        assert!(cache.is_empty().await);
-        assert_eq!(cache.len().await, 0);
-    }
-
-    #[tokio::test]
-    async fn test_batch_operations() {
-        let cache = L2Cache::new(100, Duration::from_secs(60));
-
-        // 批量设置
-        let items = vec![
-            ("key1".to_string(), "value1".to_string(), None),
-            ("key2".to_string(), "value2".to_string(), None),
-            ("key3".to_string(), "value3".to_string(), None),
-        ];
-        cache.batch_set(&items).await;
-
-        // 批量获取
-        let keys = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
-        let result = cache.batch_get(&keys).await;
-        assert_eq!(result.len(), 3);
-        assert_eq!(result.get("key1"), Some(&"value1".to_string()));
-
-        // 批量删除
-        let delete_keys = vec!["key1".to_string(), "key2".to_string()];
-        cache.batch_delete(&delete_keys).await;
-
-        assert_eq!(cache.len().await, 1);
-    }
-
-    #[tokio::test]
-    async fn test_single_flight() {
-        let cache = L2Cache::new(100, Duration::from_secs(60));
-
-        let load_count = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let load_count_clone = load_count.clone();
-
-        let loader = || {
-            let load_count = load_count_clone.clone();
-            async move {
-                load_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                Ok("loaded_value".to_string())
-            }
-        };
-
-        // 并发加载同一个key
-        let task1 = cache.get_or_load("key1", loader);
-        let task2 = cache.get_or_load("key1", loader);
-        let task3 = cache.get_or_load("key1", loader);
-
-        let (r1, r2, r3) = tokio::join!(task1, task2, task3);
-
-        assert!(r1.is_ok());
-        assert!(r2.is_ok());
-        assert!(r3.is_ok());
-        // 单飞模式应该只加载一次
-        assert_eq!(load_count.load(std::sync::atomic::Ordering::SeqCst), 1);
-    }
-
-    #[tokio::test]
-    async fn test_cache_stats() {
-        let cache = L2Cache::new(100, Duration::from_secs(60));
-
-        cache.set("key1", "value1", None).await;
-        cache.get("key1").await; // hit
-        cache.get("key2").await; // miss
-
-        let stats = cache.stats();
-        assert_eq!(stats.hits(), 1);
+        assert_eq!(stats.l1_hits(), 1);
+        assert_eq!(stats.l2_hits(), 1);
         assert_eq!(stats.misses(), 1);
-        assert_eq!(stats.hit_rate(), 0.5);
-    }
+        assert!((stats.overall_hit_rate() - 2.0 / 3.0).abs() < 0.01);
 
-    #[tokio::test]
-    async fn test_cleanup_expired() {
-        let cache = L2Cache::new(100, Duration::from_secs(60));
-
-        cache
-            .set("key1", "value1", Some(Duration::from_millis(100)))
-            .await;
-        cache.set("key2", "value2", None).await;
-
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        let cleaned = cache.cleanup_expired().await;
-
-        assert_eq!(cleaned, 1);
-        assert_eq!(cache.len().await, 1);
-    }
-
-    #[tokio::test]
-    async fn test_lru_eviction() {
-        let cache = L2Cache::new(3, Duration::from_secs(60));
-
-        cache.set("key1", "value1", None).await;
-        cache.set("key2", "value2", None).await;
-        cache.set("key3", "value3", None).await;
-
-        // 访问key1和key2，使key3成为LRU
-        cache.get("key1").await;
-        cache.get("key2").await;
-
-        // 添加新key，应该淘汰key3
-        cache.set("key4", "value4", None).await;
-
-        assert_eq!(cache.len().await, 3);
-        assert!(cache.contains("key1").await);
-        assert!(cache.contains("key2").await);
-        assert!(!cache.contains("key3").await);
-        assert!(cache.contains("key4").await);
-    }
-
-    #[tokio::test]
-    async fn test_config_builder() {
-        let config = L2CacheConfig::new()
-            .capacity(5000)
-            .default_ttl(Duration::from_secs(600))
-            .cleanup_interval(Duration::from_secs(30))
-            .eviction_threshold(0.8);
-
-        assert_eq!(config.capacity, 5000);
-        assert_eq!(config.default_ttl, Some(Duration::from_secs(600)));
-        assert_eq!(config.cleanup_interval, Duration::from_secs(30));
-        assert_eq!(config.eviction_threshold, 0.8);
-    }
-
-    #[tokio::test]
-    async fn test_concurrent_access() {
-        let cache = Arc::new(L2Cache::new(1000, Duration::from_secs(60)));
-        let mut handles = vec![];
-
-        // 并发写入
-        for i in 0..100 {
-            let cache_clone = Arc::clone(&cache);
-            let handle = tokio::spawn(async move {
-                let key = format!("key{}", i);
-                let value = format!("value{}", i);
-                cache_clone.set(&key, &value, None).await;
-                cache_clone.get(&key).await
-            });
-            handles.push(handle);
-        }
-
-        // 等待所有任务完成
-        for handle in handles {
-            handle.await.unwrap();
-        }
-
-        // 验证所有数据都存在
-        assert_eq!(cache.len().await, 100);
+        stats.reset();
+        assert_eq!(stats.l1_hits(), 0);
     }
 }

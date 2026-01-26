@@ -7,6 +7,7 @@
 //! 实现实时监控、性能指标收集和智能告警功能。
 
 use crate::telemetry::Tracer;
+use parking_lot::Mutex as ParkingMutex;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicBool};
 use std::time::{Duration, Instant};
@@ -20,23 +21,43 @@ pub enum AlertLevel {
     Critical,
 }
 
+#[derive(Debug, Clone)]
+pub struct AlertThresholdF64 {
+    warning: f64,
+    critical: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct AlertThresholdU64 {
+    warning: u64,
+    critical: u64,
+}
+
 /// 告警配置
 #[derive(Debug, Clone)]
 pub struct AlertConfig {
-    /// CPU 使用率告警阈值（0.0-1.0）
-    cpu_threshold: f64,
-    
-    /// 内存使用率告警阈值（0.0-1.0）
-    memory_threshold: f64,
-    
-    /// 请求延迟告警阈值（毫秒）
-    latency_threshold_ms: u64,
-    
-    /// 错误率告警阈值（0.0-0.05）
-    error_rate_threshold: f64,
-    
-    /// 告警冷却时间
+    cpu_thresholds: AlertThresholdF64,
+    memory_thresholds: AlertThresholdF64,
+    latency_thresholds_ms: AlertThresholdU64,
+    error_rate_thresholds: AlertThresholdF64,
+    cache_hit_rate_thresholds: AlertThresholdF64,
     alert_cooldown: Duration,
+    jitter_suppression_count: u32,
+}
+
+#[derive(Debug, Default)]
+struct MetricAlertState {
+    last_level: Option<AlertLevel>,
+    consecutive: u32,
+}
+
+#[derive(Debug, Default)]
+struct AlertState {
+    cpu: MetricAlertState,
+    memory: MetricAlertState,
+    latency: MetricAlertState,
+    error_rate: MetricAlertState,
+    cache_hit_rate: MetricAlertState,
 }
 
 /// 性能指标快照
@@ -103,6 +124,106 @@ impl LatencySamples {
     }
 }
 
+#[derive(Debug, Default)]
+struct SystemMetricsSampler {
+    last_total: u64,
+    last_idle: u64,
+}
+
+impl SystemMetricsSampler {
+    fn read_cpu_usage(&mut self) -> f64 {
+        let content = match std::fs::read_to_string("/proc/stat") {
+            Ok(value) => value,
+            Err(_) => return 0.0,
+        };
+
+        let mut parts = match content.lines().next() {
+            Some(line) => line.split_whitespace(),
+            None => return 0.0,
+        };
+
+        let label = match parts.next() {
+            Some(value) => value,
+            None => return 0.0,
+        };
+
+        if label != "cpu" {
+            return 0.0;
+        }
+
+        let mut total: u64 = 0;
+        let mut idle: u64 = 0;
+
+        for (index, value) in parts.enumerate() {
+            let parsed: u64 = match value.parse() {
+                Ok(v) => v,
+                Err(_) => return 0.0,
+            };
+
+            total = total.saturating_add(parsed);
+            if index == 3 {
+                idle = idle.saturating_add(parsed);
+            }
+            if index == 4 {
+                idle = idle.saturating_add(parsed);
+            }
+        }
+
+        if self.last_total == 0 {
+            self.last_total = total;
+            self.last_idle = idle;
+            return 0.0;
+        }
+
+        let total_delta = total.saturating_sub(self.last_total);
+        let idle_delta = idle.saturating_sub(self.last_idle);
+        self.last_total = total;
+        self.last_idle = idle;
+
+        if total_delta == 0 {
+            return 0.0;
+        }
+
+        let usage = 1.0 - (idle_delta as f64 / total_delta as f64);
+        usage.clamp(0.0, 1.0)
+    }
+}
+
+fn read_memory_usage() -> f64 {
+    let content = match std::fs::read_to_string("/proc/meminfo") {
+        Ok(value) => value,
+        Err(_) => return 0.0,
+    };
+
+    let mut total_kb: u64 = 0;
+    let mut available_kb: u64 = 0;
+
+    for line in content.lines() {
+        if line.starts_with("MemTotal:") {
+            if let Some(value) = line.split_whitespace().nth(1) {
+                if let Ok(parsed) = value.parse::<u64>() {
+                    total_kb = parsed;
+                }
+            }
+        }
+
+        if line.starts_with("MemAvailable:") {
+            if let Some(value) = line.split_whitespace().nth(1) {
+                if let Ok(parsed) = value.parse::<u64>() {
+                    available_kb = parsed;
+                }
+            }
+        }
+    }
+
+    if total_kb == 0 {
+        return 0.0;
+    }
+
+    let used_kb = total_kb.saturating_sub(available_kb);
+    (used_kb as f64 / total_kb as f64).clamp(0.0, 1.0)
+}
+
 /// 性能指标
 #[derive(Debug, Default)]
 pub struct PerformanceMetrics {
@@ -138,6 +259,8 @@ pub struct PerformanceMetrics {
     
     /// 延迟样本（用于计算真正的百分位数）
     latency_samples: std::sync::Mutex<LatencySamples>,
+
+    system_sampler: ParkingMutex<SystemMetricsSampler>,
 }
 impl PerformanceMetrics {
     /// 创建新的性能指标
@@ -154,6 +277,7 @@ impl PerformanceMetrics {
             circuit_breaker_trips: AtomicU64::new(0),
             active_connections: AtomicU64::new(0),
             latency_samples: std::sync::Mutex::new(LatencySamples::new(1000)), // 保存最近1000个样本
+            system_sampler: ParkingMutex::new(SystemMetricsSampler::default()),
         }
     }
 
@@ -161,6 +285,8 @@ impl PerformanceMetrics {
     pub fn snapshot(&self) -> MetricsSnapshot {
         let total = self.total_requests.load(std::sync::atomic::Ordering::Relaxed);
         let failed = self.failed_requests.load(std::sync::atomic::Ordering::Relaxed);
+        let cpu_usage = self.system_sampler.lock().read_cpu_usage();
+        let memory_usage = read_memory_usage();
 
         MetricsSnapshot {
             total_requests: total,
@@ -174,8 +300,8 @@ impl PerformanceMetrics {
             circuit_breaker_trips: self.circuit_breaker_trips.load(std::sync::atomic::Ordering::Relaxed),
             active_connections: self.active_connections.load(std::sync::atomic::Ordering::Relaxed),
             error_rate: if total > 0 { failed as f64 / total as f64 } else { 0.0 },
-            cpu_usage: 0.0, // TODO: 实现实际的 CPU 使用率监控
-            memory_usage: 0.0, // TODO: 实现实际的内存使用率监控
+            cpu_usage,
+            memory_usage,
         }
     }
 }
@@ -194,6 +320,8 @@ pub struct MonitoringSystem {
     /// 最后告警时间
     last_alert_time: Arc<std::sync::Mutex<Instant>>,
 
+    alert_state: Arc<ParkingMutex<AlertState>>,
+
     /// 遥踪器
     tracer: Arc<Tracer>,
 }
@@ -211,6 +339,7 @@ impl MonitoringSystem {
             alert_config,
             alert_in_progress: Arc::new(AtomicBool::new(false)),
             last_alert_time: Arc::new(std::sync::Mutex::new(Instant::now())),
+            alert_state: Arc::new(ParkingMutex::new(AlertState::default())),
         }
     }
 
@@ -271,26 +400,60 @@ impl MonitoringSystem {
         let mut alerts = Vec::new();
 
         let metrics = self.metrics.snapshot();
+        let mut state = self.alert_state.lock();
 
-        // 检查各种告警条件
-        if metrics.cache_hit_rate < 0.8 {
-            alerts.push(AlertLevel::Warning);
+        let cpu_level = Self::evaluate_threshold_f64(
+            metrics.cpu_usage,
+            &self.alert_config.cpu_thresholds,
+            true,
+        );
+        if let Some(level) =
+            Self::apply_jitter(cpu_level, &mut state.cpu, &self.alert_config)
+        {
+            alerts.push(level);
         }
 
-        if metrics.error_rate > self.alert_config.error_rate_threshold {
-            alerts.push(AlertLevel::Critical);
+        let memory_level = Self::evaluate_threshold_f64(
+            metrics.memory_usage,
+            &self.alert_config.memory_thresholds,
+            true,
+        );
+        if let Some(level) =
+            Self::apply_jitter(memory_level, &mut state.memory, &self.alert_config)
+        {
+            alerts.push(level);
         }
 
-        if metrics.avg_latency_ms > self.alert_config.latency_threshold_ms {
-            alerts.push(AlertLevel::Warning);
+        let latency_level =
+            Self::evaluate_threshold_u64(metrics.avg_latency_ms, &self.alert_config.latency_thresholds_ms);
+        if let Some(level) =
+            Self::apply_jitter(latency_level, &mut state.latency, &self.alert_config)
+        {
+            alerts.push(level);
         }
 
-        if metrics.cpu_usage > self.alert_config.cpu_threshold {
-            alerts.push(AlertLevel::Critical);
+        let error_rate_level = Self::evaluate_threshold_f64(
+            metrics.error_rate,
+            &self.alert_config.error_rate_thresholds,
+            true,
+        );
+        if let Some(level) =
+            Self::apply_jitter(error_rate_level, &mut state.error_rate, &self.alert_config)
+        {
+            alerts.push(level);
         }
 
-        if metrics.memory_usage > self.alert_config.memory_threshold {
-            alerts.push(AlertLevel::Warning);
+        let cache_hit_rate_level = Self::evaluate_threshold_f64(
+            metrics.cache_hit_rate,
+            &self.alert_config.cache_hit_rate_thresholds,
+            false,
+        );
+        if let Some(level) = Self::apply_jitter(
+            cache_hit_rate_level,
+            &mut state.cache_hit_rate,
+            &self.alert_config,
+        ) {
+            alerts.push(level);
         }
 
         alerts
@@ -345,6 +508,68 @@ impl MonitoringSystem {
             AlertLevel::Info => "INFO".to_string(),
             AlertLevel::Warning => "WARNING".to_string(),
             AlertLevel::Critical => "CRITICAL".to_string(),
+        }
+    }
+
+    fn evaluate_threshold_f64(
+        value: f64,
+        thresholds: &AlertThresholdF64,
+        higher_is_worse: bool,
+    ) -> Option<AlertLevel> {
+        if higher_is_worse {
+            if value >= thresholds.critical {
+                Some(AlertLevel::Critical)
+            } else if value >= thresholds.warning {
+                Some(AlertLevel::Warning)
+            } else {
+                None
+            }
+        } else if value <= thresholds.critical {
+            Some(AlertLevel::Critical)
+        } else if value <= thresholds.warning {
+            Some(AlertLevel::Warning)
+        } else {
+            None
+        }
+    }
+
+    fn evaluate_threshold_u64(value: u64, thresholds: &AlertThresholdU64) -> Option<AlertLevel> {
+        if value >= thresholds.critical {
+            Some(AlertLevel::Critical)
+        } else if value >= thresholds.warning {
+            Some(AlertLevel::Warning)
+        } else {
+            None
+        }
+    }
+
+    fn apply_jitter(
+        level: Option<AlertLevel>,
+        state: &mut MetricAlertState,
+        config: &AlertConfig,
+    ) -> Option<AlertLevel> {
+        let Some(level) = level else {
+            state.last_level = None;
+            state.consecutive = 0;
+            return None;
+        };
+
+        if state.last_level.as_ref() == Some(&level) {
+            state.consecutive = state.consecutive.saturating_add(1);
+        } else {
+            state.last_level = Some(level.clone());
+            state.consecutive = 1;
+        }
+
+        if matches!(level, AlertLevel::Critical) {
+            return Some(level);
+        }
+
+        let required = config.jitter_suppression_count.max(1);
+        if state.consecutive >= required {
+            Some(level)
+        } else {
+            None
         }
     }
 
@@ -407,11 +632,28 @@ mod tests {
         let metrics = Arc::new(PerformanceMetrics::default());
         let tracer = Arc::new(Tracer::new(false));
         let alert_config = AlertConfig {
-            cpu_threshold: 0.8,
-            memory_threshold: 0.7,
-            latency_threshold_ms: 100,
-            error_rate_threshold: 0.05,
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.95,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 0.7,
+                critical: 0.9,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 100,
+                critical: 300,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 0.03,
+                critical: 0.05,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.6,
+            },
             alert_cooldown: Duration::from_secs(60),
+            jitter_suppression_count: 1,
         };
         let monitoring = MonitoringSystem::new(metrics, tracer, alert_config);
 

@@ -39,15 +39,7 @@ pub const DEFAULT_PAGINATION_LIMIT: u64 = 100;
 /// 最大分页限制
 pub const MAX_PAGINATION_LIMIT: u64 = 1000;
 
-/// 最大封禁原因长度
-pub const MAX_BAN_REASON_LENGTH: usize = 500;
-
-/// 最大用户ID长度
-pub const MAX_USER_ID_LENGTH: usize = 100;
-
-/// 最大MAC地址长度
-pub const MAX_MAC_ADDRESS_LENGTH: usize = 17;
-
+use crate::constants::{MAX_BAN_REASON_LENGTH, MAX_MAC_ADDRESS_LENGTH, MAX_USER_ID_LENGTH};
 use crate::error::FlowGuardError;
 use crate::storage::{BanRecord, BanStorage, BanTarget};
 use chrono::{DateTime, Duration, Utc};
@@ -371,12 +363,12 @@ impl BanManager {
     /// # 示例
     /// ```rust
     /// use limiteron::ban_manager::BanManager;
-    /// use limiteron::storage::MockBanStorage;
+    /// use limiteron::storage::MemoryStorage;
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let storage = Arc::new(MockBanStorage);
+    ///     let storage = Arc::new(MemoryStorage::new());
     ///     let ban_manager = BanManager::new(storage, None).await.unwrap();
     /// }
     /// ```
@@ -1045,12 +1037,12 @@ impl BanManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::MockBanStorage;
+    use crate::storage::MemoryStorage;
 
     #[allow(dead_code)]
     fn create_test_ban_manager() -> BanManager {
         tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let storage = Arc::new(MockBanStorage);
+            let storage = Arc::new(MemoryStorage::new());
             BanManager::new(storage, None).await.unwrap()
         })
     }
@@ -1094,7 +1086,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_calculate_ban_duration() {
-        let storage = Arc::new(MockBanStorage);
+        let storage = Arc::new(MemoryStorage::new());
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         // 第一次违规：1分钟
@@ -1120,7 +1112,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_ban_auto() {
-        let storage = Arc::new(MockBanStorage);
+        let storage = Arc::new(MemoryStorage::new());
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let target = BanTarget::UserId("user123".to_string());
@@ -1142,7 +1134,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_ban_manual() {
-        let storage = Arc::new(MockBanStorage);
+        let storage = Arc::new(MemoryStorage::new());
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let target = BanTarget::Ip("192.168.1.1".to_string());
@@ -1173,7 +1165,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_ban_not_found() {
-        let storage = Arc::new(MockBanStorage);
+        let storage = Arc::new(MemoryStorage::new());
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let target = BanTarget::UserId("nonexistent".to_string());
@@ -1185,7 +1177,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_ban_not_found() {
-        let storage = Arc::new(MockBanStorage);
+        let storage = Arc::new(MemoryStorage::new());
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let target = BanTarget::UserId("nonexistent".to_string());
@@ -1199,7 +1191,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_ban_not_found() {
-        let storage = Arc::new(MockBanStorage);
+        let storage = Arc::new(MemoryStorage::new());
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let target = BanTarget::UserId("nonexistent".to_string());
@@ -1211,7 +1203,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_bans_empty() {
-        let storage = Arc::new(MockBanStorage);
+        let storage = Arc::new(MemoryStorage::new());
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let filter = BanFilter::default();
@@ -1223,7 +1215,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_ban_priority_empty() {
-        let storage = Arc::new(MockBanStorage);
+        let storage = Arc::new(MemoryStorage::new());
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let targets = vec![
@@ -1239,7 +1231,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_config() {
-        let storage = Arc::new(MockBanStorage);
+        let storage = Arc::new(MemoryStorage::new());
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let config = ban_manager.get_config().await;
@@ -1249,7 +1241,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_config() {
-        let storage = Arc::new(MockBanStorage);
+        let storage = Arc::new(MemoryStorage::new());
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let new_config = BanManagerConfig {
@@ -1268,7 +1260,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_stop_auto_unban_task() {
-        let storage = Arc::new(MockBanStorage);
+        let storage = Arc::new(MemoryStorage::new());
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         // 停止任务应该不会失败

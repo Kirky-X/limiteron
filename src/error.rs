@@ -201,9 +201,14 @@ pub struct BanInfo {
 /// 配额消费结果
 #[derive(Debug, Clone)]
 pub struct ConsumeResult {
+    /// 是否允许继续消费
     pub allowed: bool,
+    /// 剩余配额
     pub remaining: u64,
+    /// 是否触发告警（基于使用率阈值判断）
     pub alert_triggered: bool,
+    /// 当前使用率（百分比 0-100）
+    pub usage_percent: f64,
 }
 
 #[cfg(test)]

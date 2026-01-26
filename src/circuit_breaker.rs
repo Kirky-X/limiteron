@@ -14,18 +14,10 @@
 //! - **线程安全**: 使用Arc和原子操作保证线程安全
 //! - **统计信息**: 提供详细的统计信息
 
-/// 默认失败阈值
-pub const DEFAULT_FAILURE_THRESHOLD: u64 = 5;
-
-/// 默认成功阈值
-pub const DEFAULT_SUCCESS_THRESHOLD: u64 = 2;
-
-/// 默认超时时间（1分钟）
-pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
-
-/// 默认半开状态最大调用数
-pub const DEFAULT_HALF_OPEN_MAX_CALLS: u64 = 3;
-
+use crate::constants::{
+    DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD, DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS,
+    DEFAULT_CIRCUIT_BREAKER_SUCCESS_THRESHOLD, DEFAULT_CIRCUIT_BREAKER_TIMEOUT_SECS,
+};
 use crate::error::{CircuitBreakerStats, CircuitState, FlowGuardError};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -50,10 +42,10 @@ pub struct CircuitBreakerConfig {
 impl Default for CircuitBreakerConfig {
     fn default() -> Self {
         Self {
-            failure_threshold: DEFAULT_FAILURE_THRESHOLD,
-            success_threshold: DEFAULT_SUCCESS_THRESHOLD,
-            timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
-            half_open_max_calls: DEFAULT_HALF_OPEN_MAX_CALLS,
+            failure_threshold: DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+            success_threshold: DEFAULT_CIRCUIT_BREAKER_SUCCESS_THRESHOLD,
+            timeout: Duration::from_secs(DEFAULT_CIRCUIT_BREAKER_TIMEOUT_SECS),
+            half_open_max_calls: DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS,
         }
     }
 }
@@ -65,7 +57,7 @@ impl CircuitBreakerConfig {
             failure_threshold,
             success_threshold,
             timeout,
-            half_open_max_calls: 3,
+            half_open_max_calls: DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS,
         }
     }
 

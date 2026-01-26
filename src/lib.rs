@@ -118,9 +118,8 @@ pub use audit_log::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
 pub use ban_manager::{
     BackoffConfig, BanDetail, BanFilter, BanManager, BanManagerConfig, BanPriority, BanSource,
 };
-pub use cache::{L2Cache, L2CacheConfig, SmartCacheStrategy};
 #[cfg(feature = "redis")]
-pub use cache::{L3Cache, L3CacheConfig, L3CacheStats};
+pub use cache::{L2Cache, L2CacheConfig, L2CacheStats};
 #[cfg(feature = "circuit-breaker")]
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 #[cfg(feature = "code-review")]

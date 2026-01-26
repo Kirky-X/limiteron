@@ -914,13 +914,21 @@ impl QuotaStorage for RedisStorage {
         let remaining = result.1 as u64;
         let consumed = result.2 as u64;
 
-        // 检查是否触发告警
-        let alert_triggered = remaining < (limit / 10); // 剩余配额少于10%时触发告警
+        // 计算使用率百分比
+        let usage_percent = if limit > 0 {
+            (consumed as f64 / limit as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        // 判断是否触发告警（使用 80% 阈值）
+        let alert_threshold = 80.0;
+        let alert_triggered = usage_percent >= alert_threshold;
 
         if alert_triggered {
             warn!(
-                "配额告警: user_id={}, resource={}, remaining={}, consumed={}",
-                user_id, resource, remaining, consumed
+                "配额告警: user_id={}, resource={}, usage={:.1}%, remaining={}, consumed={}",
+                user_id, resource, usage_percent, remaining, consumed
             );
         }
 
@@ -928,6 +936,7 @@ impl QuotaStorage for RedisStorage {
             allowed,
             remaining,
             alert_triggered,
+            usage_percent,
         })
     }
 

@@ -59,7 +59,7 @@ fn bench_fixed_window_latency(c: &mut Criterion) {
 /// 基准测试：L2缓存命中延迟
 fn bench_l2_cache_hit_latency(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+    let cache = Arc::new(rt.block_on(L2Cache::new(10000, Duration::from_secs(60))));
 
     // 预热缓存
     rt.block_on(async {
@@ -81,7 +81,7 @@ fn bench_l2_cache_hit_latency(c: &mut Criterion) {
 /// 基准测试：L2缓存未命中延迟
 fn bench_l2_cache_miss_latency(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+    let cache = Arc::new(rt.block_on(L2Cache::new(10000, Duration::from_secs(60))));
 
     let cache = cache.clone();
     c.bench_function("l2_cache_miss", |b| {
@@ -96,7 +96,7 @@ fn bench_l2_cache_miss_latency(c: &mut Criterion) {
 /// 基准测试：L2缓存写入延迟
 fn bench_l2_cache_set_latency(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
-    let cache = Arc::new(L2Cache::new(10000, Duration::from_secs(60)));
+    let cache = Arc::new(rt.block_on(L2Cache::new(10000, Duration::from_secs(60))));
 
     let cache = cache.clone();
     c.bench_function("l2_cache_set", |b| {

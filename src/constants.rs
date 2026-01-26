@@ -24,6 +24,32 @@ pub const MAX_COST: u64 = 1_000_000;
 /// Cost values must be positive to prevent no-op operations.
 pub const MIN_COST: u64 = 1;
 
+// ============================================================================
+// Cache Constants
+// ============================================================================
+
+/// Default capacity for L1 cache when not specified.
+///
+/// This value provides reasonable out-of-box performance for most applications.
+/// Represents 10,000 cache entries.
+pub const DEFAULT_L1_CACHE_CAPACITY: usize = 10_000;
+
+/// Default TTL for L1 cache entries (5 minutes).
+///
+/// After this duration, cache entries are considered stale and may be evicted.
+pub const DEFAULT_L1_CACHE_TTL_SECS: u64 = 300;
+
+/// Default cleanup interval for L1 cache (1 minute).
+///
+/// How often the cache performs expiration checks and cleanup.
+pub const DEFAULT_L1_CACHE_CLEANUP_INTERVAL_SECS: u64 = 60;
+
+/// Default LRU eviction threshold (90%).
+///
+/// When cache capacity utilization exceeds this percentage,
+/// cache will start evicting least recently used entries.
+pub const DEFAULT_L1_CACHE_LRU_THRESHOLD: f64 = 0.9;
+
 /// Default capacity for L2 cache when not specified.
 ///
 /// This value provides reasonable out-of-box performance for most applications.
@@ -37,15 +63,17 @@ pub const DEFAULT_L2_CACHE_TTL_SECS: u64 = 300;
 
 /// Default cleanup interval for L2 cache (1 minute).
 ///
-/// How often the cache performs expiration checks and cleanup.
+/// How often to cache performs expiration checks and cleanup.
 pub const DEFAULT_L2_CACHE_CLEANUP_INTERVAL_SECS: u64 = 60;
 
 /// Default LRU eviction threshold (90%).
 ///
 /// When cache capacity utilization exceeds this percentage,
-/// the cache will start evicting least recently used entries.
+/// cache will start evicting least recently used entries.
 pub const DEFAULT_L2_CACHE_LRU_THRESHOLD: f64 = 0.9;
 
+// ============================================================================
+// Circuit Breaker Constants
 // ============================================================================
 // Circuit Breaker Constants
 // ============================================================================

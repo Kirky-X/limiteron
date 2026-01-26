@@ -14,6 +14,9 @@ exclude = [
     "temp/comprehensive_test/Cargo.toml",
 ]
 
+[patch."https://github.com/Kirky-X/confers"]
+confers-macros = { path = "/home/project/confers/macros" }
+
 [workspace.package]
 version = "0.1.1"
 edition = "2021"
@@ -30,16 +33,8 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
 anyhow = "1.0"
 thiserror = "1.0"
-dashmap = "5.5"
 parking_lot = "0.12"
 tracing = "0.1"
-lru = "0.16"
-lazy_static = "1.4"
-tracing-opentelemetry = "0.22"
-prometheus = "0.13"
-opentelemetry = "0.21"
-opentelemetry-jaeger = "0.20"
-opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"] }
 
 [package]
 name = "limiteron"
@@ -63,52 +58,72 @@ chrono.workspace = true
 uuid.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
-dashmap.workspace = true
 parking_lot.workspace = true
 tracing.workspace = true
-lru.workspace = true
-lazy_static.workspace = true
-regex = { version = "1.12", optional = true }
-secrecy = "0.8"
-futures = { version = "0.3", optional = true }
-scopeguard = { version = "1.2", optional = true }
-base64 = { version = "0.22", optional = true }
+lazy_static = "1.4"
 
-sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls", "chrono", "uuid"], optional = true }
+# dashmap: 并发哈希表 (核心依赖)
+dashmap = "6.0"
+
+# 数据库操作 - 使用 dbnexus (只启用 postgres，不继承 default 特性)
+dbnexus = { path = "/home/project/dbnexus", optional = true, default-features = false, features = ["postgres"] }
+sqlx = { version = "0.8.5", features = ["postgres", "runtime-tokio-rustls"], optional = true }
+
+# Redis 客户端
 redis = { version = "0.24", features = ["tokio-comp", "cluster", "connection-manager"], optional = true }
-maxminddb = { version = "0.24", optional = true }
-woothee = { version = "0.13", optional = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
-tracing-opentelemetry = { version = "0.22", optional = true }
-prometheus = { version = "0.13", optional = true }
-opentelemetry = { version = "0.21", optional = true }
-opentelemetry-jaeger = { version = "0.20", optional = true }
-opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"], optional = true }
-reqwest = { version = "0.11", features = ["json"], optional = true }
-notify = { version = "6.1", optional = true }
+
+# ahash: 高性能哈希算法 (核心依赖)
+ahash = { version = "0.8.12", features = ["serde"] }
+
+# 缓存库 - 使用本地 oxcache (必需依赖)
+oxcache = { path = "/home/project/oxcache" }
+
+# 配置加载 - 使用本地 confers
+# confers特性启用时，使用confers库进行配置加载
+# confers特性禁用时，使用ConfigBuilder构造器进行配置构建
+confers = { path = "/home/project/confers", optional = true, default-features = false, features = ["derive"] }
+confers-macros = { path = "/home/project/confers/macros", optional = true }
+
+# 宏依赖
 proc-macro2 = { version = "1.0", optional = true }
 syn = { version = "2.0", features = ["full"], optional = true }
 quote = { version = "1.0", optional = true }
-limiteron-macros = { path = "macros", version = "0.1.0", optional = true }
-ahash = { version = "0.8.12", features = ["serde"] }
-# Confers configuration loader (仅使用核心功能：文件加载、环境变量覆盖、serde 反序列化)
-confers = { version = "0.1.1", optional = true, default-features = false }
+limiteron-macros = { path = "macros", optional = true }
+
+# 监控依赖
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+prometheus = { version = "0.13", optional = true }
+opentelemetry = { version = "0.21", optional = true }
+opentelemetry-jaeger = { version = "0.20", features = ["rt-tokio"], optional = true }
+opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"], optional = true }
+
+# 工具依赖
+reqwest = { version = "0.11", features = ["json"], optional = true }
+notify = { version = "6.1", optional = true }
+
+# 安全相关
+regex = { version = "1.12", optional = true }
+secrecy = "0.8"
+
+# 高级匹配
+maxminddb = { version = "0.24", optional = true }
+woothee = { version = "0.13", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
-criterion = "0.5"
 tempfile = "3.8"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
 # ============================================
 # Feature Presets (预定义组合)
 # ============================================
-# Minimal: Only core rate limiting with memory storage
+# Minimal: 核心限流 + 内存存储
 minimal = ["memory"]
-# Standard: Core + essential advanced features for API rate limiting
-standard = ["memory", "ban-manager", "quota-control", "circuit-breaker", "confers"]
-# Full: All features enabled (equivalent to v0.1.0 default)
+
+# Standard: 标准配置 - 核心功能 + PostgreSQL
+standard = ["postgres", "ban-manager", "quota-control", "circuit-breaker", "confers"]
+
+# Full: 所有功能
 full = [
     "postgres",
     "redis",
@@ -120,7 +135,6 @@ full = [
     "log-redaction",
     "config-security",
     "parallel-checker",
-    "smart-cache",
     "geo-matching",
     "device-matching",
     "advanced-matchers",
@@ -133,99 +147,73 @@ full = [
     "code-review",
     "confers"
 ]
-# Legacy: Compatibility with v0.1.0 default behavior
-legacy-compat = ["postgres", "redis", "telemetry", "macros", "fallback"]
+
 default = ["memory"]
 
 # ============================================
-# Storage Features (存储后端 - 可多选)
+# Storage Features (存储后端)
 # ============================================
-# Memory storage (always available, minimal overhead)
+# 内存存储
 memory = []
-# PostgreSQL storage (persistent, transactional)
-postgres = ["dep:sqlx"]
-# Redis storage (high-performance, distributed)
+# PostgreSQL 存储 - 使用 dbnexus
+postgres = ["dep:dbnexus", "dep:sqlx"]
+# Redis 存储
 redis = ["dep:redis"]
 
+# ahash 不再作为特性，直接在依赖中定义
+
 # ============================================
-# Advanced Features (高级功能 - 独立)
+# Core Features (核心功能)
 # ============================================
-# Ban management (IP/user ban with priority)
 ban-manager = []
-# Quota control (periodic allocation, alerting)
 quota-control = []
-# Circuit breaker (auto-failover, recovery)
 circuit-breaker = []
-# Fallback strategy (alternative actions on limit exceeded)
 fallback = []
-# Custom limiter (runtime registration, custom algorithms)
 custom-limiter = []
 
 # ============================================
-# Security Features (安全功能 - 独立)
+# Security Features (安全功能)
 # ============================================
-# Log redaction (sensitive data masking)
 log-redaction = ["dep:regex"]
-# Config security validation
 config-security = []
+validation = []
 
 # ============================================
-# Performance Features (性能优化 - 独立)
+# Performance Features (性能优化)
 # ============================================
-# Parallel ban checker (high-performance ban checking)
-parallel-checker = ["ban-manager", "dep:futures"]
-# Smart cache strategy (intelligent caching)
-smart-cache = ["dep:base64"]
+parallel-checker = ["ban-manager"]
 
 # ============================================
-# Advanced Matching (高级匹配 - 独立)
+# Advanced Matching (高级匹配)
 # ============================================
-# Geo-location matching (MaxMindDB)
 geo-matching = ["dep:maxminddb"]
-# Device fingerprinting (Woothee)
 device-matching = ["dep:woothee"]
-# Advanced matchers (custom, composite, time-window)
 advanced-matchers = []
 
 # ============================================
-# Observability Features (可观测性 - 独立)
+# Observability Features (可观测性)
 # ============================================
-# Telemetry (OpenTelemetry + Jaeger tracing)
 telemetry = [
     "dep:tracing-subscriber",
-    "dep:tracing-opentelemetry",
     "dep:opentelemetry",
     "dep:opentelemetry-jaeger",
     "dep:opentelemetry_sdk",
-    "dep:scopeguard"
 ]
-# Monitoring (Prometheus metrics)
 monitoring = ["dep:prometheus"]
-# Audit logging (depends on telemetry)
 audit-log = ["telemetry"]
 
 # ============================================
-# Tooling Features (工具 - 独立)
+# Tooling Features (工具)
 # ============================================
-# Macro system (#[flow_control] attribute macro)
 macros = ["dep:limiteron-macros", "dep:proc-macro2", "dep:syn", "dep:quote"]
-# Configuration file hot reload
 config-watcher = ["dep:notify"]
-# Webhook notifications
 webhook = ["dep:reqwest"]
-# Code review system (multi-agent code review)
 code-review = []
-# Confers configuration loader
 confers = ["dep:confers"]
 
 [[example]]
 name = "simple_rate_limit"
 path = "examples/simple_rate_limit.rs"
-required-features = ["macros"]
-
-[[example]]
-name = "quota_management"
-path = "examples/quota_management.rs"
 required-features = ["macros"]
 
 [[example]]

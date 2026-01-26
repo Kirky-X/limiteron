@@ -183,7 +183,13 @@ impl RateLimit {
             "s" => quote!(std::time::Duration::from_secs(#amount)),
             "m" => quote!(std::time::Duration::from_secs(#amount * 60)),
             "h" => quote!(std::time::Duration::from_secs(#amount * 3600)),
-            _ => quote!(std::time::Duration::from_secs(1)),
+            _ => {
+                let message = syn::LitStr::new(
+                    "不支持的速率单位，支持: s, m, h",
+                    proc_macro2::Span::call_site(),
+                );
+                quote!(compile_error!(#message))
+            }
         }
     }
 }
@@ -226,7 +232,14 @@ impl QuotaLimit {
             "s" => quote!(std::time::Duration::from_secs(1)),
             "m" => quote!(std::time::Duration::from_secs(60)),
             "h" => quote!(std::time::Duration::from_secs(3600)),
-            _ => quote!(std::time::Duration::from_secs(1)),
+            "d" => quote!(std::time::Duration::from_secs(86400)),
+            _ => {
+                let message = syn::LitStr::new(
+                    "不支持的配额周期单位，支持: s, m, h, d",
+                    proc_macro2::Span::call_site(),
+                );
+                quote!(compile_error!(#message))
+            }
         }
     }
 }

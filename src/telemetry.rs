@@ -32,11 +32,21 @@
 //! }
 //! ```
 
+#[cfg(feature = "telemetry")]
+use opentelemetry::{global, KeyValue};
+#[cfg(feature = "telemetry")]
+use opentelemetry_sdk::propagation::TraceContextPropagator;
+#[cfg(feature = "telemetry")]
+use opentelemetry_sdk::{trace as sdktrace, Resource};
 #[cfg(feature = "monitoring")]
 use prometheus::{Counter, Encoder, Gauge, Histogram, HistogramOpts, Registry, TextEncoder};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
+#[cfg(feature = "telemetry")]
+use tracing_subscriber::layer::SubscriberExt;
+#[cfg(feature = "telemetry")]
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[cfg(not(feature = "monitoring"))]
 #[derive(Clone, Default)]
@@ -663,28 +673,71 @@ pub async fn init_telemetry(config: &TelemetryConfig) -> Result<(Metrics, Tracer
 
 /// 初始化Jaeger追踪器
 async fn init_jaeger_tracer(config: &TelemetryConfig, endpoint: &str) -> Result<(), String> {
-    // 注意：opentelemetry-jaeger API在新版本中已改变
-    // 这里提供一个简化的实现
-    info!(
-        "Jaeger tracing requested with endpoint: {} (simplified implementation)",
-        endpoint
-    );
-    // 消除未使用的 config 警告
-    let _ = config;
-    info!("Note: Full Jaeger integration requires additional configuration");
+    #[cfg(feature = "telemetry")]
+    {
+        let sampler = if config.sampling_rate >= 1.0 {
+            sdktrace::Sampler::AlwaysOn
+        } else if config.sampling_rate <= 0.0 {
+            sdktrace::Sampler::AlwaysOff
+        } else {
+            sdktrace::Sampler::TraceIdRatioBased(config.sampling_rate)
+        };
 
-    // 简化版本，仅记录日志
-    Ok(())
+        let trace_config = sdktrace::config()
+            .with_sampler(sampler)
+            .with_resource(Resource::new(vec![KeyValue::new(
+                "service.name",
+                config.service_name.clone(),
+            )]));
+
+        let tracer = opentelemetry_jaeger::new_agent_pipeline()
+            .with_endpoint(endpoint)
+            .with_trace_config(trace_config)
+            .install_batch(opentelemetry_sdk::runtime::Tokio)
+            .map_err(|e: opentelemetry::trace::TraceError| e.to_string())?;
+
+        let layer = tracing_opentelemetry::layer().with_tracer(tracer);
+        let subscriber = tracing_subscriber::registry().with(layer);
+        if let Err(e) = subscriber.try_init() {
+            warn!("Tracing subscriber already set: {}", e);
+        }
+        global::set_text_map_propagator(TraceContextPropagator::new());
+        Ok(())
+    }
+    #[cfg(not(feature = "telemetry"))]
+    {
+        let _ = config;
+        let _ = endpoint;
+        Err("telemetry feature is disabled".to_string())
+    }
 }
 
 /// 初始化控制台追踪器
+///
+/// 使用 OpenTelemetry SDK 的控制台 exporter 输出 traces。
+/// 适用于开发环境或调试目的。
 fn init_console_tracer(config: &TelemetryConfig) -> Result<(), String> {
-    // 简化版本，仅记录日志
-    info!(
-        "Console tracing enabled with sampling rate: {}",
-        config.sampling_rate
-    );
-    Ok(())
+    #[cfg(feature = "telemetry")]
+    {
+        // 设置 tracing subscriber
+        if let Err(e) = tracing_subscriber::fmt().try_init() {
+            warn!("Tracing subscriber already set: {}", e);
+        }
+
+        // 设置 context propagator
+        global::set_text_map_propagator(TraceContextPropagator::new());
+
+        info!(
+            "Console tracer initialized for service: {}",
+            config.service_name
+        );
+        Ok(())
+    }
+    #[cfg(not(feature = "telemetry"))]
+    {
+        let _ = config;
+        Err("telemetry feature is disabled".to_string())
+    }
 }
 
 /// 启动Prometheus指标服务器

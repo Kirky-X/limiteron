@@ -6,7 +6,7 @@
 //!
 //! 实现智能缓存失效、预取和压缩策略以提高性能。
 
-use crate::cache::l2::L2Cache;
+use crate::cache::l1::L1Cache;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
@@ -15,7 +15,7 @@ use tracing::{debug, info};
 /// 智能缓存策略
 pub struct SmartCacheStrategy {
     /// L2缓存层
-    l2_cache: Arc<L2Cache>,
+    l1_cache: Arc<L1Cache>,
 
     /// 预取阈值（访问次数超过此值时预取）
     #[allow(dead_code)]
@@ -52,9 +52,9 @@ pub struct CacheStats {
 
 impl SmartCacheStrategy {
     /// 创建新的智能缓存策略
-    pub fn new(l2_cache: Arc<L2Cache>, prefetch_threshold: u64, compress_threshold: usize) -> Self {
+    pub fn new(l1_cache: Arc<L1Cache>, prefetch_threshold: u64, compress_threshold: usize) -> Self {
         Self {
-            l2_cache,
+            l1_cache,
             prefetch_threshold,
             compress_threshold,
             stats: Arc::new(RwLock::new(Default::default())),
@@ -102,7 +102,7 @@ impl SmartCacheStrategy {
         let start = Instant::now();
 
         // 首先尝试从 L2 缓存获取
-        if let Some(value) = self.l2_cache.get(key).await {
+        if let Some(value) = self.l1_cache.get(key).await {
             // 检查是否应该预取相关项
             if self.should_prefetch(key, value.len()).await {
                 self.trigger_prefetch(key).await;
@@ -132,13 +132,14 @@ impl SmartCacheStrategy {
 
         // 存储到 L2 缓存
         if let Some(ref compressed_value) = compressed {
-            self.l2_cache.set(key, compressed_value, None).await;
+            self.l1_cache.set(key, compressed_value, None).await;
         }
 
         let duration = start.elapsed();
         debug!("缓存未命中，加载耗时: {:?}", duration);
 
-        compressed
+        let result: Option<String> = compressed;
+        result
     }
 
     /// 触发预取

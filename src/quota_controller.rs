@@ -188,7 +188,7 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
     /// # 示例
     /// ```rust
     /// use limiteron::quota_controller::{QuotaController, QuotaConfig, QuotaType};
-    /// use limiteron::storage::MockQuotaStorage;
+    /// use limiteron::storage::MemoryStorage;
     ///
     /// let config = QuotaConfig {
     ///     quota_type: QuotaType::Count,
@@ -198,7 +198,7 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
     ///     overdraft_limit_percent: 20,
     ///     alert_config: Default::default(),
     /// };
-    /// let controller = QuotaController::new(MockQuotaStorage, config);
+    /// let controller = QuotaController::new(MemoryStorage::new(), config);
     /// ```
     pub fn new(storage: S, config: QuotaConfig) -> Self {
         Self {
@@ -222,9 +222,9 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
     /// # 示例
     /// ```rust
     /// # use limiteron::quota_controller::{QuotaController, QuotaConfig, QuotaType};
-    /// # use limiteron::storage::MockQuotaStorage;
+    /// # use limiteron::storage::MemoryStorage;
     /// #
-    /// # let controller = QuotaController::new(MockQuotaStorage, QuotaConfig::default());
+    /// # let controller = QuotaController::new(MemoryStorage::new(), QuotaConfig::default());
     /// #
     /// # async {
     /// let result = controller.consume("user123", "api_call", 10).await.unwrap();

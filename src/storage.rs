@@ -90,6 +90,21 @@ pub trait BanStorage: Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
+/// 配置存储接口
+///
+/// 用于保存和加载流量控制配置。
+#[async_trait]
+pub trait ConfigStorage: Send + Sync {
+    /// 保存配置
+    async fn save_config(&self, config: &str) -> Result<(), StorageError>;
+
+    /// 加载配置
+    async fn load_config(&self) -> Result<Option<String>, StorageError>;
+
+    /// 删除配置
+    async fn delete_config(&self) -> Result<(), StorageError>;
+}
+
 /// 配额信息
 #[derive(Debug, Clone)]
 pub struct QuotaInfo {
@@ -148,6 +163,8 @@ pub struct MemoryStorage {
     quota_data: dashmap::DashMap<String, QuotaEntry>,
     bans: dashmap::DashMap<BanTarget, BanRecord>,
     history: dashmap::DashMap<BanTarget, BanHistory>,
+    /// 保存的配置内容
+    config: dashmap::DashMap<String, String>,
 }
 
 /// 配额条目（包含配额信息和TTL）
@@ -166,6 +183,7 @@ impl Clone for MemoryStorage {
             quota_data: dashmap::DashMap::new(),
             bans: dashmap::DashMap::new(),
             history: dashmap::DashMap::new(),
+            config: dashmap::DashMap::new(),
         }
     }
 }
@@ -178,6 +196,7 @@ impl MemoryStorage {
             quota_data: dashmap::DashMap::new(),
             bans: dashmap::DashMap::new(),
             history: dashmap::DashMap::new(),
+            config: dashmap::DashMap::new(),
         }
     }
 }
@@ -335,10 +354,25 @@ impl QuotaStorage for MemoryStorage {
             entry.info.limit = limit; // 更新 limit
         }
 
-        // 计算剩余配额
+        // 计算剩余配额和使用率
         let current_consumed = entry.info.consumed;
         let new_consumed = current_consumed + cost;
         let allowed = new_consumed <= limit;
+
+        // 计算使用率百分比
+        let usage_percent = if limit > 0 {
+            (new_consumed as f64 / limit as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        // 判断是否触发告警（超过阈值时触发，提供分级告警能力）
+        // 阈值分级：
+        // - 90%以上：超额或接近超额，触发告警
+        // - 80%-90%：高使用率，触发预警
+        // - 默认使用 80% 作为告警阈值
+        let alert_threshold = 80.0;
+        let alert_triggered = usage_percent >= alert_threshold;
 
         // 如果允许，扣减配额
         if allowed {
@@ -348,7 +382,8 @@ impl QuotaStorage for MemoryStorage {
         Ok(ConsumeResult {
             allowed,
             remaining: limit.saturating_sub(entry.info.consumed),
-            alert_triggered: entry.info.consumed > limit, // 简单告警逻辑，实际上可能需要更复杂的判断
+            alert_triggered,
+            usage_percent,
         })
     }
 
@@ -381,84 +416,21 @@ impl QuotaStorage for MemoryStorage {
     }
 }
 
-/// Mock配额存储
-pub struct MockQuotaStorage;
-
 #[async_trait]
-impl QuotaStorage for MockQuotaStorage {
-    async fn get_quota(
-        &self,
-        _user_id: &str,
-        _resource: &str,
-    ) -> Result<Option<QuotaInfo>, StorageError> {
-        Ok(None)
-    }
-
-    async fn consume(
-        &self,
-        _user_id: &str,
-        _resource: &str,
-        _cost: u64,
-        _limit: u64,
-        _window: std::time::Duration,
-    ) -> Result<ConsumeResult, StorageError> {
-        Ok(ConsumeResult {
-            allowed: true,
-            remaining: 1000,
-            alert_triggered: false,
-        })
-    }
-
-    async fn reset(
-        &self,
-        _user_id: &str,
-        _resource: &str,
-        _limit: u64,
-        _window: std::time::Duration,
-    ) -> Result<(), StorageError> {
-        Ok(())
-    }
-}
-
-/// Mock封禁存储
-pub struct MockBanStorage;
-
-#[async_trait]
-impl BanStorage for MockBanStorage {
-    async fn is_banned(&self, _target: &BanTarget) -> Result<Option<BanRecord>, StorageError> {
-        Ok(None)
-    }
-
-    async fn save(&self, _record: &BanRecord) -> Result<(), StorageError> {
+impl ConfigStorage for MemoryStorage {
+    async fn save_config(&self, config: &str) -> Result<(), StorageError> {
+        self.config
+            .insert("current_config".to_string(), config.to_string());
         Ok(())
     }
 
-    async fn get_history(&self, _target: &BanTarget) -> Result<Option<BanHistory>, StorageError> {
-        Ok(None)
+    async fn load_config(&self) -> Result<Option<String>, StorageError> {
+        Ok(self.config.get("current_config").map(|c| c.clone()))
     }
 
-    /// 增加封禁次数
-    async fn increment_ban_times(&self, _target: &BanTarget) -> Result<u64, StorageError> {
-        Ok(0)
-    }
-
-    /// 获取封禁次数
-    async fn get_ban_times(&self, _target: &BanTarget) -> Result<u64, StorageError> {
-        Ok(0)
-    }
-
-    /// 移除封禁记录
-    async fn remove_ban(&self, _target: &BanTarget) -> Result<(), StorageError> {
+    async fn delete_config(&self) -> Result<(), StorageError> {
+        self.config.remove("current_config");
         Ok(())
-    }
-
-    /// 清理过期封禁
-    async fn cleanup_expired_bans(&self) -> Result<u64, StorageError> {
-        Ok(0)
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }
 
@@ -488,76 +460,6 @@ mod tests {
         let storage = MemoryStorage::new();
         let value = storage.get("nonexistent").await.unwrap();
         assert_eq!(value, None);
-    }
-
-    #[tokio::test]
-    async fn test_mock_quota_storage() {
-        let storage = MockQuotaStorage;
-        let result = storage
-            .consume(
-                "user1",
-                "resource1",
-                10,
-                1000,
-                std::time::Duration::from_secs(60),
-            )
-            .await
-            .unwrap();
-        assert!(result.allowed);
-        assert_eq!(result.remaining, 1000);
-        assert!(!result.alert_triggered);
-    }
-
-    #[tokio::test]
-    async fn test_mock_quota_storage_get_quota() {
-        let storage = MockQuotaStorage;
-        let quota = storage.get_quota("user1", "resource1").await.unwrap();
-        assert!(quota.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_mock_quota_storage_reset() {
-        let storage = MockQuotaStorage;
-        storage
-            .reset(
-                "user1",
-                "resource1",
-                1000,
-                std::time::Duration::from_secs(3600),
-            )
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_mock_ban_storage() {
-        let storage = MockBanStorage;
-        let target = BanTarget::UserId("user1".to_string());
-        let is_banned = storage.is_banned(&target).await.unwrap();
-        assert!(is_banned.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_mock_ban_storage_save() {
-        let storage = MockBanStorage;
-        let record = BanRecord {
-            target: BanTarget::UserId("user1".to_string()),
-            ban_times: 1,
-            duration: std::time::Duration::from_secs(300),
-            banned_at: chrono::Utc::now(),
-            expires_at: chrono::Utc::now() + chrono::Duration::seconds(300),
-            is_manual: false,
-            reason: "test".to_string(),
-        };
-        storage.save(&record).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_mock_ban_storage_get_history() {
-        let storage = MockBanStorage;
-        let target = BanTarget::UserId("user1".to_string());
-        let history = storage.get_history(&target).await.unwrap();
-        assert!(history.is_none());
     }
 
     #[test]

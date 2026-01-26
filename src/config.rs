@@ -6,6 +6,7 @@
 //!
 //! 定义流量控制的配置结构。
 
+use crate::constants::{VALID_CACHE_TYPES, VALID_METRICS_TYPES, VALID_STORAGE_TYPES};
 use ahash::AHashSet as HashSet;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -157,6 +158,10 @@ pub enum ChangeSource {
     Watch,
     /// API触发
     Api,
+    /// 重新加载
+    Reload,
+    /// 回滚操作
+    Rollback { target_version: String },
 }
 
 /// 配置变更记录
@@ -233,27 +238,24 @@ impl Default for GlobalConfig {
 impl GlobalConfig {
     /// 校验全局配置
     pub fn validate(&self) -> Result<(), String> {
-        let valid_storages = ["memory", "redis", "postgresql"];
-        if !valid_storages.contains(&self.storage.as_str()) {
+        if !VALID_STORAGE_TYPES.contains(&self.storage.as_str()) {
             return Err(format!(
                 "无效的存储类型: {}, 有效值: {:?}",
-                self.storage, valid_storages
+                self.storage, VALID_STORAGE_TYPES
             ));
         }
 
-        let valid_caches = ["memory", "redis"];
-        if !valid_caches.contains(&self.cache.as_str()) {
+        if !VALID_CACHE_TYPES.contains(&self.cache.as_str()) {
             return Err(format!(
                 "无效的缓存类型: {}, 有效值: {:?}",
-                self.cache, valid_caches
+                self.cache, VALID_CACHE_TYPES
             ));
         }
 
-        let valid_metrics = ["prometheus", "opentelemetry"];
-        if !valid_metrics.contains(&self.metrics.as_str()) {
+        if !VALID_METRICS_TYPES.contains(&self.metrics.as_str()) {
             return Err(format!(
                 "无效的指标类型: {}, 有效值: {:?}",
-                self.metrics, valid_metrics
+                self.metrics, VALID_METRICS_TYPES
             ));
         }
 
@@ -402,6 +404,9 @@ pub enum LimiterConfig {
         quota_type: String,
         limit: u64,
         window: String,
+        /// 告警触发阈值（使用百分比 0-100），超过此比例时触发告警
+        /// 默认值：80，即使用率达到 80% 时触发告警
+        alert_threshold: Option<u8>,
         overdraft: Option<OverdraftConfig>,
     },
     Concurrency {
@@ -453,6 +458,7 @@ impl LimiterConfig {
                 quota_type,
                 limit,
                 window,
+                alert_threshold,
                 overdraft,
             } => {
                 if quota_type.is_empty() {
@@ -460,6 +466,11 @@ impl LimiterConfig {
                 }
                 if *limit == 0 {
                     return Err("配额限制不能为0".to_string());
+                }
+                if let Some(threshold) = alert_threshold {
+                    if *threshold > 100 {
+                        return Err("告警阈值不能超过100%".to_string());
+                    }
                 }
                 Self::validate_window_size(window)?;
                 if let Some(overdraft) = overdraft {
@@ -485,12 +496,49 @@ impl LimiterConfig {
 
     /// 校验窗口大小
     fn validate_window_size(window_size: &str) -> Result<(), String> {
-        // 简单校验窗口大小格式
-        if window_size.is_empty() {
-            return Err("窗口大小不能为空".to_string());
-        }
-        // TODO: 添加更详细的格式校验
-        Ok(())
+        parse_window_size(window_size).map(|_| ())
+    }
+}
+
+pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration, String> {
+    let trimmed = window_size.trim();
+    if trimmed.is_empty() {
+        return Err("窗口大小不能为空".to_string());
+    }
+
+    let split_index = trimmed
+        .find(|c: char| c.is_alphabetic())
+        .unwrap_or(trimmed.len());
+    let (num_part, unit_part) = trimmed.split_at(split_index);
+    let num_str = num_part.trim();
+    let unit = unit_part.trim().to_lowercase();
+
+    if num_str.is_empty() {
+        return Err("窗口大小格式错误：缺少数字部分".to_string());
+    }
+
+    if unit.is_empty() {
+        return Err("窗口大小格式错误：缺少单位".to_string());
+    }
+
+    let num: u64 = num_str
+        .parse()
+        .map_err(|_| format!("无效的数字格式: {}", num_str))?;
+
+    if num == 0 {
+        return Err("窗口大小必须大于0".to_string());
+    }
+
+    match unit.as_str() {
+        "ms" | "millisecond" | "milliseconds" => Ok(std::time::Duration::from_millis(num)),
+        "s" | "sec" | "second" | "seconds" => Ok(std::time::Duration::from_secs(num)),
+        "m" | "min" | "minute" | "minutes" => Ok(std::time::Duration::from_secs(num * 60)),
+        "h" | "hr" | "hour" | "hours" => Ok(std::time::Duration::from_secs(num * 3600)),
+        "d" | "day" | "days" => Ok(std::time::Duration::from_secs(num * 86400)),
+        _ => Err(format!(
+            "不支持的单位: {}。支持的单位: ms, s, m, h, d",
+            unit
+        )),
     }
 }
 
@@ -737,5 +785,46 @@ on_exceed = "reject"
         assert_eq!(config.version, "1.0");
         assert_eq!(config.rules.len(), 1);
         assert!(config.validate().is_ok());
+    }
+}
+
+#[cfg(feature = "confers")]
+#[allow(clippy::disallowed_types)]
+impl confers::ConfigMap for FlowControlConfig {
+    fn to_map(&self) -> std::collections::HashMap<String, serde_json::Value> {
+        let mut map = std::collections::HashMap::new();
+        map.insert("version".to_string(), serde_json::json!(&self.version));
+        map.insert("global".to_string(), serde_json::json!(&self.global));
+        map.insert("rules".to_string(), serde_json::json!(&self.rules));
+        map
+    }
+
+    fn env_mapping() -> std::collections::HashMap<String, String> {
+        let mut mapping = std::collections::HashMap::new();
+        mapping.insert("LIMITERON_VERSION".to_string(), "version".to_string());
+        mapping.insert(
+            "LIMITERON_GLOBAL_STORAGE".to_string(),
+            "global.storage".to_string(),
+        );
+        mapping.insert(
+            "LIMITERON_GLOBAL_CACHE".to_string(),
+            "global.cache".to_string(),
+        );
+        mapping.insert(
+            "LIMITERON_GLOBAL_METRICS".to_string(),
+            "global.metrics".to_string(),
+        );
+        mapping
+    }
+}
+
+#[cfg(feature = "confers")]
+impl confers::audit::Sanitize for FlowControlConfig {
+    fn sanitize(&self) -> serde_json::Value {
+        serde_json::json!({
+            "version": self.version,
+            "global": self.global,
+            "rules_count": self.rules.len()
+        })
     }
 }

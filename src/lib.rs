@@ -76,12 +76,8 @@ pub mod config;
 pub mod config_security;
 #[cfg(feature = "config-security")]
 pub use config_security::{ConfigSecurityReport, ConfigSecurityValidator};
-#[cfg(feature = "confers")]
+// config_loader始终可用，但内部实现根据confers特性选择
 pub mod config_loader;
-#[cfg(feature = "config-watcher")]
-pub mod config_watcher;
-#[cfg(feature = "config-security")]
-pub use config_security::{ConfigSecurityReport, ConfigSecurityValidator};
 #[cfg(feature = "config-watcher")]
 pub mod config_watcher;
 pub mod constants;
@@ -113,6 +109,7 @@ pub mod redis_storage;
 pub mod storage;
 #[cfg(any(feature = "telemetry", feature = "monitoring"))]
 pub mod telemetry;
+pub mod validation;
 
 // 重新导出常用类型
 #[cfg(feature = "audit-log")]
@@ -135,6 +132,9 @@ pub use config::{
     ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig,
     LimiterConfig, Matcher as ConfigMatcher, Rule as ConfigRule,
 };
+// 根据特性导出不同的配置加载API
+#[cfg(not(feature = "confers"))]
+pub use config_loader::ConfigBuilder;
 #[cfg(feature = "confers")]
 pub use config_loader::ConfigLoader;
 #[cfg(feature = "config-watcher")]
@@ -185,3 +185,8 @@ pub use storage::{BanConfig, BanRecord, BanScope, BanStorage, BanTarget, QuotaSt
 pub use telemetry::{init_telemetry, TelemetryConfig, Tracer};
 #[cfg(feature = "monitoring")]
 pub use telemetry::{set_global_metrics, try_global, Metrics};
+#[cfg(feature = "validation")]
+pub use validation::{
+    validate_api_key, validate_ban_reason, validate_header_value, validate_ip_address,
+    validate_length, validate_mac_address, validate_path, validate_user_id,
+};

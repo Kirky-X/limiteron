@@ -81,12 +81,12 @@ pub const DEFAULT_L2_CACHE_LRU_THRESHOLD: f64 = 0.9;
 /// Default failure threshold for circuit breaker.
 ///
 /// The circuit breaker transitions to open state after this many consecutive failures.
-pub const DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD: u32 = 5;
+pub const DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD: u64 = 5;
 
 /// Default success threshold for circuit breaker half-open state.
 ///
 /// The circuit breaker transitions to closed state after this many successes in half-open state.
-pub const DEFAULT_CIRCUIT_BREAKER_SUCCESS_THRESHOLD: u32 = 3;
+pub const DEFAULT_CIRCUIT_BREAKER_SUCCESS_THRESHOLD: u64 = 3;
 
 /// Default timeout duration for circuit breaker (30 seconds).
 ///
@@ -96,7 +96,7 @@ pub const DEFAULT_CIRCUIT_BREAKER_TIMEOUT_SECS: u64 = 30;
 /// Maximum number of calls in half-open state.
 ///
 /// Limits the number of trial requests when probing if the service has recovered.
-pub const DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS: u32 = 3;
+pub const DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS: u64 = 3;
 
 // ============================================================================
 // Ban Manager Constants

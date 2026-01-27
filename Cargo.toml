@@ -36,6 +36,8 @@ thiserror = "1.0"
 parking_lot = "0.12"
 tracing = "0.1"
 futures = "0.3"
+scopeguard = "1.2"
+tracing-opentelemetry = "0.23"
 
 [package]
 name = "limiteron"
@@ -69,9 +71,6 @@ dashmap = "6.0"
 # 数据库操作 - 使用 dbnexus (只启用 postgres，不继承 default 特性)
 dbnexus = { path = "/home/project/dbnexus", optional = true, default-features = false, features = ["postgres"] }
 sqlx = { version = "0.8.5", features = ["postgres", "runtime-tokio-rustls"], optional = true }
-
-# Redis 客户端
-redis = { version = "0.24", features = ["tokio-comp", "cluster", "connection-manager"], optional = true }
 
 # ahash: 高性能哈希算法 (核心依赖)
 ahash = { version = "0.8.12", features = ["serde"] }
@@ -117,8 +116,8 @@ tempfile = "3.8"
 # ============================================
 # Feature Presets (预定义组合)
 # ============================================
-# Minimal: 核心限流 + 内存存储
-minimal = ["memory"]
+# Minimal: 核心限流 + PostgreSQL 存储
+minimal = ["postgres"]
 
 # Standard: 标准配置 - 核心功能 + PostgreSQL
 standard = ["postgres", "ban-manager", "quota-control", "circuit-breaker"]
@@ -126,7 +125,6 @@ standard = ["postgres", "ban-manager", "quota-control", "circuit-breaker"]
 # Full: 所有功能
 full = [
     "postgres",
-    "redis",
     "ban-manager",
     "quota-control",
     "circuit-breaker",
@@ -147,17 +145,13 @@ full = [
     "code-review"
 ]
 
-default = ["memory"]
+default = ["postgres"]
 
 # ============================================
 # Storage Features (存储后端)
 # ============================================
-# 内存存储
-memory = []
 # PostgreSQL 存储 - 使用 dbnexus
 postgres = ["dep:dbnexus", "dep:sqlx"]
-# Redis 存储
-redis = ["dep:redis"]
 
 # ahash 不再作为特性，直接在依赖中定义
 

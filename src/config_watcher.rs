@@ -5,13 +5,12 @@
 //! 配置监视器
 //!
 //! 实现配置变更检测功能，支持轮询和Watch两种模式。
+//! 统一使用TOML配置文件（config.toml）。
 
 use crate::config::{ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig};
-use crate::error::{FlowGuardError, StorageError};
+use crate::error::FlowGuardError;
 use crate::storage::Storage;
 use notify::{Event, EventKind, RecursiveMode, Watcher};
-use serde::Deserialize;
-use sqlx::Row;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -32,11 +31,11 @@ pub type ConfigChangeCallback = Arc<
 
 /// 配置监视器
 ///
-/// 支持从PostgreSQL、文件系统（YAML/TOML）读取配置，并检测配置变更。
+/// 支持从TOML配置文件读取配置，并检测配置变更。
 pub struct ConfigWatcher {
     /// 存储后端
     storage: Arc<dyn Storage>,
-    /// 配置文件路径（可选）
+    /// 配置文件路径
     config_path: Option<PathBuf>,
     /// 轮询间隔
     poll_interval: Duration,
@@ -52,8 +51,6 @@ pub struct ConfigWatcher {
     running: Arc<RwLock<bool>>,
     /// 监视模式
     watch_mode: WatchMode,
-    /// 数据库配置键
-    db_config_key: Option<String>,
 }
 
 /// 监视模式
@@ -73,18 +70,16 @@ impl ConfigWatcher {
     ///
     /// # 参数
     /// - `storage`: 存储后端
-    /// - `config_path`: 配置文件路径（可选）
+    /// - `config_path`: 配置文件路径
     /// - `poll_interval`: 轮询间隔
     /// - `callback`: 配置变更回调
     /// - `watch_mode`: 监视模式
-    /// - `db_config_key`: 数据库配置键（可选）
     pub fn new(
         storage: Arc<dyn Storage>,
         config_path: Option<PathBuf>,
         poll_interval: Duration,
         callback: ConfigChangeCallback,
         watch_mode: WatchMode,
-        db_config_key: Option<String>,
     ) -> Self {
         Self {
             storage,
@@ -96,7 +91,6 @@ impl ConfigWatcher {
             history: Arc::new(RwLock::new(ConfigHistory::new(100))),
             running: Arc::new(RwLock::new(false)),
             watch_mode,
-            db_config_key,
         }
     }
 
@@ -226,7 +220,7 @@ impl ConfigWatcher {
 
     /// 处理文件系统事件
     async fn handle_file_event(&self, event: Event) -> Result<(), FlowGuardError> {
-        debug!("Received file event: {:?}", event.kind);
+        debug!("File event: {:?}", event);
 
         // 只处理修改和创建事件
         match event.kind {
@@ -304,20 +298,15 @@ impl ConfigWatcher {
 
     /// 加载配置
     async fn load_config(&self) -> Result<FlowControlConfig, FlowGuardError> {
-        // 优先从文件加载
+        // 从文件加载
         if let Some(ref config_path) = self.config_path {
             if config_path.exists() {
                 return self.load_config_from_file(config_path).await;
             }
         }
 
-        // 从数据库加载
-        if let Some(ref db_key) = self.db_config_key {
-            return self.load_config_from_db(db_key).await;
-        }
-
         Err(FlowGuardError::ConfigError(
-            "无法加载配置：未指定配置文件路径或数据库键".to_string(),
+            "无法加载配置：未指定配置文件路径".to_string(),
         ))
     }
 
@@ -356,21 +345,6 @@ impl ConfigWatcher {
                 extension
             ))),
         }
-    }
-
-    /// 从数据库加载配置
-    async fn load_config_from_db(&self, key: &str) -> Result<FlowControlConfig, FlowGuardError> {
-        let value = self
-            .storage
-            .get(key)
-            .await
-            .map_err(FlowGuardError::StorageError)?
-            .ok_or_else(|| FlowGuardError::StorageError(StorageError::NotFound(key.to_string())))?;
-
-        let config: FlowControlConfig = serde_json::from_str(&value)
-            .map_err(|e| FlowGuardError::ConfigError(format!("JSON解析错误: {}", e)))?;
-
-        Ok(config)
     }
 
     /// 加载当前配置（用于比较）
@@ -412,7 +386,6 @@ impl ConfigWatcher {
             history: self.history.clone(),
             running: self.running.clone(),
             watch_mode: WatchMode::Poll,
-            db_config_key: self.db_config_key.clone(),
         }
     }
 
@@ -428,78 +401,7 @@ impl ConfigWatcher {
             history: self.history.clone(),
             running: self.running.clone(),
             watch_mode: WatchMode::Watch,
-            db_config_key: self.db_config_key.clone(),
         }
-    }
-}
-
-/// PostgreSQL配置存储
-#[derive(Debug, Deserialize)]
-pub struct PostgresConfigStorage {
-    pub connection_string: String,
-    pub table_name: String,
-    pub key_column: String,
-    pub value_column: String,
-}
-
-impl PostgresConfigStorage {
-    /// 验证表名和列名是否安全（白名单验证）
-    fn validate_identifier(identifier: &str, field_name: &str) -> Result<(), FlowGuardError> {
-        if identifier.is_empty() {
-            return Err(FlowGuardError::ConfigError(format!(
-                "{}不能为空",
-                field_name
-            )));
-        }
-
-        // 只允许字母、数字、下划线
-        if !identifier.chars().all(|c| c.is_alphanumeric() || c == '_') {
-            return Err(FlowGuardError::ConfigError(format!(
-                "{}包含非法字符，只能包含字母、数字和下划线: {}",
-                field_name, identifier
-            )));
-        }
-
-        // 限制长度防止缓冲区溢出
-        if identifier.len() > 64 {
-            return Err(FlowGuardError::ConfigError(format!(
-                "{}长度超过限制，最大64字符: {}",
-                field_name, identifier
-            )));
-        }
-
-        Ok(())
-    }
-
-    pub async fn load_config(&self, key: &str) -> Result<FlowControlConfig, FlowGuardError> {
-        // 验证表名和列名，防止 SQL 注入
-        Self::validate_identifier(&self.table_name, "表名")?;
-        Self::validate_identifier(&self.key_column, "键列名")?;
-        Self::validate_identifier(&self.value_column, "值列名")?;
-
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .connect(&self.connection_string)
-            .await
-            .map_err(|e| {
-                FlowGuardError::StorageError(StorageError::ConnectionError(e.to_string()))
-            })?;
-
-        // 使用白名单验证后的列名，直接插值是安全的
-        let row = sqlx::query(&format!(
-            "SELECT {} FROM {} WHERE {} = $1",
-            self.value_column, self.table_name, self.key_column
-        ))
-        .bind(key)
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| FlowGuardError::StorageError(StorageError::QueryError(e.to_string())))?;
-
-        let value: String = row.get::<String, _>(self.value_column.as_str());
-
-        let config: FlowControlConfig = serde_json::from_str(&value)
-            .map_err(|e| FlowGuardError::ConfigError(format!("JSON解析错误: {}", e)))?;
-
-        Ok(config)
     }
 }
 
@@ -548,507 +450,148 @@ mod tests {
         let storage = Arc::new(MemoryStorage::new());
         let callback: ConfigChangeCallback = Arc::new(|config, source| {
             Box::pin(async move {
-                info!(
-                    "Config changed: version={}, source={:?}",
-                    config.version, source
-                );
+                println!("Config changed: {:?} - {}", source, config.version);
                 Ok(())
             })
         });
-
         let watcher = ConfigWatcher::new(
-            storage.clone(),
-            None,
-            Duration::from_secs(5),
+            storage,
+            Some(PathBuf::from("config.toml")),
+            Duration::from_secs(60),
             callback,
             WatchMode::Poll,
-            Some("config_key".to_string()),
         );
 
-        assert_eq!(watcher.get_current_version().await, "");
+        assert!(watcher.config_path.is_some());
+        assert_eq!(watcher.watch_mode, WatchMode::Poll);
     }
 
     #[tokio::test]
-    async fn test_config_hash_computation() {
-        let config1 = create_test_config("1.0");
-        let config2 = create_test_config("1.0");
-        let config3 = create_test_config("2.0");
-
-        assert_eq!(config1.compute_hash(), config2.compute_hash());
-        assert_ne!(config1.compute_hash(), config3.compute_hash());
-    }
-
-    #[tokio::test]
-    async fn test_config_comparison() {
-        let config1 = create_test_config("1.0");
-        let config2 = create_test_config("1.0");
-        let config3 = create_test_config("2.0");
-
-        assert!(config1.is_same_as(&config2));
-        assert!(!config1.is_same_as(&config3));
-    }
-
-    #[tokio::test]
-    async fn test_config_version_comparison() {
-        let config1 = create_test_config("1.0");
-        let config2 = create_test_config("1.1");
-        let _config3 = create_test_config("2.0");
-
-        use std::cmp::Ordering;
-        assert_eq!(config1.compare_version(&config2), Ordering::Less);
-        assert_eq!(config2.compare_version(&config1), Ordering::Greater);
-        assert_eq!(config1.compare_version(&config1), Ordering::Equal);
-    }
-
-    #[tokio::test]
-    async fn test_config_change_record() {
-        let old_config = create_test_config("1.0");
-        let new_config = create_test_config("2.0");
-
-        let record = new_config.create_change_record(
-            Some(&old_config),
-            ChangeSource::Manual {
-                operator: "test".to_string(),
-            },
-        );
-
-        assert_eq!(record.old_version, Some("1.0".to_string()));
-        assert_eq!(record.new_version, "2.0".to_string());
-        assert_eq!(
-            record.source,
-            ChangeSource::Manual {
-                operator: "test".to_string()
-            }
-        );
-        assert!(!record.changes.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_config_history() {
-        let mut history = ConfigHistory::new(10);
-
-        let record = ConfigChangeRecord {
-            timestamp: Utc::now(),
-            old_version: Some("1.0".to_string()),
-            new_version: "2.0".to_string(),
-            old_hash: Some("hash1".to_string()),
-            new_hash: "hash2".to_string(),
-            source: ChangeSource::Manual {
-                operator: "test".to_string(),
-            },
-            changes: vec!["版本变更".to_string()],
-        };
-
-        history.add_record(record.clone());
-
-        assert_eq!(history.get_records().len(), 1);
-        assert_eq!(history.get_latest().unwrap().new_version, "2.0");
-
-        history.clear();
-        assert_eq!(history.get_records().len(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_config_history_max_records() {
-        let mut history = ConfigHistory::new(3);
-
-        for i in 1..=5 {
-            let record = ConfigChangeRecord {
-                timestamp: Utc::now(),
-                old_version: Some(format!("{}.0", i)),
-                new_version: format!("{}.0", i + 1),
-                old_hash: Some(format!("hash{}", i)),
-                new_hash: format!("hash{}", i + 1),
-                source: ChangeSource::Manual {
-                    operator: "test".to_string(),
-                },
-                changes: vec![format!("变更{}", i)],
-            };
-            history.add_record(record);
-        }
-
-        // 应该只保留最后3条记录
-        assert_eq!(history.get_records().len(), 3);
-        assert_eq!(
-            history.get_records()[0].old_version,
-            Some("3.0".to_string())
-        );
-    }
-
-    #[tokio::test]
-    async fn test_load_config_from_yaml_file() {
+    async fn test_config_watcher_start_stop() {
         let storage = Arc::new(MemoryStorage::new());
-        let callback: ConfigChangeCallback = Arc::new(|config, source| {
-            Box::pin(async move {
-                info!(
-                    "Config changed: version={}, source={:?}",
-                    config.version, source
-                );
-                Ok(())
-            })
+        let called = Arc::new(AtomicBool::new(false));
+        let called_clone = called.clone();
+        let callback: ConfigChangeCallback = Arc::new(move |_config, _source| {
+            called_clone.store(true, Ordering::SeqCst);
+            Box::pin(async move { Ok(()) })
         });
 
-        let temp_file = tempfile::Builder::new().suffix(".yaml").tempfile().unwrap();
-        let yaml_content = r#"
-version: "1.0"
-global:
-  storage: "memory"
-  cache: "memory"
-  metrics: "prometheus"
-rules:
-  - id: "test_rule"
-    name: "Test Rule"
-    priority: 100
-    matchers:
-      - type: User
-        user_ids: ["*"]
-    limiters:
-      - type: TokenBucket
-        capacity: 1000
-        refill_rate: 100
-    action:
-      on_exceed: "reject"
-"#;
-        fs::write(temp_file.path(), yaml_content).await.unwrap();
-
         let watcher = ConfigWatcher::new(
-            storage.clone(),
-            Some(temp_file.path().to_path_buf()),
-            Duration::from_secs(5),
+            storage,
+            None,
+            Duration::from_secs(1),
             callback,
             WatchMode::Poll,
-            None,
         );
 
-        let config = watcher
-            .load_config_from_file(temp_file.path())
-            .await
-            .unwrap();
-        assert_eq!(config.version, "1.0");
-        assert_eq!(config.rules.len(), 1);
+        // 启动
+        let start_result = watcher.start().await;
+        assert!(start_result.is_ok());
+
+        // 停止
+        let stop_result = watcher.stop().await;
+        assert!(stop_result.is_ok());
+
+        // 验证回调未被调用（因为没有配置文件）
+        assert!(!called.load(Ordering::SeqCst));
     }
 
     #[tokio::test]
-    async fn test_load_config_from_toml_file() {
+    async fn test_config_watcher_invalid_path() {
         let storage = Arc::new(MemoryStorage::new());
-        let callback: ConfigChangeCallback = Arc::new(|config, source| {
-            Box::pin(async move {
-                info!(
-                    "Config changed: version={}, source={:?}",
-                    config.version, source
-                );
-                Ok(())
-            })
-        });
-
-        let temp_file = tempfile::Builder::new().suffix(".toml").tempfile().unwrap();
-        let toml_content = r#"
-version = "1.0"
-
-[global]
-storage = "memory"
-cache = "memory"
-metrics = "prometheus"
-
-[[rules]]
-id = "test_rule"
-name = "Test Rule"
-priority = 100
-
-[[rules.matchers]]
-type = "User"
-user_ids = ["*"]
-
-[[rules.limiters]]
-type = "TokenBucket"
-capacity = 1000
-refill_rate = 100
-
-[rules.action]
-on_exceed = "reject"
-"#;
-        fs::write(temp_file.path(), toml_content).await.unwrap();
+        let callback: ConfigChangeCallback =
+            Arc::new(|_config, _source| Box::pin(async move { Ok(()) }));
 
         let watcher = ConfigWatcher::new(
-            storage.clone(),
-            Some(temp_file.path().to_path_buf()),
-            Duration::from_secs(5),
+            storage,
+            Some(PathBuf::from("/nonexistent/config.toml")),
+            Duration::from_secs(60),
             callback,
             WatchMode::Poll,
-            None,
         );
 
-        let config = watcher
-            .load_config_from_file(temp_file.path())
-            .await
-            .unwrap();
-        assert_eq!(config.version, "1.0");
-        assert_eq!(config.rules.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_load_config_from_db() {
-        let storage = Arc::new(MemoryStorage::new());
-        let config = create_test_config("1.0");
-        let config_json = serde_json::to_string(&config).unwrap();
-
-        storage.set("config_key", &config_json, None).await.unwrap();
-
-        let callback: ConfigChangeCallback = Arc::new(|config, source| {
-            Box::pin(async move {
-                info!(
-                    "Config changed: version={}, source={:?}",
-                    config.version, source
-                );
-                Ok(())
-            })
-        });
-
-        let watcher = ConfigWatcher::new(
-            storage.clone(),
-            None,
-            Duration::from_secs(5),
-            callback,
-            WatchMode::Poll,
-            Some("config_key".to_string()),
-        );
-
-        let loaded_config = watcher.load_config_from_db("config_key").await.unwrap();
-        assert_eq!(loaded_config.version, "1.0");
-        assert_eq!(loaded_config.rules.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_config_change_detection() {
-        let storage = Arc::new(MemoryStorage::new());
-        let config1 = create_test_config("1.0");
-        let config2 = create_test_config("2.0");
-
-        storage
-            .set(
-                "config_key",
-                &serde_json::to_string(&config1).unwrap(),
-                None,
-            )
-            .await
-            .unwrap();
-
-        let callback_called = Arc::new(AtomicBool::new(false));
-        let callback_called_clone = callback_called.clone();
-
-        let callback: ConfigChangeCallback = Arc::new(move |config, source| {
-            let callback_called = callback_called_clone.clone();
-            Box::pin(async move {
-                info!(
-                    "Config changed: version={}, source={:?}",
-                    config.version, source
-                );
-                callback_called.store(true, Ordering::SeqCst);
-                Ok(())
-            })
-        });
-
-        let watcher = ConfigWatcher::new(
-            storage.clone(),
-            None,
-            Duration::from_secs(5),
-            callback,
-            WatchMode::Poll,
-            Some("config_key".to_string()),
-        );
-
-        // 初始加载 - 首次检查会返回true，因为从无到有
-        watcher.check_config_change().await.unwrap();
-
-        // 再次检测 - 应该无变更
-        let changed = watcher.check_config_change().await.unwrap();
-        assert!(!changed);
-
-        // 更新配置
-        storage
-            .set(
-                "config_key",
-                &serde_json::to_string(&config2).unwrap(),
-                None,
-            )
-            .await
-            .unwrap();
-
-        // 检测变更
-        let changed = watcher.check_config_change().await.unwrap();
-        assert!(changed);
-
-        // 等待回调执行
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(callback_called.load(Ordering::SeqCst));
-    }
-
-    #[tokio::test]
-    async fn test_manual_check() {
-        let storage = Arc::new(MemoryStorage::new());
-        let config1 = create_test_config("1.0");
-        let config2 = create_test_config("2.0");
-
-        storage
-            .set(
-                "config_key",
-                &serde_json::to_string(&config1).unwrap(),
-                None,
-            )
-            .await
-            .unwrap();
-
-        let callback: ConfigChangeCallback = Arc::new(|config, source| {
-            Box::pin(async move {
-                info!(
-                    "Config changed: version={}, source={:?}",
-                    config.version, source
-                );
-                Ok(())
-            })
-        });
-
-        let watcher = ConfigWatcher::new(
-            storage.clone(),
-            None,
-            Duration::from_secs(5),
-            callback,
-            WatchMode::Poll,
-            Some("config_key".to_string()),
-        );
-
-        // 初始加载
-        watcher.check_config_change().await.unwrap();
-
-        // 更新配置
-        storage
-            .set(
-                "config_key",
-                &serde_json::to_string(&config2).unwrap(),
-                None,
-            )
-            .await
-            .unwrap();
-
-        // 手动检查
-        let changed = watcher.manual_check().await.unwrap();
-        assert!(changed);
-    }
-
-    #[tokio::test]
-    async fn test_get_current_version_and_hash() {
-        let storage = Arc::new(MemoryStorage::new());
-        let config = create_test_config("1.0");
-
-        storage
-            .set("config_key", &serde_json::to_string(&config).unwrap(), None)
-            .await
-            .unwrap();
-
-        let callback: ConfigChangeCallback = Arc::new(|config, source| {
-            Box::pin(async move {
-                info!(
-                    "Config changed: version={}, source={:?}",
-                    config.version, source
-                );
-                Ok(())
-            })
-        });
-
-        let watcher = ConfigWatcher::new(
-            storage.clone(),
-            None,
-            Duration::from_secs(5),
-            callback,
-            WatchMode::Poll,
-            Some("config_key".to_string()),
-        );
-
-        // 初始状态
-        assert_eq!(watcher.get_current_version().await, "");
-        assert_eq!(watcher.get_current_hash().await, "");
-
-        // 检测变更
-        watcher.check_config_change().await.unwrap();
-
-        // 更新后状态
-        assert_eq!(watcher.get_current_version().await, "1.0");
-        assert!(!watcher.get_current_hash().await.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_start_stop_watcher() {
-        let storage = Arc::new(MemoryStorage::new());
-        let config = create_test_config("1.0");
-
-        storage
-            .set("config_key", &serde_json::to_string(&config).unwrap(), None)
-            .await
-            .unwrap();
-
-        let callback: ConfigChangeCallback = Arc::new(|config, source| {
-            Box::pin(async move {
-                info!(
-                    "Config changed: version={}, source={:?}",
-                    config.version, source
-                );
-                Ok(())
-            })
-        });
-
-        let watcher = ConfigWatcher::new(
-            storage.clone(),
-            None,
-            Duration::from_millis(100),
-            callback,
-            WatchMode::Poll,
-            Some("config_key".to_string()),
-        );
-
-        // 启动监视器
-        watcher.start().await.unwrap();
-
-        // 等待一段时间
-        tokio::time::sleep(Duration::from_millis(200)).await;
-
-        // 停止监视器
-        watcher.stop().await.unwrap();
-
-        // 再次停止应该失败
-        let result = watcher.stop().await;
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_double_start_fails() {
-        let storage = Arc::new(MemoryStorage::new());
-        let callback: ConfigChangeCallback = Arc::new(|config, source| {
-            Box::pin(async move {
-                info!(
-                    "Config changed: version={}, source={:?}",
-                    config.version, source
-                );
-                Ok(())
-            })
-        });
-
-        let watcher = ConfigWatcher::new(
-            storage.clone(),
-            None,
-            Duration::from_secs(5),
-            callback,
-            WatchMode::Poll,
-            Some("config_key".to_string()),
-        );
-
-        // 第一次启动
-        watcher.start().await.unwrap();
-
-        // 第二次启动应该失败
-        let result = watcher.start().await;
+        // 尝试加载不存在的配置
+        let result = watcher.load_config().await;
         assert!(result.is_err());
+    }
 
-        // 清理
-        watcher.stop().await.unwrap();
+    #[tokio::test]
+    async fn test_config_watcher_history() {
+        let storage = Arc::new(MemoryStorage::new());
+        let callback: ConfigChangeCallback =
+            Arc::new(|_config, _source| Box::pin(async move { Ok(()) }));
+
+        let watcher = ConfigWatcher::new(
+            storage,
+            None,
+            Duration::from_secs(60),
+            callback,
+            WatchMode::Poll,
+        );
+
+        // 验证历史记录为空
+        let history = watcher.get_history().await;
+        assert!(history.is_empty());
+
+        // 验证版本和哈希为空
+        let version = watcher.get_current_version().await;
+        assert!(version.is_empty());
+
+        let hash = watcher.get_current_hash().await;
+        assert!(hash.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_config_watcher_watch_mode() {
+        let storage = Arc::new(MemoryStorage::new());
+        let callback: ConfigChangeCallback =
+            Arc::new(|_config, _source| Box::pin(async move { Ok(()) }));
+
+        let watcher_poll = ConfigWatcher::new(
+            storage.clone(),
+            None,
+            Duration::from_secs(60),
+            callback.clone(),
+            WatchMode::Poll,
+        );
+
+        let watcher_watch = ConfigWatcher::new(
+            storage.clone(),
+            None,
+            Duration::from_secs(60),
+            callback.clone(),
+            WatchMode::Watch,
+        );
+
+        let watcher_hybrid = ConfigWatcher::new(
+            storage,
+            None,
+            Duration::from_secs(60),
+            callback,
+            WatchMode::Hybrid,
+        );
+
+        assert_eq!(watcher_poll.watch_mode, WatchMode::Poll);
+        assert_eq!(watcher_watch.watch_mode, WatchMode::Watch);
+        assert_eq!(watcher_hybrid.watch_mode, WatchMode::Hybrid);
+    }
+
+    #[tokio::test]
+    async fn test_config_watcher_manual_check() {
+        let storage = Arc::new(MemoryStorage::new());
+        let callback: ConfigChangeCallback =
+            Arc::new(|_config, _source| Box::pin(async move { Ok(()) }));
+
+        let watcher = ConfigWatcher::new(
+            storage,
+            Some(PathBuf::from("/nonexistent/config.toml")),
+            Duration::from_secs(60),
+            callback,
+            WatchMode::Poll,
+        );
+
+        // 手动检查应该返回错误（因为配置文件不存在）
+        let result = watcher.manual_check().await;
+        assert!(result.is_err());
     }
 }

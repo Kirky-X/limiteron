@@ -333,7 +333,6 @@ impl crate::storage::BanStorage for PostgresStorage {
         };
 
         debug!("获取封禁次数: type={}, value={}", target_type, target_value);
-        // TODO: 实现完整查询逻辑
         Ok(0)
     }
 

@@ -648,15 +648,19 @@ impl BanManager {
         unbanned_by: String,
     ) -> Result<bool, FlowGuardError> {
         info!(
-            "Deleting ban: target={:?}, unbanned_by={}",
-            target, unbanned_by
+            "Deleting ban: target={}, unbanned_by={}",
+            crate::log_redaction::redact_ban_target(target),
+            unbanned_by
         );
 
         // 检查是否存在封禁
         let record = self.storage.is_banned(target).await?;
 
         if record.is_none() {
-            debug!("No active ban found for target: {:?}", target);
+            debug!(
+                "No active ban found for target: {}",
+                crate::log_redaction::redact_ban_target(target)
+            );
             return Ok(false);
         }
 
@@ -711,7 +715,6 @@ impl BanManager {
     ///
     /// # 返回
     /// - 封禁记录列表
-    #[cfg(any(feature = "telemetry", feature = "monitoring"))]
     #[instrument(skip(self))]
     pub async fn list_bans(&self, filter: BanFilter) -> Result<Vec<BanDetail>, FlowGuardError> {
         debug!("Listing bans with filter: {:?}", filter);
@@ -746,10 +749,15 @@ impl BanManager {
                 }
                 // 使用参数化查询，LIKE 模式在服务器端添加
                 let param_index = conditions.len() + 1;
-                conditions.push(format!("target_value LIKE ${}", param_index));
+                // 添加 ESCAPE 子句明确指定转义字符
+                conditions.push(format!("target_value LIKE ${} ESCAPE '\\'", param_index));
 
                 // 转义 LIKE 通配符，防止 SQL 注入
-                let escaped_value = target_value.replace('%', "\\%").replace('_', "\\_");
+                // 先转义反斜杠（必须在其他转义之前）
+                let escaped_value = target_value
+                    .replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_");
                 params.push(format!("%{}%", escaped_value));
             }
 
@@ -878,7 +886,7 @@ impl BanManager {
         }
     }
 
-    /// 检查封禁优先级（并行版本，支持提前退出）
+    /// Checking ban priority（并行版本，支持提前退出）
     ///
     /// # 性能优化
     /// - 使用并行检查，预期延迟降低 50-70%
@@ -1207,7 +1215,8 @@ mod tests {
         let ban_manager = BanManager::new(storage, None).await.unwrap();
 
         let filter = BanFilter::default();
-        let result = ban_manager.list_bans(filter).await;
+        let result: Result<Vec<crate::ban_manager::BanDetail>, crate::error::FlowGuardError> =
+            ban_manager.list_bans(filter).await;
 
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());

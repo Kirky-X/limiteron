@@ -10,11 +10,7 @@ use limiteron::{
     governor::Governor,
     limiters::{Limiter, SlidingWindowLimiter, TokenBucketLimiter},
     matchers::RequestContext,
-    storage::MemoryStorage,
 };
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::runtime::Runtime;
 
 /// 基准测试：TokenBucketLimiter吞吐量
 fn bench_token_bucket_throughput(c: &mut Criterion) {
@@ -61,71 +57,6 @@ fn bench_sliding_window_throughput(c: &mut Criterion) {
                     rt.block_on(async {
                         for _ in 0..size {
                             let _ = black_box(limiter.allow(1).await);
-                        }
-                    });
-                },
-                BatchSize::PerIteration,
-            );
-        });
-    }
-
-    group.finish();
-}
-
-/// 基准测试：Governor吞吐量
-fn bench_governor_throughput(c: &mut Criterion) {
-    let rt = Runtime::new().unwrap();
-
-    let config = FlowControlConfig {
-        version: "1.0".to_string(),
-        global: Default::default(),
-        rules: vec![Rule {
-            id: "test_rule".to_string(),
-            name: "Test Rule".to_string(),
-            priority: 100,
-            matchers: vec![],
-            limiters: vec![LimiterConfig::TokenBucket {
-                capacity: 100000,
-                refill_rate: 10000,
-            }],
-            action: Default::default(),
-        }],
-    };
-
-    let storage = Arc::new(MemoryStorage::new());
-    let ban_storage = Arc::new(MemoryStorage::new());
-
-    let gov = Arc::new(rt.block_on(async {
-        Governor::new(config, storage, ban_storage, None, None)
-            .await
-            .unwrap()
-    }));
-
-    let ctx = RequestContext {
-        user_id: Some("test_user".to_string()),
-        ip: Some("192.168.1.1".to_string()),
-        mac: None,
-        device_id: None,
-        api_key: None,
-        headers: ahash::AHashMap::new(),
-        path: "/test".to_string(),
-        method: "GET".to_string(),
-        client_ip: Some("192.168.1.1".to_string()),
-        query_params: ahash::AHashMap::new(),
-    };
-
-    let mut group = c.benchmark_group("governor_throughput");
-
-    for size in [100, 1000, 10000].iter() {
-        group.throughput(Throughput::Elements(*size as u64));
-        let gov = gov.clone();
-        group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
-            b.iter_batched(
-                || (),
-                |_| {
-                    rt.block_on(async {
-                        for _ in 0..size {
-                            let _ = black_box(gov.check(&ctx).await);
                         }
                     });
                 },
@@ -215,7 +146,7 @@ criterion_group!(
     benches,
     bench_token_bucket_throughput,
     bench_sliding_window_throughput,
-    bench_governor_throughput,
+    // bench_governor_throughput, // 需要 PostgreSQL
     bench_concurrent_throughput,
     bench_mixed_operations_throughput
 );

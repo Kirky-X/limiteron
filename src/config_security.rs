@@ -391,6 +391,7 @@ impl ConfigSecurityValidator {
                 limit,
                 window,
                 overdraft: overdraft_limit,
+                alert_threshold: _,
             } => {
                 if quota_type.is_empty() {
                     report.add_warning(format!(

@@ -144,7 +144,7 @@ fn initialize_patterns() {
 /// 增强版脱敏函数 - 需要 log-redaction feature
 #[cfg(feature = "log-redaction")]
 #[inline]
-pub fn redact_enhanced(value: Option<&str>, field_name: Option<&str>) -> String {
+pub fn redact_advanced(value: Option<&str>, field_name: Option<&str>) -> String {
     let Some(value) = value else {
         return "unknown".to_string();
     };
@@ -262,7 +262,7 @@ impl<'a> RedactionConfig<'a> {
         for (field_name, is_sensitive) in &self.fields {
             if let Some(value) = get_field(field_name) {
                 let redacted_value = if *is_sensitive {
-                    redact_enhanced(Some(&value), Some(field_name))
+                    redact_advanced(Some(&value), Some(field_name))
                 } else {
                     value
                 };
@@ -273,11 +273,13 @@ impl<'a> RedactionConfig<'a> {
     }
 }
 
-#[cfg(feature = "log-redaction")]
-impl Default for RedactionConfig<'_> {
-    #[inline]
-    fn default() -> Self {
-        Self::new()
+/// 脱敏 BanTarget - 可用于所有场景
+#[inline]
+pub fn redact_ban_target(target: &crate::storage::BanTarget) -> String {
+    match target {
+        crate::storage::BanTarget::Ip(ip) => redact_ip(Some(ip)),
+        crate::storage::BanTarget::UserId(user_id) => redact_user_id(Some(user_id)),
+        crate::storage::BanTarget::Mac(mac) => redact_basic(Some(mac)),
     }
 }
 
@@ -317,14 +319,14 @@ mod tests {
         use super::*;
 
         #[test]
-        fn test_redact_enhanced() {
-            // 敏感字段应该完全脱敏
-            assert_eq!(redact_enhanced(Some("secret123"), Some("password")), "***");
-            assert_eq!(redact_enhanced(Some("token123"), Some("api_key")), "***");
+        fn test_redact_advanced() {
+            assert_eq!(redact_advanced(None, None), "unknown");
+            assert_eq!(redact_advanced(Some("password123"), None), "***");
+            assert_eq!(redact_advanced(Some("token123"), Some("api_key")), "***");
 
-            // 普通字段使用基础脱敏
+            // Common field uses basic redaction
             assert_eq!(
-                redact_enhanced(Some("user123"), Some("username")),
+                redact_advanced(Some("user123"), Some("username")),
                 "us***23"
             );
         }
@@ -341,7 +343,7 @@ mod tests {
 
         #[test]
         fn test_redact_http_content() {
-            // Use format matching the regex pattern (key=value without quotes around value)
+            // Use format matching regex pattern (key=value without quotes around value)
             let content = r#"password=secret123, username=user123"#;
             let redacted = redact_http_content(content);
             assert!(!redacted.contains("secret123"));

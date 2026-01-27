@@ -20,7 +20,6 @@ use crate::constants::{
 use crate::decision_chain::{DecisionChain, DecisionNode};
 #[cfg(feature = "ban-manager")]
 use crate::error::BanInfo;
-#[cfg(not(feature = "ban-manager"))]
 use crate::error::Decision;
 use crate::error::FlowGuardError;
 #[cfg(feature = "fallback")]
@@ -33,7 +32,7 @@ use crate::matchers::{
     CompositeCondition, ConditionEvaluator, IdentifierExtractor, IpRange, LogicalOperator,
     MatchCondition, RequestContext, Rule as MatcherRule, RuleMatcher,
 };
-use crate::storage::{BanStorage, ConfigStorage, Storage};
+use crate::storage::{BanStorage, Storage};
 use chrono::Utc;
 use dashmap::DashMap;
 #[cfg(feature = "fallback")]
@@ -86,11 +85,8 @@ pub struct Governor {
     /// 配置
     config: Arc<RwLock<FlowControlConfig>>,
 
-    /// 配置存储（用于重新加载配置）
-    config_storage: Arc<RwLock<Option<Box<dyn ConfigStorage>>>>,
-
     /// 存储后端
-    _storage: Arc<dyn Storage>,
+    storage: Arc<dyn Storage>,
 
     /// 封禁存储
     _ban_storage: Arc<dyn BanStorage>,
@@ -119,10 +115,6 @@ pub struct Governor {
     #[cfg(feature = "circuit-breaker")]
     #[allow(dead_code)]
     circuit_breaker: Arc<CircuitBreaker>,
-
-    /// 降级管理器
-    #[cfg(feature = "fallback")]
-    _fallback_manager: Arc<FallbackManager>,
 
     /// 审计日志记录器
     #[cfg(feature = "audit-log")]
@@ -397,7 +389,7 @@ impl Governor {
 
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
-            _storage: storage,
+            storage,
             _ban_storage: ban_storage,
             #[cfg(feature = "ban-manager")]
             ban_manager,
@@ -409,12 +401,9 @@ impl Governor {
             identifier_extractor,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker,
-            #[cfg(feature = "fallback")]
-            _fallback_manager: fallback_manager,
             #[cfg(feature = "audit-log")]
             audit_logger,
             config_history: Arc::new(RwLock::new(ConfigHistory::new(100))),
-            config_storage: Arc::new(RwLock::new(None)),
             total_requests: AtomicU64::new(0),
             allowed_requests: AtomicU64::new(0),
             rejected_requests: AtomicU64::new(0),
@@ -434,12 +423,16 @@ impl Governor {
     ///
     /// ```rust,no_run
     /// use limiteron::Governor;
-    /// use limiteron::storage::MemoryStorage;
+    /// use limiteron::postgres_storage::PostgresStorageConfig;
+    /// use limiteron::storage::{Storage, BanStorage};
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let storage = std::sync::Arc::new(MemoryStorage::new());
-    ///     let ban_storage = std::sync::Arc::new(MemoryStorage::new());
+    ///     let config = PostgresStorageConfig::new("postgres://localhost/limiteron");
+    ///     let storage: std::sync::Arc<dyn Storage> = std::sync::Arc::new(
+    ///         PostgresStorage::new(config).await?
+    ///     );
+    ///     let ban_storage: std::sync::Arc<dyn BanStorage> = storage.clone();
     ///
     ///     let governor = Governor::from_config_file(
     ///         "/path/to/config.yaml",
@@ -565,12 +558,7 @@ impl Governor {
         #[cfg(feature = "parallel-checker")]
         {
             // 尝试转换为 BanTarget 进行检查
-            let ban_target = match &identifier {
-                Identifier::UserId(id) => Some(BanTarget::UserId(id.clone())),
-                Identifier::Ip(ip) => Some(BanTarget::Ip(ip.clone())),
-                Identifier::Mac(mac) => Some(BanTarget::Mac(mac.clone())),
-                _ => None,
-            };
+            let ban_target = identifier.to_ban_target();
 
             if let Some(target) = ban_target {
                 // 使用专门的并行封禁检查器
@@ -582,8 +570,8 @@ impl Governor {
                 if let Some(info) = ban_info {
                     warn!(
                         "Request banned: 用户={}, 原因={}",
-                        identifier.key(),
-                        info.reason
+                        crate::log_redaction::redact_user_id(identifier.key()),
+                        &info.reason
                     );
                     self.banned_requests.fetch_add(1, Ordering::Relaxed);
                     return Ok(Decision::Banned(info));
@@ -727,12 +715,7 @@ impl Governor {
     ) -> Result<(), FlowGuardError> {
         debug!("Ban user: {} 原因: {}", identifier.key(), reason);
 
-        let ban_target = match identifier {
-            Identifier::UserId(id) => Some(BanTarget::UserId(id.clone())),
-            Identifier::Ip(ip) => Some(BanTarget::Ip(ip.clone())),
-            Identifier::Mac(mac) => Some(BanTarget::Mac(mac.clone())),
-            _ => None,
-        };
+        let ban_target = identifier.to_ban_target();
 
         if let Some(target) = ban_target {
             let ban_source = match source {
@@ -751,7 +734,10 @@ impl Governor {
                     None,
                 )
                 .await?;
-            info!("用户 {} 已被封禁", identifier.key());
+            info!(
+                "用户 {} 已被封禁",
+                crate::log_redaction::redact_user_id(identifier.key().as_ref())
+            );
         } else {
             return Err(FlowGuardError::ValidationError(
                 "Unsupported identifier type".to_string(),
@@ -767,152 +753,7 @@ impl Governor {
     pub async fn unban_identifier(&self, identifier: &Identifier) -> Result<(), FlowGuardError> {
         debug!("取消Ban user: {}", identifier.key());
 
-        let ban_target = match identifier {
-            Identifier::UserId(id) => Some(BanTarget::UserId(id.clone())),
-            Identifier::Ip(ip) => Some(BanTarget::Ip(ip.clone())),
-            Identifier::Mac(mac) => Some(BanTarget::Mac(mac.clone())),
-            _ => None,
-        };
-
-        if let Some(target) = ban_target {
-            self.ban_manager
-                .delete_ban(&target, "admin".to_string())
-                .await?;
-            info!("用户 {} 封禁已取消", identifier.key());
-        } else {
-            return Err(FlowGuardError::ValidationError(
-                "Unsupported identifier type".to_string(),
-            ));
-        }
-
-        Ok(())
-    }
-
-    /// 更新配置
-    #[instrument(skip(self))]
-    pub async fn update_config(&self, new_config: FlowControlConfig) -> Result<(), FlowGuardError> {
-        info!("更新配置");
-
-        // 更新规则匹配器
-        let rules = Self::build_rules(&new_config)?;
-        {
-            let mut matcher = self.rule_matcher.write().await;
-            *matcher = RuleMatcher::new(rules);
-        }
-
-        // 更新规则决策链
-        let chains = Self::build_rule_chains(&new_config)?;
-        {
-            let mut rule_chains = self.rule_chains.write().await;
-            *rule_chains = chains;
-        }
-
-        let mut config = self.config.write().await;
-        *config = new_config;
-
-        Ok(())
-    }
-
-    /// 更新配置（带来源）
-    #[instrument(skip(self))]
-    pub async fn update_config_with_source(
-        &self,
-        new_config: FlowControlConfig,
-        source: ChangeSource,
-    ) -> Result<(), FlowGuardError> {
-        info!("更新配置（来源: {:?}）", source);
-
-        // 更新规则匹配器
-        let rules = Self::build_rules(&new_config)?;
-        {
-            let mut matcher = self.rule_matcher.write().await;
-            *matcher = RuleMatcher::new(rules);
-        }
-
-        // 更新规则决策链
-        let chains = Self::build_rule_chains(&new_config)?;
-        {
-            let mut rule_chains = self.rule_chains.write().await;
-            *rule_chains = chains;
-        }
-
-        let mut config = self.config.write().await;
-        *config = new_config;
-
-        Ok(())
-    }
-
-    /// 重新加载配置
-    ///
-    /// 从配置存储重新加载配置，并更新所有运行时组件。
-    #[instrument(skip(self))]
-    pub async fn reload_config(&self) -> Result<(), FlowGuardError> {
-        info!("重新加载配置");
-
-        // 获取配置存储
-        let config_storage = self.config_storage.read().await;
-        let Some(storage) = config_storage.as_ref() else {
-            return Err(FlowGuardError::ConfigError(
-                "未配置配置存储，无法重新加载配置".to_string(),
-            ));
-        };
-
-        // 从存储加载配置
-        let config_str = storage
-            .load_config()
-            .await?
-            .ok_or_else(|| FlowGuardError::ConfigError("配置存储中没有保存的配置".to_string()))?;
-
-        // 解析配置
-        let new_config: FlowControlConfig = serde_yaml::from_str(&config_str)
-            .map_err(|e| FlowGuardError::ConfigError(format!("配置解析失败: {}", e)))?;
-
-        // 校验新配置
-        new_config
-            .validate()
-            .map_err(|e| FlowGuardError::ConfigError(format!("新配置校验失败: {}", e)))?;
-
-        // 保存当前配置到历史记录
-        let old_config = self.config.read().await.clone();
-        let change_record =
-            new_config.create_change_record(Some(&old_config), ChangeSource::Reload);
-        self.config_history.write().await.add_record(change_record);
-
-        // 更新配置
-        let mut config = self.config.write().await;
-        *config = new_config.clone();
-        drop(config);
-
-        // 重建规则匹配器
-        let rules = Self::build_rules(&new_config)?;
-        let mut rule_matcher = self.rule_matcher.write().await;
-        *rule_matcher = RuleMatcher::new(rules);
-        drop(rule_matcher);
-
-        // 重建决策链
-        let rule_chains_map = Self::build_rule_chains(&new_config)?;
-        let mut rule_chains = self.rule_chains.write().await;
-        *rule_chains = rule_chains_map;
-        drop(rule_chains);
-
-        info!("配置重新加载成功，版本: {}", new_config.version);
-        Ok(())
-    }
-
-    /// 回滚配置
-    ///
-    /// 从配置历史记录恢复上一个配置版本。
-    #[instrument(skip(self))]
-    pub async fn rollback_config(&self) -> Result<(), FlowGuardError> {
-        info!("回滚配置");
-
-        // 获取历史记录中的上一个配置
-        let history = self.config_history.read().await;
-        let Some(last_record) = history.get_latest().cloned() else {
-            return Err(FlowGuardError::ConfigError(
-                "配置历史记录为空，无法回滚".to_string(),
-            ));
-        };
+        let ban_target = identifier.to_ban_target();
 
         // 检查是否有可回滚的旧版本
         let Some(old_version) = last_record.old_version.clone() else {
@@ -923,80 +764,10 @@ impl Governor {
 
         drop(history);
 
-        // 从配置存储加载旧版本配置
-        let config_storage = self.config_storage.read().await;
-        let Some(storage) = config_storage.as_ref() else {
-            return Err(FlowGuardError::ConfigError(
-                "未配置配置存储，无法回滚配置".to_string(),
-            ));
-        };
-
-        // 加载配置字符串
-        let config_str = storage
-            .load_config()
-            .await?
-            .ok_or_else(|| FlowGuardError::ConfigError("配置存储中没有保存的配置".to_string()))?;
-
-        // 解析配置
-        let new_config: FlowControlConfig = serde_yaml::from_str(&config_str)
-            .map_err(|e| FlowGuardError::ConfigError(format!("配置解析失败: {}", e)))?;
-
-        // 确保版本匹配
-        if new_config.version != old_version {
-            warn!(
-                "回滚的配置版本不匹配，期望: {}, 实际: {}",
-                old_version, new_config.version
-            );
-        }
-
-        // 校验新配置
-        new_config
-            .validate()
-            .map_err(|e| FlowGuardError::ConfigError(format!("回滚配置校验失败: {}", e)))?;
-
-        // 创建变更记录
-        let current_config = self.config.read().await.clone();
-        let change_record = new_config.create_change_record(
-            Some(&current_config),
-            ChangeSource::Rollback {
-                target_version: old_version.clone(),
-            },
-        );
-        self.config_history.write().await.add_record(change_record);
-
-        // 更新配置
-        let mut config = self.config.write().await;
-        *config = new_config.clone();
-        drop(config);
-
-        // 重建规则匹配器
-        let rules = Self::build_rules(&new_config)?;
-        let mut rule_matcher = self.rule_matcher.write().await;
-        *rule_matcher = RuleMatcher::new(rules);
-        drop(rule_matcher);
-
-        // 重建决策链
-        let rule_chains_map = Self::build_rule_chains(&new_config)?;
-        let mut rule_chains = self.rule_chains.write().await;
-        *rule_chains = rule_chains_map;
-
-        info!("配置回滚成功，回滚到版本: {}", old_version);
-        Ok(())
-    }
-
-    /// 设置配置存储
-    ///
-    /// 用于支持配置的持久化和重新加载。
-    pub async fn set_config_storage(&self, storage: Box<dyn ConfigStorage>) {
-        let mut config_storage = self.config_storage.write().await;
-        *config_storage = Some(storage);
-
-        // 保存当前配置到存储
-        let config = self.config.read().await.clone();
-        if let Ok(config_str) = serde_yaml::to_string(&config) {
-            let storage_ref = config_storage.as_mut().unwrap();
-            let _ = storage_ref.save_config(&config_str).await;
-        }
+        // 配置回滚由 confers 库管理
+        return Err(FlowGuardError::ConfigError(
+            "配置回滚需要使用 confers 库".to_string(),
+        ));
     }
 
     /// 获取配置历史
@@ -1045,28 +816,33 @@ impl Governor {
     /// 获取统计信息
     #[instrument(skip(self))]
     pub async fn stats(&self) -> crate::governor::GovernorStats {
-        let _config = self.config.read().await;
+        let total = self.total_requests.load(Ordering::Relaxed);
+        let allowed = self.allowed_requests.load(Ordering::Relaxed);
+        let rejected = self.rejected_requests.load(Ordering::Relaxed);
+        let banned = self.banned_requests.load(Ordering::Relaxed);
+        let error = self.error_count.load(Ordering::Relaxed);
+        let last_updated = Some(chrono::Utc::now());
 
         crate::governor::GovernorStats {
-            total_requests: self.total_requests.load(Ordering::Relaxed),
-            allowed_requests: self.allowed_requests.load(Ordering::Relaxed),
-            rejected_requests: self.rejected_requests.load(Ordering::Relaxed),
-            banned_requests: self.banned_requests.load(Ordering::Relaxed),
-            error_count: self.error_count.load(Ordering::Relaxed),
-            last_updated: Some(Utc::now()),
+            total_requests: total,
+            allowed_requests: allowed,
+            rejected_requests: rejected,
+            banned_requests: banned,
+            error_count: error,
+            last_updated,
         }
     }
 
     /// 获取决策链统计
     #[instrument(skip(self))]
     pub async fn decision_chain_stats(&self) -> crate::decision_chain::ChainStats {
-        self.decision_chain.read().await.stats().clone()
+        self.decision_chain.read().await.stats()
     }
 
     /// 获取规则匹配器统计
     #[instrument(skip(self))]
     pub async fn rule_matcher_stats(&self) -> crate::matchers::MatcherStats {
-        self.rule_matcher.read().await.stats().clone()
+        self.rule_matcher.read().await.stats()
     }
 
     /// 重置统计信息
@@ -1097,7 +873,7 @@ impl Governor {
     #[cfg(feature = "audit-log")]
     #[instrument(skip(self))]
     pub async fn audit_logger(&self) -> Option<Arc<AuditLogger>> {
-        self.audit_logger.read().await.clone()
+        self.audit_logger.read().await.as_deref().copied()
     }
 
     /// 健康检查

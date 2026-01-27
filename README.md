@@ -582,41 +582,59 @@ graph TB
 
 </div>
 
+Limiteron使用TOML格式的配置文件（`config.toml`），支持环境变量覆盖。
+
 <table>
 <tr>
 <td width="50%">
 
-**Basic Configuration**
+**TOML Configuration (config.toml)**
 
 ```toml
-[limiter]
-rate_limit = "100/s"
-quota_limit = "10000/m"
-concurrency_limit = 50
+version = "1.0"
 
-[cache]
-l2_capacity = 10000
-l3_capacity = 100000
+[global]
+storage = "memory"
+cache = "memory"
+metrics = "prometheus"
+
+[[rules]]
+id = "api_rate_limit"
+name = "API Rate Limit"
+priority = 100
+
+[rules.matchers]
+type = "User"
+user_ids = ["*"]
+
+[[rules.limiters]]
+type = "TokenBucket"
+capacity = 1000
+refill_rate = 100
+
+[rules.action]
+on_exceed = "reject"
 ```
 
 </td>
 <td width="50%">
 
-**Advanced Configuration**
+**Environment Variable Override**
 
-```toml
-[limiter]
-rate_limit = "100/s"
-quota_limit = "10000/m"
-concurrency_limit = 50
+```bash
+# Override global storage
+export LIMITERON_GLOBAL_STORAGE=redis
 
-[storage]
-type = "redis"
-connection_string = "redis://localhost:6379"
+# Override limiter capacity
+export LIMITERON_RULES_0_LIMITERS_0_CAPACITY=2000
+```
 
-[telemetry]
-enable_metrics = true
-enable_tracing = true
+**Load Configuration**
+
+```rust
+use limiteron::ConfigLoader;
+
+let config = ConfigLoader::load_from_file("config.toml")?;
 ```
 
 </td>
@@ -630,16 +648,31 @@ enable_tracing = true
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `rate_limit` | String | "100/s" | Rate limit |
-| `quota_limit` | String | "10000/m" | Quota limit |
-| `concurrency_limit` | Integer | 50 | Concurrency limit |
-| `l2_capacity` | Integer | 10000 | L2 cache capacity |
-| `l3_capacity` | Integer | 100000 | L3 cache capacity |
-| `storage_type` | String | "memory" | Storage type |
-| `enable_metrics` | Boolean | false | Enable metrics |
-| `enable_tracing` | Boolean | false | Enable tracing |
+| `version` | String | "0.1.0" | Configuration version |
+| `global.storage` | String | "memory" | Storage type: memory/redis/postgres |
+| `global.cache` | String | "memory" | Cache type: memory/redis |
+| `global.metrics` | String | "prometheus" | Metrics type |
+| `rules[].id` | String | - | Rule identifier |
+| `rules[].name` | String | - | Rule name |
+| `rules[].priority` | u16 | 100 | Rule priority |
+| `rules[].limiters[].capacity` | u64 | - | Limiter capacity |
+| `rules[].limiters[].refill_rate` | u64 | - | Limiter refill rate |
 
 </details>
+
+**ConfigBuilder (Programmatic)**
+
+```rust
+use limiteron::ConfigBuilder;
+
+let config = ConfigBuilder::new()
+    .with_storage("memory")
+    .with_rule(|rule| {
+        rule.id("default")
+            .token_bucket(1000, 100)
+    })
+    .build()?;
+```
 
 ---
 

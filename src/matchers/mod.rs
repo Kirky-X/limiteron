@@ -88,6 +88,21 @@ impl Identifier {
     pub fn key(&self) -> String {
         format!("{}:{}", self.type_name(), self.as_str())
     }
+
+    /// 转换为 BanTarget（用于封禁管理）
+    ///
+    /// # 返回
+    /// - `Some(BanTarget)`: 如果标识符类型支持封禁
+    /// - `None`: 如果标识符类型不支持封禁（如 ApiKey, DeviceId）
+    pub fn to_ban_target(&self) -> Option<crate::storage::BanTarget> {
+        match self {
+            Identifier::UserId(id) => Some(crate::storage::BanTarget::UserId(id.clone())),
+            Identifier::Ip(ip) => Some(crate::storage::BanTarget::Ip(ip.clone())),
+            Identifier::Mac(mac) => Some(crate::storage::BanTarget::Mac(mac.clone())),
+            // ApiKey 和 DeviceId 不支持封禁
+            Identifier::ApiKey(_) | Identifier::DeviceId(_) => None,
+        }
+    }
 }
 
 /// HTTP请求上下文

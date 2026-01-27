@@ -36,6 +36,3 @@ pub use crate::macros::flow_control;
 
 #[cfg(feature = "postgres")]
 pub use crate::postgres_storage::PostgresStorage;
-
-#[cfg(feature = "redis")]
-pub use crate::redis_storage::RedisStorage;

@@ -239,10 +239,16 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
     ) -> Result<ConsumeResult, FlowGuardError> {
         // 验证消费数量
         if cost == 0 {
+            let usage_percent = if self.config.limit > 0 {
+                (updated_state.consumed as f64 / self.config.limit as f64) * 100.0
+            } else {
+                0.0
+            };
             return Ok(ConsumeResult {
                 allowed: true,
                 remaining: self.config.limit,
                 alert_triggered: false,
+                usage_percent,
             });
         }
 
@@ -272,10 +278,16 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
 
         // 检查是否超过总限制
         if updated_state.consumed + cost > total_limit {
+            let usage_percent = if total_limit > 0 {
+                (updated_state.consumed as f64 / total_limit as f64) * 100.0
+            } else {
+                0.0
+            };
             return Ok(ConsumeResult {
                 allowed: false,
                 remaining: total_limit.saturating_sub(updated_state.consumed),
                 alert_triggered: false,
+                usage_percent,
             });
         }
 
@@ -289,6 +301,13 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
         // 计算剩余配额
         let remaining = total_limit.saturating_sub(new_consumed);
 
+        // 计算使用率
+        let usage_percent = if total_limit > 0 {
+            (new_consumed as f64 / total_limit as f64) * 100.0
+        } else {
+            0.0
+        };
+
         // 检查告警
         let alert_triggered = self
             .check_and_trigger_alert(user_id, resource, new_consumed)
@@ -298,6 +317,7 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
             allowed: true,
             remaining,
             alert_triggered,
+            usage_percent,
         })
     }
 

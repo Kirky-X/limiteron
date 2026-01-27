@@ -103,8 +103,6 @@ pub mod parallel_ban_checker;
 pub mod postgres_storage;
 #[cfg(feature = "quota-control")]
 pub mod quota_controller;
-#[cfg(feature = "redis")]
-pub mod redis_storage;
 pub mod storage;
 #[cfg(any(feature = "telemetry", feature = "monitoring"))]
 pub mod telemetry;
@@ -134,7 +132,7 @@ pub use config_loader::ConfigBuilder;
 #[cfg(feature = "confers")]
 pub use config_loader::ConfigLoader;
 #[cfg(feature = "config-watcher")]
-pub use config_watcher::{ConfigChangeCallback, ConfigWatcher, PostgresConfigStorage, WatchMode};
+pub use config_watcher::{ConfigChangeCallback, ConfigWatcher, WatchMode};
 #[cfg(feature = "custom-limiter")]
 pub use custom_limiter::{
     CustomLimiter, CustomLimiterRegistry, LeakyBucketLimiter, LimiterStats, TokenBucketLimiter,
@@ -151,8 +149,6 @@ pub use governor::{Governor, GovernorStats};
 pub use limiter_manager::GLOBAL_LIMITER_MANAGER;
 #[cfg(feature = "quota-control")]
 pub use limiters::QuotaLimiter;
-#[cfg(feature = "redis")]
-pub use lua_scripts::{LuaScriptInfo, LuaScriptManager, LuaScriptType};
 #[cfg(feature = "macros")]
 pub use macros::{
     flow_control, parse_quota_limit, parse_rate_limit, FlowControlConfig as MacroFlowControlConfig,
@@ -171,12 +167,6 @@ pub use matchers::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
 #[cfg(feature = "postgres")]
 pub use postgres_storage::{PostgresStorage, PostgresStorageConfig};
 #[cfg(feature = "quota-control")]
-pub use quota_controller::{
-    AlertChannel, AlertConfig, AlertInfo, QuotaConfig, QuotaController, QuotaState, QuotaType,
-};
-#[cfg(feature = "redis")]
-pub use redis_storage::{RedisConfig, RedisStorage, RetryStats};
-pub use storage::{BanConfig, BanRecord, BanScope, BanStorage, BanTarget, QuotaStorage, Storage};
 #[cfg(feature = "telemetry")]
 pub use telemetry::{init_telemetry, TelemetryConfig, Tracer};
 #[cfg(feature = "monitoring")]

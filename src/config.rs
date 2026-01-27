@@ -788,7 +788,6 @@ on_exceed = "reject"
     }
 }
 
-#[cfg(feature = "confers")]
 #[allow(clippy::disallowed_types)]
 impl confers::ConfigMap for FlowControlConfig {
     fn to_map(&self) -> std::collections::HashMap<String, serde_json::Value> {
@@ -818,7 +817,6 @@ impl confers::ConfigMap for FlowControlConfig {
     }
 }
 
-#[cfg(feature = "confers")]
 impl confers::audit::Sanitize for FlowControlConfig {
     fn sanitize(&self) -> serde_json::Value {
         serde_json::json!({

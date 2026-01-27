@@ -22,15 +22,16 @@ use crate::error::FlowGuardError;
 /// * `Err(FlowGuardError)` - Validation failed
 pub fn validate_ip_address(ip: &str) -> Result<(), FlowGuardError> {
     if ip.is_empty() {
-        return Err(FlowGuardError::ConfigError(
+        return Err(FlowGuardError::ValidationError(
             "IP address cannot be empty".to_string(),
         ));
     }
 
     if ip.len() > MAX_IP_ADDRESS_LENGTH {
-        return Err(FlowGuardError::ConfigError(format!(
-            "IP address exceeds maximum length ({})",
-            MAX_IP_ADDRESS_LENGTH
+        return Err(FlowGuardError::ValidationError(format!(
+            "IP address exceeds maximum length (max: {}, actual: {})",
+            MAX_IP_ADDRESS_LENGTH,
+            ip.len()
         )));
     }
 
@@ -55,7 +56,7 @@ pub fn validate_ip_address(ip: &str) -> Result<(), FlowGuardError> {
         {
             return Ok(());
         }
-        return Err(FlowGuardError::ConfigError(
+        return Err(FlowGuardError::ValidationError(
             "Invalid IPv4 address format".to_string(),
         ));
     }
@@ -71,7 +72,7 @@ pub fn validate_ip_address(ip: &str) -> Result<(), FlowGuardError> {
         {
             return Ok(());
         }
-        return Err(FlowGuardError::ConfigError(
+        return Err(FlowGuardError::ValidationError(
             "Invalid IPv6 address format".to_string(),
         ));
     }
@@ -91,7 +92,7 @@ pub fn validate_ip_address(ip: &str) -> Result<(), FlowGuardError> {
 /// * `Err(FlowGuardError)` - Validation failed
 pub fn validate_user_id(user_id: &str) -> Result<(), FlowGuardError> {
     if user_id.is_empty() {
-        return Err(FlowGuardError::ConfigError(
+        return Err(FlowGuardError::ValidationError(
             "User ID cannot be empty".to_string(),
         ));
     }
@@ -108,7 +109,7 @@ pub fn validate_user_id(user_id: &str) -> Result<(), FlowGuardError> {
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '@' || c == '.')
     {
-        return Err(FlowGuardError::ConfigError(
+        return Err(FlowGuardError::ValidationError(
             "User ID contains invalid characters".to_string(),
         ));
     }
@@ -126,7 +127,7 @@ pub fn validate_user_id(user_id: &str) -> Result<(), FlowGuardError> {
 /// * `Err(FlowGuardError)` - Validation failed
 pub fn validate_mac_address(mac: &str) -> Result<(), FlowGuardError> {
     if mac.is_empty() {
-        return Err(FlowGuardError::ConfigError(
+        return Err(FlowGuardError::ValidationError(
             "MAC address cannot be empty".to_string(),
         ));
     }
@@ -141,14 +142,14 @@ pub fn validate_mac_address(mac: &str) -> Result<(), FlowGuardError> {
     // Standard MAC format: XX:XX:XX:XX:XX:XX
     let cleaned = mac.replace(':', "");
     if cleaned.len() != 12 {
-        return Err(FlowGuardError::ConfigError(
-            "MAC address must be 12 hexadecimal characters".to_string(),
+        return Err(FlowGuardError::ValidationError(
+            "Path cannot be empty".to_string(),
         ));
     }
 
     if !cleaned.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(FlowGuardError::ConfigError(
-            "MAC address must contain only hexadecimal characters".to_string(),
+        return Err(FlowGuardError::ValidationError(
+            "MAC address contains invalid characters".to_string(),
         ));
     }
 

@@ -10,13 +10,9 @@
 //! - 保持向后兼容性
 
 use crate::config::{
-    ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig, LimiterConfig,
-    Matcher as ConfigMatcher,
+    ConfigChangeRecord, ConfigHistory, FlowControlConfig, LimiterConfig, Matcher as ConfigMatcher,
 };
-#[allow(unused_imports)]
-use crate::constants::{
-    DEFAULT_L2_CACHE_CAPACITY, DEFAULT_L2_CACHE_TTL_SECS, SECONDS_PER_HOUR, SECONDS_PER_MINUTE,
-};
+use crate::constants::{SECONDS_PER_HOUR, SECONDS_PER_MINUTE};
 use crate::decision_chain::{DecisionChain, DecisionNode};
 #[cfg(feature = "ban-manager")]
 use crate::error::BanInfo;
@@ -33,7 +29,6 @@ use crate::matchers::{
     MatchCondition, RequestContext, Rule as MatcherRule, RuleMatcher,
 };
 use crate::storage::{BanStorage, Storage};
-use chrono::Utc;
 use dashmap::DashMap;
 #[cfg(feature = "fallback")]
 use oxcache::Cache;
@@ -86,6 +81,7 @@ pub struct Governor {
     config: Arc<RwLock<FlowControlConfig>>,
 
     /// 存储后端
+    #[allow(dead_code)]
     storage: Arc<dyn Storage>,
 
     /// 封禁存储
@@ -423,14 +419,14 @@ impl Governor {
     ///
     /// ```rust,no_run
     /// use limiteron::Governor;
-    /// use limiteron::postgres_storage::PostgresStorageConfig;
+    /// use limiteron::db_storage::DbStorageConfig;
     /// use limiteron::storage::{Storage, BanStorage};
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let config = PostgresStorageConfig::new("postgres://localhost/limiteron");
+    ///     let config = DbStorageConfig::new("postgres://localhost/limiteron");
     ///     let storage: std::sync::Arc<dyn Storage> = std::sync::Arc::new(
-    ///         PostgresStorage::new(config).await?
+    ///         DbStorage::new(config).await?
     ///     );
     ///     let ban_storage: std::sync::Arc<dyn BanStorage> = storage.clone();
     ///
@@ -443,7 +439,6 @@ impl Governor {
     ///     Ok(())
     /// }
     /// ```
-    #[cfg(feature = "confers")]
     pub async fn from_config_file<P: AsRef<std::path::Path>>(
         config_path: P,
         storage: Arc<dyn Storage>,
@@ -503,14 +498,13 @@ impl Governor {
     ///     Ok(())
     /// }
     /// ```
-    #[cfg(feature = "confers")]
     pub async fn from_config_with_env<P: AsRef<std::path::Path>>(
         config_path: P,
         storage: Arc<dyn Storage>,
         ban_storage: Arc<dyn BanStorage>,
     ) -> Result<Self, FlowGuardError> {
         // 使用 ConfigLoader 加载配置，支持环境变量覆盖
-        let config = crate::config_loader::ConfigLoader::load_from_file_with_env(config_path)?;
+        let config = crate::config_loader::ConfigLoader::load_from_file(config_path)?;
 
         #[cfg(all(feature = "monitoring", feature = "telemetry"))]
         {

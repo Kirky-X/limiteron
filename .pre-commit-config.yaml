@@ -1,0 +1,62 @@
+# Pre-commit hooks configuration for Limiteron project
+# Install: pip install pre-commit && pre-commit install
+# Docs: https://pre-commit.com/
+
+repos:
+  # Pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+      - id: detect-private-key
+      - id: check-merge-conflict
+      - id: no-commit-to-branch
+        args: ['--branch', 'main', '--branch', 'master']
+        # Exclude feature branches and main for testing
+
+  # Rust formatting - using local rustfmt
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: Format Rust code
+        description: Run rustfmt on Rust files
+        entry: cargo fmt
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-check
+        name: cargo check
+        entry: cargo check --lib
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --lib
+        language: system
+        types: [rust]
+        pass_filenames: false
+        args: ['--', '-A', 'clippy::unnested-or-lower']
+
+  # Additional Rust checks for workspace members
+  - repo: local
+    hooks:
+      - id: cargo-check-macros
+        name: cargo check (macros crate)
+        entry: cargo check -p limiteron-macros
+        language: system
+        pass_filenames: false
+
+      - id: cargo-clippy-macros
+        name: cargo clippy (macros crate)
+        entry: cargo clippy -p limiteron-macros
+        language: system
+        pass_filenames: false
+        args: ['--', '-A', 'clippy::unnested-or-lower']

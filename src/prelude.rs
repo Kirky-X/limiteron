@@ -35,4 +35,4 @@ pub use crate::quota_controller::QuotaController;
 pub use crate::macros::flow_control;
 
 #[cfg(feature = "postgres")]
-pub use crate::postgres_storage::PostgresStorage;
+pub use crate::db_storage::DbStorage;

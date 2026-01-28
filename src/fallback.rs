@@ -13,9 +13,10 @@
 //! - **热更新**: 支持动态更新策略
 //! - **故障注入**: 支持模拟故障进行测试
 
+#[cfg(feature = "cache-service")]
+use crate::cache::CacheService;
 use crate::error::{FlowGuardError, StorageError};
 use ahash::AHashMap as HashMap;
-use oxcache::Cache;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -135,38 +136,36 @@ impl FallbackConfig {
 pub struct FallbackManager {
     /// 策略配置
     strategies: Arc<RwLock<HashMap<ComponentType, FallbackConfig>>>,
-    /// 缓存（用于降级）
-    l2_cache: Arc<Cache<String, String>>,
+    /// 缓存服务（用于降级）
+    #[cfg(feature = "cache-service")]
+    cache_service: Arc<dyn CacheService>,
     /// 故障状态
     failure_states: Arc<RwLock<HashMap<ComponentType, bool>>>,
 }
 
 impl FallbackManager {
-    /// 创建新的降级策略管理器
+    /// 创建新的降级策略管理器（使用 CacheService trait）
     ///
     /// # 参数
-    /// - `l2_cache`: 缓存实例
+    /// - `cache_service`: 缓存服务实例（支持 trait 对象）
     ///
     /// # 示例
     /// ```rust
     /// use limiteron::fallback::{FallbackManager, ComponentType};
-    /// use oxcache::Cache;
+    /// use limiteron::cache::{CacheService, CacheServiceConfig, OxCacheService};
     /// use std::sync::Arc;
-    /// use std::time::Duration;
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let cache: Cache<String, String> = Cache::builder()
-    ///         .capacity(10000)
-    ///         .ttl(Duration::from_secs(60))
-    ///         .build()
-    ///         .await
-    ///         .unwrap();
-    ///     let l2_cache = Arc::new(cache);
-    ///     let manager = FallbackManager::new(l2_cache);
+    ///     let config = CacheServiceConfig::default();
+    ///     let service: Arc<dyn CacheService> = Arc::new(
+    ///         OxCacheService::new(config).await.unwrap()
+    ///     );
+    ///     let manager = FallbackManager::new(service);
     /// }
     /// ```
-    pub fn new(l2_cache: Arc<Cache<String, String>>) -> Self {
+    #[cfg(feature = "cache-service")]
+    pub fn new(cache_service: Arc<dyn CacheService>) -> Self {
         info!("创建降级策略管理器");
 
         // 默认策略
@@ -198,7 +197,49 @@ impl FallbackManager {
 
         Self {
             strategies: Arc::new(RwLock::new(strategies)),
-            l2_cache,
+            cache_service,
+            failure_states: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// 创建新的降级策略管理器（直接使用 oxcache Cache，保持向后兼容）
+    ///
+    /// # 参数
+    /// - `l2_cache`: 直接使用 oxcache Cache 实例
+    #[cfg(not(feature = "cache-service"))]
+    pub fn new(l2_cache: Arc<oxcache::Cache<String, String>>) -> Self {
+        info!("创建降级策略管理器");
+
+        // 默认策略
+        let mut strategies = HashMap::new();
+        strategies.insert(
+            ComponentType::Redis,
+            FallbackConfig::new(ComponentType::Redis, FallbackStrategy::Degraded),
+        );
+        strategies.insert(
+            ComponentType::Postgres,
+            FallbackConfig::new(ComponentType::Postgres, FallbackStrategy::Degraded),
+        );
+        strategies.insert(
+            ComponentType::L2Cache,
+            FallbackConfig::new(ComponentType::L2Cache, FallbackStrategy::Degraded),
+        );
+        strategies.insert(
+            ComponentType::Config,
+            FallbackConfig::new(ComponentType::Config, FallbackStrategy::FailClosed),
+        );
+        strategies.insert(
+            ComponentType::Ban,
+            FallbackConfig::new(ComponentType::Ban, FallbackStrategy::Degraded),
+        );
+        strategies.insert(
+            ComponentType::Quota,
+            FallbackConfig::new(ComponentType::Quota, FallbackStrategy::Degraded),
+        );
+
+        Self {
+            strategies: Arc::new(RwLock::new(strategies)),
+            _l2_cache: l2_cache,
             failure_states: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -407,9 +448,13 @@ impl FallbackManager {
             .collect()
     }
 
-    /// 获取缓存
+    /// 获取缓存（非 cache-service 模式）
+    ///
+    /// # 返回
+    /// - 缓存引用
+    #[cfg(not(feature = "cache-service"))]
     pub fn l2_cache(&self) -> &Arc<Cache<String, String>> {
-        &self.l2_cache
+        &self._l2_cache
     }
 }
 

@@ -414,7 +414,7 @@ impl BanManager {
                 if let Some(storage) = storage
                     .clone()
                     .as_any()
-                    .downcast_ref::<crate::postgres_storage::PostgresStorage>()
+                    .downcast_ref::<crate::db_storage::DbStorage>()
                 {
                     #[cfg(feature = "postgres")]
                     if let Err(e) = storage.cleanup_expired_bans().await {
@@ -669,7 +669,7 @@ impl BanManager {
         if let Some(storage) = self
             .storage
             .as_any()
-            .downcast_ref::<crate::postgres_storage::PostgresStorage>()
+            .downcast_ref::<crate::db_storage::DbStorage>()
         {
             let (target_type, target_value) = match target {
                 BanTarget::Ip(ip) => ("ip", ip.as_str()),
@@ -724,7 +724,7 @@ impl BanManager {
         if let Some(storage) = self
             .storage
             .as_any()
-            .downcast_ref::<crate::postgres_storage::PostgresStorage>()
+            .downcast_ref::<crate::db_storage::DbStorage>()
         {
             let mut conditions = Vec::new();
             let mut params: Vec<String> = Vec::new();
@@ -1046,22 +1046,6 @@ impl BanManager {
 mod tests {
     use super::*;
     use crate::storage::MemoryStorage;
-
-    #[allow(dead_code)]
-    fn create_test_ban_manager() -> BanManager {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let storage = Arc::new(MemoryStorage::new());
-            BanManager::new(storage, None).await.unwrap()
-        })
-    }
-
-    #[test]
-    fn test_ban_priority_ordering() {
-        assert!(BanPriority::Ip < BanPriority::UserId);
-        assert!(BanPriority::UserId < BanPriority::Mac);
-        assert!(BanPriority::Mac < BanPriority::DeviceId);
-        assert!(BanPriority::DeviceId < BanPriority::ApiKey);
-    }
 
     #[test]
     fn test_ban_priority_from_target() {

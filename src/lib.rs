@@ -76,12 +76,16 @@ pub mod config_security;
 #[cfg(feature = "config-security")]
 pub use config_security::{ConfigSecurityReport, ConfigSecurityValidator};
 // config_loader始终可用，但内部实现根据confers特性选择
+#[cfg(feature = "cache-service")]
+pub mod cache;
 pub mod config_loader;
 #[cfg(feature = "config-watcher")]
 pub mod config_watcher;
 pub mod constants;
 #[cfg(feature = "custom-limiter")]
 pub mod custom_limiter;
+#[cfg(feature = "postgres")]
+pub mod db_storage;
 pub mod decision_chain;
 pub mod error;
 pub mod error_abstraction;
@@ -99,8 +103,6 @@ pub mod macros;
 pub mod matchers;
 #[cfg(feature = "parallel-checker")]
 pub mod parallel_ban_checker;
-#[cfg(feature = "postgres")]
-pub mod postgres_storage;
 #[cfg(feature = "quota-control")]
 pub mod quota_controller;
 pub mod storage;
@@ -122,21 +124,23 @@ pub use code_review::{
     CodeReviewConfig, CodeReviewIssue, CodeReviewManager, CodeReviewReport, CodeReviewStats,
     IssueCategory, ReviewConclusion, ReviewStatus, ReviewSummary, Severity,
 };
+#[cfg(feature = "ban-manager")]
+pub use storage::{BanHistory, BanRecord, BanTarget};
+// 导出配置相关类型和加载API
 pub use config::{
     ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig,
     LimiterConfig, Matcher as ConfigMatcher, Rule as ConfigRule,
 };
-// 根据特性导出不同的配置加载API
-#[cfg(not(feature = "confers"))]
-pub use config_loader::ConfigBuilder;
-#[cfg(feature = "confers")]
-pub use config_loader::ConfigLoader;
+pub use config_loader::{ConfigBuilder, ConfigLoader};
 #[cfg(feature = "config-watcher")]
 pub use config_watcher::{ConfigChangeCallback, ConfigWatcher, WatchMode};
 #[cfg(feature = "custom-limiter")]
 pub use custom_limiter::{
-    CustomLimiter, CustomLimiterRegistry, LeakyBucketLimiter, LimiterStats, TokenBucketLimiter,
+    CustomLimiter, CustomLimiterRegistry, CustomTokenBucketLimiter, LeakyBucketLimiter,
+    LimiterStats,
 };
+#[cfg(feature = "postgres")]
+pub use db_storage::{DbStorage, DbStorageConfig};
 pub use decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
 pub use error::{
     BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, FlowGuardError,
@@ -164,8 +168,6 @@ pub use matchers::{CustomMatcher, CustomMatcherRegistry, HeaderMatcher, TimeWind
 pub use matchers::{DeviceCacheStats, DeviceCondition, DeviceInfo, DeviceMatcher, DeviceType};
 #[cfg(feature = "geo-matching")]
 pub use matchers::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
-#[cfg(feature = "postgres")]
-pub use postgres_storage::{PostgresStorage, PostgresStorageConfig};
 #[cfg(feature = "quota-control")]
 #[cfg(feature = "telemetry")]
 pub use telemetry::{init_telemetry, TelemetryConfig, Tracer};

@@ -78,8 +78,11 @@ const MAX_HEADER_VALUE_LENGTH: usize = 4096;
 /// 最大允许的 HTTP 头值数量
 const MAX_ALLOWED_VALUES_COUNT: usize = 100;
 
-/// 正则表达式最大复杂度（嵌套深度）
+/// 最大允许的 HTTP 头值数量
 #[allow(dead_code)]
+const MAX_ALLOWED_HEADERS_COUNT: usize = 10;
+
+/// 最大正则表达式嵌套深度
 const MAX_REGEX_NESTING_DEPTH: usize = 10;
 
 // ============================================================================

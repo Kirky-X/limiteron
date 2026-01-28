@@ -9,7 +9,7 @@
 
 use crate::error::FlowGuardError;
 #[cfg(feature = "quota-control")]
-use crate::QuotaConfig;
+use crate::quota_controller::QuotaConfig;
 use dashmap::DashMap;
 use std::future::Future;
 use std::pin::Pin;

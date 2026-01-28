@@ -600,33 +600,23 @@ impl CustomLimiter for LeakyBucketLimiter {
 }
 
 // ============================================================================
-// TokenBucketLimiter 示例实现
+// ============================================================================
+// CustomTokenBucketLimiter - 自定义令牌桶限流器
 // ============================================================================
 
-/// 令牌桶限流器（自定义实现）
+/// 使用示例：CustomTokenBucketLimiter
 ///
-/// 使用令牌桶算法实现速率限制，令牌以恒定速率补充到桶中，
-/// 请求到达时从桶中获取令牌，如果令牌不足则拒绝请求。
-///
-/// # 特性
-/// - 支持突发流量
-/// - 桶容量限制
-/// - 恒定补充速率
-/// - 线程安全
-///
-/// # 示例
 /// ```rust
-/// use limiteron::custom_limiter::TokenBucketLimiter;
-/// use limiteron::CustomLimiter;
+/// use limiteron::custom_limiter::CustomTokenBucketLimiter;
 ///
 /// #[tokio::main]
 /// async fn main() {
-///     let limiter = TokenBucketLimiter::new(100, 10);
+///     let limiter = CustomTokenBucketLimiter::new(100, 10);
 ///     let allowed = limiter.allow(1).await.unwrap();
 /// }
 /// ```
 #[derive(Debug)]
-pub struct TokenBucketLimiter {
+pub struct CustomTokenBucketLimiter {
     /// 桶容量
     capacity: u64,
     /// 补充速率（令牌/秒）
@@ -639,7 +629,7 @@ pub struct TokenBucketLimiter {
     stats: Arc<Mutex<LimiterStats>>,
 }
 
-impl TokenBucketLimiter {
+impl CustomTokenBucketLimiter {
     /// 创建新的令牌桶限流器
     ///
     /// # 参数
@@ -648,9 +638,9 @@ impl TokenBucketLimiter {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::custom_limiter::TokenBucketLimiter;
+    /// use limiteron::custom_limiter::CustomTokenBucketLimiter;
     ///
-    /// let limiter = TokenBucketLimiter::new(100, 10);
+    /// let limiter = CustomTokenBucketLimiter::new(100, 10);
     /// ```
     pub fn new(capacity: u64, refill_rate: u64) -> Self {
         let now = std::time::SystemTime::now()
@@ -728,7 +718,7 @@ impl TokenBucketLimiter {
 }
 
 #[async_trait]
-impl CustomLimiter for TokenBucketLimiter {
+impl CustomLimiter for CustomTokenBucketLimiter {
     fn name(&self) -> &str {
         "token_bucket"
     }

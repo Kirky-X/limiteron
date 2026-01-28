@@ -7,9 +7,7 @@
 use async_trait::async_trait;
 use dbnexus::pool::{DbPool, Session};
 use secrecy::{ExposeSecret, Secret};
-use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info};
 
 #[cfg(feature = "quota-control")]
 use crate::error::ConsumeResult;
@@ -19,7 +17,6 @@ use crate::storage::QuotaInfo;
 #[cfg(feature = "quota-control")]
 use crate::storage::QuotaStorage;
 use crate::storage::Storage;
-use crate::storage::Storage as StorageTrait;
 
 /// Database storage configuration
 #[derive(Clone)]
@@ -85,17 +82,20 @@ impl Default for DbStorageConfig {
 #[derive(Clone)]
 pub struct DbStorage {
     pool: DbPool,
-    config: DbStorageConfig,
+    _config: DbStorageConfig,
 }
 
 impl DbStorage {
     /// Create a new DB storage instance
     pub async fn new(config: DbStorageConfig) -> Result<Self, StorageError> {
-        let pool = DbPool::new(&config.database_url.expose_secret())
+        let pool = DbPool::new(config.database_url.expose_secret())
             .await
             .map_err(|e| StorageError::ConnectionError(e.to_string()))?;
 
-        Ok(Self { pool, config })
+        Ok(Self {
+            pool,
+            _config: config,
+        })
     }
 
     /// Get a session from the pool

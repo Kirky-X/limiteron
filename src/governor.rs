@@ -81,7 +81,7 @@ pub struct Governor {
     config: Arc<RwLock<FlowControlConfig>>,
 
     /// 存储后端
-    storage: Arc<dyn Storage>,
+    _storage: Arc<dyn Storage>,
 
     /// 封禁存储
     _ban_storage: Arc<dyn BanStorage>,
@@ -383,7 +383,7 @@ impl Governor {
 
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
-            storage,
+            _storage: storage,
             _ban_storage: ban_storage,
             #[cfg(feature = "ban-manager")]
             ban_manager,

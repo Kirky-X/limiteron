@@ -81,7 +81,6 @@ pub struct Governor {
     config: Arc<RwLock<FlowControlConfig>>,
 
     /// 存储后端
-    #[allow(dead_code)]
     storage: Arc<dyn Storage>,
 
     /// 封禁存储
@@ -109,7 +108,6 @@ pub struct Governor {
 
     /// 熔断器
     #[cfg(feature = "circuit-breaker")]
-    #[allow(dead_code)]
     circuit_breaker: Arc<CircuitBreaker>,
 
     /// 审计日志记录器

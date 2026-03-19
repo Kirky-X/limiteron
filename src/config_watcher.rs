@@ -8,15 +8,17 @@
 //! 统一使用TOML配置文件（config.toml）。
 
 use crate::config::{ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig};
+use crate::config_loader::ConfigLoader;
 use crate::error::FlowGuardError;
-use crate::storage::Storage;
+use crate::storage_trait::Storage;
+use log::{debug, error, info};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
+use tokio::task;
 use tokio::time::sleep;
-use tracing::{debug, error, info, instrument};
 
 /// 配置监视器回调类型
 pub type ConfigChangeCallback = Arc<
@@ -95,7 +97,13 @@ impl ConfigWatcher {
     }
 
     /// 启动配置监视器
-    #[instrument(skip(self))]
+    ///
+    /// # 参数
+    /// - `self`: self reference
+    ///
+    /// # 返回
+    /// - `Ok(())`: 启动成功
+    /// - `Err(FlowGuardError)`: 启动失败
     pub async fn start(&self) -> Result<(), FlowGuardError> {
         let mut running = self.running.write().await;
         if *running {
@@ -148,7 +156,10 @@ impl ConfigWatcher {
     }
 
     /// 停止配置监视器
-    #[instrument(skip(self))]
+    ///
+    /// # 返回
+    /// - `Ok(())`: 停止成功
+    /// - `Err(FlowGuardError)`: 停止失败
     pub async fn stop(&self) -> Result<(), FlowGuardError> {
         let mut running = self.running.write().await;
         *running = false;
@@ -239,7 +250,11 @@ impl ConfigWatcher {
     }
 
     /// 检查配置变更
-    #[instrument(skip(self))]
+    ///
+    /// # 返回
+    /// - `Ok(true)`: 配置已变更
+    /// - `Ok(false)`: 配置未变更
+    /// - `Err(FlowGuardError)`: 检查失败
     pub async fn check_config_change(&self) -> Result<bool, FlowGuardError> {
         // 加载新配置
         let new_config = self.load_config().await?;
@@ -311,40 +326,19 @@ impl ConfigWatcher {
     }
 
     /// 从文件加载配置
+    ///
+    /// 使用ConfigLoader加载配置文件，支持TOML/YAML/JSON格式，
+    /// 自动处理环境变量覆盖。
     async fn load_config_from_file(
         &self,
         path: &Path,
     ) -> Result<FlowControlConfig, FlowGuardError> {
-        let content = tokio::fs::read_to_string(path)
+        // 使用confers的ConfigLoader进行配置加载
+        // ConfigLoader::load_from_file是同步方法，需要在阻塞线程池中执行
+        let path = path.to_path_buf();
+        task::spawn_blocking(move || ConfigLoader::load_from_file(&path))
             .await
-            .map_err(FlowGuardError::IoError)?;
-
-        let extension = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .ok_or_else(|| FlowGuardError::ConfigError("无法确定配置文件类型".to_string()))?;
-
-        match extension {
-            "yaml" | "yml" => {
-                let config: FlowControlConfig = serde_yaml::from_str(&content)
-                    .map_err(|e| FlowGuardError::ConfigError(format!("YAML解析错误: {}", e)))?;
-                Ok(config)
-            }
-            "toml" => {
-                let config: FlowControlConfig = toml::from_str(&content)
-                    .map_err(|e| FlowGuardError::ConfigError(format!("TOML解析错误: {}", e)))?;
-                Ok(config)
-            }
-            "json" => {
-                let config: FlowControlConfig = serde_json::from_str(&content)
-                    .map_err(|e| FlowGuardError::ConfigError(format!("JSON解析错误: {}", e)))?;
-                Ok(config)
-            }
-            _ => Err(FlowGuardError::ConfigError(format!(
-                "不支持的配置文件类型: {}",
-                extension
-            ))),
-        }
+            .map_err(|e| FlowGuardError::ConfigError(format!("配置加载任务失败: {}", e)))?
     }
 
     /// 加载当前配置（用于比较）
@@ -353,7 +347,11 @@ impl ConfigWatcher {
     }
 
     /// 手动触发配置检查
-    #[instrument(skip(self))]
+    ///
+    /// # 返回
+    /// - `Ok(true)`: 配置已变更
+    /// - `Ok(false)`: 配置未变更
+    /// - `Err(FlowGuardError)`: 检查失败
     pub async fn manual_check(&self) -> Result<bool, FlowGuardError> {
         info!("Manual config check triggered");
         self.check_config_change().await
@@ -413,10 +411,47 @@ impl ConfigWatcher {
 mod tests {
     use super::*;
     use crate::config::{GlobalConfig, Matcher, Rule};
-    use crate::storage::MemoryStorage;
+    use crate::error::StorageError;
+    use crate::storage_trait::Storage;
+    use async_trait::async_trait;
     use chrono::Utc;
+    use parking_lot::Mutex;
+    use std::collections::HashMap;
     use std::sync::atomic::{AtomicBool, Ordering};
     use tokio::fs;
+
+    // Simple in-memory storage for testing
+    struct TestStorage {
+        data: Mutex<HashMap<String, String>>,
+    }
+
+    impl TestStorage {
+        fn new() -> Self {
+            Self {
+                data: Mutex::new(HashMap::new()),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Storage for TestStorage {
+        async fn get(&self, key: &str) -> Result<Option<String>, StorageError> {
+            let data = self.data.lock();
+            Ok(data.get(key).cloned())
+        }
+
+        async fn set(&self, key: &str, value: &str, _ttl: Option<u64>) -> Result<(), StorageError> {
+            let mut data = self.data.lock();
+            data.insert(key.to_string(), value.to_string());
+            Ok(())
+        }
+
+        async fn delete(&self, key: &str) -> Result<(), StorageError> {
+            let mut data = self.data.lock();
+            data.remove(key);
+            Ok(())
+        }
+    }
 
     fn create_test_config(version: &str) -> FlowControlConfig {
         FlowControlConfig {
@@ -447,7 +482,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_watcher_creation() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(TestStorage::new());
         let callback: ConfigChangeCallback = Arc::new(|config, source| {
             Box::pin(async move {
                 println!("Config changed: {:?} - {}", source, config.version);
@@ -468,7 +503,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_watcher_start_stop() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(TestStorage::new());
         let called = Arc::new(AtomicBool::new(false));
         let called_clone = called.clone();
         let callback: ConfigChangeCallback = Arc::new(move |_config, _source| {
@@ -498,7 +533,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_watcher_invalid_path() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(TestStorage::new());
         let callback: ConfigChangeCallback =
             Arc::new(|_config, _source| Box::pin(async move { Ok(()) }));
 
@@ -517,7 +552,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_watcher_history() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(TestStorage::new());
         let callback: ConfigChangeCallback =
             Arc::new(|_config, _source| Box::pin(async move { Ok(()) }));
 
@@ -543,7 +578,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_watcher_watch_mode() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(TestStorage::new());
         let callback: ConfigChangeCallback =
             Arc::new(|_config, _source| Box::pin(async move { Ok(()) }));
 
@@ -578,7 +613,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_config_watcher_manual_check() {
-        let storage = Arc::new(MemoryStorage::new());
+        let storage = Arc::new(TestStorage::new());
         let callback: ConfigChangeCallback =
             Arc::new(|_config, _source| Box::pin(async move { Ok(()) }));
 

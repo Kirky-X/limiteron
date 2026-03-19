@@ -91,18 +91,18 @@ pub fn redact_email(value: Option<&str>) -> String {
 }
 
 #[cfg(feature = "log-redaction")]
-use regex::Regex;
+use parking_lot::Mutex;
 #[cfg(feature = "log-redaction")]
-use std::sync::Mutex as SyncMutex;
+use regex::Regex;
 
 #[cfg(feature = "log-redaction")]
 /// 敏感字段模式列表
-static SENSITIVE_PATTERNS: SyncMutex<Vec<(&str, Regex)>> = SyncMutex::new(Vec::new());
+static SENSITIVE_PATTERNS: Mutex<Vec<(&str, Regex)>> = Mutex::new(Vec::new());
 
 #[cfg(feature = "log-redaction")]
 /// 初始化敏感字段模式
 fn initialize_patterns() {
-    let mut patterns = SENSITIVE_PATTERNS.lock().unwrap();
+    let mut patterns = SENSITIVE_PATTERNS.lock();
     if patterns.is_empty() {
         patterns.push((
             "password",
@@ -172,7 +172,7 @@ pub fn redact_advanced(value: Option<&str>, field_name: Option<&str>) -> String 
     let mut result = value.to_string();
 
     initialize_patterns();
-    for (pattern_name, regex) in SENSITIVE_PATTERNS.lock().unwrap().iter() {
+    for (pattern_name, regex) in SENSITIVE_PATTERNS.lock().iter() {
         if *pattern_name == "email"
             || *pattern_name == "phone"
             || *pattern_name == "id_card"
@@ -201,7 +201,7 @@ pub fn redact_advanced(value: Option<&str>, field_name: Option<&str>) -> String 
 #[inline]
 pub fn contains_sensitive_info(value: &str) -> bool {
     initialize_patterns();
-    for (_, regex) in SENSITIVE_PATTERNS.lock().unwrap().iter() {
+    for (_, regex) in SENSITIVE_PATTERNS.lock().iter() {
         if regex.is_match(value) {
             return true;
         }
@@ -224,7 +224,7 @@ pub fn redact_http_content(content: &str) -> String {
     let mut result = content.to_string();
 
     initialize_patterns();
-    for (_, regex) in SENSITIVE_PATTERNS.lock().unwrap().iter() {
+    for (_, regex) in SENSITIVE_PATTERNS.lock().iter() {
         result = regex.replace_all(&result, "***").to_string();
     }
 
@@ -273,13 +273,21 @@ impl<'a> RedactionConfig<'a> {
     }
 }
 
+#[cfg(feature = "log-redaction")]
+impl<'a> Default for RedactionConfig<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// 脱敏 BanTarget - 可用于所有场景
 #[inline]
-pub fn redact_ban_target(target: &crate::storage::BanTarget) -> String {
+#[cfg(feature = "ban-manager")]
+pub fn redact_ban_target(target: &crate::storage_trait::BanTarget) -> String {
     match target {
-        crate::storage::BanTarget::Ip(ip) => redact_ip(Some(ip)),
-        crate::storage::BanTarget::UserId(user_id) => redact_user_id(Some(user_id)),
-        crate::storage::BanTarget::Mac(mac) => redact_basic(Some(mac)),
+        crate::storage_trait::BanTarget::Ip(ip) => redact_ip(Some(ip)),
+        crate::storage_trait::BanTarget::UserId(user_id) => redact_user_id(Some(user_id)),
+        crate::storage_trait::BanTarget::Mac(mac) => redact_basic(Some(mac)),
     }
 }
 

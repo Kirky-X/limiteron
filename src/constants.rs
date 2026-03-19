@@ -270,8 +270,8 @@ pub const NS_PER_SECOND: u64 = 1_000_000_000;
 // Configuration Valid Values
 // ============================================================================
 
-/// Valid storage backend types
-pub const VALID_STORAGE_TYPES: &[&str] = &["memory", "redis", "postgresql"];
+/// Valid storage backend types (DBNexus-based)
+pub const VALID_STORAGE_TYPES: &[&str] = &["postgresql", "memory"];
 
 /// Valid cache backend types
 pub const VALID_CACHE_TYPES: &[&str] = &["memory", "redis"];

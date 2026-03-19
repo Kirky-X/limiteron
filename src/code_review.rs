@@ -331,7 +331,7 @@ impl CodeReviewManager {
             match task.await {
                 Ok(result) => agent_results.push(result),
                 Err(e) => {
-                    tracing::error!("Agent task failed: {}", e);
+                    log::error!("Agent task failed: {}", e);
                 }
             }
         }
@@ -600,4 +600,44 @@ pub fn format_report_as_markdown(report: &CodeReviewReport) -> String {
 /// 格式化审查报告为 JSON
 pub fn format_report_as_json(report: &CodeReviewReport) -> Result<String, FlowGuardError> {
     serde_json::to_string_pretty(report).map_err(FlowGuardError::SerdeError)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_run_review_default_config() {
+        let manager = CodeReviewManager::new(CodeReviewConfig::default());
+        let report = manager.run_review().await.unwrap();
+        assert_eq!(report.summary.total_issues, 0);
+        assert!(matches!(report.conclusion, ReviewConclusion::Passed));
+        assert_eq!(report.agent_results.len(), 4);
+        for result in &report.agent_results {
+            assert!(result.issues.is_empty());
+            assert_eq!(result.status, ReviewStatus::Success);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_stats_updated_after_review() {
+        let manager = CodeReviewManager::new(CodeReviewConfig::default());
+        manager.run_review().await.unwrap();
+        let stats = manager.get_stats().await;
+        assert_eq!(stats.total_runs, 1);
+        assert_eq!(stats.successful_runs, 1);
+        assert_eq!(stats.failed_runs, 0);
+        assert_eq!(stats.total_issues_found, 0);
+    }
+
+    #[tokio::test]
+    async fn test_format_report_outputs() {
+        let manager = CodeReviewManager::new(CodeReviewConfig::default());
+        let report = manager.run_review().await.unwrap();
+        let markdown = format_report_as_markdown(&report);
+        assert!(markdown.contains("代码审查报告"));
+        assert!(markdown.contains("| 总问题数 | 0 |"));
+        let json = format_report_as_json(&report).unwrap();
+        assert!(json.contains("\"total_issues\": 0"));
+    }
 }

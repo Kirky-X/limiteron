@@ -94,6 +94,27 @@ impl Default for LimiterManager {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_rate_limiter_same_key_returns_same_instance() {
+        let manager = LimiterManager::new();
+        let first = manager.get_rate_limiter("user:1", 10, 1);
+        let second = manager.get_rate_limiter("user:1", 20, 2);
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn test_get_rate_limiter_different_keys_returns_different_instances() {
+        let manager = LimiterManager::new();
+        let first = manager.get_rate_limiter("user:1", 10, 1);
+        let second = manager.get_rate_limiter("user:2", 10, 1);
+        assert!(!Arc::ptr_eq(&first, &second));
+    }
+}
+
 lazy_static::lazy_static! {
     /// 全局限流器管理器实例
     pub static ref GLOBAL_LIMITER_MANAGER: LimiterManager = LimiterManager::new();

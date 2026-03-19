@@ -63,14 +63,15 @@
 use crate::error::FlowGuardError;
 use ahash::AHashMap as HashMap;
 use async_trait::async_trait;
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
 
 // ============================================================================
 // CustomLimiter Trait
@@ -496,7 +497,7 @@ impl LeakyBucketLimiter {
 
     /// 漏出请求（移除过期的请求）
     fn leak(&self) {
-        let mut queue = self.queue.lock().unwrap();
+        let mut queue = self.queue.lock();
         let now = Instant::now();
         let leak_interval = Duration::from_secs(1).div_f64(self.leak_rate as f64);
 
@@ -527,7 +528,7 @@ impl CustomLimiter for LeakyBucketLimiter {
         // 检查桶是否已满
         if current + cost > self.capacity {
             // 更新统计信息
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.stats.lock();
             stats.total_requests += 1;
             stats.rejected_requests += 1;
 
@@ -541,14 +542,14 @@ impl CustomLimiter for LeakyBucketLimiter {
 
         // 添加请求到桶中
         self.current.fetch_add(cost, Ordering::SeqCst);
-        let mut queue = self.queue.lock().unwrap();
+        let mut queue = self.queue.lock();
         let now = Instant::now();
         for _ in 0..cost {
             queue.push_back(now);
         }
 
         // 更新统计信息
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.stats.lock();
         stats.total_requests += 1;
         stats.allowed_requests += 1;
 
@@ -595,7 +596,7 @@ impl CustomLimiter for LeakyBucketLimiter {
     }
 
     fn stats(&self) -> LimiterStats {
-        self.stats.lock().unwrap().clone()
+        self.stats.lock().clone()
     }
 }
 
@@ -733,7 +734,7 @@ impl CustomLimiter for CustomTokenBucketLimiter {
             // 检查令牌是否足够
             if current < cost {
                 // 更新统计信息
-                let mut stats = self.stats.lock().unwrap();
+                let mut stats = self.stats.lock();
                 stats.total_requests += 1;
                 stats.rejected_requests += 1;
 
@@ -749,7 +750,7 @@ impl CustomLimiter for CustomTokenBucketLimiter {
                 .is_ok()
             {
                 // 更新统计信息
-                let mut stats = self.stats.lock().unwrap();
+                let mut stats = self.stats.lock();
                 stats.total_requests += 1;
                 stats.allowed_requests += 1;
 
@@ -794,7 +795,7 @@ impl CustomLimiter for CustomTokenBucketLimiter {
     }
 
     fn stats(&self) -> LimiterStats {
-        self.stats.lock().unwrap().clone()
+        self.stats.lock().clone()
     }
 }
 

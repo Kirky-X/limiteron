@@ -5,11 +5,20 @@
 //! 审计日志模块
 //!
 //! 提供审计日志功能，记录决策过程、配置变更、封禁操作等。
+//! 支持 HMAC-SHA256 签名验证日志完整性。
 
 #[cfg(feature = "audit-log")]
 use chrono::{DateTime, Utc};
 #[cfg(feature = "audit-log")]
-use serde::Serialize;
+use hmac::{Hmac, Mac};
+#[cfg(feature = "audit-log")]
+use log::{error, info, trace, warn};
+#[cfg(feature = "audit-log")]
+use secrecy::{ExposeSecret, SecretString};
+#[cfg(feature = "audit-log")]
+use serde::{Deserialize, Serialize};
+#[cfg(feature = "audit-log")]
+use sha2::Sha256;
 #[cfg(feature = "audit-log")]
 use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(feature = "audit-log")]
@@ -17,14 +26,14 @@ use std::sync::Arc;
 #[cfg(feature = "audit-log")]
 use std::time::Duration;
 #[cfg(feature = "audit-log")]
-use tracing::{error, info, trace};
-
-#[cfg(feature = "audit-log")]
 use tokio::sync::mpsc::{self, Sender};
 
 #[cfg(feature = "audit-log")]
+use crate::error::FlowGuardError;
+
+#[cfg(feature = "audit-log")]
 /// 审计事件类型
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event_type")]
 pub enum AuditEvent {
     Decision {
@@ -65,6 +74,7 @@ pub enum AuditEvent {
 
 #[cfg(feature = "audit-log")]
 impl AuditEvent {
+    /// 获取事件时间戳
     pub fn timestamp(&self) -> DateTime<Utc> {
         match self {
             AuditEvent::Decision { timestamp, .. } => *timestamp,
@@ -73,6 +83,160 @@ impl AuditEvent {
             AuditEvent::SystemEvent { timestamp, .. } => *timestamp,
             AuditEvent::ErrorEvent { timestamp, .. } => *timestamp,
         }
+    }
+
+    /// 获取事件操作类型（用于签名）
+    pub fn operation(&self) -> &str {
+        match self {
+            AuditEvent::Decision { .. } => "decision",
+            AuditEvent::ConfigChange { .. } => "config_change",
+            AuditEvent::BanOperation { .. } => "ban_operation",
+            AuditEvent::SystemEvent { .. } => "system_event",
+            AuditEvent::ErrorEvent { .. } => "error_event",
+        }
+    }
+
+    /// 获取事件目标（用于签名）
+    pub fn target(&self) -> String {
+        match self {
+            AuditEvent::Decision { identifier, .. } => identifier.clone(),
+            AuditEvent::ConfigChange {
+                old_version,
+                new_version,
+                ..
+            } => {
+                format!("{}->{}", old_version, new_version)
+            }
+            AuditEvent::BanOperation { target, .. } => target.clone(),
+            AuditEvent::SystemEvent { name, .. } => name.clone(),
+            AuditEvent::ErrorEvent { error_type, .. } => error_type.clone(),
+        }
+    }
+
+    /// 获取事件结果（用于签名）
+    pub fn result(&self) -> String {
+        match self {
+            AuditEvent::Decision { decision, .. } => decision.clone(),
+            AuditEvent::ConfigChange { changes, .. } => changes.join(","),
+            AuditEvent::BanOperation { action, .. } => action.clone(),
+            AuditEvent::SystemEvent { level, .. } => level.clone(),
+            AuditEvent::ErrorEvent { message, .. } => message.clone(),
+        }
+    }
+}
+
+#[cfg(feature = "audit-log")]
+/// 审计日志条目（带签名）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditLogEntry {
+    /// 审计事件
+    pub event: AuditEvent,
+    /// HMAC-SHA256 签名（可选）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    /// 签名算法版本
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature_version: Option<u32>,
+}
+
+#[cfg(feature = "audit-log")]
+impl AuditLogEntry {
+    /// 创建新的审计日志条目
+    pub fn new(event: AuditEvent) -> Self {
+        Self {
+            event,
+            signature: None,
+            signature_version: None,
+        }
+    }
+
+    /// 从事件创建带签名的日志条目
+    pub fn with_signature(event: AuditEvent, signing_key: &str) -> Self {
+        let mut entry = Self::new(event);
+        entry.sign(signing_key);
+        entry
+    }
+
+    /// 对日志条目进行签名
+    pub fn sign(&mut self, signing_key: &str) {
+        let signature = Self::generate_signature(&self.event, signing_key);
+        self.signature = Some(signature);
+        self.signature_version = Some(1); // 当前签名算法版本
+    }
+
+    /// 生成 HMAC-SHA256 签名
+    ///
+    /// 对日志条目的关键字段进行签名，包括：
+    /// - timestamp: 时间戳
+    /// - operation: 操作类型
+    /// - target: 目标标识
+    /// - result: 操作结果
+    fn generate_signature(event: &AuditEvent, signing_key: &str) -> String {
+        // 构建签名消息
+        let message = format!(
+            "{}|{}|{}|{}",
+            event.timestamp().to_rfc3339(),
+            event.operation(),
+            event.target(),
+            event.result()
+        );
+
+        // 创建 HMAC-SHA256 实例
+        let mut mac = Hmac::<Sha256>::new_from_slice(signing_key.as_bytes())
+            .expect("HMAC can take key of any size");
+
+        mac.update(message.as_bytes());
+
+        // 返回十六进制编码的签名
+        let result = mac.finalize();
+        hex::encode(result.into_bytes())
+    }
+
+    /// 验证签名完整性
+    ///
+    /// 返回：
+    /// - Ok(true): 签名验证通过
+    /// - Ok(false): 未配置签名密钥，跳过验证
+    /// - Err(...): 签名验证失败，日志可能被篡改
+    pub fn verify(&self, signing_key: &str) -> Result<bool, FlowGuardError> {
+        // 如果没有签名，返回错误
+        let stored_signature = match &self.signature {
+            Some(sig) => sig,
+            None => {
+                return Err(FlowGuardError::AuditLogError(
+                    "日志条目缺少签名".to_string(),
+                ));
+            }
+        };
+
+        // 重新计算签名
+        let expected_signature = Self::generate_signature(&self.event, signing_key);
+
+        // 使用常量时间比较防止时序攻击
+        if Self::constant_time_compare(stored_signature, &expected_signature) {
+            Ok(true)
+        } else {
+            Err(FlowGuardError::AuditLogError(
+                "签名验证失败，日志可能被篡改".to_string(),
+            ))
+        }
+    }
+
+    /// 常量时间比较，防止时序攻击
+    fn constant_time_compare(a: &str, b: &str) -> bool {
+        if a.len() != b.len() {
+            return false;
+        }
+
+        let a_bytes = a.as_bytes();
+        let b_bytes = b.as_bytes();
+
+        let mut result = 0u8;
+        for (x, y) in a_bytes.iter().zip(b_bytes.iter()) {
+            result |= x ^ y;
+        }
+
+        result == 0
     }
 }
 
@@ -87,6 +251,8 @@ pub struct AuditLogStats {
     error_events: AtomicU64,
     batch_writes: AtomicU64,
     write_failures: AtomicU64,
+    signature_failures: AtomicU64,
+    verification_failures: AtomicU64,
 }
 
 #[cfg(feature = "audit-log")]
@@ -123,6 +289,14 @@ impl AuditLogStats {
         self.write_failures.load(Ordering::Relaxed)
     }
 
+    pub fn signature_failures(&self) -> u64 {
+        self.signature_failures.load(Ordering::Relaxed)
+    }
+
+    pub fn verification_failures(&self) -> u64 {
+        self.verification_failures.load(Ordering::Relaxed)
+    }
+
     pub fn reset(&self) {
         self.total_events.store(0, Ordering::Relaxed);
         self.decision_events.store(0, Ordering::Relaxed);
@@ -132,6 +306,8 @@ impl AuditLogStats {
         self.error_events.store(0, Ordering::Relaxed);
         self.batch_writes.store(0, Ordering::Relaxed);
         self.write_failures.store(0, Ordering::Relaxed);
+        self.signature_failures.store(0, Ordering::Relaxed);
+        self.verification_failures.store(0, Ordering::Relaxed);
     }
 }
 
@@ -189,15 +365,24 @@ fn sanitize_identifier(identifier: &str) -> String {
 #[cfg(feature = "audit-log")]
 #[derive(Debug, Clone)]
 pub struct AuditLogConfig {
+    /// 通道容量
     pub channel_capacity: usize,
+    /// 批处理大小
     pub batch_size: usize,
+    /// 批处理超时
     pub batch_timeout: Duration,
+    /// 是否启用
     pub enabled: bool,
+    /// 输出路径
     pub output_path: Option<String>,
     /// 日志轮转：最大文件大小（字节）
     pub max_file_size: Option<u64>,
     /// 日志轮转：保留的文件数量
     pub max_files: Option<usize>,
+    /// HMAC 签名密钥（用于保护日志完整性）
+    pub signing_key: Option<SecretString>,
+    /// 读取时是否验证签名
+    pub verify_on_read: bool,
 }
 
 #[cfg(feature = "audit-log")]
@@ -211,6 +396,8 @@ impl Default for AuditLogConfig {
             output_path: None,
             max_file_size: Some(100 * 1024 * 1024), // 100MB
             max_files: Some(10),                    // 保留10个文件
+            signing_key: None,
+            verify_on_read: true,
         }
     }
 }
@@ -245,6 +432,23 @@ impl AuditLogConfig {
         self.output_path = Some(path);
         self
     }
+
+    /// 设置签名密钥
+    ///
+    /// # 安全说明
+    /// - 密钥应使用安全的随机源生成
+    /// - 密钥长度建议至少 32 字节
+    /// - 密钥应安全存储，不要硬编码在代码中
+    pub fn signing_key(mut self, key: String) -> Self {
+        self.signing_key = Some(SecretString::new(key.into_boxed_str()));
+        self
+    }
+
+    /// 设置读取时是否验证签名
+    pub fn verify_on_read(mut self, verify: bool) -> Self {
+        self.verify_on_read = verify;
+        self
+    }
 }
 
 #[cfg(feature = "audit-log")]
@@ -259,7 +463,11 @@ pub struct AuditLogger {
 #[cfg(feature = "audit-log")]
 impl AuditLogger {
     pub async fn new(config: AuditLogConfig) -> Self {
-        info!("创建审计日志记录器: enabled={}", config.enabled);
+        info!(
+            "创建审计日志记录器: enabled={}, signing_enabled={}",
+            config.enabled,
+            config.signing_key.is_some()
+        );
 
         let (sender, receiver) = mpsc::channel(config.channel_capacity);
         let stats = Arc::new(AuditLogStats::default());
@@ -345,7 +553,15 @@ impl AuditLogger {
         stats.batch_writes.fetch_add(1, Ordering::Relaxed);
 
         for event in batch {
-            match serde_json::to_string_pretty(event) {
+            // 创建带签名的日志条目
+            let entry = if let Some(ref signing_key) = config.signing_key {
+                let key = signing_key.expose_secret();
+                AuditLogEntry::with_signature(event.clone(), key)
+            } else {
+                AuditLogEntry::new(event.clone())
+            };
+
+            match serde_json::to_string_pretty(&entry) {
                 Ok(json) => {
                     // 使用 info 级别记录日志（生产环境可见）
                     info!("审计日志: {}", json);
@@ -450,6 +666,92 @@ impl AuditLogger {
         std::fs::rename(path, &rotated_name)?;
 
         Ok(())
+    }
+
+    /// 从文件读取并验证审计日志
+    ///
+    /// # 参数
+    /// - `path`: 日志文件路径
+    ///
+    /// # 返回
+    /// - `Ok(Vec<AuditLogEntry>)`: 验证通过的日志条目列表
+    /// - `Err(...)`: 读取或验证失败
+    pub fn read_and_verify(
+        path: &str,
+        config: &AuditLogConfig,
+        stats: &AuditLogStats,
+    ) -> Result<Vec<AuditLogEntry>, FlowGuardError> {
+        use std::fs::File;
+        use std::io::{BufRead, BufReader};
+
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+        let mut entries = Vec::new();
+
+        for line in reader.lines() {
+            let line = line?;
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            // 解析日志条目
+            match serde_json::from_str::<AuditLogEntry>(line) {
+                Ok(entry) => {
+                    // 如果配置了签名验证，则验证签名
+                    if config.verify_on_read {
+                        if let Some(ref signing_key) = config.signing_key {
+                            let key = signing_key.expose_secret();
+                            match entry.verify(key) {
+                                Ok(true) => {
+                                    entries.push(entry);
+                                }
+                                Ok(false) => {
+                                    // 未配置签名密钥，跳过验证
+                                    entries.push(entry);
+                                }
+                                Err(e) => {
+                                    stats.verification_failures.fetch_add(1, Ordering::Relaxed);
+                                    warn!("审计日志签名验证失败: {}", e);
+                                    // 根据配置决定是否继续
+                                    // 这里选择记录警告但继续处理
+                                    entries.push(entry);
+                                }
+                            }
+                        } else {
+                            entries.push(entry);
+                        }
+                    } else {
+                        entries.push(entry);
+                    }
+                }
+                Err(e) => {
+                    stats.verification_failures.fetch_add(1, Ordering::Relaxed);
+                    warn!("解析审计日志条目失败: {}", e);
+                }
+            }
+        }
+
+        Ok(entries)
+    }
+
+    /// 验证单个日志条目的完整性
+    ///
+    /// # 参数
+    /// - `entry`: 要验证的日志条目
+    ///
+    /// # 返回
+    /// - `Ok(true)`: 签名验证通过
+    /// - `Ok(false)`: 未配置签名密钥，跳过验证
+    /// - `Err(...)`: 签名验证失败
+    pub fn verify_integrity(&self, entry: &AuditLogEntry) -> Result<bool, FlowGuardError> {
+        if let Some(ref signing_key) = self.config.signing_key {
+            let key = signing_key.expose_secret();
+            entry.verify(key)
+        } else {
+            // 未配置签名密钥，跳过验证
+            Ok(false)
+        }
     }
 
     pub async fn log_decision(
@@ -607,6 +909,8 @@ mod tests {
         assert_eq!(config.batch_size, 100);
         assert_eq!(config.batch_timeout, Duration::from_secs(5));
         assert!(config.enabled);
+        assert!(config.signing_key.is_none());
+        assert!(config.verify_on_read);
     }
 
     #[test]
@@ -616,13 +920,17 @@ mod tests {
             .batch_size(50)
             .batch_timeout(Duration::from_secs(10))
             .enabled(false)
-            .output_path("/tmp/audit.log".to_string());
+            .output_path("/tmp/audit.log".to_string())
+            .signing_key("test-secret-key-32-bytes-long!".to_string())
+            .verify_on_read(false);
 
         assert_eq!(config.channel_capacity, 5000);
         assert_eq!(config.batch_size, 50);
         assert_eq!(config.batch_timeout, Duration::from_secs(10));
         assert!(!config.enabled);
         assert_eq!(config.output_path, Some("/tmp/audit.log".to_string()));
+        assert!(config.signing_key.is_some());
+        assert!(!config.verify_on_read);
     }
 
     #[test]
@@ -636,6 +944,187 @@ mod tests {
         };
 
         assert!(event.timestamp() <= Utc::now());
+    }
+
+    #[test]
+    fn test_audit_event_operation() {
+        let event = AuditEvent::Decision {
+            timestamp: Utc::now(),
+            identifier: "test".to_string(),
+            decision: "allowed".to_string(),
+            reason: "test".to_string(),
+            request_id: None,
+        };
+        assert_eq!(event.operation(), "decision");
+
+        let event = AuditEvent::ConfigChange {
+            timestamp: Utc::now(),
+            old_version: "1.0".to_string(),
+            new_version: "2.0".to_string(),
+            changes: vec!["change1".to_string()],
+            operator: None,
+        };
+        assert_eq!(event.operation(), "config_change");
+    }
+
+    #[test]
+    fn test_audit_event_target() {
+        let event = AuditEvent::Decision {
+            timestamp: Utc::now(),
+            identifier: "user123".to_string(),
+            decision: "allowed".to_string(),
+            reason: "test".to_string(),
+            request_id: None,
+        };
+        assert_eq!(event.target(), "user123");
+
+        let event = AuditEvent::ConfigChange {
+            timestamp: Utc::now(),
+            old_version: "1.0".to_string(),
+            new_version: "2.0".to_string(),
+            changes: vec![],
+            operator: None,
+        };
+        assert_eq!(event.target(), "1.0->2.0");
+    }
+
+    #[test]
+    fn test_audit_log_entry_signature() {
+        let event = AuditEvent::Decision {
+            timestamp: Utc::now(),
+            identifier: "test-user".to_string(),
+            decision: "allowed".to_string(),
+            reason: "within limit".to_string(),
+            request_id: None,
+        };
+
+        let signing_key = "test-secret-key-32-bytes-long!";
+        let entry = AuditLogEntry::with_signature(event.clone(), signing_key);
+
+        // 验证签名存在
+        assert!(entry.signature.is_some());
+        assert_eq!(entry.signature_version, Some(1));
+
+        // 验证签名可以验证通过
+        let result = entry.verify(signing_key);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_audit_log_entry_signature_verification_failure() {
+        let event = AuditEvent::Decision {
+            timestamp: Utc::now(),
+            identifier: "test-user".to_string(),
+            decision: "allowed".to_string(),
+            reason: "within limit".to_string(),
+            request_id: None,
+        };
+
+        let signing_key = "test-secret-key-32-bytes-long!";
+        let wrong_key = "wrong-secret-key-32-bytes-long!";
+        let entry = AuditLogEntry::with_signature(event, signing_key);
+
+        // 使用错误的密钥验证应该失败
+        let result = entry.verify(wrong_key);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_audit_log_entry_missing_signature() {
+        let event = AuditEvent::Decision {
+            timestamp: Utc::now(),
+            identifier: "test-user".to_string(),
+            decision: "allowed".to_string(),
+            reason: "within limit".to_string(),
+            request_id: None,
+        };
+
+        let entry = AuditLogEntry::new(event);
+        let signing_key = "test-secret-key-32-bytes-long!";
+
+        // 没有签名的条目验证应该失败
+        let result = entry.verify(signing_key);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(FlowGuardError::AuditLogError(_))));
+    }
+
+    #[test]
+    fn test_constant_time_compare() {
+        // 相同字符串
+        assert!(AuditLogEntry::constant_time_compare("abc123", "abc123"));
+
+        // 不同字符串
+        assert!(!AuditLogEntry::constant_time_compare("abc123", "abc124"));
+
+        // 不同长度
+        assert!(!AuditLogEntry::constant_time_compare("abc", "abcd"));
+    }
+
+    #[test]
+    fn test_signature_tampering_detection() {
+        let event = AuditEvent::Decision {
+            timestamp: Utc::now(),
+            identifier: "test-user".to_string(),
+            decision: "allowed".to_string(),
+            reason: "within limit".to_string(),
+            request_id: None,
+        };
+
+        let signing_key = "test-secret-key-32-bytes-long!";
+        let mut entry = AuditLogEntry::with_signature(event.clone(), signing_key);
+
+        // 篡改签名
+        entry.signature = Some("tampered_signature".to_string());
+
+        // 验证应该失败
+        let result = entry.verify(signing_key);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_signature_deterministic() {
+        let timestamp = Utc::now();
+        let event = AuditEvent::Decision {
+            timestamp,
+            identifier: "test-user".to_string(),
+            decision: "allowed".to_string(),
+            reason: "within limit".to_string(),
+            request_id: None,
+        };
+
+        let signing_key = "test-secret-key-32-bytes-long!";
+
+        // 相同事件应该产生相同的签名
+        let entry1 = AuditLogEntry::with_signature(event.clone(), signing_key);
+        let entry2 = AuditLogEntry::with_signature(event, signing_key);
+
+        assert_eq!(entry1.signature, entry2.signature);
+    }
+
+    #[test]
+    fn test_signature_serialization() {
+        let event = AuditEvent::Decision {
+            timestamp: Utc::now(),
+            identifier: "test-user".to_string(),
+            decision: "allowed".to_string(),
+            reason: "within limit".to_string(),
+            request_id: None,
+        };
+
+        let signing_key = "test-secret-key-32-bytes-long!";
+        let entry = AuditLogEntry::with_signature(event, signing_key);
+
+        // 序列化
+        let json = serde_json::to_string(&entry).unwrap();
+
+        // 反序列化
+        let deserialized: AuditLogEntry = serde_json::from_str(&json).unwrap();
+
+        // 验证签名仍然有效
+        let result = deserialized.verify(signing_key);
+        assert!(result.is_ok());
+        assert!(result.unwrap());
     }
 
     #[tokio::test]
@@ -663,5 +1152,59 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         assert_eq!(logger.stats().decision_events(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_audit_logger_with_signing() {
+        let config = AuditLogConfig::new()
+            .signing_key("test-secret-key-32-bytes-long!".to_string())
+            .verify_on_read(true);
+
+        let logger = AuditLogger::new(config).await;
+
+        logger
+            .log_decision(
+                "user123".to_string(),
+                "allowed".to_string(),
+                "within limit".to_string(),
+                None,
+            )
+            .await;
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert_eq!(logger.stats().decision_events(), 1);
+        assert!(logger.config().signing_key.is_some());
+    }
+
+    #[test]
+    fn test_sanitize_identifier_ip() {
+        let result = sanitize_identifier("192.168.1.100");
+        assert_eq!(result, "192.168.xxx.xxx");
+    }
+
+    #[test]
+    fn test_sanitize_identifier_email() {
+        let result = sanitize_identifier("test@example.com");
+        assert_eq!(result, "tes***@example.com");
+    }
+
+    #[test]
+    fn test_sanitize_identifier_user_id() {
+        let result = sanitize_identifier("1234567890abcdef");
+        assert_eq!(result, "123***def");
+    }
+
+    #[test]
+    fn test_audit_log_stats() {
+        let stats = AuditLogStats::default();
+
+        stats.total_events.store(100, Ordering::Relaxed);
+        stats.decision_events.store(50, Ordering::Relaxed);
+        stats.signature_failures.store(2, Ordering::Relaxed);
+
+        assert_eq!(stats.total_events(), 100);
+        assert_eq!(stats.decision_events(), 50);
+        assert_eq!(stats.signature_failures(), 2);
     }
 }

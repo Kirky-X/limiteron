@@ -43,6 +43,8 @@ docs/uat.md
 .sisyphus/
 .opencode/
 .trae/
+.worktrees/
+.qoder/
 openspec/
 IFLOW.md
 TEST_SUMMARY_2026_01_17.md

@@ -10,9 +10,8 @@
 use crate::error::FlowGuardError;
 #[cfg(feature = "quota-control")]
 use crate::quota_controller::QuotaConfig;
+use async_trait::async_trait;
 use dashmap::DashMap;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -113,28 +112,18 @@ impl QuotaLimiter {
     }
 }
 
+#[async_trait]
 impl crate::limiters::Limiter for QuotaLimiter {
-    fn allow(
-        &self,
-        _cost: u64,
-    ) -> Pin<Box<dyn Future<Output = Result<bool, FlowGuardError>> + Send + '_>> {
-        Box::pin(async move {
-            // For quota limiter, we need a key to track, but the allow() method doesn't provide one
-            // This is a limitation - quota tracking requires a key
-            // Return true to allow the request (quota enforcement happens via check() with key)
-            Ok(true)
-        })
+    async fn allow(&self, _cost: u64) -> Result<bool, FlowGuardError> {
+        // For quota limiter, we need a key to track, but the allow() method doesn't provide one
+        // This is a limitation - quota tracking requires a key
+        // Return true to allow the request (quota enforcement happens via check() with key)
+        Ok(true)
     }
 
-    fn check(
-        &self,
-        key: &str,
-    ) -> Pin<Box<dyn Future<Output = Result<(), FlowGuardError>> + Send + '_>> {
-        let key = key.to_string();
-        Box::pin(async move {
-            self.check_and_consume(&key).await?;
-            Ok(())
-        })
+    async fn check(&self, key: &str) -> Result<(), FlowGuardError> {
+        self.check_and_consume(key).await?;
+        Ok(())
     }
 }
 

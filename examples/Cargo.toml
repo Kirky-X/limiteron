@@ -2,11 +2,45 @@
 name = "limiteron-examples"
 version = "0.1.0"
 edition = "2021"
-description = "Limiteron examples - demonstrating all features"
+authors = ["Kirky.X"]
+description = "Limiteron usage examples - demonstrates rate limiting, circuit breaking, quota control, and ban management"
+
+[workspace]
 
 [dependencies]
-limiteron = { path = "..", features = ["full"] }
+limiteron = { path = ".." }
+tokio = { version = "1.49", features = ["rt-multi-thread", "macros", "time", "sync"] }
+async-trait = "0.1"
+ahash = "0.8.12"
+chrono = { version = "0.4", features = ["serde"] }
+serde_json = "1.0"
 futures = "0.3"
 
+[[bin]]
+name = "rate_limiters"
+path = "src/bin/rate_limiters.rs"
+
+[[bin]]
+name = "circuit_breaker"
+path = "src/bin/circuit_breaker.rs"
+required-features = ["circuit-breaker"]
+
+[[bin]]
+name = "quota_control"
+path = "src/bin/quota_control.rs"
+required-features = ["quota-control"]
+
+[[bin]]
+name = "ban_manager"
+path = "src/bin/ban_manager.rs"
+required-features = ["ban-manager"]
+
+[features]
+default = []
+circuit-breaker = ["limiteron/circuit-breaker"]
+quota-control = ["limiteron/quota-control"]
+ban-manager = ["limiteron/ban-manager"]
+full = ["circuit-breaker", "quota-control", "ban-manager"]
+
 [dev-dependencies]
-tokio = { version = "1.35", features = ["full"] }
+tokio-test = "0.4"

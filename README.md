@@ -9,6 +9,7 @@
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust Version">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License">
   <img src="https://github.com/Kirky-X/limiteron/workflows/CI/badge.svg" alt="Build">
+  <img src="https://codecov.io/gh/Kirky-X/limiteron/branch/main/graph/badge.svg" alt="Coverage">
   <img src="https://img.shields.io/github/stars/Kirky-X/limiteron?style=social" alt="GitHub Stars">
   <img src="https://img.shields.io/github/forks/Kirky-X/limiteron?style=social" alt="GitHub Forks">
   <img src="https://img.shields.io/github/issues/Kirky-X/limiteron" alt="GitHub Issues">
@@ -77,7 +78,7 @@
 
 - 🚀 **High Performance** - Latency < 200μs P99
 - 🔐 **Secure and Reliable** - Memory safety, SQL injection protection
-- 🌐 **Multi-Storage Support** - PostgreSQL, Redis, in-memory storage
+- 🌐 **Multi-Storage Support** - PostgreSQL via DBNexus, in-memory storage
 - 📦 **Easy to Use** - Macro support, clean API
 
 </td>
@@ -177,13 +178,14 @@ Suitable for protecting API services from abuse and DDoS attacks.
 
 ```rust
 use limiteron::ban_manager::{BanManager, BanTarget};
-use limiteron::storage::MockBanStorage;
+use limiteron::adapters::StorageFactory;
 use std::sync::Arc;
 
 async fn web_app() -> Result<(), Box<dyn std::error::Error>> {
-    // Create storage and ban manager
-    let storage = Arc::new(MockBanStorage::default());
-    let ban_manager = BanManager::new(storage, None).await?;
+    // Create storage using DBNexus factory
+    let factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+    let ban_storage = factory.create_ban_storage().await?;
+    let ban_manager = BanManager::new(ban_storage, None).await?;
 
     // Check if user is banned
     let user_target = BanTarget::UserId("user123".to_string());
@@ -226,7 +228,7 @@ limiteron = { version = "0.1", features = ["macros"] }
 
 ```toml
 [dependencies]
-limiteron = { version = "0.1", features = ["postgres", "redis", "macros"] }
+limiteron = { version = "0.1", features = ["postgres", "macros"] }
 ```
 
 </td>
@@ -265,7 +267,7 @@ limiteron = { version = "0.1", features = ["full"] }
 **单独特性**
 ```toml
 # 存储后端
-limiteron = { version = "0.1", features = ["postgres", "redis"] }
+limiteron = { version = "0.1", features = ["postgres"] }
 
 # 高级功能
 limiteron = { version = "0.1", features = ["ban-manager", "quota-control", "circuit-breaker"] }
@@ -285,12 +287,11 @@ limiteron = { version = "0.1", features = ["macros"] }
 
 | 特性 | 描述 | 默认 |
 |------|------|------|
-| `memory` | 内存存储 | ✅ |
-| `postgres` | PostgreSQL 存储 | ❌ |
-| `redis` | Redis 存储 | ❌ |
+| `postgres` | PostgreSQL 存储（DBNexus） | ❌ |
 | `ban-manager` | 封禁管理 | ❌ |
 | `quota-control` | 配额控制 | ❌ |
 | `circuit-breaker` | 熔断器 | ❌ |
+| `cache-service` | 统一缓存服务（支持 DI） | ❌ |
 | `macros` | 宏支持 | ❌ |
 | `telemetry` | 遥测和追踪 | ❌ |
 | `monitoring` | Prometheus 指标 | ❌ |
@@ -533,9 +534,8 @@ graph TB
     H --> K
     I --> K
     K --> L[Storage Layer]
-    L --> M[PostgreSQL]
-    L --> N[Redis]
-    L --> O[Memory]
+    L --> M[PostgreSQL via DBNexus]
+    L --> N[In-Memory]
 
     style A fill:#e1f5ff
     style B fill:#b3e5fc
@@ -551,7 +551,6 @@ graph TB
     style L fill:#0277bd
     style M fill:#01579b
     style N fill:#01579b
-    style O fill:#01579b
 ```
 
 <details>
@@ -568,7 +567,7 @@ graph TB
 | **Quota Control** | Quota allocation, quota alerts | ✅ Stable |
 | **Circuit Breaker** | Automatic failover, state recovery | ✅ Stable |
 | **Cache** | L2/L3 cache support | ✅ Stable |
-| **Storage Layer** | PostgreSQL, Redis, in-memory | ✅ Stable |
+| **Storage Layer** | PostgreSQL via DBNexus | ✅ Stable |
 
 </details>
 
@@ -649,7 +648,7 @@ let config = ConfigLoader::load_from_file("config.toml")?;
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `version` | String | "0.1.0" | Configuration version |
-| `global.storage` | String | "memory" | Storage type: memory/redis/postgres |
+| `global.storage` | String | "postgres" | Storage type: postgres (via DBNexus) |
 | `global.cache` | String | "memory" | Cache type: memory/redis |
 | `global.metrics` | String | "prometheus" | Metrics type |
 | `rules[].id` | String | - | Rule identifier |
@@ -678,6 +677,8 @@ let config = ConfigBuilder::new()
 
 ## <span id="🧪-testing">🧪 Testing</span>
 
+**当前测试覆盖率: 53.56%**
+
 ```bash
 # Run all tests
 cargo test --all-features
@@ -690,7 +691,13 @@ cargo test --test integration_tests
 
 # Run benchmarks
 cargo bench
+
+# Generate coverage report
+cargo tarpaulin --out Html
 ```
+
+详细测试文档: [TESTING.md](./docs/TESTING.md)
+覆盖率报告: [COVERAGE_REPORT.md](./docs/COVERAGE_REPORT.md)
 
 ---
 
@@ -853,7 +860,7 @@ gantt
 - [x] Circuit breaker
 - [x] Unit and integration tests
 - [x] Macro support
-- [x] PostgreSQL and Redis storage
+- [x] PostgreSQL storage via DBNexus
 
 </td>
 <td width="50%">
@@ -872,8 +879,8 @@ gantt
 
 ### 📋 Planned
 
-- [ ] Lua script enhancements
-- [ ] Custom matcher extensions
+- [ ] MySQL storage support via DBNexus
+- [ ] SQLite storage support via DBNexus
 - [ ] Additional storage backends
 - [ ] Web UI management interface
 
@@ -1006,8 +1013,7 @@ This project is licensed under Apache 2.0:
 
 - 🌟 **Dependencies** - Built on these excellent projects:
   - [tokio](https://tokio.rs/) - Async runtime
-  - [sqlx](https://github.com/launchbadge/sqlx) - Async SQL toolkit
-  - [redis](https://github.com/redis-rs/redis-rs) - Redis client
+  - [dbnexus](https://github.com/) - Database abstraction layer
   - [dashmap](https://github.com/xacrimon/dashmap) - Concurrent HashMap
   - [lru](https://github.com/jeromefroe/lru-rs) - LRU cache
 

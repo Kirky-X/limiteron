@@ -13,14 +13,12 @@
 //! - **热更新**: 支持动态更新策略
 //! - **故障注入**: 支持模拟故障进行测试
 
-#[cfg(feature = "cache-service")]
-use crate::cache::CacheService;
 use crate::error::{FlowGuardError, StorageError};
 use ahash::AHashMap as HashMap;
+use oxcache::Cache;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
 
 /// 降级策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -136,37 +134,34 @@ impl FallbackConfig {
 pub struct FallbackManager {
     /// 策略配置
     strategies: Arc<RwLock<HashMap<ComponentType, FallbackConfig>>>,
-    /// 缓存服务（用于降级）
-    #[cfg(feature = "cache-service")]
-    cache_service: Arc<dyn CacheService>,
     /// 故障状态
     failure_states: Arc<RwLock<HashMap<ComponentType, bool>>>,
+    /// L2 缓存实例
+    l2_cache: Arc<Cache<String, String>>,
 }
 
 impl FallbackManager {
-    /// 创建新的降级策略管理器（使用 CacheService trait）
-    ///
-    /// # 参数
-    /// - `cache_service`: 缓存服务实例（支持 trait 对象）
+    /// 创建新的降级策略管理器
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::fallback::{FallbackManager, ComponentType};
-    /// use limiteron::cache::{CacheService, CacheServiceConfig, OxCacheService};
+    /// use limiteron::fallback::FallbackManager;
+    /// use oxcache::Cache;
     /// use std::sync::Arc;
+    /// use std::time::Duration;
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let config = CacheServiceConfig::default();
-    ///     let service: Arc<dyn CacheService> = Arc::new(
-    ///         OxCacheService::new(config).await.unwrap()
-    ///     );
-    ///     let manager = FallbackManager::new(service);
+    ///     let cache = Cache::builder()
+    ///         .capacity(10000)
+    ///         .ttl(Duration::from_secs(300))
+    ///         .build()
+    ///         .unwrap();
+    ///     let manager = FallbackManager::new(Arc::new(cache));
     /// }
     /// ```
-    #[cfg(feature = "cache-service")]
-    pub fn new(cache_service: Arc<dyn CacheService>) -> Self {
-        info!("创建降级策略管理器");
+    pub fn new(l2_cache: Arc<Cache<String, String>>) -> Self {
+        log::info!("创建降级策略管理器");
 
         // 默认策略
         let mut strategies = HashMap::new();
@@ -197,51 +192,14 @@ impl FallbackManager {
 
         Self {
             strategies: Arc::new(RwLock::new(strategies)),
-            cache_service,
             failure_states: Arc::new(RwLock::new(HashMap::new())),
+            l2_cache,
         }
     }
 
-    /// 创建新的降级策略管理器（直接使用 oxcache Cache，保持向后兼容）
-    ///
-    /// # 参数
-    /// - `l2_cache`: 直接使用 oxcache Cache 实例
-    #[cfg(not(feature = "cache-service"))]
-    pub fn new(l2_cache: Arc<oxcache::Cache<String, String>>) -> Self {
-        info!("创建降级策略管理器");
-
-        // 默认策略
-        let mut strategies = HashMap::new();
-        strategies.insert(
-            ComponentType::Redis,
-            FallbackConfig::new(ComponentType::Redis, FallbackStrategy::Degraded),
-        );
-        strategies.insert(
-            ComponentType::Postgres,
-            FallbackConfig::new(ComponentType::Postgres, FallbackStrategy::Degraded),
-        );
-        strategies.insert(
-            ComponentType::L2Cache,
-            FallbackConfig::new(ComponentType::L2Cache, FallbackStrategy::Degraded),
-        );
-        strategies.insert(
-            ComponentType::Config,
-            FallbackConfig::new(ComponentType::Config, FallbackStrategy::FailClosed),
-        );
-        strategies.insert(
-            ComponentType::Ban,
-            FallbackConfig::new(ComponentType::Ban, FallbackStrategy::Degraded),
-        );
-        strategies.insert(
-            ComponentType::Quota,
-            FallbackConfig::new(ComponentType::Quota, FallbackStrategy::Degraded),
-        );
-
-        Self {
-            strategies: Arc::new(RwLock::new(strategies)),
-            _l2_cache: l2_cache,
-            failure_states: Arc::new(RwLock::new(HashMap::new())),
-        }
+    /// 获取 L2 缓存实例
+    pub fn l2_cache(&self) -> &Arc<Cache<String, String>> {
+        &self.l2_cache
     }
 
     /// 设置降级策略
@@ -250,7 +208,8 @@ impl FallbackManager {
     /// - `component`: 组件类型
     /// - `config`: 策略配置
     pub async fn set_strategy(&self, component: ComponentType, config: FallbackConfig) {
-        info!(
+        log::info!(
+            target: "fallback",
             "设置降级策略: component={:?}, strategy={:?}",
             component, config.strategy
         );
@@ -339,7 +298,7 @@ impl FallbackManager {
             }
             Err(e) => {
                 // 操作失败，根据策略处理
-                warn!("组件操作失败: component={:?}, error={}", component, e);
+                log::warn!(target: "fallback", "组件操作失败: component={:?}, error={}", component, e);
 
                 // 标记为故障状态
                 self.set_failure(component.clone()).await;
@@ -362,7 +321,8 @@ impl FallbackManager {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<T, FlowGuardError>>,
     {
-        info!(
+        log::info!(
+            target: "fallback",
             "执行降级策略: component={:?}, strategy={:?}",
             component, config.strategy
         );
@@ -370,21 +330,21 @@ impl FallbackManager {
         match config.strategy {
             FallbackStrategy::FailOpen => {
                 // 故障开放：返回默认值或允许请求
-                warn!("降级策略: FailOpen - 允许请求通过");
+                log::warn!(target: "fallback", "降级策略: FailOpen - 允许请求通过");
                 Err(FlowGuardError::LimitError(
                     "服务降级，但允许请求通过".to_string(),
                 ))
             }
             FallbackStrategy::FailClosed => {
                 // 故障关闭：拒绝请求
-                error!("降级策略: FailClosed - 拒绝请求");
+                log::error!(target: "fallback", "降级策略: FailClosed - 拒绝请求");
                 Err(FlowGuardError::StorageError(StorageError::ConnectionError(
                     "服务降级，拒绝请求".to_string(),
                 )))
             }
             FallbackStrategy::Degraded => {
                 // 降级服务：使用备用方案
-                debug!("降级策略: Degraded - 使用备用方案");
+                log::debug!(target: "fallback", "降级策略: Degraded - 使用备用方案");
                 fallback_operation().await
             }
         }
@@ -392,7 +352,7 @@ impl FallbackManager {
 
     /// 标记组件为故障状态
     async fn set_failure(&self, component: ComponentType) {
-        warn!("组件故障: {:?}", component);
+        log::warn!(target: "fallback", "组件故障: {:?}", component);
         let mut states = self.failure_states.write().await;
         states.insert(component, true);
     }
@@ -401,12 +361,12 @@ impl FallbackManager {
     async fn clear_failure(&self, component: ComponentType) {
         let mut states = self.failure_states.write().await;
         states.remove(&component);
-        info!("组件恢复: {:?}", component);
+        log::info!(target: "fallback", "组件恢复: {:?}", component);
     }
 
     /// 记录组件故障
     pub async fn record_failure(&self, component: ComponentType, _error: &str) {
-        warn!("组件故障记录: {:?}", component);
+        log::warn!(target: "fallback", "组件故障记录: {:?}", component);
         self.set_failure(component).await;
     }
 
@@ -428,13 +388,13 @@ impl FallbackManager {
 
     /// 手动触发故障（用于测试）
     pub async fn inject_failure(&self, component: ComponentType) {
-        warn!("注入故障: {:?}", component);
+        log::warn!(target: "fallback", "注入故障: {:?}", component);
         self.set_failure(component).await;
     }
 
     /// 手动恢复故障（用于测试）
     pub async fn recover_failure(&self, component: ComponentType) {
-        info!("恢复故障: {:?}", component);
+        log::info!(target: "fallback", "恢复故障: {:?}", component);
         self.clear_failure(component).await;
     }
 
@@ -446,15 +406,6 @@ impl FallbackManager {
             .filter(|(_, &failed)| failed)
             .map(|(component, _)| component.clone())
             .collect()
-    }
-
-    /// 获取缓存（非 cache-service 模式）
-    ///
-    /// # 返回
-    /// - 缓存引用
-    #[cfg(not(feature = "cache-service"))]
-    pub fn l2_cache(&self) -> &Arc<Cache<String, String>> {
-        &self._l2_cache
     }
 }
 

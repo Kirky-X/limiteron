@@ -19,11 +19,11 @@ use crate::constants::{
     DEFAULT_CIRCUIT_BREAKER_SUCCESS_THRESHOLD, DEFAULT_CIRCUIT_BREAKER_TIMEOUT_SECS,
 };
 use crate::error::{CircuitBreakerStats, CircuitState, FlowGuardError};
+use log::{info, trace, warn};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{info, trace, warn};
 
 #[cfg(feature = "circuit-breaker")]
 /// 熔断器配置
@@ -89,11 +89,65 @@ pub struct CircuitBreaker {
     config: CircuitBreakerConfig,
 }
 
+#[cfg(feature = "circuit-breaker")]
+/// 熔断器构建器
+#[derive(Debug, Clone)]
+pub struct CircuitBreakerBuilder {
+    config: CircuitBreakerConfig,
+}
+
+impl CircuitBreakerBuilder {
+    /// 创建新的构建器
+    pub fn new() -> Self {
+        Self {
+            config: CircuitBreakerConfig::default(),
+        }
+    }
+
+    /// 设置失败阈值
+    pub fn failure_threshold(mut self, failure_threshold: u64) -> Self {
+        self.config.failure_threshold = failure_threshold;
+        self
+    }
+
+    /// 设置成功阈值
+    pub fn success_threshold(mut self, success_threshold: u64) -> Self {
+        self.config.success_threshold = success_threshold;
+        self
+    }
+
+    /// 设置超时时间
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.config.timeout = timeout;
+        self
+    }
+
+    /// 设置半开状态的最大调用次数
+    pub fn half_open_max_calls(mut self, max_calls: u64) -> Self {
+        self.config.half_open_max_calls = max_calls;
+        self
+    }
+
+    /// 构建熔断器
+    pub fn build(&self) -> CircuitBreaker {
+        CircuitBreaker::with_dependencies(self.config.clone())
+    }
+}
+
+impl Default for CircuitBreakerBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CircuitBreaker {
-    /// 创建新的熔断器
+    /// 使用依赖注入模式创建熔断器
     ///
     /// # 参数
     /// - `config`: 熔断器配置
+    ///
+    /// # 返回
+    /// 配置好的熔断器实例
     ///
     /// # 示例
     /// ```rust
@@ -101,9 +155,9 @@ impl CircuitBreaker {
     /// use std::time::Duration;
     ///
     /// let config = CircuitBreakerConfig::new(5, 2, Duration::from_secs(60));
-    /// let breaker = CircuitBreaker::new(config);
+    /// let breaker = CircuitBreaker::with_dependencies(config);
     /// ```
-    pub fn new(config: CircuitBreakerConfig) -> Self {
+    pub fn with_dependencies(config: CircuitBreakerConfig) -> Self {
         info!(
             "创建熔断器: failure_threshold={}, success_threshold={}, timeout={:?}",
             config.failure_threshold, config.success_threshold, config.timeout
@@ -120,11 +174,43 @@ impl CircuitBreaker {
             config,
         }
     }
+
+    /// 创建熔断器构建器
+    ///
+    /// # 返回
+    /// 新的构建器实例
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::circuit_breaker::CircuitBreaker;
+    ///
+    /// let builder = CircuitBreaker::builder();
+    /// ```
+    pub fn builder() -> CircuitBreakerBuilder {
+        CircuitBreakerBuilder::new()
+    }
+
+    /// 创建新的熔断器（保持向后兼容）
+    ///
+    /// # 参数
+    /// - `config`: 熔断器配置
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+    /// use std::time::Duration;
+    ///
+    /// let config = CircuitBreakerConfig::new(5, 2, Duration::from_secs(60));
+    /// let breaker = CircuitBreaker::new(config);
+    /// ```
+    pub fn new(config: CircuitBreakerConfig) -> Self {
+        Self::with_dependencies(config)
+    }
 }
 
 impl Default for CircuitBreaker {
     fn default() -> Self {
-        Self::new(CircuitBreakerConfig::default())
+        Self::with_dependencies(CircuitBreakerConfig::default())
     }
 }
 
@@ -289,65 +375,82 @@ impl CircuitBreaker {
         }
     }
 
+    /// 统一的状态转换方法
+    ///
+    /// 统一处理状态转换逻辑，避免重复的状态检查和日志记录代码。
+    async fn transition_to(&self, new_state: CircuitState) {
+        let old_state = *self.state.read().await;
+        if old_state == new_state {
+            return; // 状态未改变，无需处理
+        }
+
+        // 更新状态和时间戳
+        *self.state.write().await = new_state;
+        *self.last_state_change.write().await = Some(Instant::now());
+
+        // 根据新状态重置相关计数器
+        match new_state {
+            CircuitState::Open => {
+                self.success_count.store(0, Ordering::Relaxed);
+                self.half_open_calls.store(0, Ordering::Relaxed);
+                warn!(
+                    "熔断器状态变更: {:?} -> Open (failure_count={})",
+                    old_state,
+                    self.failure_count.load(Ordering::Relaxed)
+                );
+            }
+            CircuitState::HalfOpen => {
+                self.success_count.store(0, Ordering::Relaxed);
+                // 重置半开状态调用计数
+                // 注意：将计数设置为1，因为当前请求（探针请求）将被允许通过
+                self.half_open_calls.store(1, Ordering::Relaxed);
+                info!("熔断器状态变更: {:?} -> HalfOpen", old_state);
+            }
+            CircuitState::Closed => {
+                self.failure_count.store(0, Ordering::Relaxed);
+                self.success_count.store(0, Ordering::Relaxed);
+                self.half_open_calls.store(0, Ordering::Relaxed);
+                info!("熔断器状态变更: {:?} -> Closed", old_state);
+            }
+        }
+    }
+
     /// 切换到打开状态
     async fn transition_to_open(&self) {
-        let old_state = *self.state.read().await;
-        if old_state != CircuitState::Open {
-            *self.state.write().await = CircuitState::Open;
-            *self.last_state_change.write().await = Some(Instant::now());
-            self.success_count.store(0, Ordering::Relaxed);
-            self.half_open_calls.store(0, Ordering::Relaxed);
-            warn!(
-                "熔断器状态变更: {:?} -> Open (failure_count={})",
-                old_state,
-                self.failure_count.load(Ordering::Relaxed)
-            );
-        }
+        self.transition_to(CircuitState::Open).await;
     }
 
     /// 切换到半开状态
     async fn transition_to_half_open(&self) {
-        let old_state = *self.state.read().await;
-        if old_state != CircuitState::HalfOpen {
-            *self.state.write().await = CircuitState::HalfOpen;
-            *self.last_state_change.write().await = Some(Instant::now());
-            self.success_count.store(0, Ordering::Relaxed);
-            // 重置半开状态调用计数
-            // 注意：将计数设置为1，因为当前请求（探针请求）将被允许通过
-            self.half_open_calls.store(1, Ordering::Relaxed);
-            info!("熔断器状态变更: {:?} -> HalfOpen", old_state);
-        }
+        self.transition_to(CircuitState::HalfOpen).await;
     }
 
     /// 切换到关闭状态
     async fn transition_to_closed(&self) {
-        let old_state = *self.state.read().await;
-        if old_state != CircuitState::Closed {
-            *self.state.write().await = CircuitState::Closed;
-            *self.last_state_change.write().await = Some(Instant::now());
-            self.failure_count.store(0, Ordering::Relaxed);
-            self.success_count.store(0, Ordering::Relaxed);
-            self.half_open_calls.store(0, Ordering::Relaxed);
-            info!("熔断器状态变更: {:?} -> Closed", old_state);
-        }
+        self.transition_to(CircuitState::Closed).await;
+    }
+
+    /// 检查熔断器是否为指定状态（内部辅助方法）
+    ///
+    /// 统一的状态检查逻辑，避免重复的状态读取代码。
+    async fn is_state(&self, target_state: CircuitState) -> bool {
+        let state = self.state.read().await;
+        *state == target_state
     }
 
     /// 检查熔断器是否打开
     pub async fn is_open(&self) -> bool {
-        let state = self.state.read().await;
-        *state == CircuitState::Open
+        self.is_state(CircuitState::Open).await
     }
 
     /// 检查熔断器是否半开
     pub async fn is_half_open(&self) -> bool {
-        let state = self.state.read().await;
-        *state == CircuitState::HalfOpen
+        self.is_state(CircuitState::HalfOpen).await
     }
 
     /// 检查熔断器是否关闭
     pub async fn is_closed(&self) -> bool {
-        let state = self.state.read().await;
-        *state == CircuitState::Closed
+        self.is_state(CircuitState::Closed).await
     }
 
     /// 获取当前状态

@@ -2,6 +2,7 @@
 //!
 //! 使用新的模块化测试结构
 
+mod common;
 mod integration;
 mod modules;
 

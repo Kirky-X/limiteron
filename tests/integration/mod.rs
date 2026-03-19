@@ -1,11 +1,5 @@
 //! 集成测试模块
 //!
 //! 测试各组件之间的集成和交互
-
-#[cfg(feature = "postgres")]
-#[allow(unused_imports)]
-mod postgres_test;
-
-#[cfg(feature = "postgres")]
-#[allow(unused_imports)]
-pub use postgres_test::*;
+//!
+//! 注意：PostgreSQL集成测试已移除，存储由dbnexus完全接管

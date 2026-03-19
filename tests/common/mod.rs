@@ -6,10 +6,10 @@ use limiteron::error::{ConsumeResult, StorageError};
 use limiteron::limiters::{
     ConcurrencyLimiter, FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter,
 };
-use limiteron::storage::{
+use limiteron::storage_trait::{
     BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage,
 };
-use limiteron::FlowControlConfig as GovernorConfig;
+use limiteron::config::{ActionConfig, FlowControlConfig as GovernorConfig, LimiterConfig, Matcher, Rule};
 use limiteron::Governor;
 use std::sync::Arc;
 use std::time::Duration;
@@ -235,6 +235,37 @@ impl BanStorage for MockBanStorage {
         Ok(count)
     }
 
+    async fn list_bans(
+        &self,
+        active_only: bool,
+        offset: u64,
+        limit: u64,
+    ) -> Result<Vec<BanRecord>, StorageError> {
+        if self.should_fail().await {
+            return Err(StorageError::QueryError(
+                "MockBanStorage list_bans失败".to_string(),
+            ));
+        }
+
+        let bans = self.bans.read().await;
+        let now = chrono::Utc::now();
+        let mut records: Vec<_> = bans.values().cloned().collect();
+
+        if active_only {
+            records.retain(|r| r.expires_at > now);
+        }
+
+        let total = records.len() as u64;
+        let start = offset as usize;
+        let end = (offset.saturating_add(limit)) as usize;
+
+        if start >= total as usize {
+            return Ok(vec![]);
+        }
+
+        Ok(records.into_iter().skip(start).take(end - start).collect())
+    }
+
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -243,14 +274,37 @@ impl BanStorage for MockBanStorage {
 // ==================== Test Helpers ====================
 
 pub async fn create_governor() -> Arc<Governor> {
-    let config = GovernorConfig::default();
-    let storage = Arc::new(MockQuotaStorage::new());
-    let ban_storage = Arc::new(MockBanStorage::new());
+    let config = GovernorConfig {
+        version: "1.0".to_string(),
+        global: limiteron::config::GlobalConfig {
+            storage: "memory".to_string(),
+            cache: "memory".to_string(),
+            metrics: "prometheus".to_string(),
+        },
+        rules: vec![Rule {
+            id: "test_rule".to_string(),
+            name: "Test Rule".to_string(),
+            priority: 100,
+            matchers: vec![Matcher::User {
+                user_ids: vec!["*".to_string()],
+            }],
+            limiters: vec![LimiterConfig::TokenBucket {
+                capacity: 1000,
+                refill_rate: 100,
+            }],
+            action: ActionConfig {
+                on_exceed: "reject".to_string(),
+                ban: None,
+            },
+        }],
+    };
+    let storage: Arc<dyn Storage> = Arc::new(MockQuotaStorage::new());
+    let ban_storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
 
     Arc::new(
         Governor::new(
             config,
-            storage.clone(), // MockQuotaStorage implements Storage now
+            storage,
             ban_storage,
             #[cfg(feature = "monitoring")]
             None,
@@ -272,7 +326,7 @@ pub async fn wait_secs(secs: u64) {
 
 pub fn create_test_request(user_id: &str, ip: &str) -> limiteron::matchers::RequestContext {
     let mut headers = AHashMap::new();
-    headers.insert("user-id".to_string(), user_id.to_string());
+    headers.insert("x-user-id".to_string(), user_id.to_string());
 
     let mut ctx = limiteron::matchers::RequestContext::new();
     ctx.ip = Some(ip.to_string());

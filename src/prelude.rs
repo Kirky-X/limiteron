@@ -34,5 +34,5 @@ pub use crate::quota_controller::QuotaController;
 #[cfg(feature = "macros")]
 pub use crate::macros::flow_control;
 
-#[cfg(feature = "postgres")]
-pub use crate::db_storage::DbStorage;
+// DbStorage removed as part of direct-inheritance refactoring
+// Use dbnexus::DbStorage directly instead

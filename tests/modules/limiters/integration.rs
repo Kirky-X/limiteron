@@ -24,7 +24,10 @@ async fn token_bucket_allows_within_capacity() {
     }
     // 11th request should be rejected
     let result = limiter.allow(1).await;
-    assert!(matches!(result, Ok(false)), "11th request should be rejected");
+    assert!(
+        matches!(result, Ok(false)),
+        "11th request should be rejected"
+    );
 }
 
 #[tokio::test]
@@ -126,7 +129,10 @@ async fn concurrency_limiter_rejects_over_limit() {
     // The limiter checks availability but doesn't track held permits.
     for _ in 0..5 {
         let result = limiter.allow(1).await;
-        assert!(result.is_ok(), "allow(1) should always succeed with this API design");
+        assert!(
+            result.is_ok(),
+            "allow(1) should always succeed with this API design"
+        );
     }
 }
 
@@ -135,7 +141,10 @@ async fn concurrency_limiter_rejects_zero_cost() {
     let limiter = ConcurrencyLimiter::new(10);
     // allow(0) acquires 0 permits which always succeeds
     let result = limiter.allow(0).await;
-    assert!(result.is_ok(), "allow(0) should succeed (acquiring 0 always succeeds)");
+    assert!(
+        result.is_ok(),
+        "allow(0) should succeed (acquiring 0 always succeeds)"
+    );
 }
 
 #[tokio::test]
@@ -189,10 +198,7 @@ async fn sharded_sliding_window_rejects_zero_cost() {
 async fn token_bucket_arc_works() {
     let limiter = Arc::new(TokenBucketLimiter::new(5, 0));
     let limiter2 = limiter.clone();
-    let (r1, r2) = tokio::join!(
-        limiter.allow(3),
-        limiter2.allow(3)
-    );
+    let (r1, r2) = tokio::join!(limiter.allow(3), limiter2.allow(3));
     // Both should succeed (first two calls)
     assert!(r1.is_ok() && r2.is_ok());
 }

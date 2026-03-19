@@ -30,9 +30,7 @@ async fn test_circuit_breaker_module_import() {
 #[cfg(feature = "circuit-breaker")]
 async fn test_circuit_breaker_governor_integration() {
     // 创建熔断器并验证基本功能
-    let circuit_breaker = CircuitBreaker::with_dependencies(
-        CircuitBreakerConfig::default()
-    );
+    let circuit_breaker = CircuitBreaker::with_dependencies(CircuitBreakerConfig::default());
 
     // 验证熔断器初始状态为 Closed
     assert!(circuit_breaker.is_closed().await);
@@ -56,9 +54,9 @@ async fn test_circuit_breaker_governor_integration() {
 #[cfg(feature = "circuit-breaker")]
 async fn test_circuit_breaker_recovers_after_timeout() {
     let config = CircuitBreakerConfig::new(
-        2,  // failure_threshold
-        1,  // success_threshold
-        Duration::from_millis(100),  // short timeout for testing
+        2,                          // failure_threshold
+        1,                          // success_threshold
+        Duration::from_millis(100), // short timeout for testing
     );
     let circuit_breaker = CircuitBreaker::new(config);
 
@@ -90,9 +88,9 @@ async fn test_circuit_breaker_recovers_after_timeout() {
 #[cfg(feature = "circuit-breaker")]
 async fn test_circuit_breaker_fast_fails_in_open_state() {
     let config = CircuitBreakerConfig::new(
-        2,  // failure_threshold
-        1,  // success_threshold
-        Duration::from_secs(10),  // long timeout
+        2,                       // failure_threshold
+        1,                       // success_threshold
+        Duration::from_secs(10), // long timeout
     );
     let circuit_breaker = CircuitBreaker::new(config);
 

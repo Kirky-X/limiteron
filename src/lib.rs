@@ -144,7 +144,7 @@ pub use ban_manager::{
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 // 导出配置相关类型和加载API
 #[cfg(feature = "cache-service")]
-pub use cache::{Cache, CacheKey, Cacheable, cache_service::CacheService};
+pub use cache::{cache_service::CacheService, Cache, CacheKey, Cacheable};
 pub use config::{
     ActionConfig, ChangeSource, ConfigBuilder, ConfigChangeRecord, ConfigHistory,
     FlowControlConfig, LimiterConfig, Matcher as ConfigMatcher, Rule as ConfigRule,
@@ -158,7 +158,9 @@ pub use custom_limiter::{
     CustomLimiter, CustomLimiterRegistry, CustomTokenBucketLimiter, LeakyBucketLimiter,
     LimiterStats,
 };
-pub use decision_chain::{AtomicChainStats, ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
+pub use decision_chain::{
+    AtomicChainStats, ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode,
+};
 pub use error::{
     BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, FlowGuardError,
     StorageError,

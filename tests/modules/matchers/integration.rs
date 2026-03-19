@@ -3,8 +3,8 @@
 //! 测试匹配器模块的基本功能
 
 use limiteron::matchers::{
-    ApiKeyExtractor, CompositeExtractor, Identifier, IdentifierExtractor, IpExtractor, MacExtractor,
-    RequestContext, RuleMatcher, UserIdExtractor,
+    ApiKeyExtractor, CompositeExtractor, Identifier, IdentifierExtractor, IpExtractor,
+    MacExtractor, RequestContext, RuleMatcher, UserIdExtractor,
 };
 
 // ============================================================================

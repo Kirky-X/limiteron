@@ -43,7 +43,9 @@ async fn demo_basic_operations() -> Result<(), FlowGuardError> {
     println!("Is closed: {}", breaker.is_closed().await);
     println!("Is open: {}\n", breaker.is_open().await);
 
-    let success = breaker.execute(|| async { Ok::<(), FlowGuardError>(()) }).await;
+    let success = breaker
+        .execute(|| async { Ok::<(), FlowGuardError>(()) })
+        .await;
     println!("Execute success operation: {:?}", success.is_ok());
 
     let stats = breaker.get_stats().await;
@@ -82,7 +84,9 @@ async fn demo_state_transitions() -> Result<(), FlowGuardError> {
     println!("\nCircuit is now OPEN");
     println!("Is open: {}\n", breaker.is_open().await);
 
-    let result = breaker.execute(|| async { Ok::<(), FlowGuardError>(()) }).await;
+    let result = breaker
+        .execute(|| async { Ok::<(), FlowGuardError>(()) })
+        .await;
     println!("Request in open state: {:?} (fast fail)\n", result);
 
     Ok(())

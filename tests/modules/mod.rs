@@ -4,6 +4,8 @@
 //!
 //! 注意：storage测试已移除，存储由dbnexus完全接管
 
+#[allow(unused_imports)]
+pub mod adapters;
 #[cfg(feature = "audit-log")]
 #[allow(unused_imports)]
 pub mod audit_log;
@@ -18,8 +20,6 @@ pub mod cache_service;
 pub mod circuit_breaker;
 #[allow(unused_imports)]
 pub mod config;
-#[allow(unused_imports)]
-pub mod adapters;
 #[allow(unused_imports)]
 pub mod custom_limiter;
 #[allow(unused_imports)]
@@ -41,6 +41,8 @@ pub mod telemetry;
 #[allow(unused_imports)]
 pub mod validation;
 
+#[allow(unused_imports)]
+pub use adapters::*;
 #[cfg(feature = "audit-log")]
 #[allow(unused_imports)]
 pub use audit_log::*;
@@ -55,8 +57,6 @@ pub use cache_service::*;
 pub use circuit_breaker::*;
 #[allow(unused_imports)]
 pub use config::*;
-#[allow(unused_imports)]
-pub use adapters::*;
 #[allow(unused_imports)]
 pub use custom_limiter::*;
 #[allow(unused_imports)]

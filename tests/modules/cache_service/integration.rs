@@ -2,9 +2,9 @@
 //!
 //! 测试缓存服务 trait 和 oxcache 集成
 
+use async_trait::async_trait;
 use limiteron::cache::{Cache, CacheKey, Cacheable};
 use limiteron::error::StorageError;
-use async_trait::async_trait;
 use std::time::Duration;
 
 // ============================================================================

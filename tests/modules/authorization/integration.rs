@@ -79,10 +79,8 @@ fn test_simple_provider_add_role() {
 
 #[test]
 fn test_simple_provider_remove_role() {
-    let mut provider = SimpleAuthorizationProvider::new(vec![
-        "admin".to_string(),
-        "mod".to_string(),
-    ]);
+    let mut provider =
+        SimpleAuthorizationProvider::new(vec!["admin".to_string(), "mod".to_string()]);
     assert!(provider.remove_role("mod"));
     assert!(!provider.is_authorized("mod"));
     assert!(!provider.remove_role("nonexistent"));
@@ -146,7 +144,10 @@ async fn test_deny_all_always_denies() {
 #[tokio::test]
 async fn test_operation_provider_roles() {
     let mut roles = HashMap::new();
-    roles.insert("create_ban".to_string(), vec!["admin".to_string(), "mod".to_string()]);
+    roles.insert(
+        "create_ban".to_string(),
+        vec!["admin".to_string(), "mod".to_string()],
+    );
     roles.insert("remove_ban".to_string(), vec!["admin".to_string()]);
 
     let provider = OperationAuthorizationProvider::new(roles);
@@ -191,7 +192,10 @@ fn test_operation_provider_has_operation() {
 #[test]
 fn test_operation_provider_get_roles() {
     let mut roles = HashMap::new();
-    roles.insert("create_ban".to_string(), vec!["admin".to_string(), "mod".to_string()]);
+    roles.insert(
+        "create_ban".to_string(),
+        vec!["admin".to_string(), "mod".to_string()],
+    );
     let provider = OperationAuthorizationProvider::new(roles);
     assert_eq!(provider.get_roles("create_ban").unwrap().len(), 2);
     assert!(provider.get_roles("remove_ban").is_none());

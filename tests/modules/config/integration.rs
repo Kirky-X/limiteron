@@ -50,10 +50,7 @@ fn make_valid_config(version: &str, rules: Vec<Rule>) -> FlowControlConfig {
 
 #[tokio::test]
 async fn test_valid_config_passes_validation() {
-    let config = make_valid_config(
-        "1.0.0",
-        vec![make_valid_rule("rule_001", "Test Rule")],
-    );
+    let config = make_valid_config("1.0.0", vec![make_valid_rule("rule_001", "Test Rule")]);
     assert!(config.validate().is_ok(), "有效配置应通过验证");
 }
 
@@ -382,7 +379,10 @@ async fn test_different_configs_different_hashes() {
     let config1 = make_valid_config("1.0.0", vec![make_valid_rule("rule1", "Rule 1")]);
     let config2 = make_valid_config(
         "1.0.0",
-        vec![make_valid_rule("rule1", "Rule 1"), make_valid_rule("rule2", "Rule 2")],
+        vec![
+            make_valid_rule("rule1", "Rule 1"),
+            make_valid_rule("rule2", "Rule 2"),
+        ],
     );
 
     assert_ne!(
@@ -433,10 +433,7 @@ async fn test_change_record_version_upgrade() {
 
 #[tokio::test]
 async fn test_change_record_identifies_added_rules() {
-    let old_config = make_valid_config(
-        "1.0.0",
-        vec![make_valid_rule("existing", "Existing")],
-    );
+    let old_config = make_valid_config("1.0.0", vec![make_valid_rule("existing", "Existing")]);
     let new_config = make_valid_config(
         "1.0.0",
         vec![
@@ -447,8 +444,11 @@ async fn test_change_record_identifies_added_rules() {
 
     let record = new_config.create_change_record(Some(&old_config), ChangeSource::Api);
 
-    assert!(record.changes.iter().any(|c| c.contains("新增规则")),
-        "变更记录应包含新增规则: {:?}", record.changes);
+    assert!(
+        record.changes.iter().any(|c| c.contains("新增规则")),
+        "变更记录应包含新增规则: {:?}",
+        record.changes
+    );
 }
 
 // ============================================================================
@@ -464,17 +464,20 @@ async fn test_change_record_identifies_removed_rules() {
             make_valid_rule("remove", "Remove"),
         ],
     );
-    let new_config = make_valid_config(
-        "1.0.0",
-        vec![make_valid_rule("keep", "Keep")],
+    let new_config = make_valid_config("1.0.0", vec![make_valid_rule("keep", "Keep")]);
+
+    let record = new_config.create_change_record(
+        Some(&old_config),
+        ChangeSource::Manual {
+            operator: "admin".to_string(),
+        },
     );
 
-    let record = new_config.create_change_record(Some(&old_config), ChangeSource::Manual {
-        operator: "admin".to_string(),
-    });
-
-    assert!(record.changes.iter().any(|c| c.contains("移除规则")),
-        "变更记录应包含移除规则: {:?}", record.changes);
+    assert!(
+        record.changes.iter().any(|c| c.contains("移除规则")),
+        "变更记录应包含移除规则: {:?}",
+        record.changes
+    );
 }
 
 // ============================================================================
@@ -506,8 +509,11 @@ async fn test_change_record_identifies_modified_rules() {
 
     let record = new_config.create_change_record(Some(&old_config), ChangeSource::Reload);
 
-    assert!(record.changes.iter().any(|c| c.contains("全局配置")),
-        "变更记录应包含全局配置变更: {:?}", record.changes);
+    assert!(
+        record.changes.iter().any(|c| c.contains("全局配置")),
+        "变更记录应包含全局配置变更: {:?}",
+        record.changes
+    );
 }
 
 // ============================================================================
@@ -599,11 +605,17 @@ async fn test_config_history_basic_operations() {
 
     history.add_record(record1.clone());
     assert_eq!(history.get_records().len(), 1);
-    assert_eq!(history.get_latest().map(|r| r.new_version.as_str()), Some("0.1.0"));
+    assert_eq!(
+        history.get_latest().map(|r| r.new_version.as_str()),
+        Some("0.1.0")
+    );
 
     history.add_record(record2.clone());
     assert_eq!(history.get_records().len(), 2);
-    assert_eq!(history.get_latest().map(|r| r.new_version.as_str()), Some("0.2.0"));
+    assert_eq!(
+        history.get_latest().map(|r| r.new_version.as_str()),
+        Some("0.2.0")
+    );
 
     // 清空
     history.clear();
@@ -648,10 +660,7 @@ async fn test_config_history_eviction() {
 
 #[tokio::test]
 async fn test_clone_configuration_independent() {
-    let original = make_valid_config(
-        "1.0.0",
-        vec![make_valid_rule("original_rule", "Original")],
-    );
+    let original = make_valid_config("1.0.0", vec![make_valid_rule("original_rule", "Original")]);
 
     let cloned = original.clone();
 
@@ -726,7 +735,9 @@ async fn test_deep_clone_nested_structures() {
                     capacity: 5000,
                     refill_rate: 500,
                 },
-                LimiterConfig::Concurrency { max_concurrent: 100 },
+                LimiterConfig::Concurrency {
+                    max_concurrent: 100,
+                },
             ],
             action: ActionConfig {
                 on_exceed: "degrade".to_string(),
@@ -755,7 +766,10 @@ async fn test_deep_clone_nested_structures() {
     assert_eq!(original.rules[0].limiters.len(), 2);
     assert!(matches!(
         original.rules[0].limiters[0],
-        LimiterConfig::TokenBucket { capacity: 5000, refill_rate: 500 }
+        LimiterConfig::TokenBucket {
+            capacity: 5000,
+            refill_rate: 500
+        }
     ));
 
     // 克隆应已修改
@@ -812,8 +826,7 @@ async fn test_serialization_roundtrip_json() {
     let json = serde_json::to_string(&original).expect("序列化应成功");
 
     // 反序列化
-    let deserialized: FlowControlConfig =
-        serde_json::from_str(&json).expect("反序列化应成功");
+    let deserialized: FlowControlConfig = serde_json::from_str(&json).expect("反序列化应成功");
 
     // 验证往返后数据完整
     assert_eq!(deserialized.version, original.version);
@@ -896,8 +909,8 @@ async fn test_deserialize_missing_optional_fields() {
         ]
     });
 
-    let config: FlowControlConfig = serde_json::from_value(minimal_json)
-        .expect("最小化JSON应能反序列化");
+    let config: FlowControlConfig =
+        serde_json::from_value(minimal_json).expect("最小化JSON应能反序列化");
 
     assert_eq!(config.version, "1.0.0");
     assert_eq!(config.rules[0].id, "minimal");
@@ -1009,7 +1022,9 @@ async fn test_rule_validation_various_invalid_cases() {
         id: "".to_string(),
         name: "Test".to_string(),
         priority: 100,
-        matchers: vec![Matcher::User { user_ids: vec!["*".to_string()] }],
+        matchers: vec![Matcher::User {
+            user_ids: vec!["*".to_string()],
+        }],
         limiters: vec![LimiterConfig::TokenBucket {
             capacity: 100,
             refill_rate: 10,
@@ -1023,7 +1038,9 @@ async fn test_rule_validation_various_invalid_cases() {
         id: "valid_id".to_string(),
         name: "".to_string(),
         priority: 100,
-        matchers: vec![Matcher::User { user_ids: vec!["*".to_string()] }],
+        matchers: vec![Matcher::User {
+            user_ids: vec!["*".to_string()],
+        }],
         limiters: vec![LimiterConfig::TokenBucket {
             capacity: 100,
             refill_rate: 10,
@@ -1051,7 +1068,9 @@ async fn test_rule_validation_various_invalid_cases() {
         id: "valid_id".to_string(),
         name: "Valid Name".to_string(),
         priority: 100,
-        matchers: vec![Matcher::User { user_ids: vec!["*".to_string()] }],
+        matchers: vec![Matcher::User {
+            user_ids: vec!["*".to_string()],
+        }],
         limiters: vec![],
         action: ActionConfig::default(),
     };
@@ -1068,8 +1087,14 @@ async fn test_is_same_as_method() {
     let config2 = make_valid_config("1.0.0", vec![make_valid_rule("same", "Same")]);
     let config3 = make_valid_config("1.0.0", vec![make_valid_rule("diff", "Diff")]);
 
-    assert!(config1.is_same_as(&config2), "相同配置 is_same_as 应返回 true");
-    assert!(!config1.is_same_as(&config3), "不同配置 is_same_as 应返回 false");
+    assert!(
+        config1.is_same_as(&config2),
+        "相同配置 is_same_as 应返回 true"
+    );
+    assert!(
+        !config1.is_same_as(&config3),
+        "不同配置 is_same_as 应返回 false"
+    );
 }
 
 // ============================================================================

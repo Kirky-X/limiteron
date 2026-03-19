@@ -2281,13 +2281,23 @@ mod tests {
 
         // First check: tokens consumed, should succeed (or return Ok regardless since allow false is not an error)
         let result1 = limiter.check("key").await;
-        assert!(result1.is_ok(), "check() should return Ok even when allow returns false");
-        assert_eq!(limiter.get_tokens(), 0, "check() should have consumed one token");
+        assert!(
+            result1.is_ok(),
+            "check() should return Ok even when allow returns false"
+        );
+        assert_eq!(
+            limiter.get_tokens(),
+            0,
+            "check() should have consumed one token"
+        );
 
         // Second check: tokens still 0, allow(1) returns false (not an error)
         // Default check() doesn't treat false as error, so it returns Ok(())
         let result2 = limiter.check("key").await;
-        assert!(result2.is_ok(), "check() should return Ok when allow returns false");
+        assert!(
+            result2.is_ok(),
+            "check() should return Ok when allow returns false"
+        );
 
         // Verify check() propagates actual errors (zero cost is invalid)
         let limiter2: TokenBucketLimiter = TokenBucketLimiter::new(100, 10);
@@ -2325,13 +2335,20 @@ mod tests {
         // Cost exceeding MAX_COST should return an error
         let limiter = TokenBucketLimiter::new(u64::MAX, 1);
         let result = limiter.allow(1_000_001).await;
-        assert!(result.is_err(), "Cost exceeding MAX_COST should return error, got {:?}", result);
+        assert!(
+            result.is_err(),
+            "Cost exceeding MAX_COST should return error, got {:?}",
+            result
+        );
 
         // Cost within MAX_COST but above bucket capacity should return Ok(false)
         let limiter2 = TokenBucketLimiter::new(100, 1);
         let result = limiter2.allow(101).await;
         let is_allowed = result.as_ref().map(|v| *v).unwrap_or(false);
-        assert!(!is_allowed, "Cost above bucket capacity should return false");
+        assert!(
+            !is_allowed,
+            "Cost above bucket capacity should return false"
+        );
         drop(result);
 
         // Cost within both limits should succeed

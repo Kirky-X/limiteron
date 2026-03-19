@@ -764,10 +764,14 @@ impl BanManager {
 
         // 解析分页参数，使用默认值
         let offset = filter.offset.unwrap_or(0).min(MAX_PAGINATION_LIMIT);
-        let limit = filter.limit.unwrap_or(DEFAULT_PAGINATION_LIMIT).min(MAX_PAGINATION_LIMIT);
+        let limit = filter
+            .limit
+            .unwrap_or(DEFAULT_PAGINATION_LIMIT)
+            .min(MAX_PAGINATION_LIMIT);
 
         // 获取封禁记录（使用新的 list_bans 方法）
-        let active_only = filter.active_only || filter.start_time.is_some() || filter.end_time.is_some();
+        let active_only =
+            filter.active_only || filter.start_time.is_some() || filter.end_time.is_some();
         let records = self.storage.list_bans(active_only, offset, limit).await?;
 
         // 应用目标类型过滤
@@ -821,10 +825,7 @@ impl BanManager {
             .collect();
 
         // 转换为 BanDetail
-        let bans = filtered
-            .into_iter()
-            .map(BanDetail::from)
-            .collect();
+        let bans = filtered.into_iter().map(BanDetail::from).collect();
 
         Ok(bans)
     }

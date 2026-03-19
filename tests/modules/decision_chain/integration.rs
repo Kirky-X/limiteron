@@ -2,13 +2,13 @@
 //!
 //! 测试决策链模块的完整功能
 
+use async_trait::async_trait;
 use limiteron::decision_chain::{
     AtomicChainStats, ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode,
 };
 use limiteron::error::{Decision, FlowGuardError};
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use std::sync::Arc;
-use async_trait::async_trait;
 
 // ==================== Mock Limiters ====================
 
@@ -66,9 +66,7 @@ async fn empty_chain_returns_allowed() {
 async fn single_node_allowed() {
     let limiter = MockLimiter::new(true);
     let node = DecisionNode::new("n1".to_string(), "node1".to_string(), Arc::new(limiter), 10);
-    let chain = DecisionChain::builder()
-        .add_node(node)
-        .build();
+    let chain = DecisionChain::builder().add_node(node).build();
     let result = chain.check().await;
     assert!(matches!(result.unwrap(), Decision::Allowed(_)));
 }
@@ -77,9 +75,7 @@ async fn single_node_allowed() {
 async fn single_node_rejected() {
     let limiter = MockLimiter::new(false);
     let node = DecisionNode::new("n1".to_string(), "node1".to_string(), Arc::new(limiter), 10);
-    let chain = DecisionChain::builder()
-        .add_node(node)
-        .build();
+    let chain = DecisionChain::builder().add_node(node).build();
     let result = chain.check().await;
     assert!(matches!(result.unwrap(), Decision::Rejected(_)));
 }
@@ -89,9 +85,24 @@ async fn chain_runs_all_nodes_until_rejection() {
     let spy1 = Arc::new(SpyLimiter::new());
     let spy2 = spy1.clone();
 
-    let node1 = DecisionNode::new("n1".to_string(), "node1".to_string(), Arc::new(MockLimiter::new(true)), 10);
-    let node2 = DecisionNode::new("n2".to_string(), "node2".to_string(), Arc::new(MockLimiter::new(true)), 10);
-    let node3 = DecisionNode::new("n3".to_string(), "node3".to_string(), Arc::new(MockLimiter::new(false)), 10);
+    let node1 = DecisionNode::new(
+        "n1".to_string(),
+        "node1".to_string(),
+        Arc::new(MockLimiter::new(true)),
+        10,
+    );
+    let node2 = DecisionNode::new(
+        "n2".to_string(),
+        "node2".to_string(),
+        Arc::new(MockLimiter::new(true)),
+        10,
+    );
+    let node3 = DecisionNode::new(
+        "n3".to_string(),
+        "node3".to_string(),
+        Arc::new(MockLimiter::new(false)),
+        10,
+    );
 
     let chain = DecisionChain::builder()
         .add_node(node1)
@@ -106,9 +117,19 @@ async fn chain_runs_all_nodes_until_rejection() {
 async fn disabled_node_is_skipped() {
     let spy = Arc::new(SpyLimiter::new());
 
-    let mut node1 = DecisionNode::new("n1".to_string(), "node1".to_string(), Arc::new(MockLimiter::new(true)), 10);
+    let mut node1 = DecisionNode::new(
+        "n1".to_string(),
+        "node1".to_string(),
+        Arc::new(MockLimiter::new(true)),
+        10,
+    );
     node1.enabled = false;
-    let node2 = DecisionNode::new("n2".to_string(), "node2".to_string(), Arc::new(MockLimiter::new(true)), 10);
+    let node2 = DecisionNode::new(
+        "n2".to_string(),
+        "node2".to_string(),
+        Arc::new(MockLimiter::new(true)),
+        10,
+    );
 
     let chain = DecisionChain::builder()
         .add_node(node1)
@@ -122,9 +143,7 @@ async fn disabled_node_is_skipped() {
 async fn chain_stats_tracked() {
     let limiter = MockLimiter::new(true);
     let node = DecisionNode::new("n1".to_string(), "node1".to_string(), Arc::new(limiter), 10);
-    let chain = DecisionChain::builder()
-        .add_node(node)
-        .build();
+    let chain = DecisionChain::builder().add_node(node).build();
 
     for _ in 0..5 {
         chain.check().await.unwrap();
@@ -139,9 +158,7 @@ async fn chain_stats_tracked() {
 async fn chain_stats_reset() {
     let limiter = MockLimiter::new(true);
     let node = DecisionNode::new("n1".to_string(), "node1".to_string(), Arc::new(limiter), 10);
-    let chain = DecisionChain::builder()
-        .add_node(node)
-        .build();
+    let chain = DecisionChain::builder().add_node(node).build();
 
     chain.check().await.unwrap();
     chain.reset_stats().await;
@@ -151,8 +168,18 @@ async fn chain_stats_reset() {
 
 #[tokio::test]
 async fn node_count() {
-    let node1 = DecisionNode::new("n1".to_string(), "node1".to_string(), Arc::new(MockLimiter::new(true)), 10);
-    let node2 = DecisionNode::new("n2".to_string(), "node2".to_string(), Arc::new(MockLimiter::new(true)), 20);
+    let node1 = DecisionNode::new(
+        "n1".to_string(),
+        "node1".to_string(),
+        Arc::new(MockLimiter::new(true)),
+        10,
+    );
+    let node2 = DecisionNode::new(
+        "n2".to_string(),
+        "node2".to_string(),
+        Arc::new(MockLimiter::new(true)),
+        20,
+    );
     let chain = DecisionChain::builder()
         .add_node(node1)
         .add_node(node2)
@@ -162,8 +189,18 @@ async fn node_count() {
 
 #[tokio::test]
 async fn enabled_node_count() {
-    let node1 = DecisionNode::new("n1".to_string(), "node1".to_string(), Arc::new(MockLimiter::new(true)), 10);
-    let mut node2 = DecisionNode::new("n2".to_string(), "node2".to_string(), Arc::new(MockLimiter::new(true)), 20);
+    let node1 = DecisionNode::new(
+        "n1".to_string(),
+        "node1".to_string(),
+        Arc::new(MockLimiter::new(true)),
+        10,
+    );
+    let mut node2 = DecisionNode::new(
+        "n2".to_string(),
+        "node2".to_string(),
+        Arc::new(MockLimiter::new(true)),
+        20,
+    );
     node2.enabled = false;
     let chain = DecisionChain::builder()
         .add_node(node1)
@@ -176,9 +213,7 @@ async fn enabled_node_count() {
 async fn concurrent_checks() {
     let limiter = MockLimiter::new(true);
     let node = DecisionNode::new("n1".to_string(), "node1".to_string(), Arc::new(limiter), 10);
-    let chain = DecisionChain::builder()
-        .add_node(node)
-        .build();
+    let chain = DecisionChain::builder().add_node(node).build();
 
     let mut handles = vec![];
     for _ in 0..20 {
@@ -216,10 +251,13 @@ async fn atomic_chain_stats_reset() {
 #[tokio::test]
 async fn token_bucket_in_chain() {
     let limiter = TokenBucketLimiter::new(100, 0);
-    let node = DecisionNode::new("tb".to_string(), "token-bucket".to_string(), Arc::new(limiter), 10);
-    let chain = DecisionChain::builder()
-        .add_node(node)
-        .build();
+    let node = DecisionNode::new(
+        "tb".to_string(),
+        "token-bucket".to_string(),
+        Arc::new(limiter),
+        10,
+    );
+    let chain = DecisionChain::builder().add_node(node).build();
     let result = chain.check().await;
     assert!(matches!(result.unwrap(), Decision::Allowed(_)));
 }

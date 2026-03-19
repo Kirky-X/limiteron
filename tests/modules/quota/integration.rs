@@ -82,7 +82,9 @@ async fn test_quota_concurrent_consumption() {
     let cost_per_task = 50u64;
 
     // 创建多个并发任务
-    let mut join_set: JoinSet<Result<limiteron::error::ConsumeResult, limiteron::error::StorageError>> = JoinSet::new();
+    let mut join_set: JoinSet<
+        Result<limiteron::error::ConsumeResult, limiteron::error::StorageError>,
+    > = JoinSet::new();
     for i in 0..num_tasks {
         let storage_clone = storage.clone();
         let user_id = format!("{}_{}", user_id, i);
@@ -99,7 +101,10 @@ async fn test_quota_concurrent_consumption() {
     let mut total_consumed = 0u64;
     while let Some(result) = join_set.join_next().await {
         let consume_result = result.unwrap().unwrap();
-        assert!(consume_result.allowed, "Each concurrent request should be allowed");
+        assert!(
+            consume_result.allowed,
+            "Each concurrent request should be allowed"
+        );
         total_consumed += cost_per_task;
     }
 
@@ -117,19 +122,20 @@ async fn test_quota_recovers_after_restart() {
     let window = Duration::from_secs(60);
 
     // 模拟初始消费
-    let result1: Result<limiteron::error::ConsumeResult, limiteron::error::StorageError> = storage
-        .consume(user_id, resource, 300, limit, window)
-        .await;
+    let result1: Result<limiteron::error::ConsumeResult, limiteron::error::StorageError> =
+        storage.consume(user_id, resource, 300, limit, window).await;
     assert!(result1.unwrap().allowed);
 
     // 保存状态快照（模拟重启前）
-    let state_before: Option<limiteron::storage_trait::QuotaInfo> = storage.get_quota(user_id, resource).await.unwrap();
+    let state_before: Option<limiteron::storage_trait::QuotaInfo> =
+        storage.get_quota(user_id, resource).await.unwrap();
     assert!(state_before.is_some());
     let consumed_before = state_before.unwrap().consumed;
 
     // 模拟重启后（在实际场景中，这会是一个新的存储实例）
     // 这里我们使用相同的存储实例，但通过 get_quota 验证状态持久化
-    let state_after: Option<limiteron::storage_trait::QuotaInfo> = storage.get_quota(user_id, resource).await.unwrap();
+    let state_after: Option<limiteron::storage_trait::QuotaInfo> =
+        storage.get_quota(user_id, resource).await.unwrap();
     assert!(state_after.is_some());
 
     let info_after = state_after.unwrap();
@@ -140,9 +146,8 @@ async fn test_quota_recovers_after_restart() {
     assert_eq!(info_after.limit, limit);
 
     // 验证后续消费能正确使用恢复的状态
-    let result2: Result<limiteron::error::ConsumeResult, limiteron::error::StorageError> = storage
-        .consume(user_id, resource, 200, limit, window)
-        .await;
+    let result2: Result<limiteron::error::ConsumeResult, limiteron::error::StorageError> =
+        storage.consume(user_id, resource, 200, limit, window).await;
     let consume_result2 = result2.unwrap();
     assert!(consume_result2.allowed);
     assert_eq!(consume_result2.remaining, 500); // 1000 - (300 + 200)

@@ -316,8 +316,9 @@ impl ConfigLoader {
 
         // Extract the inner ConfigValue from AnnotatedValue
         // Convert AnnotatedValue to JSON via Serialize
-        let value: serde_json::Value = serde_json::to_value(&annotated)
-            .map_err(|e| FlowGuardError::ConfigError(format!("failed to serialize config: {}", e)))?;
+        let value: serde_json::Value = serde_json::to_value(&annotated).map_err(|e| {
+            FlowGuardError::ConfigError(format!("failed to serialize config: {}", e))
+        })?;
         let config_str = serde_json::to_string(&value)
             .map_err(|e| FlowGuardError::ConfigError(format!("serialization error: {}", e)))?;
 
@@ -325,7 +326,10 @@ impl ConfigLoader {
         let config: FlowControlConfig = if path_ref.extension().is_some_and(|e| e == "toml") {
             toml::from_str(&config_str)
                 .map_err(|e| FlowGuardError::ConfigError(format!("TOML parse error: {}", e)))?
-        } else if path_ref.extension().is_some_and(|e| e == "yaml" || e == "yml") {
+        } else if path_ref
+            .extension()
+            .is_some_and(|e| e == "yaml" || e == "yml")
+        {
             serde_yaml::from_str(&config_str)
                 .map_err(|e| FlowGuardError::ConfigError(format!("YAML parse error: {}", e)))?
         } else {

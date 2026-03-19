@@ -250,7 +250,12 @@ async fn demo_ban_update() -> Result<(), FlowGuardError> {
 
     println!("\nUpdating ban reason...");
     let updated = ban_manager
-        .update_ban(&target, Some("repeated rate limit violations".to_string()), None, None)
+        .update_ban(
+            &target,
+            Some("repeated rate limit violations".to_string()),
+            None,
+            None,
+        )
         .await?;
 
     if let Some(record) = updated {

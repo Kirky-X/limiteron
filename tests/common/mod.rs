@@ -2,6 +2,9 @@
 #![allow(unused_imports)]
 
 use ahash::AHashMap;
+use limiteron::config::{
+    ActionConfig, FlowControlConfig as GovernorConfig, LimiterConfig, Matcher, Rule,
+};
 use limiteron::error::{ConsumeResult, StorageError};
 use limiteron::limiters::{
     ConcurrencyLimiter, FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter,
@@ -9,7 +12,6 @@ use limiteron::limiters::{
 use limiteron::storage_trait::{
     BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage,
 };
-use limiteron::config::{ActionConfig, FlowControlConfig as GovernorConfig, LimiterConfig, Matcher, Rule};
 use limiteron::Governor;
 use std::sync::Arc;
 use std::time::Duration;

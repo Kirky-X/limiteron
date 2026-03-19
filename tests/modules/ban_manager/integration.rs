@@ -3,9 +3,7 @@
 //! 测试封禁管理模块的基本功能
 
 #[cfg(feature = "ban-manager")]
-use limiteron::ban_manager::{
-    BackoffConfig, BanManager, BanManagerConfig, BanSource, BanTarget,
-};
+use limiteron::ban_manager::{BackoffConfig, BanManager, BanManagerConfig, BanSource, BanTarget};
 #[cfg(feature = "ban-manager")]
 use limiteron::storage_trait::BanStorage;
 #[cfg(feature = "ban-manager")]
@@ -73,7 +71,9 @@ async fn test_create_and_read_ban() {
         enable_auto_unban: false,
         ..BanManagerConfig::default()
     };
-    let manager = BanManager::with_dependencies(storage, config).await.unwrap();
+    let manager = BanManager::with_dependencies(storage, config)
+        .await
+        .unwrap();
 
     let target = BanTarget::UserId("user-1".to_string());
     manager
@@ -102,7 +102,9 @@ async fn test_update_ban_reason() {
         enable_auto_unban: false,
         ..BanManagerConfig::default()
     };
-    let manager = BanManager::with_dependencies(storage, config).await.unwrap();
+    let manager = BanManager::with_dependencies(storage, config)
+        .await
+        .unwrap();
 
     let target = BanTarget::Ip("10.0.0.1".to_string());
     manager

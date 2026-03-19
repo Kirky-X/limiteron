@@ -1739,9 +1739,9 @@ mod tests {
             100,
         );
 
-        let chain = Arc::new(tokio::sync::RwLock::new(DecisionChain::with_dependencies(vec![
-            node,
-        ])));
+        let chain = Arc::new(tokio::sync::RwLock::new(DecisionChain::with_dependencies(
+            vec![node],
+        )));
         let mut handles = vec![];
 
         // 并发执行检查和节点状态切换

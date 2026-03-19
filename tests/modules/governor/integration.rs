@@ -456,13 +456,11 @@ async fn test_governor_matches_rules_by_priority() {
     let d2 = result2.unwrap();
     let d3 = result3.unwrap();
 
-    let all_allowed =
-        matches!(d1, Decision::Allowed(_))
+    let all_allowed = matches!(d1, Decision::Allowed(_))
         && matches!(d2, Decision::Allowed(_))
         && matches!(d3, Decision::Allowed(_));
 
-    let all_rejected =
-        matches!(d1, Decision::Rejected(_))
+    let all_rejected = matches!(d1, Decision::Rejected(_))
         && matches!(d2, Decision::Rejected(_))
         && matches!(d3, Decision::Rejected(_));
 

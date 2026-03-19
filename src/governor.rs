@@ -30,9 +30,9 @@ use crate::error::BanInfo;
 use crate::storage_trait::BanTarget;
 use crate::storage_trait::{BanStorage, Storage};
 use dashmap::DashMap;
-use log::{debug, info, trace};
 #[cfg(feature = "parallel-checker")]
 use log::warn;
+use log::{debug, info, trace};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -373,9 +373,9 @@ impl GovernorBuilder {
         let rule_chains = Arc::new(tokio::sync::RwLock::new(rule_chains_map));
 
         // 创建 L1 缓存
-        let l1_cache_config = self.l1_cache_config.unwrap_or_else(|| {
-            L1CacheConfig::new(std::time::Duration::from_secs(60), 10_000)
-        });
+        let l1_cache_config = self
+            .l1_cache_config
+            .unwrap_or_else(|| L1CacheConfig::new(std::time::Duration::from_secs(60), 10_000));
         let l1_cache = L1Cache::with_config(l1_cache_config);
         let l1_cache_enabled = self.l1_cache_enabled;
 
@@ -759,9 +759,7 @@ impl Governor {
             crate::matchers::Identifier::UserId(user_id) => {
                 RateLimitCacheKey::user_rate_limit(user_id, rule_id)
             }
-            crate::matchers::Identifier::Ip(ip) => {
-                RateLimitCacheKey::ip_rate_limit(ip, rule_id)
-            }
+            crate::matchers::Identifier::Ip(ip) => RateLimitCacheKey::ip_rate_limit(ip, rule_id),
             crate::matchers::Identifier::ApiKey(api_key) => {
                 RateLimitCacheKey::api_key_rate_limit(api_key, rule_id)
             }
@@ -964,19 +962,22 @@ impl Governor {
 
     /// 启用 L1 缓存
     pub fn enable_l1_cache(&self) {
-        self.l1_cache_enabled.store(true, std::sync::atomic::Ordering::Release);
+        self.l1_cache_enabled
+            .store(true, std::sync::atomic::Ordering::Release);
         info!("L1 缓存已启用");
     }
 
     /// 禁用 L1 缓存
     pub fn disable_l1_cache(&self) {
-        self.l1_cache_enabled.store(false, std::sync::atomic::Ordering::Release);
+        self.l1_cache_enabled
+            .store(false, std::sync::atomic::Ordering::Release);
         info!("L1 缓存已禁用");
     }
 
     /// 检查 L1 缓存是否启用
     pub fn is_l1_cache_enabled(&self) -> bool {
-        self.l1_cache_enabled.load(std::sync::atomic::Ordering::Acquire)
+        self.l1_cache_enabled
+            .load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// 清空 L1 缓存
@@ -1000,11 +1001,16 @@ impl Governor {
     /// - `identifier`: 标识符（如用户 ID、IP 地址等）
     pub fn invalidate_l1_cache(&self, identifier: &str) {
         // 使所有与该标识符相关的缓存失效
-        self.l1_cache.invalidate_by_prefix(&format!("rl:user:{}:", identifier));
-        self.l1_cache.invalidate_by_prefix(&format!("rl:ip:{}:", identifier));
-        self.l1_cache.invalidate_by_prefix(&format!("rl:apikey:{}:", identifier));
-        self.l1_cache.invalidate_by_prefix(&format!("rl:generic:{}:", identifier));
-        self.l1_cache.invalidate(&RateLimitCacheKey::ban_check(identifier));
+        self.l1_cache
+            .invalidate_by_prefix(&format!("rl:user:{}:", identifier));
+        self.l1_cache
+            .invalidate_by_prefix(&format!("rl:ip:{}:", identifier));
+        self.l1_cache
+            .invalidate_by_prefix(&format!("rl:apikey:{}:", identifier));
+        self.l1_cache
+            .invalidate_by_prefix(&format!("rl:generic:{}:", identifier));
+        self.l1_cache
+            .invalidate(&RateLimitCacheKey::ban_check(identifier));
         debug!("已使标识符 {} 的 L1 缓存失效", identifier);
     }
 
@@ -1014,7 +1020,8 @@ impl Governor {
     /// - `rule_id`: 规则 ID
     pub fn invalidate_rule_cache(&self, rule_id: &str) {
         // 使用包含匹配移除所有与该规则相关的条目
-        self.l1_cache.invalidate_containing(&format!(":{}", rule_id));
+        self.l1_cache
+            .invalidate_containing(&format!(":{}", rule_id));
         debug!("已使规则 {} 的 L1 缓存失效", rule_id);
     }
 

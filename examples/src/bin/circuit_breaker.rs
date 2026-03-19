@@ -5,16 +5,12 @@
 //! - Half-open state for recovery probing
 //! - Automatic recovery after timeout
 //!
-//! Run: cargo run --example circuit_breaker --features circuit-breaker
+//! Run: cargo run --bin circuit_breaker --features circuit-breaker
 
-#[cfg(feature = "circuit-breaker")]
 use limiteron::circuit_breaker::CircuitBreaker;
-#[cfg(feature = "circuit-breaker")]
 use limiteron::error::FlowGuardError;
-#[cfg(feature = "circuit-breaker")]
 use std::time::Duration;
 
-#[cfg(feature = "circuit-breaker")]
 #[tokio::main]
 async fn main() -> Result<(), FlowGuardError> {
     println!("=== Limiteron Circuit Breaker Demo ===\n");
@@ -27,7 +23,6 @@ async fn main() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-#[cfg(feature = "circuit-breaker")]
 async fn demo_basic_operations() -> Result<(), FlowGuardError> {
     println!("--- Basic Circuit Breaker Operations ---");
     println!("Config: failure_threshold=2, success_threshold=1, timeout=100ms\n");
@@ -55,7 +50,6 @@ async fn demo_basic_operations() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-#[cfg(feature = "circuit-breaker")]
 async fn demo_state_transitions() -> Result<(), FlowGuardError> {
     println!("--- State Transitions Demo ---\n");
 
@@ -88,7 +82,6 @@ async fn demo_state_transitions() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-#[cfg(feature = "circuit-breaker")]
 async fn demo_recovery() -> Result<(), FlowGuardError> {
     println!("--- Recovery Demo ---\n");
 
@@ -125,10 +118,4 @@ async fn demo_recovery() -> Result<(), FlowGuardError> {
     );
 
     Ok(())
-}
-
-#[cfg(not(feature = "circuit-breaker"))]
-fn main() {
-    eprintln!("This example requires the 'circuit-breaker' feature.");
-    eprintln!("Run with: cargo run --example circuit_breaker --features circuit-breaker");
 }

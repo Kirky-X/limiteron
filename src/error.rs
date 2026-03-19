@@ -39,6 +39,10 @@ pub enum FlowGuardError {
     #[error("审计日志错误: {0}")]
     AuditLogError(String),
 
+    /// 授权错误
+    #[error("授权错误: {0}")]
+    AuthorizationError(String),
+
     /// IO错误
     #[error("IO错误: {0}")]
     IoError(#[from] std::io::Error),
@@ -70,6 +74,14 @@ pub enum FlowGuardError {
     /// 锁获取错误
     #[error("锁获取错误: {0}")]
     LockError(String),
+
+    /// 时间错误
+    #[error("时间错误: {0}")]
+    TimeError(String),
+
+    /// 依赖缺失错误
+    #[error("依赖缺失: {0}")]
+    DependencyError(String),
 
     /// 其他错误
     #[error("未知错误: {0}")]
@@ -138,18 +150,8 @@ impl StorageError {
     }
 }
 
-#[cfg(feature = "postgres")]
-impl From<sqlx::Error> for StorageError {
-    fn from(err: sqlx::Error) -> Self {
-        match err {
-            sqlx::Error::Database(db_err) => StorageError::QueryError(db_err.to_string()),
-            sqlx::Error::PoolTimedOut => StorageError::TimeoutError("连接池超时".to_string()),
-            sqlx::Error::PoolClosed => StorageError::ConnectionError("连接池已关闭".to_string()),
-            sqlx::Error::RowNotFound => StorageError::NotFound("记录未找到".to_string()),
-            _ => StorageError::QueryError(err.to_string()),
-        }
-    }
-}
+// sqlx error conversion removed - using DBNexus for database operations
+// Error conversion is now handled by DBNexusStorageAdapter
 
 /// 熔断器状态
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

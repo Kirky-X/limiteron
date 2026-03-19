@@ -39,10 +39,11 @@ use crate::error::FlowGuardError;
 use maxminddb::{geoip2, Reader};
 use oxcache::Cache;
 use serde::{Deserialize, Serialize};
+use std::net::IpAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tracing::{debug, info, instrument, warn};
+use std::time::Duration;
 
 // ============================================================================
 // 地理信息结构
@@ -223,8 +224,8 @@ impl Default for GeoCondition {
 pub struct GeoMatcher {
     /// MaxMind数据库读取器
     reader: Arc<Reader<Vec<u8>>>,
-    /// 查询缓存
-    cache: Arc<Cache<IpAddr, GeoInfo>>,
+    /// 查询缓存（使用 oxcache）
+    cache: Arc<Cache<String, GeoInfo>>,
     /// 缓存大小限制
     cache_size_limit: usize,
     /// 缓存命中次数
@@ -252,7 +253,6 @@ impl GeoMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument(skip(db_path))]
     pub async fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, FlowGuardError> {
         let db_path = db_path.as_ref();
 
@@ -264,7 +264,7 @@ impl GeoMatcher {
             )));
         }
 
-        info!("加载GeoLite2数据库: {}", db_path.display());
+        log::info!(target: "geo", "加载GeoLite2数据库: {}", db_path.display());
 
         // 获取文件元数据
         let metadata = tokio::fs::metadata(db_path)
@@ -285,7 +285,8 @@ impl GeoMatcher {
         }
 
         if file_size > MAX_DB_SIZE {
-            warn!(
+            log::warn!(
+                target: "geo",
                 "GeoLite2数据库文件过大（{} bytes），可能不是标准文件",
                 file_size
             );
@@ -303,7 +304,7 @@ impl GeoMatcher {
             ));
         }
 
-        info!("GeoLite2数据库加载成功，大小: {} bytes", db_content.len());
+        log::info!("GeoLite2数据库加载成功，大小: {} bytes", db_content.len());
 
         // 验证文件头（MaxMind 数据库文件以特定 magic number 开头）
         // MaxMind DB 格式: 0x00 0x00 0x02 0x00 (v2) 或 0x00 0x00 0x00 0x00 (v1)
@@ -320,7 +321,7 @@ impl GeoMatcher {
                               header == [0x00, 0x00, 0x03, 0x00]; // 可能的 v3 格式
 
         if !is_valid_header {
-            warn!("GeoLite2数据库文件头格式异常: {:02X?}", header);
+            log::warn!("GeoLite2数据库文件头格式异常: {:02X?}", header);
             // 不直接返回错误，因为某些版本可能有不同的文件头
             // 让后续的 Reader::from_source 来验证
         }
@@ -330,22 +331,30 @@ impl GeoMatcher {
             .map_err(|e| FlowGuardError::ConfigError(format!("无效的GeoLite2数据库文件: {}", e)))?;
 
         // 验证数据库元数据
-        info!(
+        log::info!(
             "GeoLite2数据库元数据: 版本={}, 构建日期={}, 记录数={}",
             reader.metadata.binary_format_major_version,
             reader.metadata.build_epoch,
             reader.metadata.node_count
         );
 
+        // 创建缓存
+        let cache = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(300))
+            .build()
+            .await
+            .map_err(|e| FlowGuardError::ConfigError(format!("创建缓存失败: {}", e)))?;
+
         let matcher = Self {
             reader: Arc::new(reader),
-            cache: Arc::new(Cache::builder().build()),
+            cache: Arc::new(cache),
             cache_size_limit: 10_000,
             cache_hits: AtomicU64::new(0),
             cache_misses: AtomicU64::new(0),
         };
 
-        info!("GeoMatcher创建成功");
+        log::info!("GeoMatcher创建成功");
         Ok(matcher)
     }
 
@@ -364,7 +373,6 @@ impl GeoMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument(skip(db_path))]
     pub async fn with_cache_limit<P: AsRef<Path>>(
         db_path: P,
         cache_size_limit: usize,
@@ -399,11 +407,11 @@ impl GeoMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument(skip(self))]
     pub async fn lookup(&self, ip: IpAddr) -> Result<GeoInfo, FlowGuardError> {
         // 检查缓存
-        if let Ok(Some(cached)) = self.cache.get(&ip).await {
-            debug!("缓存命中: {}", ip);
+        let ip_str = ip.to_string();
+        if let Ok(Some(cached)) = self.cache.get(&ip_str).await {
+            log::debug!("缓存命中: {}", ip);
             self.cache_hits.fetch_add(1, Ordering::Relaxed);
             return Ok(cached);
         }
@@ -411,33 +419,34 @@ impl GeoMatcher {
         // 记录缓存未命中
         self.cache_misses.fetch_add(1, Ordering::Relaxed);
 
-        debug!("查询IP地理位置: {}", ip);
+        log::debug!("查询IP地理位置: {}", ip);
 
-        // 从数据库查询
-        let city: geoip2::City = self
+        // 从数据库查询 - maxminddb 0.27 API
+        // lookup 返回 LookupResult，需要使用 decode() 获取解析后的数据
+        let lookup_result = self
             .reader
             .lookup(ip)
             .map_err(|e| FlowGuardError::ConfigError(format!("IP查询失败: {}", e)))?;
+
+        // 解码为 City 结构
+        let city: geoip2::City = lookup_result
+            .decode()
+            .map_err(|e| FlowGuardError::ConfigError(format!("IP数据解析失败: {}", e)))?
+            .ok_or_else(|| FlowGuardError::ConfigError("IP不在数据库中".to_string()))?;
 
         // 提取地理信息
         let info = self.extract_geo_info(&city);
 
         // 更新缓存
-        let cache_len = self.cache.len().await;
-        if cache_len >= self.cache_size_limit {
-            // 缓存已满，清理最旧的条目（简单实现：清理10%）
-            let remove_count = self.cache_size_limit / 10;
-            for _ in 0..remove_count {
-                // oxcache 没有直接提供迭代删除的API，使用简单的过期策略
-                // 由于 oxcache 内置 LRU 淘汰，我们只需设置 max_capacity 让它自动管理
-                break;
-            }
-            debug!("缓存接近限制 ({}/{})", cache_len, self.cache_size_limit);
+        let cache_len = self.cache.len().await.unwrap_or(0);
+        if cache_len >= self.cache_size_limit as u64 {
+            let _maybe_first = (0..(self.cache_size_limit / 10)).next();
+            log::debug!("缓存接近限制 ({}/{})", cache_len, self.cache_size_limit);
         }
 
         // 使用 set 方法存储，支持过期时间
-        self.cache.set(&ip, &info).await;
-        debug!("IP查询成功: {} -> {}", ip, info.description());
+        let _ = self.cache.set(&ip_str, &info).await;
+        log::debug!("IP查询成功: {} -> {}", ip, info.description());
 
         Ok(info)
     }
@@ -465,7 +474,6 @@ impl GeoMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument(skip(self, ips))]
     pub async fn batch_lookup(&self, ips: &[IpAddr]) -> Vec<Result<GeoInfo, FlowGuardError>> {
         let mut results = Vec::with_capacity(ips.len());
         for ip in ips {
@@ -498,7 +506,6 @@ impl GeoMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument(skip(self, condition))]
     pub async fn matches_ip(
         &self,
         ip: IpAddr,
@@ -540,11 +547,10 @@ impl GeoMatcher {
     }
 
     /// 清空缓存
-    #[instrument(skip(self))]
     pub async fn clear_cache(&self) {
-        let size = self.cache.len().await;
-        self.cache.clear().await;
-        info!("缓存已清空，移除 {} 条记录", size);
+        let size = self.cache.len().await.unwrap_or(0);
+        let _ = self.cache.clear().await;
+        log::info!("缓存已清空，移除 {} 条记录", size);
     }
 
     /// 获取缓存统计信息
@@ -559,7 +565,7 @@ impl GeoMatcher {
         };
 
         GeoCacheStats {
-            size: self.cache.len().await,
+            size: self.cache.len().await.unwrap_or(0) as usize,
             limit: self.cache_size_limit,
             hit_rate,
             hits,
@@ -569,34 +575,25 @@ impl GeoMatcher {
 
     /// 提取地理信息
     fn extract_geo_info(&self, city: &geoip2::City) -> GeoInfo {
-        let country_code = city
-            .country
-            .as_ref()
-            .and_then(|c| c.iso_code.map(|s| s.to_string()));
+        // maxminddb 0.27 API: City 中的字段不是 Option 包装的
+        // city.country 是 Country<'a> 类型，不是 Option<Country>
+        // Names<'a> 包含具体的语言字段如 english, french 等
 
-        let country_name = city
-            .country
-            .as_ref()
-            .and_then(|c| c.names.as_ref())
-            .and_then(|names| names.get("en").map(|s| s.to_string()));
+        // Helper to safely get English name from Names
+        // Extract country info
+        let country_code = city.country.iso_code.map(|s| s.to_string());
+        let country_name = city.country.names.english.map(|s| s.to_string());
 
-        let city_name = city
-            .city
-            .as_ref()
-            .and_then(|c| c.names.as_ref())
-            .and_then(|names| names.get("en").map(|s| s.to_string()));
+        // Extract city info - city.city 也是 City<'a> 类型
+        let city_name = city.city.names.english.map(|s| s.to_string());
 
-        let continent = city
-            .continent
-            .as_ref()
-            .and_then(|c| c.names.as_ref())
-            .and_then(|names| names.get("en").map(|s| s.to_string()));
+        // Extract continent info
+        let continent = city.continent.names.english.map(|s| s.to_string());
 
-        let location = city.location.as_ref();
-
-        let longitude = location.and_then(|l| l.longitude);
-        let latitude = location.and_then(|l| l.latitude);
-        let timezone = location.and_then(|l| l.time_zone.map(|s| s.to_string()));
+        // Extract location info
+        let longitude = city.location.longitude;
+        let latitude = city.location.latitude;
+        let timezone = city.location.time_zone.map(|s| s.to_string());
 
         GeoInfo {
             country_code,
@@ -611,7 +608,7 @@ impl GeoMatcher {
 }
 
 // ============================================================================
-// 缓存统计信息
+// 缓存統計信息
 // ============================================================================
 
 #[cfg(feature = "geo-matching")]

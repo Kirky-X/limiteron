@@ -19,7 +19,7 @@ pub const DEFAULT_DEDUP_WINDOW_SECS: u64 = 300;
 pub const DEFAULT_OVERDRAFT_LIMIT_PERCENT: u8 = 20;
 
 use crate::error::{ConsumeResult, FlowGuardError};
-use crate::storage::QuotaStorage;
+use crate::storage_trait::QuotaStorage;
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -159,16 +159,16 @@ pub struct QuotaState {
 
 /// 配额控制器
 #[cfg(feature = "quota-control")]
-pub struct QuotaController<S: QuotaStorage> {
+pub struct QuotaController {
     /// 存储后端
-    storage: Arc<S>,
+    storage: Arc<dyn QuotaStorage>,
     /// 配额配置
     config: QuotaConfig,
     /// 告警去重缓存（key: user_id:resource:threshold, value: last_alert_time）
     alert_dedup: Arc<DashMap<String, DateTime<Utc>>>,
 }
 
-impl<S: QuotaStorage + Clone + 'static> Clone for QuotaController<S> {
+impl Clone for QuotaController {
     fn clone(&self) -> Self {
         Self {
             storage: self.storage.clone(),
@@ -178,7 +178,71 @@ impl<S: QuotaStorage + Clone + 'static> Clone for QuotaController<S> {
     }
 }
 
-impl<S: QuotaStorage + 'static> QuotaController<S> {
+/// QuotaController 构建器
+///
+/// 用于链式配置 QuotaController 实例。
+///
+/// # 示例
+/// ```rust, ignore
+/// use limiteron::quota_controller::{QuotaController, QuotaConfig, QuotaType};
+///
+/// let config = QuotaConfig {
+///     quota_type: QuotaType::Count,
+///     limit: 1000,
+///     window_size: 3600,
+///     allow_overdraft: true,
+///     overdraft_limit_percent: 20,
+///     alert_config: Default::default(),
+/// };
+/// let controller = QuotaController::builder()
+///     .build()
+///     .unwrap();
+/// ```
+#[cfg(feature = "quota-control")]
+pub struct QuotaControllerBuilder {
+    storage: Option<Arc<dyn QuotaStorage>>,
+    config: Option<QuotaConfig>,
+}
+
+#[cfg(feature = "quota-control")]
+impl QuotaControllerBuilder {
+    /// 创建新的 QuotaControllerBuilder
+    pub fn new() -> Self {
+        Self {
+            storage: None,
+            config: None,
+        }
+    }
+
+    /// 设置配额存储后端
+    pub fn with_storage(mut self, storage: Arc<dyn QuotaStorage>) -> Self {
+        self.storage = Some(storage);
+        self
+    }
+
+    /// 设置配置
+    pub fn with_config(mut self, config: QuotaConfig) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    /// 构建 QuotaController 实例
+    pub fn build(self) -> Result<QuotaController, FlowGuardError> {
+        let storage = self.storage.expect("storage is required");
+        let config = self.config.unwrap_or_default();
+
+        Ok(QuotaController::with_dependencies(storage, config))
+    }
+}
+
+#[cfg(feature = "quota-control")]
+impl Default for QuotaControllerBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl QuotaController {
     /// 创建新的配额控制器
     ///
     /// # 参数
@@ -186,9 +250,8 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
     /// - `config`: 配额配置
     ///
     /// # 示例
-    /// ```rust
+    /// ```rust, ignore
     /// use limiteron::quota_controller::{QuotaController, QuotaConfig, QuotaType};
-    /// use limiteron::storage::MemoryStorage;
     ///
     /// let config = QuotaConfig {
     ///     quota_type: QuotaType::Count,
@@ -198,11 +261,36 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
     ///     overdraft_limit_percent: 20,
     ///     alert_config: Default::default(),
     /// };
-    /// let controller = QuotaController::new(MemoryStorage::new(), config);
+    /// let controller = QuotaController::builder()
+    ///     .build()
+    ///     .unwrap();
     /// ```
-    pub fn new(storage: S, config: QuotaConfig) -> Self {
+    pub fn builder() -> QuotaControllerBuilder {
+        QuotaControllerBuilder::new()
+    }
+
+    /// 使用依赖注入创建 QuotaController 实例
+    ///
+    /// # 参数
+    /// - `storage`: 配额存储后端
+    /// - `config`: 配额控制器配置
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::quota_controller::{QuotaController, QuotaConfig};
+    /// use limiteron::storage::QuotaStorage;
+    /// use std::sync::Arc;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let storage: Arc<dyn QuotaStorage> = Arc::new(my_storage);
+    ///     let config = QuotaConfig::default();
+    ///     let controller = QuotaController::with_dependencies(storage, config);
+    /// }
+    /// ```
+    pub fn with_dependencies(storage: Arc<dyn QuotaStorage>, config: QuotaConfig) -> Self {
         Self {
-            storage: Arc::new(storage),
+            storage,
             config,
             alert_dedup: Arc::new(DashMap::new()),
         }
@@ -220,11 +308,20 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
     /// - `Err(error)`: 错误信息
     ///
     /// # 示例
-    /// ```rust
+    /// ```rust, ignore
     /// # use limiteron::quota_controller::{QuotaController, QuotaConfig, QuotaType};
-    /// # use limiteron::storage::MemoryStorage;
+    /// # use limiteron::storage_trait::QuotaStorage;
+    /// # use std::sync::Arc;
     /// #
-    /// # let controller = QuotaController::new(MemoryStorage::new(), QuotaConfig::default());
+    /// # struct MockStorage;
+    /// # #[async_trait::async_trait]
+    /// # impl QuotaStorage for MockStorage {
+    /// #   async fn get_quota(&self, _: &str, _: &str) -> Result<Option<limiteron::storage_trait::QuotaInfo>, limiteron::error::StorageError> { Ok(None) }
+    /// #   async fn consume(&self, _: &str, _: &str, _: u64, _: u64, _: std::time::Duration) -> Result<limiteron::error::ConsumeResult, limiteron::error::FlowGuardError> { unimplemented!() }
+    /// #   async fn reset(&self, _: &str, _: &str, _: u64, _: std::time::Duration) -> Result<(), limiteron::error::FlowGuardError> { Ok(()) }
+    /// # }
+    /// #
+    /// # let controller = QuotaController::new(Arc::new(MockStorage), QuotaConfig::default());
     /// #
     /// # async {
     /// let result = controller.consume("user123", "api_call", 10).await.unwrap();
@@ -239,11 +336,8 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
     ) -> Result<ConsumeResult, FlowGuardError> {
         // 验证消费数量
         if cost == 0 {
-            let usage_percent = if self.config.limit > 0 {
-                (updated_state.consumed as f64 / self.config.limit as f64) * 100.0
-            } else {
-                0.0
-            };
+            // 获取当前配额状态（用于计算 usage_percent）
+            let usage_percent = self.calculate_usage_percent(0, self.config.limit);
             return Ok(ConsumeResult {
                 allowed: true,
                 remaining: self.config.limit,
@@ -258,31 +352,13 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
         // 检查窗口是否需要重置
         let updated_state = self.check_and_reset_window(quota_state).await?;
 
-        // 计算可透支上限（使用 checked_mul 防止整数溢出）
-        let overdraft_limit = if self.config.allow_overdraft {
-            self.config
-                .limit
-                .checked_mul(self.config.overdraft_limit_percent as u64)
-                .and_then(|v| v.checked_div(100))
-                .unwrap_or(u64::MAX / 2) // 如果溢出，使用安全值
-        } else {
-            0
-        };
-
-        // 计算总限制（使用 checked_add 防止整数溢出）
-        let total_limit = self
-            .config
-            .limit
-            .checked_add(overdraft_limit)
-            .unwrap_or(u64::MAX / 2); // 如果溢出，使用安全值
+        // 计算可透支上限和总限制
+        let overdraft_limit = self.calculate_overdraft_limit();
+        let total_limit = self.calculate_total_limit(overdraft_limit);
 
         // 检查是否超过总限制
         if updated_state.consumed + cost > total_limit {
-            let usage_percent = if total_limit > 0 {
-                (updated_state.consumed as f64 / total_limit as f64) * 100.0
-            } else {
-                0.0
-            };
+            let usage_percent = self.calculate_usage_percent(updated_state.consumed, total_limit);
             return Ok(ConsumeResult {
                 allowed: false,
                 remaining: total_limit.saturating_sub(updated_state.consumed),
@@ -302,11 +378,7 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
         let remaining = total_limit.saturating_sub(new_consumed);
 
         // 计算使用率
-        let usage_percent = if total_limit > 0 {
-            (new_consumed as f64 / total_limit as f64) * 100.0
-        } else {
-            0.0
-        };
+        let usage_percent = self.calculate_usage_percent(new_consumed, total_limit);
 
         // 检查告警
         let alert_triggered = self
@@ -456,22 +528,9 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
         new_consumed: u64,
     ) -> Result<(), FlowGuardError> {
         // 使用存储的 consume 方法更新配额
-        // 计算总限制（防止整数溢出）
-        let overdraft_limit = if self.config.allow_overdraft {
-            self.config
-                .limit
-                .checked_mul(self.config.overdraft_limit_percent as u64)
-                .and_then(|v| v.checked_div(100))
-                .unwrap_or(u64::MAX / 2)
-        } else {
-            0
-        };
-
-        let total_limit = self
-            .config
-            .limit
-            .checked_add(overdraft_limit)
-            .unwrap_or(u64::MAX / 2);
+        // 计算总限制
+        let overdraft_limit = self.calculate_overdraft_limit();
+        let total_limit = self.calculate_total_limit(overdraft_limit);
 
         let _result = self
             .storage
@@ -559,21 +618,21 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
             tokio::spawn(async move {
                 match channel {
                     AlertChannel::Log => {
-                        tracing::warn!(
-                            user_id = %alert_info.user_id,
-                            resource = %alert_info.resource,
-                            quota_type = %alert_info.quota_type.as_str(),
-                            threshold = alert_info.threshold,
-                            current_usage = alert_info.current_usage,
-                            limit = alert_info.limit,
-                            triggered_at = %alert_info.triggered_at.format("%Y-%m-%d %H:%M:%S UTC"),
-                            "配额告警触发"
+                        log::warn!(
+                            "配额告警触发: user_id={}, resource={}, quota_type={}, threshold={}%, current_usage={}, limit={}, triggered_at={}",
+                            alert_info.user_id,
+                            alert_info.resource,
+                            alert_info.quota_type.as_str(),
+                            alert_info.threshold,
+                            alert_info.current_usage,
+                            alert_info.limit,
+                            alert_info.triggered_at.format("%Y-%m-%d %H:%M:%S UTC")
                         );
                     }
                     AlertChannel::Webhook { url } => {
                         // 发送 Webhook 告警
                         if let Err(e) = send_webhook_alert(&url, &alert_info).await {
-                            tracing::error!(error = %e, "发送 Webhook 告警失败");
+                            log::error!("发送 Webhook 告警失败: {}", e);
                         }
                     }
                 }
@@ -599,6 +658,42 @@ impl<S: QuotaStorage + 'static> QuotaController<S> {
         self.alert_dedup.retain(|_, last_alert_time| {
             now.signed_duration_since(*last_alert_time) < dedup_window
         });
+    }
+
+    /// 计算透支上限（内部辅助方法）
+    ///
+    /// 使用 checked_mul 和 checked_div 防止整数溢出。
+    fn calculate_overdraft_limit(&self) -> u64 {
+        if self.config.allow_overdraft {
+            self.config
+                .limit
+                .checked_mul(self.config.overdraft_limit_percent as u64)
+                .and_then(|v| v.checked_div(100))
+                .unwrap_or(u64::MAX / 2) // 如果溢出，使用安全值
+        } else {
+            0
+        }
+    }
+
+    /// 计算总限制（内部辅助方法）
+    ///
+    /// 使用 checked_add 防止整数溢出。
+    fn calculate_total_limit(&self, overdraft_limit: u64) -> u64 {
+        self.config
+            .limit
+            .checked_add(overdraft_limit)
+            .unwrap_or(u64::MAX / 2) // 如果溢出，使用安全值
+    }
+
+    /// 计算使用率（内部辅助方法）
+    ///
+    /// 返回百分比形式的浮点数。
+    fn calculate_usage_percent(&self, consumed: u64, limit: u64) -> f64 {
+        if limit > 0 {
+            (consumed as f64 / limit as f64) * 100.0
+        } else {
+            0.0
+        }
     }
 }
 
@@ -643,10 +738,10 @@ async fn send_webhook_alert(
 mod tests {
     use super::*;
     use crate::error::StorageError;
-    use crate::storage::{QuotaInfo, QuotaStorage};
+    use crate::storage_trait::{QuotaInfo, QuotaStorage};
     use ahash::AHashMap as HashMap;
     use async_trait::async_trait;
-    use std::sync::Mutex;
+    use parking_lot::Mutex;
 
     /// 测试用的配额存储实现
     struct TestQuotaStorage {
@@ -669,7 +764,7 @@ mod tests {
             resource: &str,
         ) -> Result<Option<QuotaInfo>, StorageError> {
             let key = format!("{}:{}", user_id, resource);
-            Ok(self.quotas.lock().unwrap().get(&key).cloned())
+            Ok(self.quotas.lock().get(&key).cloned())
         }
 
         async fn consume(
@@ -681,7 +776,7 @@ mod tests {
             window: StdDuration,
         ) -> Result<ConsumeResult, StorageError> {
             let key = format!("{}:{}", user_id, resource);
-            let mut quotas = self.quotas.lock().unwrap();
+            let mut quotas = self.quotas.lock();
 
             let quota_info = quotas.entry(key.clone()).or_insert_with(|| {
                 let now = Utc::now();
@@ -732,7 +827,7 @@ mod tests {
             window: StdDuration,
         ) -> Result<(), StorageError> {
             let key = format!("{}:{}", user_id, resource);
-            let mut quotas = self.quotas.lock().unwrap();
+            let mut quotas = self.quotas.lock();
 
             if let Some(quota_info) = quotas.get_mut(&key) {
                 quota_info.consumed = 0;

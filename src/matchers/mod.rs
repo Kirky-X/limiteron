@@ -35,6 +35,7 @@ pub mod custom;
 use crate::config::Matcher as ConfigMatcher;
 use crate::error::FlowGuardError;
 use ahash::AHashMap as HashMap;
+use parking_lot::RwLock;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -94,11 +95,12 @@ impl Identifier {
     /// # 返回
     /// - `Some(BanTarget)`: 如果标识符类型支持封禁
     /// - `None`: 如果标识符类型不支持封禁（如 ApiKey, DeviceId）
-    pub fn to_ban_target(&self) -> Option<crate::storage::BanTarget> {
+    #[cfg(feature = "ban-manager")]
+    pub fn to_ban_target(&self) -> Option<crate::storage_trait::BanTarget> {
         match self {
-            Identifier::UserId(id) => Some(crate::storage::BanTarget::UserId(id.clone())),
-            Identifier::Ip(ip) => Some(crate::storage::BanTarget::Ip(ip.clone())),
-            Identifier::Mac(mac) => Some(crate::storage::BanTarget::Mac(mac.clone())),
+            Identifier::UserId(id) => Some(crate::storage_trait::BanTarget::UserId(id.clone())),
+            Identifier::Ip(ip) => Some(crate::storage_trait::BanTarget::Ip(ip.clone())),
+            Identifier::Mac(mac) => Some(crate::storage_trait::BanTarget::Mac(mac.clone())),
             // ApiKey 和 DeviceId 不支持封禁
             Identifier::ApiKey(_) | Identifier::DeviceId(_) => None,
         }
@@ -275,7 +277,7 @@ pub struct UserIdExtractor {
 }
 
 impl UserIdExtractor {
-    /// 创建新的用户ID提取器
+    /// 创建新的用户ID提取器（保持向后兼容）
     ///
     /// # 参数
     /// - `header_name`: HTTP头名称（可选）
@@ -331,6 +333,80 @@ impl UserIdExtractor {
         self.default_user_id = Some(default_user_id.to_string());
         self
     }
+
+    /// 创建设置器（Builder模式）
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::matchers::UserIdExtractor;
+    ///
+    /// let extractor = UserIdExtractor::builder()
+    ///     .header_name("X-User-Id")
+    ///     .query_param_name("user_id")
+    ///     .default_user_id("guest")
+    ///     .build();
+    /// ```
+    pub fn builder() -> UserIdExtractorBuilder {
+        UserIdExtractorBuilder::new()
+    }
+
+    /// 使用依赖注入创建（完整依赖模式）
+    ///
+    /// 对于UserIdExtractor，无需外部依赖，此方法主要用于API一致性
+    ///
+    /// # 参数
+    /// - `header_name`: HTTP头名称（可选）
+    /// - `query_param_name`: 查询参数名称（可选）
+    /// - `default_user_id`: 默认用户ID（可选）
+    pub fn with_dependencies(
+        header_name: Option<String>,
+        query_param_name: Option<String>,
+        default_user_id: Option<String>,
+    ) -> Self {
+        Self::new(header_name, query_param_name, default_user_id)
+    }
+}
+
+/// 用户ID提取器设置器
+#[derive(Debug, Clone, Default)]
+pub struct UserIdExtractorBuilder {
+    header_name: Option<String>,
+    query_param_name: Option<String>,
+    default_user_id: Option<String>,
+}
+
+impl UserIdExtractorBuilder {
+    /// 创建新的设置器
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置HTTP头名称
+    pub fn header_name(mut self, header_name: &str) -> Self {
+        self.header_name = Some(header_name.to_string());
+        self
+    }
+
+    /// 设置查询参数名称
+    pub fn query_param_name(mut self, query_param_name: &str) -> Self {
+        self.query_param_name = Some(query_param_name.to_string());
+        self
+    }
+
+    /// 设置默认用户ID
+    pub fn default_user_id(mut self, default_user_id: &str) -> Self {
+        self.default_user_id = Some(default_user_id.to_string());
+        self
+    }
+
+    /// 构建UserIdExtractor
+    pub fn build(self) -> UserIdExtractor {
+        UserIdExtractor::new(
+            self.header_name,
+            self.query_param_name,
+            self.default_user_id,
+        )
+    }
 }
 
 impl IdentifierExtractor for UserIdExtractor {
@@ -381,7 +457,7 @@ pub struct IpExtractor {
 }
 
 impl IpExtractor {
-    /// 创建新的IP提取器
+    /// 创建新的IP提取器（保持向后兼容）
     ///
     /// # 参数
     /// - `header_names`: HTTP头名称列表（按优先级顺序）
@@ -436,6 +512,32 @@ impl IpExtractor {
     /// ```
     pub fn from_headers(header_names: Vec<&str>) -> Self {
         Self::new(header_names.iter().map(|s| s.to_string()).collect(), true)
+    }
+
+    /// 创建设置器（Builder模式）
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::matchers::IpExtractor;
+    ///
+    /// let extractor = IpExtractor::builder()
+    ///     .header_names(vec!["X-Real-IP", "X-Forwarded-For"])
+    ///     .validate(true)
+    ///     .build();
+    /// ```
+    pub fn builder() -> IpExtractorBuilder {
+        IpExtractorBuilder::new()
+    }
+
+    /// 使用依赖注入创建（完整依赖模式）
+    ///
+    /// 对于IpExtractor，无需外部依赖，此方法主要用于API一致性
+    ///
+    /// # 参数
+    /// - `header_names`: HTTP头名称列表（按优先级顺序）
+    /// - `validate`: 是否验证IP格式
+    pub fn with_dependencies(header_names: Vec<String>, validate: bool) -> Self {
+        Self::new(header_names, validate)
     }
 
     /// 解析IP地址（支持单个IP和IP列表）
@@ -493,6 +595,43 @@ impl IpExtractor {
     }
 }
 
+/// IP提取器设置器
+#[derive(Debug, Clone, Default)]
+pub struct IpExtractorBuilder {
+    header_names: Vec<String>,
+    validate: bool,
+}
+
+impl IpExtractorBuilder {
+    /// 创建新的设置器
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 添加HTTP头名称
+    pub fn header_name(mut self, header_name: &str) -> Self {
+        self.header_names.push(header_name.to_string());
+        self
+    }
+
+    /// 设置HTTP头名称列表
+    pub fn header_names(mut self, header_names: Vec<&str>) -> Self {
+        self.header_names = header_names.iter().map(|s| s.to_string()).collect();
+        self
+    }
+
+    /// 设置是否验证IP格式
+    pub fn validate(mut self, validate: bool) -> Self {
+        self.validate = validate;
+        self
+    }
+
+    /// 构建IpExtractor
+    pub fn build(self) -> IpExtractor {
+        IpExtractor::new(self.header_names, self.validate)
+    }
+}
+
 impl IdentifierExtractor for IpExtractor {
     fn extract(&self, context: &RequestContext) -> Option<Identifier> {
         // 从HTTP头列表中提取
@@ -536,7 +675,7 @@ pub struct MacExtractor {
 }
 
 impl MacExtractor {
-    /// 创建新的MAC提取器
+    /// 创建新的MAC提取器（保持向后兼容）
     ///
     /// # 参数
     /// - `header_name`: HTTP头名称
@@ -584,6 +723,38 @@ impl MacExtractor {
         Self::new(None, Some(query_param_name.to_string()), true)
     }
 
+    /// 创建设置器（Builder模式）
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::matchers::MacExtractor;
+    ///
+    /// let extractor = MacExtractor::builder()
+    ///     .header_name("X-Mac-Address")
+    ///     .query_param_name("mac")
+    ///     .validate(true)
+    ///     .build();
+    /// ```
+    pub fn builder() -> MacExtractorBuilder {
+        MacExtractorBuilder::new()
+    }
+
+    /// 使用依赖注入创建（完整依赖模式）
+    ///
+    /// 对于MacExtractor，无需外部依赖，此方法主要用于API一致性
+    ///
+    /// # 参数
+    /// - `header_name`: HTTP头名称
+    /// - `query_param_name`: 查询参数名称
+    /// - `validate`: 是否验证MAC格式
+    pub fn with_dependencies(
+        header_name: Option<String>,
+        query_param_name: Option<String>,
+        validate: bool,
+    ) -> Self {
+        Self::new(header_name, query_param_name, validate)
+    }
+
     /// 验证MAC地址格式
     fn validate_mac(&self, mac: &str) -> bool {
         if !self.validate {
@@ -604,6 +775,44 @@ impl MacExtractor {
 
         // 检查是否为有效的十六进制
         cleaned.chars().all(|c| c.is_ascii_hexdigit())
+    }
+}
+
+/// MAC提取器设置器
+#[derive(Debug, Clone, Default)]
+pub struct MacExtractorBuilder {
+    header_name: Option<String>,
+    query_param_name: Option<String>,
+    validate: bool,
+}
+
+impl MacExtractorBuilder {
+    /// 创建新的设置器
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置HTTP头名称
+    pub fn header_name(mut self, header_name: &str) -> Self {
+        self.header_name = Some(header_name.to_string());
+        self
+    }
+
+    /// 设置查询参数名称
+    pub fn query_param_name(mut self, query_param_name: &str) -> Self {
+        self.query_param_name = Some(query_param_name.to_string());
+        self
+    }
+
+    /// 设置是否验证MAC格式
+    pub fn validate(mut self, validate: bool) -> Self {
+        self.validate = validate;
+        self
+    }
+
+    /// 构建MacExtractor
+    pub fn build(self) -> MacExtractor {
+        MacExtractor::new(self.header_name, self.query_param_name, self.validate)
     }
 }
 
@@ -652,7 +861,7 @@ pub struct ApiKeyExtractor {
 }
 
 impl ApiKeyExtractor {
-    /// 创建新的API密钥提取器
+    /// 创建新的API密钥提取器（保持向后兼容）
     ///
     /// # 参数
     /// - `header_name`: HTTP头名称
@@ -664,7 +873,7 @@ impl ApiKeyExtractor {
         prefix: Option<String>,
     ) -> Self {
         if query_param_name.is_some() {
-            tracing::warn!("出于安全考虑，通过查询参数提取API Key已被禁用");
+            log::warn!("出于安全考虑，通过查询参数提取API Key已被禁用");
         }
         Self {
             header_name,
@@ -719,6 +928,37 @@ impl ApiKeyExtractor {
         Self::new(None, Some(query_param_name.to_string()), None)
     }
 
+    /// 创建设置器（Builder模式）
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::matchers::ApiKeyExtractor;
+    ///
+    /// let extractor = ApiKeyExtractor::builder()
+    ///     .header_name("X-API-Key")
+    ///     .prefix("Bearer ")
+    ///     .build();
+    /// ```
+    pub fn builder() -> ApiKeyExtractorBuilder {
+        ApiKeyExtractorBuilder::new()
+    }
+
+    /// 使用依赖注入创建（完整依赖模式）
+    ///
+    /// 对于ApiKeyExtractor，无需外部依赖，此方法主要用于API一致性
+    ///
+    /// # 参数
+    /// - `header_name`: HTTP头名称
+    /// - `query_param_name`: 查询参数名称（已禁用）
+    /// - `prefix`: 前缀
+    pub fn with_dependencies(
+        header_name: Option<String>,
+        query_param_name: Option<String>,
+        prefix: Option<String>,
+    ) -> Self {
+        Self::new(header_name, query_param_name, prefix)
+    }
+
     /// 清理API密钥（移除前缀）
     fn clean_key(&self, value: &str) -> Option<String> {
         let key = if let Some(prefix) = &self.prefix {
@@ -733,6 +973,37 @@ impl ApiKeyExtractor {
         }
 
         Some(key.to_string())
+    }
+}
+
+/// API密钥提取器设置器
+#[derive(Debug, Clone, Default)]
+pub struct ApiKeyExtractorBuilder {
+    header_name: Option<String>,
+    prefix: Option<String>,
+}
+
+impl ApiKeyExtractorBuilder {
+    /// 创建新的设置器
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置HTTP头名称
+    pub fn header_name(mut self, header_name: &str) -> Self {
+        self.header_name = Some(header_name.to_string());
+        self
+    }
+
+    /// 设置前缀
+    pub fn prefix(mut self, prefix: &str) -> Self {
+        self.prefix = Some(prefix.to_string());
+        self
+    }
+
+    /// 构建ApiKeyExtractor
+    pub fn build(self) -> ApiKeyExtractor {
+        ApiKeyExtractor::new(self.header_name, None, self.prefix)
     }
 }
 
@@ -770,7 +1041,7 @@ pub struct DeviceIdExtractor {
 }
 
 impl DeviceIdExtractor {
-    /// 创建新的设备ID提取器
+    /// 创建新的设备ID提取器（保持向后兼容）
     ///
     /// # 参数
     /// - `header_name`: HTTP头名称
@@ -811,6 +1082,35 @@ impl DeviceIdExtractor {
     pub fn from_query_param(query_param_name: &str) -> Self {
         Self::new(None, Some(query_param_name.to_string()))
     }
+
+    /// 创建设置器（Builder模式）
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::matchers::DeviceIdExtractor;
+    ///
+    /// let extractor = DeviceIdExtractor::builder()
+    ///     .header_name("X-Device-Id")
+    ///     .query_param_name("device_id")
+    ///     .build();
+    /// ```
+    pub fn builder() -> DeviceIdExtractorBuilder {
+        DeviceIdExtractorBuilder::new()
+    }
+
+    /// 使用依赖注入创建（完整依赖模式）
+    ///
+    /// 对于DeviceIdExtractor，无需外部依赖，此方法主要用于API一致性
+    ///
+    /// # 参数
+    /// - `header_name`: HTTP头名称
+    /// - `query_param_name`: 查询参数名称
+    pub fn with_dependencies(
+        header_name: Option<String>,
+        query_param_name: Option<String>,
+    ) -> Self {
+        Self::new(header_name, query_param_name)
+    }
 }
 
 impl IdentifierExtractor for DeviceIdExtractor {
@@ -841,6 +1141,37 @@ impl IdentifierExtractor for DeviceIdExtractor {
     }
 }
 
+/// 设备ID提取器设置器
+#[derive(Debug, Clone, Default)]
+pub struct DeviceIdExtractorBuilder {
+    header_name: Option<String>,
+    query_param_name: Option<String>,
+}
+
+impl DeviceIdExtractorBuilder {
+    /// 创建新的设置器
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置HTTP头名称
+    pub fn header_name(mut self, header_name: &str) -> Self {
+        self.header_name = Some(header_name.to_string());
+        self
+    }
+
+    /// 设置查询参数名称
+    pub fn query_param_name(mut self, query_param_name: &str) -> Self {
+        self.query_param_name = Some(query_param_name.to_string());
+        self
+    }
+
+    /// 构建DeviceIdExtractor
+    pub fn build(self) -> DeviceIdExtractor {
+        DeviceIdExtractor::new(self.header_name, self.query_param_name)
+    }
+}
+
 // ============================================================================
 // 组合提取器
 // ============================================================================
@@ -853,6 +1184,42 @@ pub struct CompositeExtractor {
     extractors: Vec<Box<dyn IdentifierExtractor>>,
     /// 是否在所有提取器都失败时返回默认标识符
     fallback_to_default: bool,
+}
+
+/// CompositeExtractor 构建器
+///
+/// 用于链式配置 CompositeExtractor 实例。
+#[derive(Default)]
+pub struct CompositeExtractorBuilder {
+    extractors: Vec<Box<dyn IdentifierExtractor>>,
+    fallback_to_default: bool,
+}
+
+impl CompositeExtractorBuilder {
+    /// 创建新的 CompositeExtractorBuilder
+    pub fn new() -> Self {
+        Self {
+            extractors: Vec::new(),
+            fallback_to_default: false,
+        }
+    }
+
+    /// 添加提取器
+    pub fn add_extractor(mut self, extractor: Box<dyn IdentifierExtractor>) -> Self {
+        self.extractors.push(extractor);
+        self
+    }
+
+    /// 设置是否在所有提取器都失败时返回默认标识符
+    pub fn with_fallback(mut self, fallback: bool) -> Self {
+        self.fallback_to_default = fallback;
+        self
+    }
+
+    /// 构建 CompositeExtractor 实例
+    pub fn build(self) -> CompositeExtractor {
+        CompositeExtractor::with_dependencies(self.extractors, self.fallback_to_default)
+    }
 }
 
 impl CompositeExtractor {
@@ -875,6 +1242,22 @@ impl CompositeExtractor {
     /// );
     /// ```
     pub fn new(extractors: Vec<Box<dyn IdentifierExtractor>>, fallback_to_default: bool) -> Self {
+        Self {
+            extractors,
+            fallback_to_default,
+        }
+    }
+
+    /// 创建 CompositeExtractorBuilder 用于链式配置
+    pub fn builder() -> CompositeExtractorBuilder {
+        CompositeExtractorBuilder::new()
+    }
+
+    /// 使用依赖注入创建 CompositeExtractor（用于应用容器集成）
+    pub fn with_dependencies(
+        extractors: Vec<Box<dyn IdentifierExtractor>>,
+        fallback_to_default: bool,
+    ) -> Self {
         Self {
             extractors,
             fallback_to_default,
@@ -1337,7 +1720,7 @@ pub struct RuleMatcher {
     /// 规则列表（按优先级排序）
     rules: Vec<Rule>,
     /// 匹配统计
-    stats: std::sync::RwLock<MatcherStats>,
+    stats: RwLock<MatcherStats>,
 }
 
 /// 规则
@@ -1393,6 +1776,38 @@ pub struct MatcherStats {
     pub avg_match_time_ns: u64,
 }
 
+/// RuleMatcher 构建器
+///
+/// 用于链式配置 RuleMatcher 实例。
+#[derive(Debug, Default)]
+pub struct RuleMatcherBuilder {
+    rules: Vec<Rule>,
+}
+
+impl RuleMatcherBuilder {
+    /// 创建新的 RuleMatcherBuilder
+    pub fn new() -> Self {
+        Self { rules: Vec::new() }
+    }
+
+    /// 添加规则
+    pub fn add_rule(mut self, rule: Rule) -> Self {
+        self.rules.push(rule);
+        self
+    }
+
+    /// 批量添加规则
+    pub fn add_rules(mut self, rules: Vec<Rule>) -> Self {
+        self.rules.extend(rules);
+        self
+    }
+
+    /// 构建 RuleMatcher 实例
+    pub fn build(self) -> RuleMatcher {
+        RuleMatcher::with_dependencies(self.rules)
+    }
+}
+
 impl RuleMatcher {
     /// 创建新的规则匹配器
     ///
@@ -1416,7 +1831,21 @@ impl RuleMatcher {
     pub fn new(rules: Vec<Rule>) -> Self {
         let mut matcher = Self {
             rules: Vec::new(),
-            stats: std::sync::RwLock::new(MatcherStats::default()),
+            stats: RwLock::new(MatcherStats::default()),
+        };
+
+        for rule in rules {
+            matcher.add_rule(rule);
+        }
+
+        matcher
+    }
+
+    /// 使用依赖注入创建 RuleMatcher（用于应用容器集成）
+    pub fn with_dependencies(rules: Vec<Rule>) -> Self {
+        let mut matcher = Self {
+            rules: Vec::new(),
+            stats: RwLock::new(MatcherStats::default()),
         };
 
         for rule in rules {
@@ -1477,16 +1906,15 @@ impl RuleMatcher {
                 // 更新统计信息
                 let elapsed = start.elapsed().as_nanos() as u64;
                 {
-                    if let Ok(mut stats) = self.stats.write() {
-                        stats.total_matches += 1;
-                        stats.last_match_time = Some(Instant::now());
+                    let mut stats = self.stats.write();
+                    stats.total_matches += 1;
+                    stats.last_match_time = Some(Instant::now());
 
-                        // 更新平均匹配时间（使用指数移动平均）
-                        if stats.total_matches == 1 {
-                            stats.avg_match_time_ns = elapsed;
-                        } else {
-                            stats.avg_match_time_ns = (stats.avg_match_time_ns * 9 + elapsed) / 10;
-                        }
+                    // 更新平均匹配时间（使用指数移动平均）
+                    if stats.total_matches == 1 {
+                        stats.avg_match_time_ns = elapsed;
+                    } else {
+                        stats.avg_match_time_ns = (stats.avg_match_time_ns * 9 + elapsed) / 10;
                     }
                 }
 
@@ -1495,7 +1923,7 @@ impl RuleMatcher {
         }
 
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write();
             stats.total_mismatches += 1;
         }
         None
@@ -1517,12 +1945,12 @@ impl RuleMatcher {
 
     /// 获取统计信息
     pub fn stats(&self) -> MatcherStats {
-        self.stats.read().unwrap().clone()
+        self.stats.read().clone()
     }
 
     /// 重置统计信息
     pub fn reset_stats(&self) {
-        let mut stats = self.stats.write().unwrap();
+        let mut stats = self.stats.write();
         *stats = MatcherStats::default();
     }
 
@@ -1565,7 +1993,7 @@ impl RuleMatcher {
                     Box::new(MatchCondition::Custom(Arc::new(move |_context| {
                         // 自定义匹配器的实际匹配逻辑在CustomMatcherRegistry中实现
                         // 这里只是占位符，返回false表示不匹配
-                        tracing::warn!("自定义匹配器 '{}' 需要通过CustomMatcherRegistry处理", name);
+                        log::warn!("自定义匹配器 '{}' 需要通过CustomMatcherRegistry处理", name);
                         false
                     })))
                 }

@@ -7,11 +7,11 @@
 //! 实现实时监控、性能指标收集和智能告警功能。
 
 use crate::telemetry::Tracer;
-use parking_lot::Mutex as ParkingMutex;
+use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicBool};
 use std::time::{Duration, Instant};
-use tracing::{debug, info, warn, error};
+use log::{debug, info, warn, error};
 
 /// 告警级别
 #[derive(Debug, Clone, PartialEq)]
@@ -258,7 +258,7 @@ pub struct PerformanceMetrics {
     active_connections: AtomicU64,
     
     /// 延迟样本（用于计算真正的百分位数）
-    latency_samples: std::sync::Mutex<LatencySamples>,
+    latency_samples: ParkingMutex<LatencySamples>,
 
     system_sampler: ParkingMutex<SystemMetricsSampler>,
 }
@@ -276,7 +276,7 @@ impl PerformanceMetrics {
             cache_hit_rate: 0.0,
             circuit_breaker_trips: AtomicU64::new(0),
             active_connections: AtomicU64::new(0),
-            latency_samples: std::sync::Mutex::new(LatencySamples::new(1000)), // 保存最近1000个样本
+            latency_samples: ParkingMutex::new(LatencySamples::new(1000)), // 保存最近1000个样本
             system_sampler: ParkingMutex::new(SystemMetricsSampler::default()),
         }
     }
@@ -318,9 +318,9 @@ pub struct MonitoringSystem {
     alert_in_progress: Arc<AtomicBool>,
 
     /// 最后告警时间
-    last_alert_time: Arc<std::sync::Mutex<Instant>>,
+    last_alert_time: Arc<ParkingMutex<Instant>>,
 
-    alert_state: Arc<ParkingMutex<AlertState>>,
+    alert_state: Arc<ParkingRwLock<AlertState>>,
 
     /// 遥踪器
     tracer: Arc<Tracer>,
@@ -338,8 +338,8 @@ impl MonitoringSystem {
             tracer,
             alert_config,
             alert_in_progress: Arc::new(AtomicBool::new(false)),
-            last_alert_time: Arc::new(std::sync::Mutex::new(Instant::now())),
-            alert_state: Arc::new(ParkingMutex::new(AlertState::default())),
+            last_alert_time: Arc::new(ParkingMutex::new(Instant::now())),
+            alert_state: Arc::new(ParkingRwLock::new(AlertState::default())),
         }
     }
 
@@ -378,7 +378,8 @@ impl MonitoringSystem {
         self.metrics.avg_latency_ms.store(new_avg, std::sync::atomic::Ordering::Relaxed);
         
         // 添加延迟样本
-        if let Ok(mut samples) = self.metrics.latency_samples.lock() {
+        {
+            let mut samples = self.metrics.latency_samples.lock();
             samples.add_sample(latency_ms);
             
             // 计算真正的 P95 和 P99
@@ -400,7 +401,7 @@ impl MonitoringSystem {
         let mut alerts = Vec::new();
 
         let metrics = self.metrics.snapshot();
-        let mut state = self.alert_state.lock();
+        let mut state = self.alert_state.write();
 
         let cpu_level = Self::evaluate_threshold_f64(
             metrics.cpu_usage,
@@ -466,7 +467,7 @@ impl MonitoringSystem {
         }
 
         let now = Instant::now();
-        let last_alert = *self.last_alert_time.lock().unwrap();
+        let last_alert = *self.last_alert_time.lock();
         let cooldown_elapsed = now.duration_since(last_alert);
 
         let should_alert = alerts.iter().any(|level| {
@@ -479,7 +480,7 @@ impl MonitoringSystem {
         }
 
         // 更新最后告警时间
-        *self.last_alert_time.lock().unwrap() = now;
+        *self.last_alert_time.lock() = now;
 
         // 记录告警
         for level in alerts {

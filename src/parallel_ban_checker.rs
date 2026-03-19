@@ -9,10 +9,10 @@
 
 use crate::error::{BanInfo, FlowGuardError};
 use crate::matchers::RequestContext;
-use crate::storage::BanTarget;
+use crate::storage_trait::BanTarget;
 use futures::future::join_all;
+use log::debug;
 use std::sync::Arc;
-use tracing::{debug, instrument};
 
 use crate::ban_manager::BanManager;
 
@@ -30,7 +30,7 @@ impl ParallelBanChecker {
     }
 
     /// 并行检查多个封禁目标
-    #[instrument(skip(self))]
+    ///
     pub async fn check_targets_parallel(
         &self,
         targets: &[BanTarget],
@@ -107,7 +107,7 @@ mod tests {
     use super::*;
     use crate::ban_manager::BanManager;
     use crate::error::StorageError;
-    use crate::storage::{BanHistory, BanRecord, BanStorage};
+    use crate::storage_trait::{BanHistory, BanRecord, BanStorage};
     use async_trait::async_trait;
     use std::collections::HashMap;
     use tokio::sync::Mutex;

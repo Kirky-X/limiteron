@@ -57,10 +57,10 @@ use crate::matchers::RequestContext;
 use ahash::AHashMap as HashMap;
 use async_trait::async_trait;
 use chrono::Timelike;
+use log::{debug, error, info, warn};
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
 
 // ============================================================================
 // 输入验证常量
@@ -370,7 +370,7 @@ impl std::fmt::Debug for CustomMatcherRegistry {
 }
 
 impl CustomMatcherRegistry {
-    /// 创建新的注册表
+    /// 创建新的注册表（保持向后兼容）
     ///
     /// # 示例
     /// ```rust
@@ -382,6 +382,25 @@ impl CustomMatcherRegistry {
         Self {
             matchers: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// 创建设置器（Builder模式）
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::matchers::custom::CustomMatcherRegistry;
+    ///
+    /// let registry = CustomMatcherRegistry::builder().build();
+    /// ```
+    pub fn builder() -> CustomMatcherRegistryBuilder {
+        CustomMatcherRegistryBuilder::new()
+    }
+
+    /// 使用依赖注入创建（完整依赖模式）
+    ///
+    /// 对于CustomMatcherRegistry，无需外部依赖，此方法主要用于API一致性
+    pub fn with_dependencies() -> Self {
+        Self::new()
     }
 
     /// 注册自定义匹配器
@@ -591,6 +610,22 @@ impl Default for CustomMatcherRegistry {
     }
 }
 
+/// 自定义匹配器注册表设置器
+#[derive(Debug, Clone, Default)]
+pub struct CustomMatcherRegistryBuilder;
+
+impl CustomMatcherRegistryBuilder {
+    /// 创建新的设置器
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// 构建CustomMatcherRegistry
+    pub fn build(self) -> CustomMatcherRegistry {
+        CustomMatcherRegistry::new()
+    }
+}
+
 // ============================================================================
 // TimeWindowMatcher 示例实现
 // ============================================================================
@@ -614,7 +649,7 @@ pub struct TimeWindowMatcher {
 }
 
 impl TimeWindowMatcher {
-    /// 创建新的时间窗口匹配器
+    /// 创建新的时间窗口匹配器（保持向后兼容）
     ///
     /// # 参数
     /// - `start_hour`: 开始小时（0-23）
@@ -644,6 +679,32 @@ impl TimeWindowMatcher {
     /// 获取结束小时
     pub fn end_hour(&self) -> u8 {
         self.end_hour
+    }
+
+    /// 创建设置器（Builder模式）
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::matchers::custom::TimeWindowMatcher;
+    ///
+    /// let matcher = TimeWindowMatcher::builder()
+    ///     .start_hour(9)
+    ///     .end_hour(18)
+    ///     .build();
+    /// ```
+    pub fn builder() -> TimeWindowMatcherBuilder {
+        TimeWindowMatcherBuilder::new()
+    }
+
+    /// 使用依赖注入创建（完整依赖模式）
+    ///
+    /// 对于TimeWindowMatcher，无需外部依赖，此方法主要用于API一致性
+    ///
+    /// # 参数
+    /// - `start_hour`: 开始小时（0-23）
+    /// - `end_hour`: 结束小时（0-23）
+    pub fn with_dependencies(start_hour: u8, end_hour: u8) -> Self {
+        Self::new(start_hour, end_hour)
     }
 }
 
@@ -708,6 +769,37 @@ impl CustomMatcher for TimeWindowMatcher {
         );
 
         Ok(())
+    }
+}
+
+/// 时间窗口匹配器设置器
+#[derive(Debug, Clone, Default)]
+pub struct TimeWindowMatcherBuilder {
+    start_hour: u8,
+    end_hour: u8,
+}
+
+impl TimeWindowMatcherBuilder {
+    /// 创建新的设置器
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置开始小时
+    pub fn start_hour(mut self, start_hour: u8) -> Self {
+        self.start_hour = start_hour;
+        self
+    }
+
+    /// 设置结束小时
+    pub fn end_hour(mut self, end_hour: u8) -> Self {
+        self.end_hour = end_hour;
+        self
+    }
+
+    /// 构建TimeWindowMatcher
+    pub fn build(self) -> TimeWindowMatcher {
+        TimeWindowMatcher::new(self.start_hour, self.end_hour)
     }
 }
 
@@ -796,6 +888,41 @@ impl HeaderMatcher {
     pub fn allowed_values(&self) -> &[String] {
         &self.allowed_values
     }
+
+    /// 创建设置器（Builder模式）
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::matchers::custom::HeaderMatcher;
+    ///
+    /// let matcher = HeaderMatcher::builder()
+    ///     .header_name("X-API-Key")
+    ///     .allowed_values(vec!["secret123".to_string()])
+    ///     .case_sensitive(false)
+    ///     .build();
+    /// ```
+    pub fn builder() -> HeaderMatcherBuilder {
+        HeaderMatcherBuilder::new()
+    }
+
+    /// 使用依赖注入创建（完整依赖模式）
+    ///
+    /// 对于HeaderMatcher，无需外部依赖，此方法主要用于API一致性
+    ///
+    /// # 参数
+    /// - `header_name`: HTTP头名称
+    /// - `allowed_values`: 允许的值列表
+    /// - `case_sensitive`: 是否区分大小写
+    pub fn with_dependencies(
+        header_name: &str,
+        allowed_values: Vec<String>,
+        case_sensitive: bool,
+    ) -> Result<Self, FlowGuardError> {
+        Self::new(header_name, allowed_values).map(|mut m| {
+            m.case_sensitive = case_sensitive;
+            m
+        })
+    }
 }
 
 #[async_trait]
@@ -864,6 +991,57 @@ impl CustomMatcher for HeaderMatcher {
         );
 
         Ok(())
+    }
+}
+
+/// HTTP头匹配器设置器
+#[derive(Debug, Clone, Default)]
+pub struct HeaderMatcherBuilder {
+    header_name: Option<String>,
+    allowed_values: Vec<String>,
+    case_sensitive: bool,
+}
+
+impl HeaderMatcherBuilder {
+    /// 创建新的设置器
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置HTTP头名称
+    pub fn header_name(mut self, header_name: &str) -> Self {
+        self.header_name = Some(header_name.to_string());
+        self
+    }
+
+    /// 设置允许的值列表
+    pub fn allowed_values(mut self, allowed_values: Vec<String>) -> Self {
+        self.allowed_values = allowed_values;
+        self
+    }
+
+    /// 添加允许的值
+    pub fn add_allowed_value(mut self, value: &str) -> Self {
+        self.allowed_values.push(value.to_string());
+        self
+    }
+
+    /// 设置是否区分大小写
+    pub fn case_sensitive(mut self, case_sensitive: bool) -> Self {
+        self.case_sensitive = case_sensitive;
+        self
+    }
+
+    /// 构建HeaderMatcher
+    pub fn build(self) -> Result<HeaderMatcher, FlowGuardError> {
+        HeaderMatcher::new(
+            self.header_name.as_deref().unwrap_or(""),
+            self.allowed_values,
+        )
+        .map(|mut m| {
+            m.case_sensitive = self.case_sensitive;
+            m
+        })
     }
 }
 

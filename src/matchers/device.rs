@@ -35,11 +35,11 @@
 
 #[cfg(feature = "device-matching")]
 use crate::error::FlowGuardError;
+use log::{debug, info};
 use oxcache::Cache;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use tracing::{debug, info, instrument, warn};
 use woothee::parser::Parser;
 
 // ============================================================================
@@ -406,7 +406,7 @@ struct DeviceCustomRule {
 }
 
 impl DeviceMatcher {
-    /// 创建新的设备匹配器
+    /// 创建新的设备匹配器（保持向后兼容）
     ///
     /// # 返回
     /// - `Ok(DeviceMatcher)`: 成功创建匹配器
@@ -421,23 +421,70 @@ impl DeviceMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument]
     pub async fn new() -> Result<Self, FlowGuardError> {
-        info!("创建DeviceMatcher");
+        info!(target: "device", "创建DeviceMatcher");
 
         let parser = Parser::new();
+        let cache = Cache::builder()
+            .build()
+            .await
+            .map_err(|e| FlowGuardError::ConfigError(e.to_string()))?;
 
         let matcher = Self {
             parser: Arc::new(parser),
-            cache: Arc::new(Cache::builder().build()),
+            cache: Arc::new(cache),
             cache_size_limit: 10_000,
             cache_hits: AtomicU64::new(0),
             cache_misses: AtomicU64::new(0),
             custom_rules: Self::default_custom_rules(),
         };
 
-        info!("DeviceMatcher创建成功");
+        info!(target: "device", "DeviceMatcher创建成功");
         Ok(matcher)
+    }
+
+    /// 创建设置器（Builder模式）
+    ///
+    /// # 示例
+    /// ```rust
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use limiteron::matchers::device::DeviceMatcher;
+    /// use oxcache::Cache;
+    ///
+    /// let matcher = DeviceMatcher::builder()
+    ///     .cache_size_limit(5000)
+    ///     .build()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn builder() -> DeviceMatcherBuilder {
+        DeviceMatcherBuilder::new()
+    }
+
+    /// 使用依赖注入创建（完整依赖模式）
+    ///
+    /// 接受外部依赖，实现完全的依赖注入。
+    ///
+    /// # 参数
+    /// - `parser`: Woothee解析器
+    /// - `cache`: 查询缓存
+    /// - `cache_size_limit`: 缓存大小限制
+    pub fn with_dependencies(
+        parser: Arc<Parser>,
+        cache: Arc<Cache<String, DeviceInfo>>,
+        cache_size_limit: usize,
+    ) -> Self {
+        let mut matcher = Self {
+            parser,
+            cache,
+            cache_size_limit,
+            cache_hits: AtomicU64::new(0),
+            cache_misses: AtomicU64::new(0),
+            custom_rules: Self::default_custom_rules(),
+        };
+        matcher.cache_size_limit = cache_size_limit;
+        matcher
     }
 
     /// 创建带缓存大小限制的设备匹配器
@@ -454,7 +501,6 @@ impl DeviceMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument]
     pub async fn with_cache_limit(cache_size_limit: usize) -> Result<Self, FlowGuardError> {
         let mut matcher = Self::new().await?;
         matcher.cache_size_limit = cache_size_limit;
@@ -485,7 +531,6 @@ impl DeviceMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument(skip(self))]
     pub async fn parse(&self, user_agent: &str) -> Result<DeviceInfo, FlowGuardError> {
         // 清理 User-Agent
         let sanitized = sanitize_user_agent(user_agent);
@@ -505,8 +550,9 @@ impl DeviceMatcher {
         }
 
         // 检查缓存
-        if let Ok(Some(cached)) = self.cache.get(user_agent).await {
-            debug!("缓存命中: {}", user_agent);
+        let cache_key = user_agent.to_string();
+        if let Ok(Some(cached)) = self.cache.get(&cache_key).await {
+            log::debug!(target: "device", "缓存命中: {}", user_agent);
             self.cache_hits.fetch_add(1, Ordering::Relaxed);
             return Ok(cached);
         }
@@ -514,7 +560,7 @@ impl DeviceMatcher {
         // 记录缓存未命中
         self.cache_misses.fetch_add(1, Ordering::Relaxed);
 
-        debug!("解析User-Agent: {}", user_agent);
+        log::debug!(target: "device", "解析User-Agent: {}", user_agent);
 
         // 检查自定义规则
         for rule in &self.custom_rules {
@@ -529,7 +575,7 @@ impl DeviceMatcher {
                         user_agent: Some(user_agent.to_string()),
                     };
                     self.update_cache(user_agent, &info).await;
-                    debug!("自定义规则匹配: {}", rule.name);
+                    log::debug!(target: "device", "自定义规则匹配: {}", rule.name);
                     return Ok(info);
                 }
             }
@@ -547,7 +593,8 @@ impl DeviceMatcher {
         // 更新缓存
         self.update_cache(user_agent, &info).await;
 
-        debug!(
+        log::debug!(
+            target: "device",
             "User-Agent解析成功: {} -> {}",
             user_agent,
             info.description()
@@ -577,7 +624,6 @@ impl DeviceMatcher {
     ///     let results = matcher.batch_parse(&user_agents).await;
     /// }
     /// ```
-    #[instrument(skip(self, user_agents))]
     pub async fn batch_parse(
         &self,
         user_agents: &[String],
@@ -612,7 +658,6 @@ impl DeviceMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    #[instrument(skip(self, condition))]
     pub async fn matches_user_agent(
         &self,
         user_agent: &str,
@@ -695,12 +740,12 @@ impl DeviceMatcher {
 
         // 验证正则表达式
         if regex::Regex::new(&rule.pattern).is_err() {
-            warn!("无效的正则表达式: {}", pattern);
+            log::warn!(target: "device", "无效的正则表达式: {}", pattern);
             return;
         }
 
         self.custom_rules.push(rule);
-        info!("添加自定义规则: {}", name);
+        log::info!(target: "device", "添加自定义规则: {}", name);
     }
 
     /// 移除自定义规则
@@ -716,17 +761,16 @@ impl DeviceMatcher {
         self.custom_rules.retain(|r| r.name != name);
         let removed = self.custom_rules.len() < original_len;
         if removed {
-            info!("移除自定义规则: {}", name);
+            log::info!(target: "device", "移除自定义规则: {}", name);
         }
         removed
     }
 
     /// 清空缓存
-    #[instrument(skip(self))]
     pub async fn clear_cache(&self) {
-        let size = self.cache.len().await;
-        self.cache.clear().await;
-        info!("缓存已清空，移除 {} 条记录", size);
+        let size = self.cache.len().await.unwrap_or(0);
+        let _ = self.cache.clear().await;
+        log::info!(target: "device", "缓存已清空，移除 {} 条记录", size);
     }
 
     /// 获取缓存统计信息
@@ -741,7 +785,7 @@ impl DeviceMatcher {
         };
 
         DeviceCacheStats {
-            size: self.cache.len().await,
+            size: self.cache.len().await.unwrap_or(0) as usize,
             limit: self.cache_size_limit,
             hit_rate,
             hits,
@@ -751,19 +795,13 @@ impl DeviceMatcher {
 
     /// 更新缓存
     async fn update_cache(&self, user_agent: &str, info: &DeviceInfo) {
-        let cache_len = self.cache.len().await;
-        if cache_len >= self.cache_size_limit {
-            // 缓存已满，清理最旧的条目（简单实现：清理10%）
-            let remove_count = self.cache_size_limit / 10;
-            for _ in 0..remove_count {
-                // oxcache 没有直接提供迭代删除的API，使用简单的过期策略
-                // 由于 oxcache 内置 LRU 淘汰，我们只需设置 max_capacity 让它自动管理
-                break;
-            }
-            debug!("缓存接近限制 ({}/{})", cache_len, self.cache_size_limit);
+        let cache_len = self.cache.len().await.unwrap_or(0);
+        if cache_len >= self.cache_size_limit as u64 {
+            let _maybe_first = (0..(self.cache_size_limit / 10)).next();
+            debug!(target: "device", "缓存接近限制 ({}/{})", cache_len, self.cache_size_limit);
         }
 
-        self.cache.set(&user_agent.to_string(), info).await;
+        let _ = self.cache.set(&user_agent.to_string(), info).await;
     }
 
     /// 默认自定义规则
@@ -800,6 +838,67 @@ impl DeviceMatcher {
                 os: None,
             },
         ]
+    }
+}
+
+/// 设备匹配器设置器
+#[derive(Debug, Clone)]
+pub struct DeviceMatcherBuilder {
+    cache_size_limit: usize,
+    custom_rules: Vec<DeviceCustomRule>,
+}
+
+impl DeviceMatcherBuilder {
+    /// 创建新的设置器
+    pub fn new() -> Self {
+        Self {
+            cache_size_limit: 10_000,
+            custom_rules: Vec::new(),
+        }
+    }
+
+    /// 设置缓存大小限制
+    pub fn cache_size_limit(mut self, cache_size_limit: usize) -> Self {
+        self.cache_size_limit = cache_size_limit;
+        self
+    }
+
+    /// 添加自定义规则
+    pub fn add_custom_rule(
+        mut self,
+        name: &str,
+        pattern: &str,
+        device_type: DeviceType,
+        browser: Option<String>,
+        os: Option<String>,
+    ) -> Self {
+        let rule = DeviceCustomRule {
+            name: name.to_string(),
+            pattern: pattern.to_string(),
+            device_type,
+            browser,
+            os,
+        };
+        self.custom_rules.push(rule);
+        self
+    }
+
+    /// 构建DeviceMatcher
+    ///
+    /// # 返回
+    /// - `Ok(DeviceMatcher)`: 成功创建设备匹配器
+    /// - `Err(FlowGuardError)`: 创建失败
+    pub async fn build(self) -> Result<DeviceMatcher, FlowGuardError> {
+        let mut matcher = DeviceMatcher::new().await?;
+        matcher.cache_size_limit = self.cache_size_limit;
+        matcher.custom_rules = self.custom_rules;
+        Ok(matcher)
+    }
+}
+
+impl Default for DeviceMatcherBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

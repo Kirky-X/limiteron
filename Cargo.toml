@@ -15,7 +15,7 @@ exclude = [
 ]
 
 [patch."https://github.com/Kirky-X/confers"]
-confers-macros = { path = "/home/project/confers/macros" }
+confers-macros = { path = "/home/dev/projects/confers/confers-macros" }
 
 [workspace.package]
 version = "0.1.1"
@@ -25,19 +25,20 @@ license = "Apache-2.0"
 repository = "https://github.com/Kirky-X/limiteron"
 
 [workspace.dependencies]
-tokio = { version = "1.35", features = ["rt-multi-thread", "macros", "time", "net", "signal", "sync", "io-util"] }
+tokio = { version = "1.49", features = ["rt-multi-thread", "macros", "time", "net", "signal", "sync", "io-util"] }
 async-trait = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.6", features = ["v4", "serde"] }
+uuid = { version = "1.20", features = ["v4", "serde"] }
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 parking_lot = "0.12"
 tracing = "0.1"
+log = "0.4"
 futures = "0.3"
 scopeguard = "1.2"
-tracing-opentelemetry = "0.23"
+tracing-opentelemetry = "0.32"
 
 [package]
 name = "limiteron"
@@ -55,33 +56,40 @@ tokio.workspace = true
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+futures = { version = "0.3", optional = true }
 serde_yaml = "0.9"
-toml = "0.8"
+toml = "0.9"
 chrono.workspace = true
 uuid.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 parking_lot.workspace = true
 tracing.workspace = true
-lazy_static = "1.4"
+log.workspace = true
+lazy_static = "1.5"
+validator = "0.19"
 
 # dashmap: 并发哈希表 (核心依赖)
-dashmap = "6.0"
+dashmap = "6.1"
 
-# 数据库操作 - 使用 dbnexus (只启用 postgres，不继承 default 特性)
-dbnexus = { path = "/home/project/dbnexus", optional = true, default-features = false, features = ["postgres"] }
-sqlx = { version = "0.8.5", features = ["postgres", "runtime-tokio-rustls"], optional = true }
+# 数据库操作 - 使用本地 dbnexus (启用 macros 特性以支持 Entity 定义)
+# 注意：dbnexus 默认启用 sqlite，与 postgres 特性互斥，需要禁用 sqlite
+dbnexus = { path = "/home/dev/projects/dbnexus", optional = true, default-features = false, features = ["postgres", "macros", "sql-parser"] }
+sea-orm = { version = "2.0.0-rc.37", optional = true, default-features = false, features = ["macros", "with-chrono"] }
+sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls"], optional = true }
 
 # ahash: 高性能哈希算法 (核心依赖)
 ahash = { version = "0.8.12", features = ["serde"] }
 
 # 缓存库 - 使用本地 oxcache (必需依赖)
-oxcache = { path = "/home/project/oxcache" }
+oxcache = { path = "/home/dev/projects/oxcache" }
 
-# 配置加载 - 使用本地 confers
-# 所有配置加载统一通过Confers库实现
-confers = { path = "/home/project/confers", default-features = false, features = ["derive"] }
-confers-macros = { path = "/home/project/confers/macros" }
+# 配置加载 - 使用本地 confers (可选特性)
+confers = { path = "/home/dev/projects/confers", optional = true, default-features = false }
+confers-macros = { path = "/home/dev/projects/confers/confers-macros", optional = true }
+
+# 日志库 - 使用本地 inklog
+inklog = { path = "/home/dev/projects/inklog" }
 
 # 宏依赖
 proc-macro2 = { version = "1.0", optional = true }
@@ -91,26 +99,35 @@ limiteron-macros = { path = "macros", optional = true }
 
 # 监控依赖
 tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
-prometheus = { version = "0.13", optional = true }
-opentelemetry = { version = "0.21", optional = true }
-opentelemetry-jaeger = { version = "0.20", features = ["rt-tokio"], optional = true }
-opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"], optional = true }
+prometheus = { version = "0.14", optional = true }
+opentelemetry = { version = "0.31", optional = true }
+opentelemetry-jaeger = { version = "0.22", features = ["rt-tokio"], optional = true }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"], optional = true }
+tracing-opentelemetry = { version = "0.32", optional = true }
+scopeguard = { version = "1.2", optional = true }
 
 # 工具依赖
-reqwest = { version = "0.11", features = ["json"], optional = true }
-notify = { version = "6.1", optional = true }
+reqwest = { version = "0.13", features = ["json"], optional = true }
+notify = { version = "8.2", optional = true }
 
 # 安全相关
 regex = { version = "1.12", optional = true }
-secrecy = "0.8"
+secrecy = { version = "0.10.3" }
+hmac = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
 
 # 高级匹配
-maxminddb = { version = "0.24", optional = true }
+maxminddb = { version = "0.27", optional = true }
 woothee = { version = "0.13", optional = true }
+
+# Redis 客户端
+redis = { version = "1.0", optional = true, default-features = false, features = ["tokio-comp"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
-tempfile = "3.8"
+tempfile = "3.24"
+futures = "0.3"
 
 [features]
 # ============================================
@@ -142,16 +159,25 @@ full = [
     "macros",
     "config-watcher",
     "webhook",
-    "code-review"
+    "code-review",
+    "cache-service",
+    "confers",
 ]
 
-default = ["postgres"]
+default = ["postgres", "confers"]
 
 # ============================================
 # Storage Features (存储后端)
 # ============================================
 # PostgreSQL 存储 - 使用 dbnexus
-postgres = ["dep:dbnexus", "dep:sqlx"]
+postgres = ["dep:dbnexus", "dep:sqlx", "dep:sea-orm"]
+
+# Redis 存储 - 用于 Lua 脚本管理
+redis = ["dep:redis"]
+
+# Lua 脚本支持 - 使用 oxcache 的 lua-script 特性
+# 需要 redis 特性来提供 Redis 后端
+lua-script = ["oxcache/lua-script", "redis"]
 
 # ahash 不再作为特性，直接在依赖中定义
 
@@ -163,6 +189,8 @@ quota-control = []
 circuit-breaker = []
 fallback = []
 custom-limiter = []
+cache-service = []
+confers = ["dep:confers", "dep:confers-macros"]
 
 # ============================================
 # Security Features (安全功能)
@@ -174,13 +202,13 @@ validation = []
 # ============================================
 # Performance Features (性能优化)
 # ============================================
-parallel-checker = ["ban-manager"]
+parallel-checker = ["ban-manager", "dep:futures"]
 
 # ============================================
 # Advanced Matching (高级匹配)
 # ============================================
 geo-matching = ["dep:maxminddb"]
-device-matching = ["dep:woothee"]
+device-matching = ["dep:woothee", "dep:regex"]
 advanced-matchers = []
 
 # ============================================
@@ -191,9 +219,11 @@ telemetry = [
     "dep:opentelemetry",
     "dep:opentelemetry-jaeger",
     "dep:opentelemetry_sdk",
+    "dep:tracing-opentelemetry",
+    "dep:scopeguard",
 ]
 monitoring = ["dep:prometheus"]
-audit-log = ["telemetry"]
+audit-log = ["telemetry", "dep:hmac", "dep:sha2", "dep:hex"]
 
 # ============================================
 # Tooling Features (工具)
@@ -212,6 +242,25 @@ required-features = ["macros"]
 name = "macro_usage"
 path = "examples/macro_usage.rs"
 required-features = ["macros"]
+
+[[example]]
+name = "rate_limiters"
+path = "examples/rate_limiters.rs"
+
+[[example]]
+name = "circuit_breaker"
+path = "examples/circuit_breaker.rs"
+required-features = ["circuit-breaker"]
+
+[[example]]
+name = "quota_control"
+path = "examples/quota_control.rs"
+required-features = ["quota-control"]
+
+[[example]]
+name = "ban_manager"
+path = "examples/ban_manager.rs"
+required-features = ["ban-manager"]
 
 [[bench]]
 name = "throughput"

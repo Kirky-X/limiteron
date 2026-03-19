@@ -39,15 +39,19 @@ pub const DEFAULT_PAGINATION_LIMIT: u64 = 100;
 /// 最大分页限制
 pub const MAX_PAGINATION_LIMIT: u64 = 1000;
 
-use crate::constants::{MAX_BAN_REASON_LENGTH, MAX_MAC_ADDRESS_LENGTH, MAX_USER_ID_LENGTH};
+use crate::authorization::AuthorizationProvider;
+use crate::constants::MAX_BAN_REASON_LENGTH;
 use crate::error::FlowGuardError;
-use crate::storage::{BanRecord, BanStorage, BanTarget};
+use crate::storage_trait::{BanRecord, BanStorage};
+use crate::validation;
+#[cfg(feature = "ban-manager")]
+use crate::BanTarget;
 use chrono::{DateTime, Duration, Utc};
+use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, instrument};
 
 /// 封禁来源
 #[cfg(feature = "ban-manager")]
@@ -231,104 +235,116 @@ pub struct BanManager {
     config: Arc<RwLock<BanManagerConfig>>,
     /// 自动解禁任务句柄
     auto_unban_handle: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
+    /// 授权提供者（可选）
+    authorization_provider: Option<Arc<dyn AuthorizationProvider>>,
 }
 
-/// 验证IP地址格式
-fn validate_ip_address(ip: &str) -> Result<(), FlowGuardError> {
-    if ip.is_empty() {
-        return Err(FlowGuardError::ValidationError(
-            "IP地址不能为空".to_string(),
-        ));
-    }
-
-    // 检查长度
-    if ip.len() > 45 {
-        return Err(FlowGuardError::ValidationError("IP地址过长".to_string()));
-    }
-
-    // 验证IPv4或IPv6格式
-    if ip.parse::<std::net::IpAddr>().is_err() {
-        return Err(FlowGuardError::ValidationError(format!(
-            "无效的IP地址格式: {}",
-            ip
-        )));
-    }
-
-    Ok(())
+/// BanManager 构建器
+///
+/// 用于链式配置 BanManager 实例。
+///
+/// # 示例
+/// ```rust
+/// use limiteron::ban_manager::BanManager;
+/// use std::sync::Arc;
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let ban_manager = BanManager::builder()
+///         .build()
+///         .await
+///         .unwrap();
+/// }
+/// ```
+#[cfg(feature = "ban-manager")]
+#[derive(Default)]
+pub struct BanManagerBuilder {
+    storage: Option<Arc<dyn BanStorage>>,
+    config: Option<BanManagerConfig>,
+    authorization_provider: Option<Arc<dyn AuthorizationProvider>>,
 }
 
-/// 验证用户ID
-fn validate_user_id(user_id: &str) -> Result<(), FlowGuardError> {
-    if user_id.is_empty() {
-        return Err(FlowGuardError::ValidationError(
-            "用户ID不能为空".to_string(),
-        ));
-    }
-
-    if user_id.len() > MAX_USER_ID_LENGTH {
-        return Err(FlowGuardError::ValidationError(format!(
-            "用户ID过长，最大长度为 {} 字符",
-            MAX_USER_ID_LENGTH
-        )));
-    }
-
-    // 检查是否包含危险字符
-    if user_id.contains(|c: char| c.is_control()) {
-        return Err(FlowGuardError::ValidationError(
-            "用户ID包含非法字符".to_string(),
-        ));
-    }
-
-    Ok(())
-}
-
-/// 验证MAC地址格式
-fn validate_mac_address(mac: &str) -> Result<(), FlowGuardError> {
-    if mac.is_empty() {
-        return Err(FlowGuardError::ValidationError(
-            "MAC地址不能为空".to_string(),
-        ));
-    }
-
-    if mac.len() > MAX_MAC_ADDRESS_LENGTH {
-        return Err(FlowGuardError::ValidationError("MAC地址过长".to_string()));
-    }
-
-    // 简单验证MAC地址格式（XX:XX:XX:XX:XX:XX）
-    let parts: Vec<&str> = mac.split(':').collect();
-    if parts.len() != 6 {
-        return Err(FlowGuardError::ValidationError(
-            "无效的MAC地址格式".to_string(),
-        ));
-    }
-
-    for part in parts {
-        if part.len() != 2 {
-            return Err(FlowGuardError::ValidationError(
-                "无效的MAC地址格式".to_string(),
-            ));
-        }
-        if !part.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(FlowGuardError::ValidationError(
-                "MAC地址包含非法字符".to_string(),
-            ));
+#[cfg(feature = "ban-manager")]
+impl BanManagerBuilder {
+    /// 创建新的 BanManagerBuilder
+    pub fn new() -> Self {
+        Self {
+            storage: None,
+            config: None,
+            authorization_provider: None,
         }
     }
 
-    Ok(())
+    /// 设置封禁存储后端
+    pub fn with_storage(mut self, storage: Arc<dyn BanStorage>) -> Self {
+        self.storage = Some(storage);
+        self
+    }
+
+    /// 设置配置
+    pub fn with_config(mut self, config: BanManagerConfig) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    /// 设置授权提供者
+    ///
+    /// # 参数
+    ///
+    /// * `provider` - 授权提供者实例
+    ///
+    /// # 示例
+    ///
+    /// ```rust
+    /// use limiteron::ban_manager::BanManager;
+    /// use limiteron::authorization::SimpleAuthorizationProvider;
+    /// use std::sync::Arc;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let auth_provider = Arc::new(SimpleAuthorizationProvider::new(vec![
+    ///         "admin".to_string(),
+    ///     ]));
+    ///
+    ///     let ban_manager = BanManager::builder()
+    ///         .with_storage(storage)
+    ///         .with_authorization_provider(auth_provider)
+    ///         .build()
+    ///         .await
+    ///         .unwrap();
+    /// }
+    /// ```
+    pub fn with_authorization_provider(mut self, provider: Arc<dyn AuthorizationProvider>) -> Self {
+        self.authorization_provider = Some(provider);
+        self
+    }
+
+    /// 构建 BanManager 实例
+    pub async fn build(self) -> Result<BanManager, FlowGuardError> {
+        let storage = self
+            .storage
+            .ok_or_else(|| FlowGuardError::DependencyError("storage is required".to_string()))?;
+        let config = self.config.unwrap_or_default();
+
+        BanManager::with_dependencies_and_auth(storage, config, self.authorization_provider).await
+    }
 }
 
 /// 验证封禁目标
+///
+/// 使用统一的 validation 模块进行验证。
+#[cfg(feature = "ban-manager")]
 fn validate_ban_target(target: &BanTarget) -> Result<(), FlowGuardError> {
     match target {
-        BanTarget::Ip(ip) => validate_ip_address(ip)?,
-        BanTarget::UserId(user_id) => validate_user_id(user_id)?,
-        BanTarget::Mac(mac) => validate_mac_address(mac)?,
+        BanTarget::Ip(ip) => validation::validate_ip_address(ip),
+        BanTarget::UserId(user_id) => validation::validate_user_id(user_id),
+        BanTarget::Mac(mac) => validation::validate_mac_address(mac),
     }
-    Ok(())
 }
 
 /// 验证封禁原因
+///
+/// 使用统一的 validation 模块进行验证。
 fn validate_ban_reason(reason: &str) -> Result<(), FlowGuardError> {
     if reason.is_empty() {
         return Err(FlowGuardError::ValidationError(
@@ -354,35 +370,89 @@ fn validate_ban_reason(reason: &str) -> Result<(), FlowGuardError> {
 }
 
 impl BanManager {
-    /// 创建新的BanManager实例
-    ///
-    /// # 参数
-    /// - `storage`: 封禁存储后端
-    /// - `config`: 配置（可选）
+    /// 创建 BanManagerBuilder 用于链式配置
     ///
     /// # 示例
     /// ```rust
     /// use limiteron::ban_manager::BanManager;
-    /// use limiteron::storage::MemoryStorage;
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let storage = Arc::new(MemoryStorage::new());
-    ///     let ban_manager = BanManager::new(storage, None).await.unwrap();
+    ///     let ban_manager = BanManager::builder()
+    ///         .build()
+    ///         .await
+    ///         .unwrap();
     /// }
     /// ```
-    pub async fn new(
+    pub fn builder() -> BanManagerBuilder {
+        BanManagerBuilder::new()
+    }
+
+    /// 使用依赖注入创建 BanManager 实例
+    ///
+    /// # 参数
+    /// - `storage`: 封禁存储后端
+    /// - `config`: 封禁管理器配置
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::ban_manager::{BanManager, BanManagerConfig};
+    /// use limiteron::storage::BanStorage;
+    /// use std::sync::Arc;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let storage: Arc<dyn BanStorage> = Arc::new(my_storage);
+    ///     let config = BanManagerConfig::default();
+    ///     let ban_manager = BanManager::with_dependencies(storage, config).await.unwrap();
+    /// }
+    /// ```
+    pub async fn with_dependencies(
         storage: Arc<dyn BanStorage>,
-        config: Option<BanManagerConfig>,
+        config: BanManagerConfig,
     ) -> Result<Self, FlowGuardError> {
-        let config = config.unwrap_or_default();
+        Self::with_dependencies_and_auth(storage, config, None).await
+    }
+
+    /// 使用依赖注入和授权提供者创建 BanManager 实例
+    ///
+    /// # 参数
+    /// - `storage`: 封禁存储后端
+    /// - `config`: 封禁管理器配置
+    /// - `authorization_provider`: 授权提供者（可选）
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::ban_manager::{BanManager, BanManagerConfig};
+    /// use limiteron::authorization::SimpleAuthorizationProvider;
+    /// use limiteron::storage::BanStorage;
+    /// use std::sync::Arc;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let storage: Arc<dyn BanStorage> = Arc::new(my_storage);
+    ///     let config = BanManagerConfig::default();
+    ///     let auth_provider = Arc::new(SimpleAuthorizationProvider::new(vec!["admin".to_string()]));
+    ///     let ban_manager = BanManager::with_dependencies_and_auth(
+    ///         storage,
+    ///         config,
+    ///         Some(auth_provider),
+    ///     ).await.unwrap();
+    /// }
+    /// ```
+    pub async fn with_dependencies_and_auth(
+        storage: Arc<dyn BanStorage>,
+        config: BanManagerConfig,
+        authorization_provider: Option<Arc<dyn AuthorizationProvider>>,
+    ) -> Result<Self, FlowGuardError> {
         let config = Arc::new(RwLock::new(config));
 
         let ban_manager = Self {
             storage,
             config,
             auto_unban_handle: Arc::new(RwLock::new(None)),
+            authorization_provider,
         };
 
         // 启动自动解封任务
@@ -403,6 +473,11 @@ impl BanManager {
         let interval_secs = config.auto_unban_interval;
         drop(config);
 
+        let mut handle_write = self.auto_unban_handle.write().await;
+        if handle_write.is_some() {
+            return; // 任务已在运行
+        }
+
         let handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(StdDuration::from_secs(interval_secs));
             loop {
@@ -410,21 +485,15 @@ impl BanManager {
                 debug!("Running auto-unban task");
 
                 // 清理过期封禁
-                #[cfg(feature = "postgres")]
-                if let Some(storage) = storage
-                    .clone()
-                    .as_any()
-                    .downcast_ref::<crate::db_storage::DbStorage>()
-                {
-                    #[cfg(feature = "postgres")]
-                    if let Err(e) = storage.cleanup_expired_bans().await {
-                        error!("Auto-unban task failed: {}", e);
-                    }
+                // 注：过期清理需要特定的存储实现
+                // 当前使用BanStorage trait的cleanup_expired_bans方法
+                if let Err(e) = storage.cleanup_expired_bans().await {
+                    error!("Auto-unban task failed: {}", e);
                 }
             }
         });
 
-        *self.auto_unban_handle.write().await = Some(handle);
+        *handle_write = Some(handle);
         info!("Auto-unban task started (interval: {}s)", interval_secs);
     }
 
@@ -451,7 +520,6 @@ impl BanManager {
     /// - 第三次违规：封禁30分钟
     /// - 第四次及以上：封禁2小时
     /// - 最大封禁时长：24小时
-    #[instrument(skip(self))]
     pub async fn calculate_ban_duration(&self, ban_times: u32) -> StdDuration {
         let config = self.config.read().await;
         let duration_secs = match ban_times {
@@ -483,7 +551,11 @@ impl BanManager {
     ///
     /// # 返回
     /// - 封禁详情
-    #[instrument(skip(self, metadata))]
+    ///
+    /// # 授权检查
+    /// 如果设置了授权提供者，会先检查操作者是否有权限执行此操作。
+    /// 对于手动封禁（`BanSource::Manual`），操作者从 `source` 中提取。
+    /// 对于自动封禁（`BanSource::Auto`），跳过授权检查。
     pub async fn create_ban(
         &self,
         target: BanTarget,
@@ -492,6 +564,14 @@ impl BanManager {
         metadata: serde_json::Value,
         duration: Option<StdDuration>,
     ) -> Result<BanDetail, FlowGuardError> {
+        // 授权检查：仅对手动封禁进行检查
+        if let (Some(provider), BanSource::Manual { ref operator }) =
+            (&self.authorization_provider, &source)
+        {
+            self.check_authorization(provider, "create_ban", operator, &target)
+                .await?;
+        }
+
         // 输入验证
         validate_ban_target(&target)?;
         validate_ban_reason(&reason)?;
@@ -508,22 +588,13 @@ impl BanManager {
         // 计算封禁时长
         let duration = match duration {
             Some(d) => d,
-            None => {
-                // 使用默认配置计算
-                let config = self.config.read().await;
-                let duration_secs = match ban_times {
-                    1 => config.backoff.first_duration,
-                    2 => config.backoff.second_duration,
-                    3 => config.backoff.third_duration,
-                    _ => config.backoff.fourth_duration,
-                };
-                let duration_secs = duration_secs.min(config.backoff.max_duration);
-                StdDuration::from_secs(duration_secs)
-            }
+            None => self.calculate_ban_duration(ban_times).await,
         };
 
         let now = Utc::now();
-        let expires_at = now + Duration::from_std(duration).unwrap();
+        let expires_at = now
+            + Duration::from_std(duration)
+                .map_err(|e| FlowGuardError::TimeError(format!("Invalid duration: {}", e)))?;
         let is_manual = matches!(source, BanSource::Manual { .. });
 
         let record = BanRecord {
@@ -570,7 +641,6 @@ impl BanManager {
     ///
     /// # 返回
     /// - 封禁详情（如果存在）
-    #[instrument(skip(self))]
     pub async fn read_ban(&self, target: &BanTarget) -> Result<Option<BanDetail>, FlowGuardError> {
         debug!("Reading ban: target={:?}", target);
 
@@ -589,7 +659,6 @@ impl BanManager {
     ///
     /// # 返回
     /// - 更新后的封禁详情
-    #[instrument(skip(self))]
     pub async fn update_ban(
         &self,
         target: &BanTarget,
@@ -602,11 +671,12 @@ impl BanManager {
         // 获取当前封禁记录
         let current_record = self.storage.is_banned(target).await?;
 
-        if current_record.is_none() {
-            return Ok(None);
-        }
+        let current_record = match current_record {
+            Some(record) => record,
+            None => return Ok(None),
+        };
 
-        let mut record = current_record.unwrap();
+        let mut record = current_record;
         let now = Utc::now();
 
         // 更新字段
@@ -616,7 +686,9 @@ impl BanManager {
 
         if let Some(new_duration) = duration {
             record.duration = new_duration;
-            record.expires_at = now + Duration::from_std(new_duration).unwrap();
+            record.expires_at = now
+                + Duration::from_std(new_duration)
+                    .map_err(|e| FlowGuardError::TimeError(format!("Invalid duration: {}", e)))?;
         }
 
         // 保存更新后的记录
@@ -641,12 +713,20 @@ impl BanManager {
     ///
     /// # 返回
     /// - 是否成功解封
-    #[instrument(skip(self))]
+    ///
+    /// # 授权检查
+    /// 如果设置了授权提供者，会先检查操作者是否有权限执行此操作。
     pub async fn delete_ban(
         &self,
         target: &BanTarget,
         unbanned_by: String,
     ) -> Result<bool, FlowGuardError> {
+        // 授权检查
+        if let Some(provider) = &self.authorization_provider {
+            self.check_authorization(provider, "remove_ban", &unbanned_by, target)
+                .await?;
+        }
+
         info!(
             "Deleting ban: target={}, unbanned_by={}",
             crate::log_redaction::redact_ban_target(target),
@@ -664,44 +744,8 @@ impl BanManager {
             return Ok(false);
         }
 
-        // 如果是PostgreSQL存储，更新unbanned_at和unbanned_by字段
-        #[cfg(feature = "postgres")]
-        if let Some(storage) = self
-            .storage
-            .as_any()
-            .downcast_ref::<crate::db_storage::DbStorage>()
-        {
-            let (target_type, target_value) = match target {
-                BanTarget::Ip(ip) => ("ip", ip.as_str()),
-                BanTarget::UserId(user_id) => ("user", user_id.as_str()),
-                BanTarget::Mac(mac) => ("mac", mac.as_str()),
-            };
-
-            sqlx::query(
-                r#"
-                UPDATE ban_records
-                SET unbanned_at = now(),
-                    unbanned_by = $1
-                WHERE target_type = $2
-                  AND target_value = $3
-                  AND expires_at > now()
-                  AND unbanned_at IS NULL
-                "#,
-            )
-            .bind(&unbanned_by)
-            .bind(target_type)
-            .bind(target_value)
-            .execute(storage.pool())
-            .await
-            .map_err(|e| {
-                FlowGuardError::StorageError(crate::error::StorageError::QueryError(e.to_string()))
-            })?;
-        }
-
-        // 无论何种存储，都需要从活动封禁中移除
-        // 对于PostgreSQL，remove_ban 也会更新 unbanned_at (如果实现正确)
-        // 但这里我们已经上面处理了Postgres的特殊逻辑(记录解封人)，
-        // 为了兼容 Memory 和 Redis，必须调用 remove_ban
+        // 移除封禁记录
+        // 注：对于PostgreSQL，如果需要记录unbanned_by，需要在BanStorage实现中处理
         self.storage.remove_ban(target).await?;
 
         info!("Ban deleted successfully: target={:?}", target);
@@ -711,179 +755,78 @@ impl BanManager {
     /// 列出封禁记录
     ///
     /// # 参数
-    /// - `filter`: 过滤条件
+    /// - `filter`: 过滤条件，支持目标类型过滤、活跃封禁过滤、手动封禁过滤、时间范围过滤和分页
     ///
     /// # 返回
-    /// - 封禁记录列表
-    #[instrument(skip(self))]
+    /// - 封禁记录列表（BanDetail 形式）
     pub async fn list_bans(&self, filter: BanFilter) -> Result<Vec<BanDetail>, FlowGuardError> {
         debug!("Listing bans with filter: {:?}", filter);
 
-        // 如果是PostgreSQL存储，使用数据库查询
-        #[cfg(feature = "postgres")]
-        if let Some(storage) = self
-            .storage
-            .as_any()
-            .downcast_ref::<crate::db_storage::DbStorage>()
-        {
-            let mut conditions = Vec::new();
-            let mut params: Vec<String> = Vec::new();
+        // 解析分页参数，使用默认值
+        let offset = filter.offset.unwrap_or(0).min(MAX_PAGINATION_LIMIT);
+        let limit = filter.limit.unwrap_or(DEFAULT_PAGINATION_LIMIT).min(MAX_PAGINATION_LIMIT);
 
-            // 目标类型过滤（使用参数化查询）
-            if let Some(target_type) = &filter.target_type {
-                // 验证目标类型
-                if !["ip", "user", "mac"].contains(&target_type.to_lowercase().as_str()) {
-                    return Err(FlowGuardError::ConfigError("无效的目标类型".to_string()));
+        // 获取封禁记录（使用新的 list_bans 方法）
+        let active_only = filter.active_only || filter.start_time.is_some() || filter.end_time.is_some();
+        let records = self.storage.list_bans(active_only, offset, limit).await?;
+
+        // 应用目标类型过滤
+        let filtered: Vec<_> = records
+            .into_iter()
+            .filter(|record| {
+                // 目标类型过滤
+                if let Some(ref target_type) = filter.target_type {
+                    let matches = match (target_type.to_lowercase().as_str(), &record.target) {
+                        ("ip", BanTarget::Ip(_)) => true,
+                        ("user", BanTarget::UserId(_)) => true,
+                        ("mac", BanTarget::Mac(_)) => true,
+                        _ => false,
+                    };
+                    if !matches {
+                        return false;
+                    }
                 }
-                conditions.push("target_type = $1".to_string());
-                params.push(target_type.to_lowercase());
-            }
 
-            // 目标值过滤（使用参数化查询，防止 SQL 注入）
-            if let Some(target_value) = &filter.target_value {
-                // 验证目标值长度
-                if target_value.len() > 255 {
-                    return Err(FlowGuardError::ConfigError(
-                        "目标值长度超过限制".to_string(),
-                    ));
+                // 目标值过滤（模糊匹配）
+                if let Some(ref target_value) = filter.target_value {
+                    let value_matches = match &record.target {
+                        BanTarget::Ip(ip) => ip.contains(target_value),
+                        BanTarget::UserId(uid) => uid.contains(target_value),
+                        BanTarget::Mac(mac) => mac.contains(target_value),
+                    };
+                    if !value_matches {
+                        return false;
+                    }
                 }
-                // 使用参数化查询，LIKE 模式在服务器端添加
-                let param_index = conditions.len() + 1;
-                // 添加 ESCAPE 子句明确指定转义字符
-                conditions.push(format!("target_value LIKE ${} ESCAPE '\\'", param_index));
 
-                // 转义 LIKE 通配符，防止 SQL 注入
-                // 先转义反斜杠（必须在其他转义之前）
-                let escaped_value = target_value
-                    .replace('\\', "\\\\")
-                    .replace('%', "\\%")
-                    .replace('_', "\\_");
-                params.push(format!("%{}%", escaped_value));
-            }
+                // 手动封禁过滤
+                if filter.manual_only && !record.is_manual {
+                    return false;
+                }
 
-            // 只显示活跃封禁
-            if filter.active_only {
-                conditions.push("expires_at > now() AND unbanned_at IS NULL".to_string());
-            }
+                // 时间范围过滤
+                if let Some(start) = filter.start_time {
+                    if record.banned_at < start {
+                        return false;
+                    }
+                }
+                if let Some(end) = filter.end_time {
+                    if record.banned_at > end {
+                        return false;
+                    }
+                }
 
-            // 只显示手动封禁
-            if filter.manual_only {
-                conditions.push("is_manual = true".to_string());
-            }
+                true
+            })
+            .collect();
 
-            // 构建基础查询
-            let mut query = String::from(
-                "SELECT id, target_type, target_value, reason, ban_times, duration_secs, ",
-            );
-            query.push_str("banned_at, expires_at, is_manual, unbanned_at, unbanned_by ");
-            query.push_str("FROM ban_records");
+        // 转换为 BanDetail
+        let bans = filtered
+            .into_iter()
+            .map(BanDetail::from)
+            .collect();
 
-            // 添加条件
-            if !conditions.is_empty() {
-                query.push_str(" WHERE ");
-                query.push_str(&conditions.join(" AND "));
-            }
-
-            // 排序和分页（使用参数化查询）
-            query.push_str(" ORDER BY banned_at DESC LIMIT $1 OFFSET $2");
-
-            let limit = filter
-                .limit
-                .unwrap_or(DEFAULT_PAGINATION_LIMIT)
-                .min(MAX_PAGINATION_LIMIT);
-            let offset = filter.offset.unwrap_or(0);
-
-            // 执行参数化查询
-            let mut query_builder = sqlx::query_as::<
-                _,
-                (
-                    uuid::Uuid,
-                    String,
-                    String,
-                    String,
-                    i32,
-                    i64,
-                    chrono::DateTime<chrono::Utc>,
-                    chrono::DateTime<chrono::Utc>,
-                    bool,
-                    Option<chrono::DateTime<chrono::Utc>>,
-                    Option<String>,
-                ),
-            >(&query);
-
-            // 绑定分页参数
-            query_builder = query_builder.bind(limit as i64).bind(offset as i64);
-
-            // 绑定条件参数
-            for param in &params {
-                query_builder = query_builder.bind(param);
-            }
-
-            // 执行查询
-            let results = query_builder.fetch_all(storage.pool()).await.map_err(|e| {
-                error!("查询封禁记录失败: {}", e);
-                FlowGuardError::StorageError(crate::error::StorageError::QueryError(e.to_string()))
-            })?;
-
-            // 转换结果
-            let bans: Vec<BanDetail> = results
-                .into_iter()
-                .map(
-                    |(
-                        id,
-                        target_type,
-                        target_value,
-                        reason,
-                        ban_times,
-                        duration_secs,
-                        banned_at,
-                        expires_at,
-                        is_manual,
-                        unbanned_at,
-                        unbanned_by,
-                    )| {
-                        let target = match target_type.as_str() {
-                            "ip" => BanTarget::Ip(target_value),
-                            "user" => BanTarget::UserId(target_value),
-                            "mac" => BanTarget::Mac(target_value),
-                            _ => BanTarget::UserId(target_value), // 默认处理
-                        };
-
-                        let unbanned_by_clone = unbanned_by.clone();
-
-                        BanDetail {
-                            id: id.to_string(),
-                            target,
-                            ban_times: ban_times as u32,
-                            duration: std::time::Duration::from_secs(duration_secs as u64),
-                            banned_at,
-                            expires_at,
-                            is_manual,
-                            reason,
-                            source: if is_manual {
-                                BanSource::Manual {
-                                    operator: unbanned_by_clone
-                                        .unwrap_or_else(|| "unknown".to_string()),
-                                }
-                            } else {
-                                BanSource::Auto
-                            },
-                            metadata: serde_json::json!({}),
-                            created_at: banned_at,
-                            updated_at: banned_at,
-                            unbanned_at,
-                            unbanned_by,
-                        }
-                    },
-                )
-                .collect();
-
-            debug!("Found {} bans", bans.len());
-            Ok(bans)
-        } else {
-            // 对于内存存储，返回空列表（简化实现）
-            Ok(Vec::new())
-        }
+        Ok(bans)
     }
 
     /// Checking ban priority（并行版本，支持提前退出）
@@ -891,7 +834,6 @@ impl BanManager {
     /// # 性能优化
     /// - 使用并行检查，预期延迟降低 50-70%
     /// - 支持提前退出，IP 封禁优先检查
-    #[instrument(skip(self, targets))]
     pub async fn check_ban_priority(
         &self,
         targets: &[BanTarget],
@@ -908,8 +850,7 @@ impl BanManager {
         // 优先检查 IP 封禁（最高优先级），支持提前退出
         if let Some(ip_target) = targets.iter().find(|t| matches!(t, BanTarget::Ip(_))) {
             debug!("Checking IP ban first for early exit");
-            let storage = self.storage.clone();
-            if let Some(record) = storage.is_banned(ip_target).await? {
+            if let Some(record) = self.storage.is_banned(ip_target).await? {
                 debug!("Found IP ban (highest priority): target={:?}", ip_target);
                 return Ok(Some(BanDetail::from(record)));
             }
@@ -938,10 +879,7 @@ impl BanManager {
         #[cfg(feature = "parallel-checker")]
         match futures::future::select_all(check_futures).await {
             (Some((priority, detail)), _, _) => {
-                debug!(
-                    "Found ban with priority {:?}: target={:?}",
-                    priority, detail.target
-                );
+                self.log_ban_found(priority, &detail);
                 Ok(Some(detail))
             }
             _ => Ok(None),
@@ -952,15 +890,20 @@ impl BanManager {
             // 顺序检查（当 parallel-checker 未启用时）
             for future in check_futures {
                 if let Some((priority, detail)) = future.await {
-                    debug!(
-                        "Found ban with priority {:?}: target={:?}",
-                        priority, detail.target
-                    );
+                    self.log_ban_found(priority, &detail);
                     return Ok(Some(detail));
                 }
             }
             Ok(None)
         }
+    }
+
+    /// 记录找到封禁的日志（内部辅助方法）
+    fn log_ban_found(&self, priority: BanPriority, detail: &BanDetail) {
+        debug!(
+            "Found ban with priority {:?}: target={:?}",
+            priority, detail.target
+        );
     }
 
     /// 获取配置
@@ -1030,11 +973,36 @@ impl BanManager {
     pub async fn get_history(
         &self,
         target: &BanTarget,
-    ) -> Result<Option<crate::storage::BanHistory>, FlowGuardError> {
+    ) -> Result<Option<crate::BanHistory>, FlowGuardError> {
         self.storage
             .get_history(target)
             .await
             .map_err(FlowGuardError::StorageError)
+    }
+
+    /// 检查授权（内部辅助方法）
+    ///
+    /// 统一处理授权检查逻辑，避免重复的 target 转换代码。
+    async fn check_authorization(
+        &self,
+        provider: &Arc<dyn AuthorizationProvider>,
+        action: &str,
+        operator: &str,
+        target: &BanTarget,
+    ) -> Result<(), FlowGuardError> {
+        let target_str = match target {
+            BanTarget::Ip(ip) => ip.clone(),
+            BanTarget::UserId(user_id) => user_id.clone(),
+            BanTarget::Mac(mac) => mac.clone(),
+        };
+        provider
+            .check_authorization(action, operator, &target_str)
+            .await?;
+        debug!(
+            "Authorization passed for {}: operator={}, target={}",
+            action, operator, target_str
+        );
+        Ok(())
     }
 }
 
@@ -1045,7 +1013,78 @@ impl BanManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::MemoryStorage;
+    use crate::storage_trait::{BanHistory, BanStorage};
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    // Simple in-memory ban storage for testing
+    struct TestBanStorage {
+        bans: Arc<RwLock<Vec<(BanTarget, BanRecord)>>>,
+    }
+
+    impl TestBanStorage {
+        fn new() -> Self {
+            Self {
+                bans: Arc::new(RwLock::new(Vec::new())),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl BanStorage for TestBanStorage {
+        async fn is_banned(
+            &self,
+            _target: &BanTarget,
+        ) -> Result<Option<BanRecord>, crate::error::StorageError> {
+            Ok(None)
+        }
+
+        async fn save(&self, _record: &BanRecord) -> Result<(), crate::error::StorageError> {
+            Ok(())
+        }
+
+        async fn get_history(
+            &self,
+            _target: &BanTarget,
+        ) -> Result<Option<BanHistory>, crate::error::StorageError> {
+            Ok(None)
+        }
+
+        async fn increment_ban_times(
+            &self,
+            _target: &BanTarget,
+        ) -> Result<u64, crate::error::StorageError> {
+            Ok(0)
+        }
+
+        async fn get_ban_times(
+            &self,
+            _target: &BanTarget,
+        ) -> Result<u64, crate::error::StorageError> {
+            Ok(0)
+        }
+
+        async fn remove_ban(&self, _target: &BanTarget) -> Result<(), crate::error::StorageError> {
+            Ok(())
+        }
+
+        async fn cleanup_expired_bans(&self) -> Result<u64, crate::error::StorageError> {
+            Ok(0)
+        }
+
+        async fn list_bans(
+            &self,
+            _active_only: bool,
+            _offset: u64,
+            _limit: u64,
+        ) -> Result<Vec<BanRecord>, crate::error::StorageError> {
+            Ok(vec![])
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
 
     #[test]
     fn test_ban_priority_from_target() {
@@ -1078,8 +1117,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_calculate_ban_duration() {
-        let storage = Arc::new(MemoryStorage::new());
-        let ban_manager = BanManager::new(storage, None).await.unwrap();
+        let storage = Arc::new(TestBanStorage::new());
+        let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap();
 
         // 第一次违规：1分钟
         let duration = ban_manager.calculate_ban_duration(1).await;
@@ -1104,8 +1145,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_ban_auto() {
-        let storage = Arc::new(MemoryStorage::new());
-        let ban_manager = BanManager::new(storage, None).await.unwrap();
+        let storage = Arc::new(TestBanStorage::new());
+        let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap();
 
         let target = BanTarget::UserId("user123".to_string());
         let reason = "Excessive requests".to_string();
@@ -1126,8 +1169,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_ban_manual() {
-        let storage = Arc::new(MemoryStorage::new());
-        let ban_manager = BanManager::new(storage, None).await.unwrap();
+        let storage = Arc::new(TestBanStorage::new());
+        let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap();
 
         let target = BanTarget::Ip("192.168.1.1".to_string());
         let reason = "Manual ban".to_string();
@@ -1157,8 +1202,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_ban_not_found() {
-        let storage = Arc::new(MemoryStorage::new());
-        let ban_manager = BanManager::new(storage, None).await.unwrap();
+        let storage = Arc::new(TestBanStorage::new());
+        let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap();
 
         let target = BanTarget::UserId("nonexistent".to_string());
         let result = ban_manager.read_ban(&target).await;
@@ -1169,8 +1216,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_ban_not_found() {
-        let storage = Arc::new(MemoryStorage::new());
-        let ban_manager = BanManager::new(storage, None).await.unwrap();
+        let storage = Arc::new(TestBanStorage::new());
+        let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap();
 
         let target = BanTarget::UserId("nonexistent".to_string());
         let result = ban_manager
@@ -1183,8 +1232,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_ban_not_found() {
-        let storage = Arc::new(MemoryStorage::new());
-        let ban_manager = BanManager::new(storage, None).await.unwrap();
+        let storage = Arc::new(TestBanStorage::new());
+        let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap();
 
         let target = BanTarget::UserId("nonexistent".to_string());
         let result = ban_manager.delete_ban(&target, "admin".to_string()).await;
@@ -1195,8 +1246,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_bans_empty() {
-        let storage = Arc::new(MemoryStorage::new());
-        let ban_manager = BanManager::new(storage, None).await.unwrap();
+        let storage = Arc::new(TestBanStorage::new());
+        let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap();
 
         let filter = BanFilter::default();
         let result: Result<Vec<crate::ban_manager::BanDetail>, crate::error::FlowGuardError> =
@@ -1208,8 +1261,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_ban_priority_empty() {
-        let storage = Arc::new(MemoryStorage::new());
-        let ban_manager = BanManager::new(storage, None).await.unwrap();
+        let storage = Arc::new(TestBanStorage::new());
+        let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap();
 
         let targets = vec![
             BanTarget::Ip("192.168.1.1".to_string()),
@@ -1224,8 +1279,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_config() {
-        let storage = Arc::new(MemoryStorage::new());
-        let ban_manager = BanManager::new(storage, None).await.unwrap();
+        let storage = Arc::new(TestBanStorage::new());
+        let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap();
 
         let config = ban_manager.get_config().await;
         assert!(config.enable_auto_unban);
@@ -1234,8 +1291,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_config() {
-        let storage = Arc::new(MemoryStorage::new());
-        let ban_manager = BanManager::new(storage, None).await.unwrap();
+        let storage = Arc::new(TestBanStorage::new());
+        let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap();
 
         let new_config = BanManagerConfig {
             backoff: BackoffConfig::default(),
@@ -1253,8 +1312,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_stop_auto_unban_task() {
-        let storage = Arc::new(MemoryStorage::new());
-        let ban_manager = BanManager::new(storage, None).await.unwrap();
+        let storage = Arc::new(TestBanStorage::new());
+        let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap();
 
         // 停止任务应该不会失败
         ban_manager.stop_auto_unban_task().await;
@@ -1286,5 +1347,221 @@ mod tests {
             operator: "admin".to_string(),
         };
         assert_eq!(source3, source4);
+    }
+
+    // ========================================================================
+    // 授权检查测试
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_create_ban_with_authorization_success() {
+        use crate::authorization::SimpleAuthorizationProvider;
+
+        let storage = Arc::new(TestBanStorage::new());
+        let auth_provider = Arc::new(SimpleAuthorizationProvider::new(vec!["admin".to_string()]));
+
+        let ban_manager = BanManager::builder()
+            .with_storage(storage)
+            .with_authorization_provider(auth_provider)
+            .build()
+            .await
+            .unwrap();
+
+        let target = BanTarget::Ip("192.168.1.1".to_string());
+        let source = BanSource::Manual {
+            operator: "admin".to_string(),
+        };
+
+        // admin 角色应该可以创建封禁
+        let result = ban_manager
+            .create_ban(
+                target,
+                "Test ban".to_string(),
+                source,
+                serde_json::json!({}),
+                None,
+            )
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_ban_with_authorization_failure() {
+        use crate::authorization::SimpleAuthorizationProvider;
+
+        let storage = Arc::new(TestBanStorage::new());
+        let auth_provider = Arc::new(SimpleAuthorizationProvider::new(vec!["admin".to_string()]));
+
+        let ban_manager = BanManager::builder()
+            .with_storage(storage)
+            .with_authorization_provider(auth_provider)
+            .build()
+            .await
+            .unwrap();
+
+        let target = BanTarget::Ip("192.168.1.1".to_string());
+        let source = BanSource::Manual {
+            operator: "unauthorized_user".to_string(),
+        };
+
+        // 未授权用户应该被拒绝
+        let result = ban_manager
+            .create_ban(
+                target,
+                "Test ban".to_string(),
+                source,
+                serde_json::json!({}),
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        match result {
+            Err(FlowGuardError::AuthorizationError(msg)) => {
+                assert!(msg.contains("unauthorized_user"));
+            }
+            _ => panic!("期望 AuthorizationError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_ban_auto_bypasses_authorization() {
+        use crate::authorization::DenyAllAuthorizationProvider;
+
+        let storage = Arc::new(TestBanStorage::new());
+        // 使用拒绝所有操作的授权提供者
+        let auth_provider = Arc::new(DenyAllAuthorizationProvider);
+
+        let ban_manager = BanManager::builder()
+            .with_storage(storage)
+            .with_authorization_provider(auth_provider)
+            .build()
+            .await
+            .unwrap();
+
+        let target = BanTarget::Ip("192.168.1.1".to_string());
+        let source = BanSource::Auto;
+
+        // 自动封禁应该绕过授权检查
+        let result = ban_manager
+            .create_ban(
+                target,
+                "Auto ban".to_string(),
+                source,
+                serde_json::json!({}),
+                None,
+            )
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_delete_ban_with_authorization_success() {
+        use crate::authorization::SimpleAuthorizationProvider;
+
+        let storage = Arc::new(TestBanStorage::new());
+        let auth_provider = Arc::new(SimpleAuthorizationProvider::new(vec!["admin".to_string()]));
+
+        let ban_manager = BanManager::builder()
+            .with_storage(storage)
+            .with_authorization_provider(auth_provider)
+            .build()
+            .await
+            .unwrap();
+
+        let target = BanTarget::Ip("192.168.1.1".to_string());
+
+        // admin 角色应该可以删除封禁
+        let result = ban_manager.delete_ban(&target, "admin".to_string()).await;
+
+        // 即使封禁不存在，授权检查也应该通过
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_delete_ban_with_authorization_failure() {
+        use crate::authorization::SimpleAuthorizationProvider;
+
+        let storage = Arc::new(TestBanStorage::new());
+        let auth_provider = Arc::new(SimpleAuthorizationProvider::new(vec!["admin".to_string()]));
+
+        let ban_manager = BanManager::builder()
+            .with_storage(storage)
+            .with_authorization_provider(auth_provider)
+            .build()
+            .await
+            .unwrap();
+
+        let target = BanTarget::Ip("192.168.1.1".to_string());
+
+        // 未授权用户应该被拒绝
+        let result = ban_manager
+            .delete_ban(&target, "unauthorized_user".to_string())
+            .await;
+
+        assert!(result.is_err());
+        match result {
+            Err(FlowGuardError::AuthorizationError(msg)) => {
+                assert!(msg.contains("unauthorized_user"));
+            }
+            _ => panic!("期望 AuthorizationError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_no_authorization_provider_allows_all() {
+        let storage = Arc::new(TestBanStorage::new());
+
+        // 不设置授权提供者
+        let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap();
+
+        let target = BanTarget::Ip("192.168.1.1".to_string());
+        let source = BanSource::Manual {
+            operator: "anyone".to_string(),
+        };
+
+        // 没有授权提供者时，所有操作都应该被允许
+        let result = ban_manager
+            .create_ban(
+                target,
+                "Test ban".to_string(),
+                source,
+                serde_json::json!({}),
+                None,
+            )
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_ban_manager_builder_with_authorization() {
+        use crate::authorization::SimpleAuthorizationProvider;
+
+        let storage = Arc::new(TestBanStorage::new());
+        let auth_provider = Arc::new(SimpleAuthorizationProvider::new(vec![
+            "admin".to_string(),
+            "moderator".to_string(),
+        ]));
+
+        let ban_manager = BanManager::builder()
+            .with_storage(storage)
+            .with_config(BanManagerConfig::default())
+            .with_authorization_provider(auth_provider)
+            .build()
+            .await
+            .unwrap();
+
+        let target = BanTarget::UserId("user123".to_string());
+
+        // moderator 应该可以操作
+        let result = ban_manager
+            .delete_ban(&target, "moderator".to_string())
+            .await;
+        assert!(result.is_ok());
     }
 }

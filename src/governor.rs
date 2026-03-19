@@ -6,37 +6,35 @@
 //!
 //! 流量控制的核心控制器，重构后具有更好的模块化设计：
 //! - 使用专门的并行封禁检查器提高性能
+//! - 使用 RuleBuilder 构建规则和决策链
+//! - 使用 StatsManager 管理统计信息
+//! - 集成 L1 本地缓存层提高热点访问性能
 //! - 简化核心逻辑，提高可维护性
 //! - 保持向后兼容性
 
-use crate::config::{
-    ConfigChangeRecord, ConfigHistory, FlowControlConfig, LimiterConfig, Matcher as ConfigMatcher,
-};
-use crate::constants::{SECONDS_PER_HOUR, SECONDS_PER_MINUTE};
-use crate::decision_chain::{DecisionChain, DecisionNode};
-#[cfg(feature = "ban-manager")]
-use crate::error::BanInfo;
+use crate::config::{ConfigChangeRecord, ConfigHistory, FlowControlConfig};
+use crate::decision_chain::DecisionChain;
 use crate::error::Decision;
 use crate::error::FlowGuardError;
-#[cfg(feature = "fallback")]
-use crate::fallback::FallbackManager;
-use crate::limiters::{
-    ConcurrencyLimiter, FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter,
-};
+use crate::l1_cache::{CacheableDecision, L1Cache, L1CacheConfig, RateLimitCacheKey};
 use crate::log_redaction::{redact_ip, redact_user_id};
-use crate::matchers::{
-    CompositeCondition, ConditionEvaluator, IdentifierExtractor, IpRange, LogicalOperator,
-    MatchCondition, RequestContext, Rule as MatcherRule, RuleMatcher,
-};
-use crate::storage::{BanStorage, Storage};
+use crate::matchers::{IdentifierExtractor, RequestContext, RuleMatcher};
+use crate::rule_builder::RuleBuilder;
+use crate::stats_manager::{StatsManager, StatsSnapshot};
+// storage module removed as part of direct-inheritance refactoring
+// Use dbnexus traits directly instead
+// Re-exported from storage_trait module for compatibility
+#[cfg(all(feature = "ban-manager", not(feature = "parallel-checker")))]
+use crate::error::BanInfo;
+#[cfg(all(feature = "ban-manager", not(feature = "parallel-checker")))]
+use crate::storage_trait::BanTarget;
+use crate::storage_trait::{BanStorage, Storage};
 use dashmap::DashMap;
-#[cfg(feature = "fallback")]
-use oxcache::Cache;
-use std::sync::atomic::{AtomicU64, Ordering};
+use log::{debug, info, trace};
+#[cfg(feature = "parallel-checker")]
+use log::warn;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{debug, info, instrument, trace, warn};
 
 // Conditional imports for optional features
 #[cfg(feature = "audit-log")]
@@ -44,11 +42,9 @@ use crate::audit_log::AuditLogger;
 #[cfg(feature = "ban-manager")]
 use crate::ban_manager::BanManager;
 #[cfg(feature = "circuit-breaker")]
-use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
-#[cfg(feature = "parallel-checker")]
+use crate::circuit_breaker::CircuitBreaker;
+#[cfg(any(feature = "parallel-checker", feature = "ban-manager"))]
 use crate::matchers::Identifier;
-#[cfg(feature = "parallel-checker")]
-use crate::storage::BanTarget;
 #[cfg(feature = "monitoring")]
 use crate::telemetry::Metrics;
 #[cfg(feature = "telemetry")]
@@ -57,6 +53,8 @@ use crate::telemetry::Tracer;
 use crate::BanSource;
 
 /// Governor 统计信息
+///
+/// 保持向后兼容性的统计信息结构体。
 #[derive(Debug, Clone, Default)]
 pub struct GovernorStats {
     /// 总请求数
@@ -71,6 +69,19 @@ pub struct GovernorStats {
     pub error_count: u64,
     /// 最后更新时间
     pub last_updated: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl From<StatsSnapshot> for GovernorStats {
+    fn from(snapshot: StatsSnapshot) -> Self {
+        Self {
+            total_requests: snapshot.total_requests,
+            allowed_requests: snapshot.allowed_requests,
+            rejected_requests: snapshot.rejected_requests,
+            banned_requests: snapshot.banned_requests,
+            error_count: snapshot.error_count,
+            last_updated: snapshot.last_updated,
+        }
+    }
 }
 
 /// Governor 主控制器
@@ -117,199 +128,354 @@ pub struct Governor {
     /// 配置历史记录
     config_history: Arc<RwLock<ConfigHistory>>,
 
-    // 统计计数器
-    total_requests: AtomicU64,
-    allowed_requests: AtomicU64,
-    rejected_requests: AtomicU64,
-    banned_requests: AtomicU64,
-    error_count: AtomicU64,
+    /// 统计管理器
+    stats: StatsManager,
+
+    /// L1 本地缓存（用于缓存热点限流结果）
+    l1_cache: L1Cache<CacheableDecision>,
+
+    /// 是否启用 L1 缓存
+    l1_cache_enabled: std::sync::atomic::AtomicBool,
+}
+
+/// Governor 构建器
+///
+/// 用于链式配置 Governor 实例。
+///
+/// # 示例
+///
+/// ```rust,no_run
+/// use limiteron::Governor;
+/// use limiteron::adapters::StorageFactory;
+/// use std::sync::Arc;
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+///     factory.initialize(None).await?;
+///     let storage: Arc<dyn limiteron::storage_trait::Storage> = factory.create_storage().await?;
+///     let ban_storage: Arc<dyn limiteron::storage_trait::BanStorage> = factory.create_ban_storage().await?;
+///
+///     let governor = Governor::builder()
+///         .with_storage(storage)
+///         .with_ban_storage(ban_storage)
+///         .build()
+///         .await
+///         .unwrap();
+///     Ok(())
+/// }
+/// ```
+#[derive(Clone, Default)]
+#[allow(dead_code)]
+#[allow(clippy::type_complexity)]
+pub struct GovernorBuilder {
+    config: Option<FlowControlConfig>,
+    storage: Option<Arc<dyn Storage>>,
+    ban_storage: Option<Arc<dyn BanStorage>>,
+    identifier_extractor: Option<Arc<dyn crate::matchers::IdentifierExtractor>>,
+    #[cfg(feature = "circuit-breaker")]
+    circuit_breaker: Option<Arc<CircuitBreaker>>,
+    #[cfg(feature = "audit-log")]
+    audit_logger: Option<Arc<crate::audit_log::AuditLogger>>,
+    #[cfg(feature = "monitoring")]
+    metrics: Option<Arc<Metrics>>,
+    #[cfg(feature = "telemetry")]
+    tracer: Option<Arc<Tracer>>,
+    #[cfg(feature = "parallel-checker")]
+    parallel_ban_checker: Option<Arc<crate::parallel_ban_checker::ParallelBanChecker>>,
+    /// L1 缓存配置
+    l1_cache_config: Option<L1CacheConfig>,
+    /// 是否启用 L1 缓存
+    l1_cache_enabled: bool,
+}
+
+impl GovernorBuilder {
+    /// 创建新的 GovernorBuilder
+    pub fn new() -> Self {
+        Self {
+            config: None,
+            storage: None,
+            ban_storage: None,
+            identifier_extractor: None,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+            #[cfg(feature = "audit-log")]
+            audit_logger: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
+            #[cfg(feature = "telemetry")]
+            tracer: None,
+            #[cfg(feature = "parallel-checker")]
+            parallel_ban_checker: None,
+            l1_cache_config: None,
+            l1_cache_enabled: true, // 默认启用 L1 缓存
+        }
+    }
+
+    /// 设置流量控制配置
+    pub fn with_config(mut self, config: FlowControlConfig) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    /// 设置存储后端
+    pub fn with_storage(mut self, storage: Arc<dyn Storage>) -> Self {
+        self.storage = Some(storage);
+        self
+    }
+
+    /// 设置封禁存储后端
+    pub fn with_ban_storage(mut self, ban_storage: Arc<dyn BanStorage>) -> Self {
+        self.ban_storage = Some(ban_storage);
+        self
+    }
+
+    /// 设置标识符提取器
+    pub fn with_identifier_extractor(
+        mut self,
+        extractor: Arc<dyn crate::matchers::IdentifierExtractor>,
+    ) -> Self {
+        self.identifier_extractor = Some(extractor);
+        self
+    }
+
+    /// 设置熔断器
+    #[cfg(feature = "circuit-breaker")]
+    pub fn with_circuit_breaker(mut self, circuit_breaker: Arc<CircuitBreaker>) -> Self {
+        self.circuit_breaker = Some(circuit_breaker);
+        self
+    }
+
+    /// 设置审计日志记录器
+    #[cfg(feature = "audit-log")]
+    pub fn with_audit_logger(mut self, audit_logger: Arc<crate::audit_log::AuditLogger>) -> Self {
+        self.audit_logger = Some(audit_logger);
+        self
+    }
+
+    /// 设置指标收集器
+    #[cfg(feature = "monitoring")]
+    pub fn with_metrics(mut self, metrics: Arc<Metrics>) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
+
+    /// 设置追踪器
+    #[cfg(feature = "telemetry")]
+    pub fn with_tracer(mut self, tracer: Arc<Tracer>) -> Self {
+        self.tracer = Some(tracer);
+        self
+    }
+
+    /// 设置 L1 缓存配置
+    pub fn with_l1_cache_config(mut self, config: L1CacheConfig) -> Self {
+        self.l1_cache_config = Some(config);
+        self
+    }
+
+    /// 启用或禁用 L1 缓存
+    pub fn with_l1_cache_enabled(mut self, enabled: bool) -> Self {
+        self.l1_cache_enabled = enabled;
+        self
+    }
+
+    /// 构建 Governor 实例
+    ///
+    /// # 返回
+    ///
+    /// * `Ok(Governor)` - 构建成功
+    /// * `Err(FlowGuardError)` - 构建失败（配置错误或依赖缺失）
+    ///
+    pub async fn build(self) -> Result<Governor, FlowGuardError> {
+        let config = self.config.unwrap_or_default();
+
+        // 校验配置
+        config.validate().map_err(FlowGuardError::ConfigError)?;
+
+        // 获取存储后端（必需依赖）
+        let storage = self
+            .storage
+            .ok_or_else(|| FlowGuardError::DependencyError("storage is required".to_string()))?;
+        let ban_storage = self.ban_storage.ok_or_else(|| {
+            FlowGuardError::DependencyError("ban_storage is required".to_string())
+        })?;
+
+        // 创建封禁管理器
+        #[cfg(feature = "ban-manager")]
+        let ban_manager = {
+            use crate::ban_manager::{BanManager, BanManagerConfig};
+            let config = BanManagerConfig::default();
+            BanManager::with_dependencies(ban_storage.clone(), config)
+                .await
+                .map(Arc::new)?
+        };
+
+        // 创建并行封禁检查器
+        #[cfg(feature = "parallel-checker")]
+        let parallel_ban_checker = self.parallel_ban_checker.unwrap_or_else(|| {
+            #[cfg(feature = "ban-manager")]
+            {
+                Arc::new(crate::parallel_ban_checker::ParallelBanChecker::new(
+                    ban_manager.clone(),
+                ))
+            }
+            #[cfg(not(feature = "ban-manager"))]
+            {
+                panic!("parallel-checker feature requires ban-manager feature")
+            }
+        });
+
+        // 创建标识符提取器（如果未提供）
+        let identifier_extractor = if let Some(extractor) = self.identifier_extractor {
+            extractor
+        } else {
+            Arc::new(
+                crate::matchers::CompositeExtractor::builder()
+                    .add_extractor(Box::new(crate::matchers::UserIdExtractor::from_header(
+                        "X-User-Id",
+                    )))
+                    .add_extractor(Box::new(crate::matchers::IpExtractor::builder().build()))
+                    .add_extractor(Box::new(crate::matchers::ApiKeyExtractor::from_header(
+                        "X-API-Key",
+                    )))
+                    .build(),
+            )
+        };
+
+        // 使用 RuleBuilder 创建规则匹配器
+        let rules = RuleBuilder::build_rules(&config)?;
+        let rule_matcher = Arc::new(tokio::sync::RwLock::new(
+            crate::matchers::RuleMatcher::with_dependencies(rules),
+        ));
+
+        // 创建决策链
+        let decision_chain = Arc::new(tokio::sync::RwLock::new(
+            crate::decision_chain::DecisionChain::with_dependencies(vec![]),
+        ));
+
+        // 创建熔断器
+        #[cfg(feature = "circuit-breaker")]
+        let circuit_breaker = self.circuit_breaker.unwrap_or_else(|| {
+            Arc::new(CircuitBreaker::with_dependencies(
+                crate::circuit_breaker::CircuitBreakerConfig::default(),
+            ))
+        });
+
+        // 创建审计日志记录器
+        #[cfg(feature = "audit-log")]
+        let audit_logger = self
+            .audit_logger
+            .map(|logger| Arc::new(tokio::sync::RwLock::new(Some(logger))))
+            .unwrap_or_else(|| Arc::new(tokio::sync::RwLock::new(None)));
+
+        // 使用 RuleBuilder 创建规则对应的决策链
+        let rule_chains_map = RuleBuilder::build_rule_chains(&config)?;
+        let rule_chains = Arc::new(tokio::sync::RwLock::new(rule_chains_map));
+
+        // 创建 L1 缓存
+        let l1_cache_config = self.l1_cache_config.unwrap_or_else(|| {
+            L1CacheConfig::new(std::time::Duration::from_secs(60), 10_000)
+        });
+        let l1_cache = L1Cache::with_config(l1_cache_config);
+        let l1_cache_enabled = self.l1_cache_enabled;
+
+        Ok(Governor {
+            config: Arc::new(tokio::sync::RwLock::new(config)),
+            _storage: storage,
+            _ban_storage: ban_storage,
+            #[cfg(feature = "ban-manager")]
+            ban_manager,
+            #[cfg(feature = "parallel-checker")]
+            parallel_ban_checker,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker,
+            decision_chain,
+            rule_matcher,
+            rule_chains,
+            identifier_extractor,
+            #[cfg(feature = "audit-log")]
+            audit_logger,
+            config_history: Arc::new(tokio::sync::RwLock::new(crate::config::ConfigHistory::new(
+                100,
+            ))),
+            stats: StatsManager::new(),
+            l1_cache,
+            l1_cache_enabled: std::sync::atomic::AtomicBool::new(l1_cache_enabled),
+        })
+    }
 }
 
 impl Governor {
-    fn parse_duration(s: &str) -> Result<Duration, FlowGuardError> {
-        let s = s.trim();
-        let (num, unit) = if s.ends_with("ms") {
-            (s.trim_end_matches("ms"), "ms")
-        } else if s.ends_with('s') {
-            (s.trim_end_matches('s'), "s")
-        } else if s.ends_with('m') {
-            (s.trim_end_matches('m'), "m")
-        } else if s.ends_with('h') {
-            (s.trim_end_matches('h'), "h")
-        } else {
-            return Err(FlowGuardError::ConfigError(format!(
-                "Invalid duration format: {}",
-                s
-            )));
+    /// 创建 GovernorBuilder 用于链式配置
+    pub fn builder() -> GovernorBuilder {
+        GovernorBuilder::new()
+    }
+
+    /// 使用依赖注入创建 Governor 实例（用于应用容器集成）
+    #[allow(clippy::too_many_arguments)]
+    pub async fn with_dependencies(
+        config: Arc<tokio::sync::RwLock<FlowControlConfig>>,
+        storage: Arc<dyn Storage>,
+        ban_storage: Arc<dyn BanStorage>,
+        identifier_extractor: Arc<dyn crate::matchers::IdentifierExtractor>,
+        rule_matcher: Arc<tokio::sync::RwLock<crate::matchers::RuleMatcher>>,
+        decision_chain: Arc<tokio::sync::RwLock<crate::decision_chain::DecisionChain>>,
+        rule_chains: Arc<
+            tokio::sync::RwLock<DashMap<String, crate::decision_chain::DecisionChain>>,
+        >,
+        #[cfg(feature = "circuit-breaker")] circuit_breaker: Arc<CircuitBreaker>,
+    ) -> Self {
+        // 创建封禁管理器
+        #[cfg(feature = "ban-manager")]
+        use crate::ban_manager::{BanManager, BanManagerConfig};
+
+        #[cfg(feature = "ban-manager")]
+        let ban_manager: Arc<BanManager> = {
+            match BanManager::with_dependencies(ban_storage.clone(), BanManagerConfig::default())
+                .await
+                .map(Arc::new)
+            {
+                Ok(manager) => manager,
+                Err(e) => {
+                    log::error!("Failed to create BanManager: {}", e);
+                    // 使用默认配置重试或返回一个空的管理器
+                    // 这里我们选择 panic，因为这是在初始化阶段，无法恢复
+                    // 但更好的做法是返回 Result
+                    panic!("Failed to create BanManager: {}", e);
+                }
+            }
         };
 
-        let val: u64 = num.parse().map_err(|_| {
-            FlowGuardError::ConfigError(format!("Invalid duration number: {}", num))
-        })?;
+        // 创建并行封禁检查器
+        #[cfg(feature = "parallel-checker")]
+        let parallel_ban_checker: Arc<crate::parallel_ban_checker::ParallelBanChecker> = Arc::new(
+            crate::parallel_ban_checker::ParallelBanChecker::new(ban_manager.clone()),
+        );
 
-        match unit {
-            "ms" => Ok(Duration::from_millis(val)),
-            "s" => Ok(Duration::from_secs(val)),
-            "m" => Ok(Duration::from_secs(val * SECONDS_PER_MINUTE)),
-            "h" => Ok(Duration::from_secs(val * SECONDS_PER_HOUR)),
-            _ => Err(FlowGuardError::ConfigError(format!(
-                "Invalid duration unit '{}'. Valid units: ms, s, m, h",
-                unit
-            ))),
+        Self {
+            config,
+            _storage: storage,
+            _ban_storage: ban_storage,
+            #[cfg(feature = "ban-manager")]
+            ban_manager,
+            #[cfg(feature = "parallel-checker")]
+            parallel_ban_checker,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker,
+            decision_chain,
+            rule_matcher,
+            rule_chains,
+            identifier_extractor,
+            #[cfg(feature = "audit-log")]
+            audit_logger: Arc::new(tokio::sync::RwLock::new(None)),
+            config_history: Arc::new(tokio::sync::RwLock::new(ConfigHistory::new(100))),
+            stats: StatsManager::new(),
+            l1_cache: L1Cache::new(),
+            l1_cache_enabled: std::sync::atomic::AtomicBool::new(true),
         }
     }
 
-    fn build_rule_chains(
-        config: &FlowControlConfig,
-    ) -> Result<DashMap<String, DecisionChain>, FlowGuardError> {
-        let chains = DashMap::new();
-
-        for rule in &config.rules {
-            let mut nodes: Vec<DecisionNode> = Vec::new();
-
-            for (index, limiter_config) in rule.limiters.iter().enumerate() {
-                let (limiter, type_name): (Arc<dyn Limiter>, &str) = match limiter_config {
-                    LimiterConfig::TokenBucket {
-                        capacity,
-                        refill_rate,
-                    } => (
-                        Arc::new(TokenBucketLimiter::new(*capacity, *refill_rate)),
-                        "TokenBucket",
-                    ),
-                    LimiterConfig::SlidingWindow {
-                        window_size,
-                        max_requests,
-                    } => {
-                        let duration = Self::parse_duration(window_size)?;
-                        (
-                            Arc::new(SlidingWindowLimiter::new(duration, *max_requests)),
-                            "SlidingWindow",
-                        )
-                    }
-                    LimiterConfig::FixedWindow {
-                        window_size,
-                        max_requests,
-                    } => {
-                        let duration = Self::parse_duration(window_size)?;
-                        (
-                            Arc::new(FixedWindowLimiter::new(duration, *max_requests)),
-                            "FixedWindow",
-                        )
-                    }
-                    LimiterConfig::Quota {
-                        quota_type: _,
-                        limit: _,
-                        window: _,
-                        alert_threshold: _,
-                        overdraft: _,
-                    } => {
-                        // Quota limiter requires quota-control feature
-                        warn!(
-                            "QuotaLimiter requires 'quota-control' feature to be enabled, \
-                             skipping Quota configuration"
-                        );
-                        continue;
-                    }
-                    LimiterConfig::Concurrency { max_concurrent } => (
-                        Arc::new(ConcurrencyLimiter::new(*max_concurrent)),
-                        "Concurrency",
-                    ),
-                    LimiterConfig::Custom { name, config: _ } => {
-                        // CustomLimiter integration requires custom-limiter feature and
-                        // manual registration via CustomLimiterRegistry
-                        #[cfg(feature = "custom-limiter")]
-                        warn!(
-                            "CustomLimiter '{}' requires registration via CustomLimiterRegistry, skipping",
-                            name
-                        );
-                        #[cfg(not(feature = "custom-limiter"))]
-                        warn!(
-                            "CustomLimiter '{}' skipped - custom-limiter feature not enabled",
-                            name
-                        );
-                        continue;
-                    }
-                };
-
-                let node = DecisionNode::new(
-                    format!("{}_limiter_{}", rule.id, index),
-                    format!("{} - {}", rule.name, type_name),
-                    limiter,
-                    100u16.saturating_sub(index as u16), // Priority: earlier limiters have higher priority
-                );
-                nodes.push(node);
-            }
-
-            chains.insert(rule.id.clone(), DecisionChain::new(nodes));
-        }
-
-        Ok(chains)
-    }
-
-    /// 从配置构建规则列表
-    fn build_rules(config: &FlowControlConfig) -> Result<Vec<MatcherRule>, FlowGuardError> {
-        let mut rules = Vec::new();
-
-        for rule_config in &config.rules {
-            let mut conditions: Vec<Box<dyn ConditionEvaluator>> = Vec::new();
-
-            for matcher in &rule_config.matchers {
-                let condition: Box<dyn ConditionEvaluator> = match matcher {
-                    ConfigMatcher::User { user_ids } => {
-                        Box::new(MatchCondition::User(user_ids.clone()))
-                    }
-                    ConfigMatcher::Ip { ip_ranges } => {
-                        let ranges: Result<Vec<IpRange>, _> =
-                            ip_ranges.iter().map(|s| s.parse()).collect();
-                        Box::new(MatchCondition::Ip(ranges?))
-                    }
-                    ConfigMatcher::Geo { countries } => {
-                        Box::new(MatchCondition::Geo(countries.clone()))
-                    }
-                    ConfigMatcher::ApiVersion { versions } => {
-                        Box::new(MatchCondition::ApiVersion(versions.clone()))
-                    }
-                    ConfigMatcher::Device { device_types } => {
-                        Box::new(MatchCondition::Device(device_types.clone()))
-                    }
-                    ConfigMatcher::Custom { name, config: _ } => {
-                        let name = name.clone();
-                        Box::new(MatchCondition::Custom(Arc::new(move |_context| {
-                            tracing::warn!(
-                                "自定义匹配器 '{}' 需要通过CustomMatcherRegistry处理",
-                                name
-                            );
-                            false
-                        })))
-                    }
-                };
-                conditions.push(condition);
-            }
-
-            let final_condition: Box<dyn ConditionEvaluator> = if conditions.len() == 1 {
-                conditions.pop().unwrap()
-            } else if conditions.is_empty() {
-                continue;
-            } else {
-                Box::new(CompositeCondition {
-                    conditions,
-                    operator: LogicalOperator::And,
-                })
-            };
-
-            rules.push(MatcherRule {
-                id: rule_config.id.clone(),
-                name: rule_config.name.clone(),
-                priority: rule_config.priority,
-                condition: final_condition,
-                enabled: true,
-            });
-        }
-
-        Ok(rules)
-    }
-
-    /// 创建新的 Governor 实例
+    /// 创建新的 Governor 实例（使用 Builder 模式）
     #[allow(unused_variables)]
     pub async fn new(
         config: FlowControlConfig,
@@ -318,92 +484,24 @@ impl Governor {
         #[cfg(feature = "monitoring")] metrics: Option<Arc<Metrics>>,
         #[cfg(feature = "telemetry")] tracer: Option<Arc<Tracer>>,
     ) -> Result<Self, FlowGuardError> {
-        // 校验配置
-        config.validate().map_err(FlowGuardError::ConfigError)?;
-
-        // 创建标识符提取器
-        let identifier_extractor = Arc::new(crate::matchers::CompositeExtractor::new(
-            vec![
-                Box::new(crate::matchers::UserIdExtractor::from_header("X-User-Id")),
-                Box::new(crate::matchers::IpExtractor::new_default()),
-                Box::new(crate::matchers::ApiKeyExtractor::from_header("X-API-Key")),
-            ],
-            true,
-        ));
-
-        // 创建规则匹配器
-        let rules = Self::build_rules(&config)?;
-        let rule_matcher = Arc::new(RwLock::new(RuleMatcher::new(rules)));
-
-        // 创建决策链
-        let decision_chain = Arc::new(RwLock::new(DecisionChain::new(vec![])));
-
-        // 创建熔断器 (仅当 circuit-breaker 特性启用时)
-        #[cfg(feature = "circuit-breaker")]
-        let circuit_breaker = Arc::new(CircuitBreaker::new(CircuitBreakerConfig {
-            failure_threshold: 5,
-            success_threshold: 3,
-            timeout: Duration::from_secs(30),
-            half_open_max_calls: 3,
-        }));
-
-        // 创建内存缓存用于 FallbackManager（使用 oxcache 直接）
-        #[cfg(feature = "fallback")]
-        let fallback_l2_cache: Arc<Cache<String, String>> = Arc::new(
-            Cache::builder()
-                .capacity(crate::constants::DEFAULT_L2_CACHE_CAPACITY as u64)
-                .ttl(Duration::from_secs(
-                    crate::constants::DEFAULT_L2_CACHE_TTL_SECS,
-                ))
-                .build()
-                .await
-                .expect("Failed to create oxcache for FallbackManager"),
-        );
-        // 创建降级管理器
-        #[cfg(feature = "fallback")]
-        let fallback_manager = Arc::new(FallbackManager::new(fallback_l2_cache.clone()));
-
-        // 创建审计日志记录器 (仅当 audit-log 特性启用时)
-        #[cfg(feature = "audit-log")]
-        let audit_logger = Arc::new(RwLock::new(None));
-
-        // 创建封禁管理器 (仅当 ban-manager 特性启用时)
-        #[cfg(feature = "ban-manager")]
-        let ban_manager = Arc::new(BanManager::new(ban_storage.clone(), None).await?);
-
-        // 创建并行封禁检查器 (仅当 parallel-checker 特性启用时)
-        #[cfg(feature = "parallel-checker")]
-        let parallel_ban_checker = Arc::new(crate::parallel_ban_checker::ParallelBanChecker::new(
-            ban_manager.clone(),
-        ));
-
-        // 创建规则对应的决策链
-        let rule_chains_map = Self::build_rule_chains(&config)?;
-        let rule_chains = Arc::new(RwLock::new(rule_chains_map));
-
-        Ok(Self {
-            config: Arc::new(RwLock::new(config)),
-            _storage: storage,
-            _ban_storage: ban_storage,
-            #[cfg(feature = "ban-manager")]
-            ban_manager,
-            #[cfg(feature = "parallel-checker")]
-            parallel_ban_checker,
-            decision_chain,
-            rule_matcher,
-            rule_chains,
-            identifier_extractor,
-            #[cfg(feature = "circuit-breaker")]
-            circuit_breaker,
-            #[cfg(feature = "audit-log")]
-            audit_logger,
-            config_history: Arc::new(RwLock::new(ConfigHistory::new(100))),
-            total_requests: AtomicU64::new(0),
-            allowed_requests: AtomicU64::new(0),
-            rejected_requests: AtomicU64::new(0),
-            banned_requests: AtomicU64::new(0),
-            error_count: AtomicU64::new(0),
-        })
+        // 使用 builder 模式创建 Governor
+        Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .with_identifier_extractor(Arc::new(
+                crate::matchers::CompositeExtractor::builder()
+                    .add_extractor(Box::new(crate::matchers::UserIdExtractor::from_header(
+                        "X-User-Id",
+                    )))
+                    .add_extractor(Box::new(crate::matchers::IpExtractor::builder().build()))
+                    .add_extractor(Box::new(crate::matchers::ApiKeyExtractor::from_header(
+                        "X-API-Key",
+                    )))
+                    .build(),
+            ))
+            .build()
+            .await
     }
 
     /// 从配置文件创建 Governor 实例
@@ -417,16 +515,15 @@ impl Governor {
     ///
     /// ```rust,no_run
     /// use limiteron::Governor;
-    /// use limiteron::db_storage::DbStorageConfig;
-    /// use limiteron::storage::{Storage, BanStorage};
+    /// use limiteron::adapters::StorageFactory;
+    /// use std::sync::Arc;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let config = DbStorageConfig::new("postgres://localhost/limiteron");
-    ///     let storage: std::sync::Arc<dyn Storage> = std::sync::Arc::new(
-    ///         DbStorage::new(config).await?
-    ///     );
-    ///     let ban_storage: std::sync::Arc<dyn BanStorage> = storage.clone();
+    ///     let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+    ///     factory.initialize(None).await?;
+    ///     let storage: Arc<dyn limiteron::storage_trait::Storage> = factory.create_storage().await?;
+    ///     let ban_storage: Arc<dyn limiteron::storage_trait::BanStorage> = factory.create_ban_storage().await?;
     ///
     ///     let governor = Governor::from_config_file(
     ///         "/path/to/config.yaml",
@@ -437,6 +534,7 @@ impl Governor {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(feature = "confers")]
     pub async fn from_config_file<P: AsRef<std::path::Path>>(
         config_path: P,
         storage: Arc<dyn Storage>,
@@ -444,23 +542,7 @@ impl Governor {
     ) -> Result<Self, FlowGuardError> {
         // 使用 ConfigLoader 加载配置
         let config = crate::config_loader::ConfigLoader::load_from_file(config_path)?;
-
-        #[cfg(all(feature = "monitoring", feature = "telemetry"))]
-        {
-            Self::new(config, storage, ban_storage, None, None).await
-        }
-        #[cfg(all(feature = "monitoring", not(feature = "telemetry")))]
-        {
-            Self::new(config, storage, ban_storage, None).await
-        }
-        #[cfg(all(not(feature = "monitoring"), feature = "telemetry"))]
-        {
-            Self::new(config, storage, ban_storage, None, None).await
-        }
-        #[cfg(all(not(feature = "monitoring"), not(feature = "telemetry")))]
-        {
-            Self::new(config, storage, ban_storage).await
-        }
+        Self::create_with_config(config, storage, ban_storage).await
     }
 
     /// 从配置文件和环境变量创建 Governor 实例
@@ -477,12 +559,15 @@ impl Governor {
     ///
     /// ```rust,no_run
     /// use limiteron::Governor;
-    /// use limiteron::storage::MemoryStorage;
+    /// use limiteron::adapters::StorageFactory;
+    /// use std::sync::Arc;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let storage = std::sync::Arc::new(MemoryStorage::new());
-    ///     let ban_storage = std::sync::Arc::new(MemoryStorage::new());
+    ///     let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+    ///     factory.initialize(None).await?;
+    ///     let storage: Arc<dyn limiteron::storage_trait::Storage> = factory.create_storage().await?;
+    ///     let ban_storage: Arc<dyn limiteron::storage_trait::BanStorage> = factory.create_ban_storage().await?;
     ///
     ///     // 设置环境变量覆盖
     ///     std::env::set_var("LIMITERON_GLOBAL_STORAGE", "redis");
@@ -496,6 +581,7 @@ impl Governor {
     ///     Ok(())
     /// }
     /// ```
+    #[cfg(feature = "confers")]
     pub async fn from_config_with_env<P: AsRef<std::path::Path>>(
         config_path: P,
         storage: Arc<dyn Storage>,
@@ -503,7 +589,18 @@ impl Governor {
     ) -> Result<Self, FlowGuardError> {
         // 使用 ConfigLoader 加载配置，支持环境变量覆盖
         let config = crate::config_loader::ConfigLoader::load_from_file(config_path)?;
+        Self::create_with_config(config, storage, ban_storage).await
+    }
 
+    /// 根据配置创建 Governor 实例（内部辅助方法）
+    ///
+    /// 统一处理不同 feature 组合下的创建逻辑，避免重复的条件编译代码。
+    #[cfg(feature = "confers")]
+    async fn create_with_config(
+        config: FlowControlConfig,
+        storage: Arc<dyn Storage>,
+        ban_storage: Arc<dyn BanStorage>,
+    ) -> Result<Self, FlowGuardError> {
         #[cfg(all(feature = "monitoring", feature = "telemetry"))]
         {
             Self::new(config, storage, ban_storage, None, None).await
@@ -523,14 +620,11 @@ impl Governor {
     }
 
     /// 检查请求 - 简化版本使用并行检查器
-    #[instrument(skip(self), fields(
-        user_id = %redact_user_id(context.user_id.as_deref()),
-        ip = %redact_ip(context.ip.as_deref()),
-        path = %context.path,
-        method = %context.method
-    ))]
+    ///
+    /// 该方法会首先检查 L1 缓存，如果缓存命中则直接返回缓存结果。
+    /// 如果缓存未命中，则执行完整的检查流程，并将结果缓存。
     pub async fn check(&self, context: &RequestContext) -> Result<Decision, FlowGuardError> {
-        self.total_requests.fetch_add(1, Ordering::Relaxed);
+        self.stats.increment_total();
 
         debug!(
             "开始请求检查: user_id={}, ip={}, path={}, method={}",
@@ -545,6 +639,34 @@ impl Governor {
             FlowGuardError::ConfigError("Failed to extract identifier".to_string())
         })?;
         trace!("Extracted identifier: {}", identifier.key());
+
+        // 尝试从 L1 缓存获取结果
+        if self.is_l1_cache_enabled() {
+            // 获取匹配的规则（用于构建缓存键）
+            let matched_rules = {
+                let matcher = self.rule_matcher.read().await;
+                #[allow(clippy::disallowed_methods)]
+                matcher
+                    .match_all(context)
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            };
+
+            // 如果有匹配的规则，尝试从缓存获取
+            if !matched_rules.is_empty() {
+                // 使用第一个规则构建缓存键
+                let first_rule = &matched_rules[0];
+                let cache_key = self.build_cache_key(&identifier, &first_rule.id);
+
+                if let Some(cached_decision) = self.l1_cache.get(&cache_key) {
+                    trace!("L1 缓存命中: key={}", cache_key);
+                    let decision = cached_decision.to_decision();
+                    self.update_stats_for_decision(&Result::Ok(decision.clone()));
+                    return Ok(decision);
+                }
+            }
+        }
 
         // 并行封禁检查 (仅当 parallel-checker 特性启用时)
         #[cfg(feature = "parallel-checker")]
@@ -562,10 +684,10 @@ impl Governor {
                 if let Some(info) = ban_info {
                     warn!(
                         "Request banned: 用户={}, 原因={}",
-                        crate::log_redaction::redact_user_id(identifier.key()),
+                        crate::log_redaction::redact_user_id(Some(identifier.key().as_str())),
                         &info.reason
                     );
-                    self.banned_requests.fetch_add(1, Ordering::Relaxed);
+                    self.stats.increment_banned();
                     return Ok(Decision::Banned(info));
                 }
             }
@@ -587,20 +709,7 @@ impl Governor {
             // 如果没有匹配的规则，检查默认决策链
             // 目前默认决策链为空，相当于直接允许
             let result = self.decision_chain.read().await.check().await;
-            match &result {
-                Ok(Decision::Allowed(_)) => {
-                    self.allowed_requests.fetch_add(1, Ordering::Relaxed);
-                }
-                Ok(Decision::Banned(_)) => {
-                    self.banned_requests.fetch_add(1, Ordering::Relaxed);
-                }
-                Ok(Decision::Rejected(_)) => {
-                    self.rejected_requests.fetch_add(1, Ordering::Relaxed);
-                }
-                Err(_) => {
-                    self.error_count.fetch_add(1, Ordering::Relaxed);
-                }
-            }
+            self.update_stats_for_decision(&result);
             return result;
         }
 
@@ -608,7 +717,7 @@ impl Governor {
         // 只要有一个规则拒绝，请求就被拒绝
         let rule_chains = self.rule_chains.read().await;
 
-        for rule in matched_rules {
+        for rule in &matched_rules {
             if let Some(chain) = rule_chains.get(&rule.id) {
                 // 执行决策链
                 let result = chain.check().await;
@@ -620,18 +729,7 @@ impl Governor {
                     }
                     _ => {
                         // 拒绝、封禁或错误，直接返回
-                        match &result {
-                            Ok(Decision::Rejected(_)) => {
-                                self.rejected_requests.fetch_add(1, Ordering::Relaxed);
-                            }
-                            Ok(Decision::Banned(_)) => {
-                                self.banned_requests.fetch_add(1, Ordering::Relaxed);
-                            }
-                            Err(_) => {
-                                self.error_count.fetch_add(1, Ordering::Relaxed);
-                            }
-                            _ => {}
-                        }
+                        self.update_stats_for_decision(&result);
                         return result;
                     }
                 }
@@ -639,13 +737,60 @@ impl Governor {
         }
 
         // 所有规则都允许
-        self.allowed_requests.fetch_add(1, Ordering::Relaxed);
-        Ok(Decision::Allowed(None))
+        self.stats.increment_allowed();
+        let decision = Decision::Allowed(None);
+
+        // 缓存允许的决策
+        if self.is_l1_cache_enabled() && !matched_rules.is_empty() {
+            let cache_key = self.build_cache_key(&identifier, &matched_rules[0].id);
+            let cacheable_decision = CacheableDecision::from_decision(&decision);
+            self.l1_cache.set(cache_key, cacheable_decision);
+            trace!("L1 缓存已更新: decision=allowed");
+        }
+
+        Ok(decision)
+    }
+
+    /// 构建缓存键
+    ///
+    /// 根据标识符类型和规则 ID 生成缓存键。
+    fn build_cache_key(&self, identifier: &crate::matchers::Identifier, rule_id: &str) -> String {
+        match identifier {
+            crate::matchers::Identifier::UserId(user_id) => {
+                RateLimitCacheKey::user_rate_limit(user_id, rule_id)
+            }
+            crate::matchers::Identifier::Ip(ip) => {
+                RateLimitCacheKey::ip_rate_limit(ip, rule_id)
+            }
+            crate::matchers::Identifier::ApiKey(api_key) => {
+                RateLimitCacheKey::api_key_rate_limit(api_key, rule_id)
+            }
+            _ => RateLimitCacheKey::generic(&identifier.key(), rule_id),
+        }
+    }
+
+    /// 根据决策结果更新统计信息
+    ///
+    /// 统一处理不同决策类型的统计更新，避免重复的 match 分支。
+    fn update_stats_for_decision(&self, result: &Result<Decision, FlowGuardError>) {
+        match result {
+            Ok(Decision::Allowed(_)) => {
+                self.stats.increment_allowed();
+            }
+            Ok(Decision::Banned(_)) => {
+                self.stats.increment_banned();
+            }
+            Ok(Decision::Rejected(_)) => {
+                self.stats.increment_rejected();
+            }
+            Err(_) => {
+                self.stats.increment_error();
+            }
+        }
     }
 
     /// 并行资源检查 - 保持原有接口兼容性
     #[cfg(feature = "parallel-checker")]
-    #[instrument(skip(self))]
     pub async fn check_resource_parallel(
         &self,
         resource: &str,
@@ -667,14 +812,13 @@ impl Governor {
 
     /// 并行资源检查 - 未启用 parallel-checker 时的存根实现
     #[cfg(not(feature = "parallel-checker"))]
-    #[instrument(skip(self))]
     pub async fn check_resource_parallel(
         &self,
-        resource: &str,
+        _resource: &str,
     ) -> Result<Decision, FlowGuardError> {
         #[cfg(feature = "ban-manager")]
         {
-            let target = BanTarget::UserId(resource.to_string());
+            let target = BanTarget::UserId(_resource.to_string());
             let ban_record = self.ban_manager.is_banned(&target).await?;
 
             if let Some(record) = ban_record {
@@ -698,24 +842,20 @@ impl Governor {
 
     /// 手动Ban user
     #[cfg(feature = "ban-manager")]
-    #[instrument(skip(self))]
     pub async fn ban_identifier(
         &self,
         identifier: &Identifier,
         reason: &str,
-        source: Option<ChangeSource>,
+        source: Option<BanSource>,
     ) -> Result<(), FlowGuardError> {
         debug!("Ban user: {} 原因: {}", identifier.key(), reason);
 
         let ban_target = identifier.to_ban_target();
 
         if let Some(target) = ban_target {
-            let ban_source = match source {
-                Some(ChangeSource::Manual { operator }) => BanSource::Manual { operator },
-                _ => BanSource::Manual {
-                    operator: "unknown".to_string(),
-                },
-            };
+            let ban_source = source.unwrap_or(BanSource::Manual {
+                operator: "unknown".to_string(),
+            });
 
             self.ban_manager
                 .create_ban(
@@ -728,7 +868,7 @@ impl Governor {
                 .await?;
             info!(
                 "用户 {} 已被封禁",
-                crate::log_redaction::redact_user_id(identifier.key().as_ref())
+                crate::log_redaction::redact_user_id(Some(identifier.key().as_ref()))
             );
         } else {
             return Err(FlowGuardError::ValidationError(
@@ -741,25 +881,29 @@ impl Governor {
 
     /// 取消用户封禁
     #[cfg(feature = "ban-manager")]
-    #[instrument(skip(self))]
     pub async fn unban_identifier(&self, identifier: &Identifier) -> Result<(), FlowGuardError> {
         debug!("取消Ban user: {}", identifier.key());
 
         let ban_target = identifier.to_ban_target();
 
-        // 检查是否有可回滚的旧版本
-        let Some(old_version) = last_record.old_version.clone() else {
-            return Err(FlowGuardError::ConfigError(
-                "无法获取上一个配置版本".to_string(),
-            ));
-        };
+        if let Some(target) = ban_target {
+            let unbanned = self
+                .ban_manager
+                .delete_ban(&target, "unknown".to_string())
+                .await?;
 
-        drop(history);
-
-        // 配置回滚由 confers 库管理
-        return Err(FlowGuardError::ConfigError(
-            "配置回滚需要使用 confers 库".to_string(),
-        ));
+            if unbanned {
+                info!(
+                    "用户 {} 已解封",
+                    crate::log_redaction::redact_user_id(Some(identifier.key().as_ref()))
+                );
+            }
+            Ok(())
+        } else {
+            Err(FlowGuardError::ValidationError(
+                "Unsupported identifier type".to_string(),
+            ))
+        }
     }
 
     /// 获取配置历史
@@ -767,25 +911,7 @@ impl Governor {
         self.config_history.read().await.get_records().to_vec()
     }
 
-    /*
-    /// 启动配置监视器
-    #[instrument(skip(self))]
-    #[cfg(feature = "config-watcher")]
-    pub async fn start_config_watcher<F>(&self, callback: F) -> Result<(), FlowGuardError>
-    where
-        F: crate::config_watcher::ConfigChangeCallback + Send + Sync + 'static,
-    {
-        info!("启动配置监视器");
-
-        // 配置监视器的具体实现
-        // 这需要根据具体的配置存储类型来实现
-
-        Ok(())
-    }
-    */
-
     /// 停止配置监视器
-    #[instrument(skip(self))]
     pub async fn stop_config_watcher(&self) -> Result<(), FlowGuardError> {
         info!("停止配置监视器");
 
@@ -793,7 +919,6 @@ impl Governor {
     }
 
     /// 手动配置检查
-    #[instrument(skip(self))]
     pub async fn manual_config_check(&self) -> Result<bool, FlowGuardError> {
         info!("手动配置检查");
 
@@ -806,54 +931,100 @@ impl Governor {
     }
 
     /// 获取统计信息
-    #[instrument(skip(self))]
-    pub async fn stats(&self) -> crate::governor::GovernorStats {
-        let total = self.total_requests.load(Ordering::Relaxed);
-        let allowed = self.allowed_requests.load(Ordering::Relaxed);
-        let rejected = self.rejected_requests.load(Ordering::Relaxed);
-        let banned = self.banned_requests.load(Ordering::Relaxed);
-        let error = self.error_count.load(Ordering::Relaxed);
-        let last_updated = Some(chrono::Utc::now());
-
-        crate::governor::GovernorStats {
-            total_requests: total,
-            allowed_requests: allowed,
-            rejected_requests: rejected,
-            banned_requests: banned,
-            error_count: error,
-            last_updated,
-        }
+    pub async fn stats(&self) -> GovernorStats {
+        self.stats.snapshot().into()
     }
 
     /// 获取决策链统计
-    #[instrument(skip(self))]
     pub async fn decision_chain_stats(&self) -> crate::decision_chain::ChainStats {
-        self.decision_chain.read().await.stats()
+        self.decision_chain.read().await.stats().await
     }
 
     /// 获取规则匹配器统计
-    #[instrument(skip(self))]
     pub async fn rule_matcher_stats(&self) -> crate::matchers::MatcherStats {
         self.rule_matcher.read().await.stats()
     }
 
     /// 重置统计信息
-    #[instrument(skip(self))]
     pub async fn reset_stats(&self) {
         info!("重置统计信息");
 
-        self.decision_chain.write().await.reset_stats();
+        self.decision_chain.write().await.reset_stats().await;
         self.rule_matcher.write().await.reset_stats();
-        self.total_requests.store(0, Ordering::Relaxed);
-        self.allowed_requests.store(0, Ordering::Relaxed);
-        self.rejected_requests.store(0, Ordering::Relaxed);
-        self.banned_requests.store(0, Ordering::Relaxed);
-        self.error_count.store(0, Ordering::Relaxed);
+        self.stats.reset();
+        self.l1_cache.reset_stats();
+    }
+
+    // ==================== L1 缓存相关方法 ====================
+
+    /// 获取 L1 缓存统计信息
+    pub fn l1_cache_stats(&self) -> crate::l1_cache::L1CacheStats {
+        self.l1_cache.stats()
+    }
+
+    /// 启用 L1 缓存
+    pub fn enable_l1_cache(&self) {
+        self.l1_cache_enabled.store(true, std::sync::atomic::Ordering::Release);
+        info!("L1 缓存已启用");
+    }
+
+    /// 禁用 L1 缓存
+    pub fn disable_l1_cache(&self) {
+        self.l1_cache_enabled.store(false, std::sync::atomic::Ordering::Release);
+        info!("L1 缓存已禁用");
+    }
+
+    /// 检查 L1 缓存是否启用
+    pub fn is_l1_cache_enabled(&self) -> bool {
+        self.l1_cache_enabled.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// 清空 L1 缓存
+    pub fn clear_l1_cache(&self) {
+        self.l1_cache.clear();
+        info!("L1 缓存已清空");
+    }
+
+    /// 清理 L1 缓存中的过期条目
+    pub fn evict_expired_l1_cache(&self) -> usize {
+        let evicted = self.l1_cache.evict_expired();
+        if evicted > 0 {
+            debug!("L1 缓存清理了 {} 个过期条目", evicted);
+        }
+        evicted
+    }
+
+    /// 使指定标识符的缓存失效
+    ///
+    /// # 参数
+    /// - `identifier`: 标识符（如用户 ID、IP 地址等）
+    pub fn invalidate_l1_cache(&self, identifier: &str) {
+        // 使所有与该标识符相关的缓存失效
+        self.l1_cache.invalidate_by_prefix(&format!("rl:user:{}:", identifier));
+        self.l1_cache.invalidate_by_prefix(&format!("rl:ip:{}:", identifier));
+        self.l1_cache.invalidate_by_prefix(&format!("rl:apikey:{}:", identifier));
+        self.l1_cache.invalidate_by_prefix(&format!("rl:generic:{}:", identifier));
+        self.l1_cache.invalidate(&RateLimitCacheKey::ban_check(identifier));
+        debug!("已使标识符 {} 的 L1 缓存失效", identifier);
+    }
+
+    /// 使指定规则的缓存失效
+    ///
+    /// # 参数
+    /// - `rule_id`: 规则 ID
+    pub fn invalidate_rule_cache(&self, rule_id: &str) {
+        // 使用包含匹配移除所有与该规则相关的条目
+        self.l1_cache.invalidate_containing(&format!(":{}", rule_id));
+        debug!("已使规则 {} 的 L1 缓存失效", rule_id);
+    }
+
+    /// 获取 L1 缓存大小
+    pub fn l1_cache_size(&self) -> usize {
+        self.l1_cache.len()
     }
 
     /// 设置审计日志记录器
     #[cfg(feature = "audit-log")]
-    #[instrument(skip(self))]
     pub async fn set_audit_logger(&self, audit_logger: Arc<AuditLogger>) {
         let mut logger = self.audit_logger.write().await;
         *logger = Some(audit_logger);
@@ -863,13 +1034,12 @@ impl Governor {
 
     /// 获取审计日志记录器
     #[cfg(feature = "audit-log")]
-    #[instrument(skip(self))]
     pub async fn audit_logger(&self) -> Option<Arc<AuditLogger>> {
-        self.audit_logger.read().await.as_deref().copied()
+        let guard = self.audit_logger.read().await;
+        guard.as_ref().cloned()
     }
 
     /// 健康检查
-    #[instrument(skip(self))]
     pub async fn health_check(&self) -> Result<(), FlowGuardError> {
         info!("健康检查");
 
@@ -879,6 +1049,21 @@ impl Governor {
         let config_healthy = true;
 
         let storage_healthy = true; // 这里需要根据具体的存储类型实现健康检查
+
+        #[cfg(feature = "ban-manager")]
+        {
+            let _ = self.ban_manager.get_config().await;
+        }
+
+        #[cfg(feature = "circuit-breaker")]
+        {
+            let _ = self.circuit_breaker.get_state().await;
+        }
+
+        #[cfg(feature = "audit-log")]
+        {
+            let _ = self.audit_logger().await;
+        }
 
         if config_healthy && storage_healthy {
             Ok(())

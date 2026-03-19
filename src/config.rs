@@ -1,7 +1,8 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026, Kirky.X
+//
+// Licensed under the MIT License
+// See LICENSE file in the project root for full license information.
+
 //! 配置模块
 //!
 //! 定义流量控制的配置结构。
@@ -788,41 +789,243 @@ on_exceed = "reject"
     }
 }
 
-#[allow(clippy::disallowed_types)]
-impl confers::ConfigMap for FlowControlConfig {
-    fn to_map(&self) -> std::collections::HashMap<String, serde_json::Value> {
-        let mut map = std::collections::HashMap::new();
-        map.insert("version".to_string(), serde_json::json!(&self.version));
-        map.insert("global".to_string(), serde_json::json!(&self.global));
-        map.insert("rules".to_string(), serde_json::json!(&self.rules));
-        map
-    }
+// ============================================================================
+// Confers Integration (可选特性)
+// ============================================================================
+// 注意: confers API 不提供 ConfigMap, Validate, Sanitize traits
+// 如需使用 confers 的完整功能，请为 FlowControlConfig derive confers::Config
+// 当前实现保持 confers feature 可编译，但不提供额外的 trait 实现
 
-    fn env_mapping() -> std::collections::HashMap<String, String> {
-        let mut mapping = std::collections::HashMap::new();
-        mapping.insert("LIMITERON_VERSION".to_string(), "version".to_string());
-        mapping.insert(
-            "LIMITERON_GLOBAL_STORAGE".to_string(),
-            "global.storage".to_string(),
-        );
-        mapping.insert(
-            "LIMITERON_GLOBAL_CACHE".to_string(),
-            "global.cache".to_string(),
-        );
-        mapping.insert(
-            "LIMITERON_GLOBAL_METRICS".to_string(),
-            "global.metrics".to_string(),
-        );
-        mapping
+// ============================================================================
+// ConfigBuilder - 程序化配置构建（始终可用，不依赖confers）
+// ============================================================================
+
+/// 配置构建器
+///
+/// 提供流式API构建FlowControlConfig配置，不依赖confers库。
+///
+/// # 示例
+///
+/// ```rust
+/// use limiteron::config::ConfigBuilder;
+///
+/// let config = ConfigBuilder::new()
+///     .with_storage("memory")
+///     .with_cache("memory")
+///     .with_metrics("prometheus")
+///     .with_rule(|rule| {
+///         rule.id("default")
+///             .name("Default Rule")
+///             .priority(100)
+///             .token_bucket(1000, 100)
+///     })
+///     .build();
+/// ```
+#[derive(Clone, Debug)]
+pub struct ConfigBuilder {
+    /// 全局配置
+    storage: String,
+    cache: String,
+    metrics: String,
+    /// 规则列表
+    rules: Vec<RuleBuilder>,
+}
+
+impl Default for ConfigBuilder {
+    fn default() -> Self {
+        Self {
+            storage: "memory".to_string(),
+            cache: "memory".to_string(),
+            metrics: "prometheus".to_string(),
+            rules: Vec::new(),
+        }
     }
 }
 
-impl confers::audit::Sanitize for FlowControlConfig {
-    fn sanitize(&self) -> serde_json::Value {
-        serde_json::json!({
-            "version": self.version,
-            "global": self.global,
-            "rules_count": self.rules.len()
+impl ConfigBuilder {
+    /// 创建新的配置构建器
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置存储类型
+    pub fn with_storage(mut self, storage: impl Into<String>) -> Self {
+        self.storage = storage.into();
+        self
+    }
+
+    /// 设置缓存类型
+    pub fn with_cache(mut self, cache: impl Into<String>) -> Self {
+        self.cache = cache.into();
+        self
+    }
+
+    /// 设置指标类型
+    pub fn with_metrics(mut self, metrics: impl Into<String>) -> Self {
+        self.metrics = metrics.into();
+        self
+    }
+
+    /// 添加规则
+    pub fn with_rule<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(RuleBuilder) -> RuleBuilder,
+    {
+        let rule = f(RuleBuilder::new());
+        self.rules.push(rule);
+        self
+    }
+
+    /// 构建配置
+    pub fn build(self) -> Result<FlowControlConfig, String> {
+        let rules: Result<Vec<_>, _> = self.rules.into_iter().map(|r| r.build()).collect();
+        let rules = rules?;
+
+        if rules.is_empty() {
+            return Err("至少需要一个规则".to_string());
+        }
+
+        let config = FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: GlobalConfig {
+                storage: self.storage,
+                cache: self.cache,
+                metrics: self.metrics,
+            },
+            rules,
+        };
+
+        // 验证配置，验证失败时返回错误
+        config.validate()?;
+        Ok(config)
+    }
+}
+
+/// 规则构建器
+#[derive(Clone, Debug)]
+pub struct RuleBuilder {
+    id: String,
+    name: String,
+    priority: u16,
+    matchers: Vec<Matcher>,
+    limiters: Vec<LimiterConfig>,
+    action: ActionConfig,
+}
+
+impl RuleBuilder {
+    pub fn new() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            priority: 100,
+            matchers: Vec::new(),
+            limiters: Vec::new(),
+            action: ActionConfig {
+                on_exceed: "reject".to_string(),
+                ban: None,
+            },
+        }
+    }
+}
+
+impl Default for RuleBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RuleBuilder {
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = id.into();
+        self
+    }
+
+    pub fn name(mut self, name: impl Into<String>) -> Self {
+        self.name = name.into();
+        self
+    }
+
+    pub fn priority(mut self, priority: u16) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    pub fn user_matcher(mut self, user_ids: Vec<String>) -> Self {
+        self.matchers.push(Matcher::User { user_ids });
+        self
+    }
+
+    pub fn ip_matcher(mut self, ip_ranges: Vec<String>) -> Self {
+        self.matchers.push(Matcher::Ip { ip_ranges });
+        self
+    }
+
+    pub fn token_bucket(mut self, capacity: u64, refill_rate: u64) -> Self {
+        self.limiters.push(LimiterConfig::TokenBucket {
+            capacity,
+            refill_rate,
+        });
+        self
+    }
+
+    pub fn fixed_window(mut self, window_size: impl Into<String>, max_requests: u64) -> Self {
+        self.limiters.push(LimiterConfig::FixedWindow {
+            window_size: window_size.into(),
+            max_requests,
+        });
+        self
+    }
+
+    pub fn sliding_window(mut self, window_size: impl Into<String>, max_requests: u64) -> Self {
+        self.limiters.push(LimiterConfig::SlidingWindow {
+            window_size: window_size.into(),
+            max_requests,
+        });
+        self
+    }
+
+    pub fn concurrency_limit(mut self, max_concurrent: u64) -> Self {
+        self.limiters
+            .push(LimiterConfig::Concurrency { max_concurrent });
+        self
+    }
+
+    pub fn on_reject(mut self) -> Self {
+        self.action.on_exceed = "reject".to_string();
+        self
+    }
+
+    pub fn on_allow(mut self) -> Self {
+        self.action.on_exceed = "allow".to_string();
+        self
+    }
+
+    pub fn on_degrade(mut self) -> Self {
+        self.action.on_exceed = "degrade".to_string();
+        self
+    }
+
+    pub fn build(self) -> Result<Rule, String> {
+        if self.id.is_empty() {
+            return Err("规则ID不能为空".to_string());
+        }
+        if self.name.is_empty() {
+            return Err("规则名称不能为空".to_string());
+        }
+        if self.matchers.is_empty() {
+            return Err("规则至少需要一个匹配器".to_string());
+        }
+        if self.limiters.is_empty() {
+            return Err("规则至少需要一个限流器".to_string());
+        }
+
+        Ok(Rule {
+            id: self.id,
+            name: self.name,
+            priority: self.priority,
+            matchers: self.matchers,
+            limiters: self.limiters,
+            action: self.action,
         })
     }
 }

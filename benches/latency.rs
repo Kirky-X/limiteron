@@ -3,7 +3,10 @@
 //! 测试各种操作的延迟性能
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use limiteron::limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter};
+use limiteron::limiters::{
+    FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, SlidingWindowLimiter,
+    TokenBucketLimiter,
+};
 use oxcache::Cache;
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,6 +40,58 @@ fn bench_sliding_window_latency(c: &mut Criterion) {
             });
         });
     });
+}
+
+/// 基准测试：ShardedSlidingWindowLimiter延迟
+fn bench_sharded_sliding_window_latency(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+    let limiter = Arc::new(ShardedSlidingWindowLimiter::new(
+        Duration::from_secs(60),
+        1000,
+    ));
+
+    c.bench_function("sharded_sliding_window_check", |b| {
+        let limiter = limiter.clone();
+        b.iter(|| {
+            rt.block_on(async {
+                let _ = black_box(limiter.allow(1).await);
+            });
+        });
+    });
+}
+
+/// 基准测试：滑动窗口限流器延迟对比
+fn bench_sliding_window_latency_comparison(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+
+    let mut group = c.benchmark_group("sliding_window_latency_comparison");
+
+    // 传统滑动窗口
+    let traditional = Arc::new(SlidingWindowLimiter::new(Duration::from_secs(60), 1000));
+    group.bench_function("traditional", |b| {
+        let limiter = traditional.clone();
+        b.iter(|| {
+            rt.block_on(async {
+                let _ = black_box(limiter.allow(1).await);
+            });
+        });
+    });
+
+    // 分片滑动窗口
+    let sharded = Arc::new(ShardedSlidingWindowLimiter::new(
+        Duration::from_secs(60),
+        1000,
+    ));
+    group.bench_function("sharded", |b| {
+        let limiter = sharded.clone();
+        b.iter(|| {
+            rt.block_on(async {
+                let _ = black_box(limiter.allow(1).await);
+            });
+        });
+    });
+
+    group.finish();
 }
 
 /// 基准测试：FixedWindowLimiter延迟
@@ -198,10 +253,12 @@ criterion_group!(
     benches,
     bench_token_bucket_latency,
     bench_sliding_window_latency,
+    bench_sharded_sliding_window_latency,
+    bench_sliding_window_latency_comparison,
     bench_fixed_window_latency,
-    bench_l2_cache_hit_latency,
-    bench_l2_cache_miss_latency,
-    bench_l2_cache_set_latency,
+    bench_cache_hit_latency,
+    bench_cache_miss_latency,
+    bench_cache_set_latency,
     bench_window_size_latency,
     bench_concurrent_check_latency
 );

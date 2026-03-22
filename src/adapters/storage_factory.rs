@@ -48,9 +48,10 @@ use dbnexus::DbPool;
 use std::sync::Arc;
 
 /// 存储类型枚举
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum StorageType {
     /// DBNexus PostgreSQL 存储
+    #[default]
     DBNexusPostgres,
     /// DBNexus MySQL 存储
     DBNexusMySQL,
@@ -70,12 +71,6 @@ impl std::fmt::Display for StorageType {
             #[cfg(test)]
             StorageType::Memory => write!(f, "Memory"),
         }
-    }
-}
-
-impl Default for StorageType {
-    fn default() -> Self {
-        StorageType::DBNexusPostgres
     }
 }
 

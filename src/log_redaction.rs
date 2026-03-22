@@ -19,7 +19,7 @@ pub fn redact_basic(value: Option<&str>) -> String {
         return "unknown".to_string();
     }
 
-    if value.len() <= 4 {
+    if value.len() < 4 {
         return "***".to_string();
     }
 
@@ -84,7 +84,8 @@ pub fn redact_email(value: Option<&str>) -> String {
             return format!("***{}", domain);
         }
 
-        return format!("{}***{}", &local_part[..1], domain);
+        let prefix_len = if local_part.len() <= 4 { 1 } else { 2 };
+        return format!("{}***{}", &local_part[..prefix_len], domain);
     }
 
     redact_basic(Some(value))

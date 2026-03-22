@@ -803,19 +803,32 @@ mod tests {
             }
 
             if quota_info.consumed + cost > quota_info.limit {
+                let usage_percent = if limit > 0 {
+                    ((quota_info.consumed + cost) as f64 / limit as f64) * 100.0
+                } else {
+                    100.0
+                };
                 return Ok(ConsumeResult {
                     allowed: false,
                     remaining: quota_info.limit - quota_info.consumed,
                     alert_triggered: false,
+                    usage_percent,
                 });
             }
 
             quota_info.consumed += cost;
 
+            let usage_percent = if limit > 0 {
+                (quota_info.consumed as f64 / limit as f64) * 100.0
+            } else {
+                0.0
+            };
+
             Ok(ConsumeResult {
                 allowed: true,
                 remaining: quota_info.limit - quota_info.consumed,
                 alert_triggered: false,
+                usage_percent,
             })
         }
 
@@ -885,9 +898,9 @@ mod tests {
     /// 测试创建配额控制器
     #[test]
     fn test_quota_controller_new() {
-        let storage = TestQuotaStorage::new();
+        let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig::default();
-        let controller = QuotaController::new(storage, config);
+        let controller = QuotaController::with_dependencies(storage, config);
 
         assert_eq!(controller.config().limit, 1000);
     }
@@ -895,7 +908,7 @@ mod tests {
     /// 测试消费配额 - 基本场景
     #[tokio::test]
     async fn test_consume_basic() {
-        let storage = TestQuotaStorage::new();
+        let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -908,7 +921,7 @@ mod tests {
             },
         };
 
-        let controller = QuotaController::new(storage, config);
+        let controller = QuotaController::with_dependencies(storage, config);
 
         // 消费 10 个配额
         let result = controller.consume("user1", "resource1", 10).await.unwrap();
@@ -925,7 +938,7 @@ mod tests {
     /// 测试消费配额 - 超过限制
     #[tokio::test]
     async fn test_consume_exceeds_limit() {
-        let storage = TestQuotaStorage::new();
+        let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -938,7 +951,7 @@ mod tests {
             },
         };
 
-        let controller = QuotaController::new(storage, config);
+        let controller = QuotaController::with_dependencies(storage, config);
 
         // 消费 100 个配额
         let result = controller.consume("user1", "resource1", 100).await.unwrap();
@@ -954,7 +967,7 @@ mod tests {
     /// 测试透支功能
     #[tokio::test]
     async fn test_overdraft() {
-        let storage = TestQuotaStorage::new();
+        let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -967,7 +980,7 @@ mod tests {
             },
         };
 
-        let controller = QuotaController::new(storage, config);
+        let controller = QuotaController::with_dependencies(storage, config);
 
         // 消费 100 个配额（达到上限）
         let result = controller.consume("user1", "resource1", 100).await.unwrap();
@@ -987,7 +1000,7 @@ mod tests {
     /// 测试滑动窗口重置
     #[tokio::test]
     async fn test_sliding_window_reset() {
-        let storage = TestQuotaStorage::new();
+        let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -1000,7 +1013,7 @@ mod tests {
             },
         };
 
-        let controller = QuotaController::new(storage, config);
+        let controller = QuotaController::with_dependencies(storage, config);
 
         // 消费 50 个配额
         let result = controller.consume("user1", "resource1", 50).await.unwrap();
@@ -1022,7 +1035,7 @@ mod tests {
     /// 测试告警触发
     #[tokio::test]
     async fn test_alert_trigger() {
-        let storage = TestQuotaStorage::new();
+        let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -1037,7 +1050,7 @@ mod tests {
             },
         };
 
-        let controller = QuotaController::new(storage, config);
+        let controller = QuotaController::with_dependencies(storage, config);
 
         // 消费 80 个配额，应该触发 80% 告警
         let result = controller.consume("user1", "resource1", 80).await.unwrap();
@@ -1058,7 +1071,7 @@ mod tests {
     /// 测试告警去重
     #[tokio::test]
     async fn test_alert_dedup() {
-        let storage = TestQuotaStorage::new();
+        let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -1073,7 +1086,7 @@ mod tests {
             },
         };
 
-        let controller = QuotaController::new(storage, config);
+        let controller = QuotaController::with_dependencies(storage, config);
 
         // 消费 80 个配额，应该触发告警
         let result = controller.consume("user1", "resource1", 80).await.unwrap();
@@ -1100,7 +1113,7 @@ mod tests {
     /// 测试获取配额状态
     #[tokio::test]
     async fn test_get_quota() {
-        let storage = TestQuotaStorage::new();
+        let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -1113,7 +1126,7 @@ mod tests {
             },
         };
 
-        let controller = QuotaController::new(storage, config);
+        let controller = QuotaController::with_dependencies(storage, config);
 
         // 消费配额
         controller.consume("user1", "resource1", 50).await.unwrap();
@@ -1127,7 +1140,7 @@ mod tests {
     /// 测试重置配额
     #[tokio::test]
     async fn test_reset_quota() {
-        let storage = TestQuotaStorage::new();
+        let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -1140,7 +1153,7 @@ mod tests {
             },
         };
 
-        let controller = QuotaController::new(storage, config);
+        let controller = QuotaController::with_dependencies(storage, config);
 
         // 消费配额
         controller.consume("user1", "resource1", 50).await.unwrap();
@@ -1179,7 +1192,7 @@ mod tests {
     /// 测试并发消费
     #[tokio::test]
     async fn test_concurrent_consume() {
-        let storage = TestQuotaStorage::new();
+        let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -1192,7 +1205,7 @@ mod tests {
             },
         };
 
-        let controller = Arc::new(QuotaController::new(storage, config));
+        let controller = Arc::new(QuotaController::with_dependencies(storage, config));
         let mut handles = vec![];
 
         // 创建 10 个并发任务，每个消费 10 个配额
@@ -1218,9 +1231,9 @@ mod tests {
     /// 测试消费数量为 0
     #[tokio::test]
     async fn test_consume_zero() {
-        let storage = TestQuotaStorage::new();
+        let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig::default();
-        let controller = QuotaController::new(storage, config);
+        let controller = QuotaController::with_dependencies(storage, config);
 
         let result = controller.consume("user1", "resource1", 0).await.unwrap();
         assert!(result.allowed);
@@ -1231,9 +1244,9 @@ mod tests {
     /// 测试更新配置
     #[test]
     fn test_update_config() {
-        let storage = TestQuotaStorage::new();
+        let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig::default();
-        let mut controller = QuotaController::new(storage, config);
+        let mut controller = QuotaController::with_dependencies(storage, config);
 
         assert_eq!(controller.config().limit, 1000);
 
@@ -1244,5 +1257,669 @@ mod tests {
         controller.update_config(new_config);
 
         assert_eq!(controller.config().limit, 500);
+    }
+
+    // ========================================================================
+    // 增强测试 - 基础配额操作
+    // ========================================================================
+
+    /// 测试配额耗尽拒绝 - 边界条件
+    /// 验证在配额恰好耗尽时的行为
+    #[tokio::test]
+    async fn test_quota_exhaustion_boundary() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 消费恰好 100 个配额（达到上限）
+        let result = controller.consume("user1", "resource1", 100).await.unwrap();
+        assert!(result.allowed, "消费恰好达到上限应该被允许");
+        assert_eq!(result.remaining, 0, "剩余配额应该为 0");
+
+        // 尝试消费 1 个配额，应该被拒绝
+        let result = controller.consume("user1", "resource1", 1).await.unwrap();
+        assert!(!result.allowed, "超过上限应该被拒绝");
+        assert_eq!(result.remaining, 0, "拒绝时剩余配额应该为 0");
+
+        // 尝试消费 0 个配额，应该被允许
+        let result = controller.consume("user1", "resource1", 0).await.unwrap();
+        assert!(result.allowed, "消费 0 应该被允许");
+    }
+
+    /// 测试配额重置后可以重新消费
+    #[tokio::test]
+    async fn test_quota_reset_allows_new_consumption() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 50,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 消费全部配额
+        let result = controller.consume("user1", "resource1", 50).await.unwrap();
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 0);
+
+        // 尝试再消费，应该被拒绝
+        let result = controller.consume("user1", "resource1", 1).await.unwrap();
+        assert!(!result.allowed);
+
+        // 重置配额
+        controller.reset_quota("user1", "resource1").await.unwrap();
+
+        // 重置后应该可以重新消费
+        let result = controller.consume("user1", "resource1", 30).await.unwrap();
+        assert!(result.allowed, "重置后应该可以消费");
+        assert_eq!(result.remaining, 20, "重置后剩余配额应该正确");
+    }
+
+    // ========================================================================
+    // 增强测试 - 高级配额功能
+    // ========================================================================
+
+    /// 测试滑动窗口重置 - 跨越多个窗口
+    #[tokio::test]
+    async fn test_sliding_window_multiple_periods() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 1, // 1 秒窗口
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 第一轮消费
+        let result = controller.consume("user1", "resource1", 50).await.unwrap();
+        assert!(result.allowed);
+
+        // 等待超过一个完整窗口
+        tokio::time::sleep(tokio::time::Duration::from_millis(1200)).await;
+
+        // 第二轮消费 - 窗口应该已重置
+        let result = controller.consume("user1", "resource1", 60).await.unwrap();
+        assert!(result.allowed, "窗口重置后应该可以消费");
+    }
+
+    /// 测试透支功能 - 边界条件
+    #[tokio::test]
+    async fn test_overdraft_boundary() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: true,
+            overdraft_limit_percent: 20, // 20% 透支 = 20 额外配额
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 消费到恰好达到原始上限
+        let result = controller.consume("user1", "resource1", 100).await.unwrap();
+        assert!(result.allowed);
+        // 剩余应该包含透支额度: 120 - 100 = 20
+        assert_eq!(result.remaining, 20);
+
+        // 消费透支额度
+        let result = controller.consume("user1", "resource1", 20).await.unwrap();
+        assert!(result.allowed, "透支额度内应该被允许");
+        assert_eq!(result.remaining, 0);
+
+        // 超过透支上限
+        let result = controller.consume("user1", "resource1", 1).await.unwrap();
+        assert!(!result.allowed, "超过透支上限应该被拒绝");
+    }
+
+    /// 测试透支功能 - 不同透支百分比
+    #[tokio::test]
+    async fn test_overdraft_different_percentages() {
+        // 测试 10% 透支
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: true,
+            overdraft_limit_percent: 10, // 10% 透支 = 10 额外配额
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 消费到原始上限
+        let result = controller.consume("user1", "resource1", 100).await.unwrap();
+        assert!(result.allowed);
+
+        // 消费透支额度 (10)
+        let result = controller.consume("user1", "resource1", 10).await.unwrap();
+        assert!(result.allowed, "10% 透支额度内应该被允许");
+
+        // 超过透支上限
+        let result = controller.consume("user1", "resource1", 1).await.unwrap();
+        assert!(!result.allowed, "超过 10% 透支上限应该被拒绝");
+    }
+
+    /// 测试多级告警触发 - 所有阈值
+    #[tokio::test]
+    async fn test_multi_level_alerts() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: true,
+                thresholds: vec![50, 75, 90, 100], // 多个阈值
+                channels: vec![AlertChannel::Log],
+                dedup_window: 1, // 1 秒去重窗口便于测试
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 消费 50% - 应该触发 50% 告警
+        let result = controller.consume("user1", "resource1", 50).await.unwrap();
+        assert!(result.allowed);
+        assert!(result.alert_triggered, "达到 50% 应该触发告警");
+
+        // 等待去重窗口过期
+        tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+        controller.cleanup_alert_dedup();
+
+        // 消费到 75% - 应该触发 75% 告警
+        let result = controller.consume("user1", "resource1", 25).await.unwrap();
+        assert!(result.allowed);
+        assert!(result.alert_triggered, "达到 75% 应该触发告警");
+
+        // 等待去重窗口过期
+        tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+        controller.cleanup_alert_dedup();
+
+        // 消费到 90% - 应该触发 90% 告警
+        let result = controller.consume("user1", "resource1", 15).await.unwrap();
+        assert!(result.allowed);
+        assert!(result.alert_triggered, "达到 90% 应该触发告警");
+
+        // 等待去重窗口过期
+        tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+        controller.cleanup_alert_dedup();
+
+        // 消费到 100% - 应该触发 100% 告警
+        let result = controller.consume("user1", "resource1", 10).await.unwrap();
+        assert!(result.allowed);
+        assert!(result.alert_triggered, "达到 100% 应该触发告警");
+    }
+
+    /// 测试告警去重 - 同一阈值不重复触发
+    #[tokio::test]
+    async fn test_alert_dedup_same_threshold() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: true,
+                thresholds: vec![80],
+                channels: vec![AlertChannel::Log],
+                dedup_window: 300, // 5 分钟去重窗口
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 第一次消费到 80% - 触发告警
+        let result = controller.consume("user1", "resource1", 80).await.unwrap();
+        assert!(result.alert_triggered, "首次达到阈值应该触发告警");
+
+        // 继续消费到 85% - 不应该触发告警（去重）
+        let result = controller.consume("user1", "resource1", 5).await.unwrap();
+        assert!(!result.alert_triggered, "同一去重窗口内不应该重复触发告警");
+
+        // 继续消费到 90% - 不应该触发告警（去重）
+        let result = controller.consume("user1", "resource1", 5).await.unwrap();
+        assert!(!result.alert_triggered, "同一去重窗口内不应该重复触发告警");
+    }
+
+    /// 测试告警禁用
+    #[tokio::test]
+    async fn test_alert_disabled() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false, // 禁用告警
+                thresholds: vec![80, 90, 100],
+                channels: vec![AlertChannel::Log],
+                dedup_window: 300,
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 消费到 100% - 不应该触发告警
+        let result = controller.consume("user1", "resource1", 100).await.unwrap();
+        assert!(result.allowed);
+        assert!(!result.alert_triggered, "告警禁用时不应该触发告警");
+    }
+
+    // ========================================================================
+    // 增强测试 - 边界条件
+    // ========================================================================
+
+    /// 测试大消费数处理 - 整数溢出保护
+    #[tokio::test]
+    async fn test_large_consumption() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 尝试消费一个非常大的数（超过 u64::MAX / 2）
+        let result = controller
+            .consume("user1", "resource1", u64::MAX)
+            .await
+            .unwrap();
+        assert!(!result.allowed, "超大消费数应该被拒绝");
+    }
+
+    /// 测试大消费数处理 - 接近限制
+    #[tokio::test]
+    async fn test_large_consumption_near_limit() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: u32::MAX as u64, // 使用较大的限制
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 消费接近限制的数量
+        let result = controller
+            .consume("user1", "resource1", u32::MAX as u64 - 1)
+            .await
+            .unwrap();
+        assert!(result.allowed, "接近限制的消费应该被允许");
+        assert_eq!(result.remaining, 1);
+
+        // 再消费 1 个
+        let result = controller.consume("user1", "resource1", 1).await.unwrap();
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 0);
+    }
+
+    /// 测试使用率计算正确性
+    #[tokio::test]
+    async fn test_usage_percent_calculation() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 200,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 消费 50 个，使用率应该是 25%
+        let result = controller.consume("user1", "resource1", 50).await.unwrap();
+        assert!(result.allowed);
+        assert!(
+            (result.usage_percent - 25.0).abs() < 0.1,
+            "使用率应该是 25%，实际是 {}%",
+            result.usage_percent
+        );
+
+        // 消费 50 个，总共 100 个，使用率应该是 50%
+        let result = controller.consume("user1", "resource1", 50).await.unwrap();
+        assert!(result.allowed);
+        assert!(
+            (result.usage_percent - 50.0).abs() < 0.1,
+            "使用率应该是 50%，实际是 {}%",
+            result.usage_percent
+        );
+
+        // 消费 50 个，总共 150 个，使用率应该是 75%
+        let result = controller.consume("user1", "resource1", 50).await.unwrap();
+        assert!(result.allowed);
+        assert!(
+            (result.usage_percent - 75.0).abs() < 0.1,
+            "使用率应该是 75%，实际是 {}%",
+            result.usage_percent
+        );
+
+        // 消费 50 个，总共 200 个，使用率应该是 100%
+        let result = controller.consume("user1", "resource1", 50).await.unwrap();
+        assert!(result.allowed);
+        assert!(
+            (result.usage_percent - 100.0).abs() < 0.1,
+            "使用率应该是 100%，实际是 {}%",
+            result.usage_percent
+        );
+    }
+
+    /// 测试使用率计算 - 零限制边界
+    #[tokio::test]
+    async fn test_usage_percent_zero_limit() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 0, // 零限制
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 消费 0 个配额
+        let result = controller.consume("user1", "resource1", 0).await.unwrap();
+        assert!(result.allowed);
+        // 零限制时，usage_percent 应该返回 0.0（根据 calculate_usage_percent 实现）
+        assert_eq!(result.usage_percent, 0.0, "零限制且零消费时使用率应该是 0%");
+    }
+
+    /// 测试并发消费安全性 - 高并发场景
+    #[tokio::test]
+    async fn test_concurrent_consume_high_contention() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 1000,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = Arc::new(QuotaController::with_dependencies(storage, config));
+        let mut handles = vec![];
+
+        // 创建 100 个并发任务，每个消费 15 个配额
+        // 总共请求 1500，但限制是 1000
+        for _ in 0..100 {
+            let controller_clone = Arc::clone(&controller);
+            handles.push(tokio::spawn(async move {
+                controller_clone.consume("user1", "resource1", 15).await
+            }));
+        }
+
+        let mut allowed_count = 0;
+        let mut denied_count = 0;
+        let mut total_consumed = 0u64;
+
+        for handle in handles {
+            let result = handle.await.unwrap().unwrap();
+            if result.allowed {
+                allowed_count += 1;
+                total_consumed += 15;
+            } else {
+                denied_count += 1;
+            }
+        }
+
+        // 验证：
+        // 1. 总消费量不应该超过限制
+        assert!(
+            total_consumed <= 1000,
+            "总消费量 {} 不应该超过限制 1000",
+            total_consumed
+        );
+
+        // 2. 应该有部分请求被拒绝
+        assert!(denied_count > 0, "应该有部分请求被拒绝");
+
+        // 3. 允许的请求数 * 15 应该等于总消费量
+        assert_eq!(
+            allowed_count * 15,
+            total_consumed as usize,
+            "允许的请求数与总消费量应该一致"
+        );
+    }
+
+    /// 测试并发消费安全性 - 多用户场景
+    #[tokio::test]
+    async fn test_concurrent_consume_multiple_users() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = Arc::new(QuotaController::with_dependencies(storage, config));
+        let mut handles = vec![];
+
+        // 创建 10 个用户，每个用户并发消费
+        for user_idx in 0..10 {
+            for _ in 0..15 {
+                // 每个用户发起 15 次请求，每次 10 个配额
+                let controller_clone = Arc::clone(&controller);
+                let user_id = format!("user{}", user_idx);
+                handles.push(tokio::spawn(async move {
+                    controller_clone.consume(&user_id, "resource1", 10).await
+                }));
+            }
+        }
+
+        let mut user_consumption: std::collections::HashMap<String, u64> =
+            std::collections::HashMap::new();
+
+        for handle in handles {
+            let result = handle.await.unwrap().unwrap();
+            if result.allowed {
+                // 这里我们无法直接获取 user_id，但可以验证总体行为
+            }
+        }
+
+        // 验证每个用户的消费量不超过限制
+        for user_idx in 0..10 {
+            let user_id = format!("user{}", user_idx);
+            let state = controller.get_quota(&user_id, "resource1").await.unwrap();
+            if let Some(state) = state {
+                assert!(
+                    state.consumed <= 100,
+                    "用户 {} 的消费量 {} 不应该超过限制 100",
+                    user_id,
+                    state.consumed
+                );
+            }
+        }
+    }
+
+    /// 测试零消费处理 - 多次零消费
+    #[tokio::test]
+    async fn test_multiple_zero_consumption() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 多次消费 0
+        for _ in 0..10 {
+            let result = controller.consume("user1", "resource1", 0).await.unwrap();
+            assert!(result.allowed);
+            assert_eq!(result.remaining, 100);
+        }
+
+        // 验证实际消费量仍为 0
+        let state = controller.get_quota("user1", "resource1").await.unwrap();
+        // 零消费不会创建配额状态
+        assert!(
+            state.is_none() || state.unwrap().consumed == 0,
+            "零消费不应该增加消费量"
+        );
+    }
+
+    /// 测试不同配额类型
+    #[tokio::test]
+    async fn test_different_quota_types() {
+        // Token 类型
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Token,
+            limit: 1000,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+        let controller = QuotaController::with_dependencies(storage, config);
+        let result = controller.consume("user1", "api", 100).await.unwrap();
+        assert!(result.allowed);
+
+        // Money 类型
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Money,
+            limit: 10000, // 100.00 元，以分为单位
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+        let controller = QuotaController::with_dependencies(storage, config);
+        let result = controller.consume("user2", "payment", 500).await.unwrap();
+        assert!(result.allowed);
+
+        // Count 类型
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+        let controller = QuotaController::with_dependencies(storage, config);
+        let result = controller.consume("user3", "requests", 10).await.unwrap();
+        assert!(result.allowed);
+    }
+
+    /// 测试 Builder 模式创建 QuotaController
+    #[tokio::test]
+    async fn test_quota_controller_builder() {
+        let storage: Arc<dyn QuotaStorage> = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 200,
+            window_size: 1800,
+            allow_overdraft: true,
+            overdraft_limit_percent: 10,
+            alert_config: AlertConfig::default(),
+        };
+
+        let controller = QuotaController::builder()
+            .with_storage(storage)
+            .with_config(config.clone())
+            .build()
+            .unwrap();
+
+        // 验证配置正确应用
+        assert_eq!(controller.config().limit, 200);
+        assert_eq!(controller.config().window_size, 1800);
+        assert!(controller.config().allow_overdraft);
+        assert_eq!(controller.config().overdraft_limit_percent, 10);
+
+        // 验证功能正常
+        let result = controller.consume("user1", "resource1", 50).await.unwrap();
+        assert!(result.allowed);
     }
 }

@@ -8,12 +8,12 @@
   <img src="https://img.shields.io/badge/version-0.1.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust Version">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License">
-  <img src="https://github.com/Kirky-X/limiteron/workflows/CI/badge.svg" alt="Build">
-  <img src="https://codecov.io/gh/Kirky-X/limiteron/branch/main/graph/badge.svg" alt="Coverage">
+  <a href="https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml"><img src="https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://codecov.io/gh/Kirky-X/limiteron"><img src="https://codecov.io/gh/Kirky-X/limiteron/branch/main/graph/badge.svg?token=limiteron" alt="Coverage"></a>
+  <a href="https://github.com/Kirky-X/limiteron/actions/workflows/benchmark.yml"><img src="https://github.com/Kirky-X/limiteron/actions/workflows/benchmark.yml/badge.svg" alt="Benchmarks"></a>
   <img src="https://img.shields.io/github/stars/Kirky-X/limiteron?style=social" alt="GitHub Stars">
   <img src="https://img.shields.io/github/forks/Kirky-X/limiteron?style=social" alt="GitHub Forks">
   <img src="https://img.shields.io/github/issues/Kirky-X/limiteron" alt="GitHub Issues">
-  <img src="https://img.shields.io/github/license/Kirky-X/limiteron" alt="License">
 </p>
 
 <p align="center">

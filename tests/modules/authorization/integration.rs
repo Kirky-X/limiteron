@@ -60,8 +60,8 @@ fn test_simple_provider_is_authorized() {
 }
 
 #[test]
-fn test_simple_provider_from_iter() {
-    let provider = SimpleAuthorizationProvider::from_iter(["admin", "superuser"]);
+fn test_simple_provider_from_roles() {
+    let provider = SimpleAuthorizationProvider::from_roles(["admin", "superuser"]);
     assert_eq!(provider.authorized_roles().len(), 2);
     assert!(provider.is_authorized("admin"));
     assert!(provider.is_authorized("superuser"));

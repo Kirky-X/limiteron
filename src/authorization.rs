@@ -187,9 +187,9 @@ impl SimpleAuthorizationProvider {
     /// ```rust
     /// use limiteron::authorization::SimpleAuthorizationProvider;
     ///
-    /// let provider = SimpleAuthorizationProvider::from_iter(["admin", "moderator"]);
+    /// let provider = SimpleAuthorizationProvider::from_roles(["admin", "moderator"]);
     /// ```
-    pub fn from_iter<I, S>(roles: I) -> Self
+    pub fn from_roles<I, S>(roles: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
@@ -526,8 +526,8 @@ mod tests {
     }
 
     #[test]
-    fn test_simple_authorization_provider_from_iter() {
-        let provider = SimpleAuthorizationProvider::from_iter(["admin", "moderator"]);
+    fn test_simple_authorization_provider_from_roles() {
+        let provider = SimpleAuthorizationProvider::from_roles(["admin", "moderator"]);
         assert_eq!(provider.authorized_roles().len(), 2);
         assert!(provider.is_authorized("admin"));
         assert!(provider.is_authorized("moderator"));

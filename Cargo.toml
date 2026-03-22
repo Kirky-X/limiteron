@@ -88,9 +88,6 @@ oxcache = { path = "/home/dev/projects/oxcache" }
 confers = { path = "/home/dev/projects/confers", optional = true, default-features = false }
 confers-macros = { path = "/home/dev/projects/confers/confers-macros", optional = true }
 
-# 日志库 - 使用本地 inklog
-inklog = { path = "/home/dev/projects/inklog" }
-
 # 宏依赖
 proc-macro2 = { version = "1.0", optional = true }
 syn = { version = "2.0", features = ["full"], optional = true }
@@ -128,6 +125,8 @@ redis = { version = "1.0", optional = true, default-features = false, features =
 tokio-test = "0.4"
 tempfile = "3.24"
 futures = "0.3"
+rand = "0.8"
+criterion = { version = "0.5", features = ["async_tokio"] }
 
 [features]
 # ============================================
@@ -223,6 +222,8 @@ telemetry = [
     "dep:scopeguard",
 ]
 monitoring = ["dep:prometheus"]
+# metrics 特性传递给 dbnexus 以启用 record_metric 方法
+metrics = ["dbnexus/metrics"]
 audit-log = ["telemetry", "dep:hmac", "dep:sha2", "dep:hex"]
 
 # ============================================
@@ -233,34 +234,11 @@ config-watcher = ["dep:notify"]
 webhook = ["dep:reqwest"]
 code-review = []
 
-[[example]]
-name = "simple_rate_limit"
-path = "examples/simple_rate_limit.rs"
-required-features = ["macros"]
-
-[[example]]
-name = "macro_usage"
-path = "examples/macro_usage.rs"
-required-features = ["macros"]
-
-[[example]]
-name = "rate_limiters"
-path = "examples/rate_limiters.rs"
-
-[[example]]
-name = "circuit_breaker"
-path = "examples/circuit_breaker.rs"
-required-features = ["circuit-breaker"]
-
-[[example]]
-name = "quota_control"
-path = "examples/quota_control.rs"
-required-features = ["quota-control"]
-
-[[example]]
-name = "ban_manager"
-path = "examples/ban_manager.rs"
-required-features = ["ban-manager"]
+# ============================================
+# Development Features (开发/测试)
+# ============================================
+# 遗留测试 - 用于标记尚未实现的功能测试
+legacy_tests = []
 
 [[bench]]
 name = "throughput"
@@ -271,3 +249,26 @@ required-features = ["full"]
 name = "latency"
 path = "benches/latency.rs"
 required-features = ["full"]
+
+[[bench]]
+name = "memory"
+path = "benches/memory.rs"
+required-features = ["full"]
+
+[[bench]]
+name = "regression"
+path = "benches/regression.rs"
+required-features = ["full"]
+
+# Coverage configuration
+[package.metadata.tarpaulin]
+timeout = "300"
+out = ["Html", "Json"]
+output-dir = "coverage"
+exclude-files = [
+    "tests/*",
+    "examples/*",
+    "benches/*",
+    "src/bin/*",
+]
+fail-under = 80

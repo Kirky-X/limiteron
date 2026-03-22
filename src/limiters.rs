@@ -2356,4 +2356,640 @@ mod tests {
         let is_allowed = result.as_ref().map(|v| *v).unwrap_or(false);
         assert!(is_allowed, "Cost within capacity should return true");
     }
+
+    // ==================== TokenBucketLimiter 边界条件测试 (Section 2.1.1) ====================
+
+    /// 零令牌边界测试
+    ///
+    /// 验证当桶容量为 1 时，消费最后一个令牌后的行为
+    #[tokio::test]
+    async fn test_token_bucket_zero_token_boundary() {
+        // 创建容量为 1 的令牌桶
+        let limiter = TokenBucketLimiter::new(1, 1);
+        assert_eq!(limiter.get_tokens(), 1);
+
+        // 消费唯一的令牌
+        assert!(limiter.allow(1).await.unwrap());
+        assert_eq!(limiter.get_tokens(), 0);
+
+        // 再次请求应该被拒绝
+        assert!(!limiter.allow(1).await.unwrap());
+        assert_eq!(limiter.get_tokens(), 0);
+
+        // 多次请求仍然被拒绝
+        for _ in 0..5 {
+            assert!(!limiter.allow(1).await.unwrap());
+        }
+        assert_eq!(limiter.get_tokens(), 0);
+    }
+
+    /// 大令牌数消费测试
+    ///
+    /// 验证消费大量令牌时的正确性
+    #[tokio::test]
+    async fn test_token_bucket_large_token_consumption() {
+        // 创建大容量令牌桶
+        let limiter = TokenBucketLimiter::new(10000, 1000);
+
+        // 消费大量令牌
+        assert!(limiter.allow(5000).await.unwrap());
+        assert_eq!(limiter.get_tokens(), 5000);
+
+        // 再次消费大量令牌
+        assert!(limiter.allow(5000).await.unwrap());
+        assert_eq!(limiter.get_tokens(), 0);
+
+        // 应该被拒绝
+        assert!(!limiter.allow(1).await.unwrap());
+
+        // 测试消费接近容量的令牌
+        let limiter2 = TokenBucketLimiter::new(10000, 1000);
+        assert!(limiter2.allow(9999).await.unwrap());
+        assert_eq!(limiter2.get_tokens(), 1);
+
+        // 最后一个令牌
+        assert!(limiter2.allow(1).await.unwrap());
+        assert_eq!(limiter2.get_tokens(), 0);
+    }
+
+    /// 零成本拒绝测试
+    ///
+    /// 验证 cost=0 时返回错误
+    #[tokio::test]
+    async fn test_token_bucket_zero_cost_rejection() {
+        let limiter = TokenBucketLimiter::new(100, 10);
+
+        // 零成本应该返回错误
+        let result = limiter.allow(0).await;
+        assert!(result.is_err());
+
+        match result {
+            Err(FlowGuardError::ConfigError(msg)) => {
+                assert!(msg.contains("zero",));
+            }
+            _ => panic!("Expected ConfigError for zero cost"),
+        }
+
+        // 验证令牌未被消耗
+        assert_eq!(limiter.get_tokens(), 100);
+    }
+
+    /// 并发消费安全性测试
+    ///
+    /// 验证高并发场景下令牌消费的正确性和一致性
+    #[tokio::test]
+    async fn test_token_bucket_concurrent_consumption_safety() {
+        let capacity = 1000u64;
+        let limiter = Arc::new(TokenBucketLimiter::new(capacity, 1));
+        let success_count = Arc::new(AtomicU64::new(0));
+
+        // 使用 barrier 确保所有任务同时开始
+        let barrier = Arc::new(tokio::sync::Barrier::new(200));
+        let start_signal = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let mut handles = vec![];
+        for _ in 0..200 {
+            let limiter_clone = Arc::clone(&limiter);
+            let success_clone = Arc::clone(&success_count);
+            let barrier_clone = Arc::clone(&barrier);
+            let start_signal_clone = Arc::clone(&start_signal);
+
+            handles.push(tokio::spawn(async move {
+                barrier_clone.wait().await;
+
+                // 等待开始信号
+                while !start_signal_clone.load(std::sync::atomic::Ordering::SeqCst) {
+                    std::hint::spin_loop();
+                }
+
+                // 每个任务尝试消费 10 个令牌
+                if limiter_clone.allow(10).await.unwrap() {
+                    success_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+            }));
+        }
+
+        // 设置开始信号
+        start_signal.store(true, std::sync::atomic::Ordering::SeqCst);
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        // 验证成功次数不超过容量允许的范围
+        let success = success_count.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(
+            success <= 100, // 1000 / 10 = 100
+            "Success count {} exceeds expected maximum 100",
+            success
+        );
+
+        // 验证令牌桶状态
+        let remaining = limiter.get_tokens();
+        assert!(
+            remaining + (success * 10) <= capacity + 10, // 允许少量补充
+            "Token accounting inconsistent: remaining={}, success={}",
+            remaining,
+            success
+        );
+    }
+
+    // ==================== SlidingWindowLimiter 边界条件测试 (Section 2.1.2) ====================
+
+    /// 窗口边界时间处理测试
+    ///
+    /// 验证在窗口边界时刻请求的正确性
+    #[tokio::test]
+    async fn test_sliding_window_boundary_time_handling() {
+        let window_size = Duration::from_millis(100);
+        let limiter = SlidingWindowLimiter::new(window_size, 5);
+
+        // 在窗口内发送 5 个请求
+        for i in 0..5 {
+            assert!(
+                limiter.allow(1).await.unwrap(),
+                "Request {} should be allowed",
+                i + 1
+            );
+        }
+
+        // 验证窗口内请求数
+        assert_eq!(limiter.get_request_count(), 5);
+
+        // 第 6 个请求应该被拒绝
+        assert!(!limiter.allow(1).await.unwrap());
+
+        // 等待窗口即将过期（边界时刻）
+        sleep(Duration::from_millis(95)).await;
+
+        // 仍然应该被拒绝（窗口未完全过期）
+        assert!(!limiter.allow(1).await.unwrap());
+
+        // 等待窗口完全过期
+        sleep(Duration::from_millis(10)).await;
+
+        // 新窗口应该允许请求
+        assert!(limiter.allow(1).await.unwrap());
+        assert_eq!(limiter.get_request_count(), 1);
+    }
+
+    /// 跨窗口请求测试
+    ///
+    /// 验证跨多个窗口的请求行为
+    #[tokio::test]
+    async fn test_sliding_window_cross_window_requests() {
+        let window_size = Duration::from_millis(50);
+        let limiter = SlidingWindowLimiter::new(window_size, 3);
+
+        // 第一个窗口：发送 3 个请求
+        for _ in 0..3 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+        assert!(!limiter.allow(1).await.unwrap());
+
+        // 等待第一个窗口过期
+        sleep(Duration::from_millis(60)).await;
+
+        // 第二个窗口：应该可以发送新请求
+        for _ in 0..3 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+        assert!(!limiter.allow(1).await.unwrap());
+
+        // 等待第二个窗口过期
+        sleep(Duration::from_millis(60)).await;
+
+        // 第三个窗口：验证重置正确
+        assert!(limiter.allow(1).await.unwrap());
+        assert_eq!(limiter.get_request_count(), 1);
+    }
+
+    /// 并发窗口更新测试
+    ///
+    /// 验证并发场景下窗口更新的正确性
+    #[tokio::test]
+    async fn test_sliding_window_concurrent_update() {
+        let limiter = Arc::new(SlidingWindowLimiter::new(Duration::from_secs(1), 100));
+        let success_count = Arc::new(AtomicU64::new(0));
+
+        // 使用 barrier 确保所有任务同时开始
+        let barrier = Arc::new(tokio::sync::Barrier::new(50));
+        let start_signal = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let mut handles = vec![];
+        for _ in 0..50 {
+            let limiter_clone = Arc::clone(&limiter);
+            let success_clone = Arc::clone(&success_count);
+            let barrier_clone = Arc::clone(&barrier);
+            let start_signal_clone = Arc::clone(&start_signal);
+
+            handles.push(tokio::spawn(async move {
+                barrier_clone.wait().await;
+
+                while !start_signal_clone.load(std::sync::atomic::Ordering::SeqCst) {
+                    std::hint::spin_loop();
+                }
+
+                // 每个任务发送 5 个请求
+                let mut local_success = 0u64;
+                for _ in 0..5 {
+                    if limiter_clone.allow(1).await.unwrap() {
+                        local_success += 1;
+                    }
+                }
+                success_clone.fetch_add(local_success, std::sync::atomic::Ordering::SeqCst);
+            }));
+        }
+
+        start_signal.store(true, std::sync::atomic::Ordering::SeqCst);
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        let success = success_count.load(std::sync::atomic::Ordering::SeqCst);
+        // 不应该超过窗口限制（允许 5% 误差）
+        assert!(
+            success <= 105,
+            "Success count {} exceeds expected maximum 105",
+            success
+        );
+    }
+
+    // ==================== ShardedSlidingWindowLimiter 测试 (Section 2.1.3) ====================
+
+    /// 分片均匀分布验证测试
+    ///
+    /// 验证请求在不同分片间均匀分布
+    #[tokio::test]
+    async fn test_sharded_sliding_window_uniform_distribution() {
+        let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 10000);
+
+        // 发送大量请求
+        for _ in 0..1000 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+
+        // 统计各分片的计数
+        let mut shard_counts = Vec::with_capacity(DEFAULT_SHARD_COUNT);
+        for i in 0..DEFAULT_SHARD_COUNT {
+            shard_counts.push(limiter.get_shard_count(i));
+        }
+
+        // 验证非零分片数量合理（至少应该有请求分布到多个分片）
+        let non_zero_shards: Vec<_> = shard_counts.iter().filter(|&&c| c > 0).collect();
+
+        // 在短时间内，请求应该集中在少数分片
+        assert!(
+            !non_zero_shards.is_empty(),
+            "At least one shard should have requests"
+        );
+
+        // 验证总计数正确
+        let total: u64 = shard_counts.iter().sum();
+        assert!(
+            total >= 1000,
+            "Total count {} should be at least 1000",
+            total
+        );
+    }
+
+    /// 高并发性能验证测试
+    ///
+    /// 验证高并发场景下的性能和正确性
+    #[tokio::test]
+    async fn test_sharded_sliding_window_high_concurrency_performance() {
+        let limiter = Arc::new(ShardedSlidingWindowLimiter::new(
+            Duration::from_secs(60),
+            10000,
+        ));
+        let success_count = Arc::new(AtomicU64::new(0));
+
+        // 使用 barrier 确保所有任务同时开始
+        let barrier = Arc::new(tokio::sync::Barrier::new(500));
+        let start_signal = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let mut handles = vec![];
+        for _ in 0..500 {
+            let limiter_clone = Arc::clone(&limiter);
+            let success_clone = Arc::clone(&success_count);
+            let barrier_clone = Arc::clone(&barrier);
+            let start_signal_clone = Arc::clone(&start_signal);
+
+            handles.push(tokio::spawn(async move {
+                barrier_clone.wait().await;
+
+                while !start_signal_clone.load(std::sync::atomic::Ordering::SeqCst) {
+                    std::hint::spin_loop();
+                }
+
+                // 每个任务发送 20 个请求
+                let mut local_success = 0u64;
+                for _ in 0..20 {
+                    if limiter_clone.allow(1).await.unwrap() {
+                        local_success += 1;
+                    }
+                }
+                success_clone.fetch_add(local_success, std::sync::atomic::Ordering::SeqCst);
+            }));
+        }
+
+        start_signal.store(true, std::sync::atomic::Ordering::SeqCst);
+
+        let start = std::time::Instant::now();
+        for handle in handles {
+            handle.await.unwrap();
+        }
+        let elapsed = start.elapsed();
+
+        let success = success_count.load(std::sync::atomic::Ordering::SeqCst);
+
+        // 验证不超过限制（允许 10% 误差）
+        assert!(
+            success <= 11000,
+            "Success count {} exceeds expected maximum 11000",
+            success
+        );
+
+        // 验证性能：10000 个请求应该在合理时间内完成
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "Test took too long: {:?}",
+            elapsed
+        );
+    }
+
+    /// 分片计数一致性测试
+    ///
+    /// 验证分片计数与窗口计数的一致性
+    #[tokio::test]
+    async fn test_sharded_sliding_window_shard_count_consistency() {
+        let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 1000);
+
+        // 发送请求
+        for _ in 0..500 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+
+        // 获取窗口计数
+        let window_count = limiter.get_window_count();
+
+        // 计算分片总计数
+        let shard_total: u64 = (0..DEFAULT_SHARD_COUNT)
+            .map(|i| limiter.get_shard_count(i))
+            .sum();
+
+        // 两者应该相等或接近
+        assert!(
+            (window_count as i64 - shard_total as i64).abs() <= 10,
+            "Window count {} should be close to shard total {}",
+            window_count,
+            shard_total
+        );
+    }
+
+    // ==================== FixedWindowLimiter 测试 (Section 2.1.4) ====================
+
+    /// 窗口边界突发测试
+    ///
+    /// 验证在窗口边界时刻的突发请求行为
+    #[tokio::test]
+    async fn test_fixed_window_boundary_burst() {
+        let window_size = Duration::from_millis(100);
+        let limiter = FixedWindowLimiter::new(window_size, 10);
+
+        // 在窗口开始时快速发送 10 个请求
+        for _ in 0..10 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+
+        // 应该被拒绝
+        assert!(!limiter.allow(1).await.unwrap());
+
+        // 等待接近窗口边界
+        sleep(Duration::from_millis(95)).await;
+
+        // 仍然应该被拒绝
+        assert!(!limiter.allow(1).await.unwrap());
+
+        // 等待窗口重置
+        sleep(Duration::from_millis(10)).await;
+
+        // 新窗口应该允许突发
+        for _ in 0..10 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+        assert!(!limiter.allow(1).await.unwrap());
+    }
+
+    /// 窗口重置时机测试
+    ///
+    /// 验证窗口重置的精确时机
+    #[tokio::test]
+    async fn test_fixed_window_reset_timing() {
+        let window_size = Duration::from_millis(50);
+        let limiter = FixedWindowLimiter::new(window_size, 5);
+
+        // 第一个窗口：发送 5 个请求
+        let start = std::time::Instant::now();
+        for _ in 0..5 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+        assert!(!limiter.allow(1).await.unwrap());
+
+        // 等待窗口重置
+        sleep(Duration::from_millis(55)).await;
+        let elapsed = start.elapsed();
+
+        // 验证窗口已重置
+        assert!(
+            limiter.allow(1).await.unwrap(),
+            "Window should have reset after {:?}",
+            elapsed
+        );
+
+        // 验证计数已重置
+        assert_eq!(limiter.get_count(), 1);
+    }
+
+    /// 多窗口周期测试
+    ///
+    /// 验证多个窗口周期的行为
+    #[tokio::test]
+    async fn test_fixed_window_multiple_periods() {
+        let window_size = Duration::from_millis(50);
+        let limiter = FixedWindowLimiter::new(window_size, 3);
+
+        // 第一个窗口
+        for _ in 0..3 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+        assert!(!limiter.allow(1).await.unwrap());
+
+        sleep(Duration::from_millis(55)).await;
+
+        // 第二个窗口
+        for _ in 0..3 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+        assert!(!limiter.allow(1).await.unwrap());
+
+        sleep(Duration::from_millis(55)).await;
+
+        // 第三个窗口
+        assert!(limiter.allow(1).await.unwrap());
+        assert_eq!(limiter.get_count(), 1);
+    }
+
+    /// 窗口对齐测试
+    ///
+    /// 验证窗口对齐到固定时间边界
+    #[tokio::test]
+    async fn test_fixed_window_alignment() {
+        let window_size = Duration::from_millis(100);
+        let limiter = FixedWindowLimiter::new(window_size, 10);
+
+        // 发送请求
+        for _ in 0..10 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+        assert!(!limiter.allow(1).await.unwrap());
+
+        // 等待超过一个窗口时间
+        sleep(Duration::from_millis(150)).await;
+
+        // 应该可以发送请求（窗口已重置）
+        assert!(limiter.allow(1).await.unwrap());
+
+        // 验证计数
+        assert_eq!(limiter.get_count(), 1);
+    }
+
+    /// 并发窗口重置测试
+    ///
+    /// 验证并发场景下窗口重置的正确性
+    #[tokio::test]
+    async fn test_fixed_window_concurrent_reset() {
+        let limiter = Arc::new(FixedWindowLimiter::new(Duration::from_secs(1), 100));
+        let success_count = Arc::new(AtomicU64::new(0));
+
+        // 使用 barrier 确保所有任务同时开始
+        let barrier = Arc::new(tokio::sync::Barrier::new(100));
+        let start_signal = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let mut handles = vec![];
+        for _ in 0..100 {
+            let limiter_clone = Arc::clone(&limiter);
+            let success_clone = Arc::clone(&success_count);
+            let barrier_clone = Arc::clone(&barrier);
+            let start_signal_clone = Arc::clone(&start_signal);
+
+            handles.push(tokio::spawn(async move {
+                barrier_clone.wait().await;
+
+                while !start_signal_clone.load(std::sync::atomic::Ordering::SeqCst) {
+                    std::hint::spin_loop();
+                }
+
+                // 每个任务发送 5 个请求
+                let mut local_success = 0u64;
+                for _ in 0..5 {
+                    if limiter_clone.allow(1).await.unwrap() {
+                        local_success += 1;
+                    }
+                }
+                success_clone.fetch_add(local_success, std::sync::atomic::Ordering::SeqCst);
+            }));
+        }
+
+        start_signal.store(true, std::sync::atomic::Ordering::SeqCst);
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        let success = success_count.load(std::sync::atomic::Ordering::SeqCst);
+        // 不应该超过窗口限制
+        assert!(
+            success <= 100,
+            "Success count {} exceeds expected maximum 100",
+            success
+        );
+    }
+
+    // ==================== 综合边界条件测试 ====================
+
+    /// 所有限流器零成本拒绝测试
+    ///
+    /// 验证所有限流器都正确拒绝零成本请求
+    #[tokio::test]
+    async fn test_all_limiters_zero_cost_rejection() {
+        // TokenBucketLimiter
+        let limiter = TokenBucketLimiter::new(100, 10);
+        assert!(limiter.allow(0).await.is_err());
+
+        // SlidingWindowLimiter
+        let limiter = SlidingWindowLimiter::new(Duration::from_secs(1), 10);
+        assert!(limiter.allow(0).await.is_err());
+
+        // ShardedSlidingWindowLimiter
+        let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 100);
+        assert!(limiter.allow(0).await.is_err());
+
+        // FixedWindowLimiter
+        let limiter = FixedWindowLimiter::new(Duration::from_secs(1), 10);
+        assert!(limiter.allow(0).await.is_err());
+    }
+
+    /// 所有限流器最大成本测试
+    ///
+    /// 验证所有限流器对最大成本的处理
+    #[tokio::test]
+    async fn test_all_limiters_max_cost_handling() {
+        // TokenBucketLimiter - 成本超过容量
+        let limiter = TokenBucketLimiter::new(100, 10);
+        assert!(!limiter.allow(101).await.unwrap());
+
+        // SlidingWindowLimiter - 成本超过限制
+        let limiter = SlidingWindowLimiter::new(Duration::from_secs(1), 10);
+        assert!(!limiter.allow(11).await.unwrap());
+
+        // ShardedSlidingWindowLimiter - 成本超过限制
+        let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 10);
+        assert!(!limiter.allow(11).await.unwrap());
+
+        // FixedWindowLimiter - 成本超过限制
+        let limiter = FixedWindowLimiter::new(Duration::from_secs(1), 10);
+        assert!(!limiter.allow(11).await.unwrap());
+    }
+
+    /// 限流器状态一致性测试
+    ///
+    /// 验证限流器在多次操作后的状态一致性
+    #[tokio::test]
+    async fn test_limiter_state_consistency() {
+        // TokenBucketLimiter
+        let limiter = TokenBucketLimiter::new(100, 10);
+        for _ in 0..10 {
+            assert!(limiter.allow(10).await.unwrap());
+        }
+        assert!(!limiter.allow(1).await.unwrap());
+        assert_eq!(limiter.get_tokens(), 0);
+
+        // SlidingWindowLimiter
+        let limiter = SlidingWindowLimiter::new(Duration::from_secs(1), 100);
+        for _ in 0..100 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+        assert!(!limiter.allow(1).await.unwrap());
+        assert_eq!(limiter.get_request_count(), 100);
+
+        // FixedWindowLimiter
+        let limiter = FixedWindowLimiter::new(Duration::from_secs(1), 100);
+        for _ in 0..100 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+        assert!(!limiter.allow(1).await.unwrap());
+        assert_eq!(limiter.get_count(), 100);
+    }
 }

@@ -131,7 +131,7 @@ impl crate::limiters::Limiter for QuotaLimiter {
 mod tests {
     use super::*;
     use crate::limiters::Limiter;
-    use crate::QuotaType;
+    use crate::quota_controller::QuotaType;
 
     fn create_test_config() -> QuotaConfig {
         QuotaConfig {

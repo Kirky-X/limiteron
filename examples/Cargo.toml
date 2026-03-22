@@ -17,6 +17,15 @@ serde_json = "1.0"
 futures = "0.3"
 
 [[bin]]
+name = "simple_rate_limit"
+path = "src/bin/simple_rate_limit.rs"
+
+[[bin]]
+name = "macro_usage"
+path = "src/bin/macro_usage.rs"
+required-features = ["macros"]
+
+[[bin]]
 name = "rate_limiters"
 path = "src/bin/rate_limiters.rs"
 
@@ -37,10 +46,11 @@ required-features = ["ban-manager"]
 
 [features]
 default = []
+macros = ["limiteron/macros"]
 circuit-breaker = ["limiteron/circuit-breaker"]
 quota-control = ["limiteron/quota-control"]
 ban-manager = ["limiteron/ban-manager"]
-full = ["circuit-breaker", "quota-control", "ban-manager"]
+full = ["macros", "circuit-breaker", "quota-control", "ban-manager"]
 
 [dev-dependencies]
 tokio-test = "0.4"

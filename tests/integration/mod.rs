@@ -1,5 +1,13 @@
 //! 集成测试模块
 //!
 //! 测试各组件之间的集成和交互
-//!
-//! 注意：PostgreSQL集成测试已移除，存储由dbnexus完全接管
+
+pub mod ban_manager_storage;
+pub mod cache_storage;
+pub mod circuit_breaker_fallback;
+pub mod config;
+pub mod governor_limiters;
+pub mod matcher_limiter;
+pub mod mock_storage;
+pub mod quota_alert;
+pub mod real_storage;

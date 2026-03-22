@@ -1,0 +1,52 @@
+[tasks.coverage]
+description = "Run tests with coverage report"
+command = "cargo"
+args = ["tarpaulin", "--out", "Html", "--out", "Json", "--output-dir", "coverage/", "--timeout", "300"]
+
+[tasks.coverage-ci]
+description = "Run tests with coverage for CI"
+command = "cargo"
+args = ["tarpaulin", "--out", "Xml", "--output-dir", "coverage/", "--timeout", "300"]
+
+[tasks.coverage-check]
+description = "Run tests with coverage and check thresholds"
+command = "cargo"
+args = ["tarpaulin", "--out", "Html", "--output-dir", "coverage/", "--timeout", "300", "--fail-under", "80"]
+
+[tasks.test-unit]
+description = "Run unit tests only"
+command = "cargo"
+args = ["test", "--lib"]
+
+[tasks.test-integration]
+description = "Run integration tests"
+command = "cargo"
+args = ["test", "--test", "integration_tests", "--", "--ignored"]
+
+[tasks.test-all]
+description = "Run all tests"
+dependencies = ["test-unit", "test-integration"]
+
+[tasks.bench]
+description = "Run performance benchmarks"
+command = "cargo"
+args = ["bench", "--release"]
+
+[tasks.lint]
+description = "Run all linters"
+dependencies = ["fmt-check", "clippy"]
+
+[tasks.fmt-check]
+description = "Check code formatting"
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+
+[tasks.clippy]
+description = "Run clippy linter"
+command = "cargo"
+args = ["clippy", "--all-features", "-D", "warnings"]
+
+[tasks.security]
+description = "Run security audit"
+command = "cargo"
+args = ["deny", "check"]

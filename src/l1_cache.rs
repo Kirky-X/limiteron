@@ -387,10 +387,8 @@ impl<T: Clone + Send + Sync + 'static> L1Cache<T> {
             }
         });
 
-        if self.config.enable_stats {
-            if result.is_some() {
-                self.hits.fetch_add(1, Ordering::Relaxed);
-            }
+        if self.config.enable_stats && result.is_some() {
+            self.hits.fetch_add(1, Ordering::Relaxed);
         }
 
         result

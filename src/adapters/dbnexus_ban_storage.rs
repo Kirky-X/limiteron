@@ -149,7 +149,7 @@ impl BanStorage for DBNexusBanStorageAdapter {
             .expires_at
             .signed_duration_since(record.banned_at)
             .num_seconds()
-            .max(0) as i64;
+            .max(0);
 
         let model_id = existing.as_ref().map(|m| m.id).unwrap_or(0);
         let model = BanRecordModel {

@@ -9,4 +9,4 @@ reorder_imports = true
 reorder_modules = true
 remove_nested_parens = true
 force_explicit_abi = true
-format_strings = true
+# format_strings = true  # requires nightly, disabled for stable Rust

@@ -1506,3 +1506,9 @@ mod mock_storage_tests {
         assert!(result.is_err());
     }
 }
+
+/// Mock 存储基础设施测试
+///
+/// 这些测试验证 Mock 存储实现的正确性，确保测试基础设施可靠。
+/// 已从 integration 目录移动到 common 目录，因为它们测试的是测试工具本身。
+mod mock_tests;

@@ -19,7 +19,89 @@ use tokio::sync::RwLock;
 
 // ==================== Mock Storage ====================
 
-#[derive(Clone, Default)]
+/// MockStorage 是 MockQuotaStorage 的别名，用于通用存储测试
+pub type MockStorage = MockQuotaStorageInner;
+
+/// 独立的 MockStorage 实现，用于通用存储测试
+#[derive(Clone)]
+pub struct MockQuotaStorageInner {
+    data: Arc<RwLock<AHashMap<String, MockKvEntry>>>,
+    error: Arc<RwLock<Option<StorageError>>>,
+}
+
+impl MockQuotaStorageInner {
+    pub fn new() -> Self {
+        Self {
+            data: Arc::new(RwLock::new(AHashMap::new())),
+            error: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    pub async fn inject_error(&self, error: StorageError) {
+        let mut current = self.error.write().await;
+        *current = Some(error);
+    }
+
+    pub async fn clear_error(&self) {
+        let mut current = self.error.write().await;
+        *current = None;
+    }
+
+    async fn check_error(&self) -> Result<(), StorageError> {
+        let current = self.error.read().await;
+        if let Some(ref err) = *current {
+            return Err(err.clone());
+        }
+        Ok(())
+    }
+}
+
+impl Default for MockQuotaStorageInner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait::async_trait]
+impl Storage for MockQuotaStorageInner {
+    async fn get(&self, key: &str) -> Result<Option<String>, StorageError> {
+        self.check_error().await?;
+        let mut data = self.data.write().await;
+        if let Some(entry) = data.get(key) {
+            if let Some(expires_at) = entry.expires_at {
+                if expires_at <= chrono::Utc::now() {
+                    data.remove(key);
+                    return Ok(None);
+                }
+            }
+            return Ok(Some(entry.value.clone()));
+        }
+        Ok(None)
+    }
+
+    async fn set(&self, key: &str, value: &str, ttl: Option<u64>) -> Result<(), StorageError> {
+        self.check_error().await?;
+        let mut data = self.data.write().await;
+        let expires_at = ttl.map(|t| chrono::Utc::now() + chrono::Duration::seconds(t as i64));
+        data.insert(
+            key.to_string(),
+            MockKvEntry {
+                value: value.to_string(),
+                expires_at,
+            },
+        );
+        Ok(())
+    }
+
+    async fn delete(&self, key: &str) -> Result<(), StorageError> {
+        self.check_error().await?;
+        let mut data = self.data.write().await;
+        data.remove(key);
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
 pub struct MockQuotaBehavior {
     fail_mode: bool,
     force_over_limit: bool,
@@ -27,7 +109,7 @@ pub struct MockQuotaBehavior {
     max_entries: Option<usize>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct MockBanBehavior {
     fail_mode: bool,
     force_expired: bool,
@@ -338,6 +420,19 @@ pub fn create_test_request(user_id: &str, ip: &str) -> limiteron::matchers::Requ
     ctx
 }
 
+pub fn create_ban_record(target: BanTarget, duration_secs: u64, reason: &str) -> BanRecord {
+    let now = chrono::Utc::now();
+    BanRecord {
+        target,
+        ban_times: 1,
+        duration: Duration::from_secs(duration_secs),
+        banned_at: now,
+        expires_at: now + chrono::Duration::seconds(duration_secs as i64),
+        is_manual: false,
+        reason: reason.to_string(),
+    }
+}
+
 impl MockQuotaStorage {
     pub fn new() -> Self {
         Self::with_behavior(MockQuotaBehavior::default())
@@ -635,4 +730,779 @@ pub fn assert_approx_eq(actual: u64, expected: u64, tolerance_percent: f64) {
         expected,
         actual
     );
+}
+
+// ==================== 增强的 Mock 行为配置 ====================
+
+impl MockQuotaBehavior {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_fail_mode(mut self, fail: bool) -> Self {
+        self.fail_mode = fail;
+        self
+    }
+
+    pub fn with_force_over_limit(mut self, force: bool) -> Self {
+        self.force_over_limit = force;
+        self
+    }
+
+    pub fn with_force_expired(mut self, force: bool) -> Self {
+        self.force_expired = force;
+        self
+    }
+
+    pub fn with_max_entries(mut self, max: usize) -> Self {
+        self.max_entries = Some(max);
+        self
+    }
+}
+
+impl Default for MockQuotaBehavior {
+    fn default() -> Self {
+        Self {
+            fail_mode: false,
+            force_over_limit: false,
+            force_expired: false,
+            max_entries: None,
+        }
+    }
+}
+
+impl MockBanBehavior {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_fail_mode(mut self, fail: bool) -> Self {
+        self.fail_mode = fail;
+        self
+    }
+
+    pub fn with_force_expired(mut self, force: bool) -> Self {
+        self.force_expired = force;
+        self
+    }
+
+    pub fn with_max_entries(mut self, max: usize) -> Self {
+        self.max_entries = Some(max);
+        self
+    }
+}
+
+impl Default for MockBanBehavior {
+    fn default() -> Self {
+        Self {
+            fail_mode: false,
+            force_expired: false,
+            max_entries: None,
+        }
+    }
+}
+
+// ==================== RequestContext 构建器 ====================
+
+pub struct RequestContextBuilder {
+    ctx: limiteron::matchers::RequestContext,
+}
+
+impl RequestContextBuilder {
+    pub fn new() -> Self {
+        Self {
+            ctx: limiteron::matchers::RequestContext::new(),
+        }
+    }
+
+    pub fn user_id(mut self, user_id: &str) -> Self {
+        self.ctx.user_id = Some(user_id.to_string());
+        self
+    }
+
+    pub fn ip(mut self, ip: &str) -> Self {
+        self.ctx.ip = Some(ip.to_string());
+        self.ctx.client_ip = Some(ip.to_string());
+        self
+    }
+
+    pub fn mac(mut self, mac: &str) -> Self {
+        self.ctx.mac = Some(mac.to_string());
+        self
+    }
+
+    pub fn device_id(mut self, device_id: &str) -> Self {
+        self.ctx.device_id = Some(device_id.to_string());
+        self
+    }
+
+    pub fn api_key(mut self, api_key: &str) -> Self {
+        self.ctx.api_key = Some(api_key.to_string());
+        self
+    }
+
+    pub fn header(mut self, key: &str, value: &str) -> Self {
+        self.ctx
+            .headers
+            .insert(key.to_lowercase(), value.to_string());
+        self
+    }
+
+    pub fn path(mut self, path: &str) -> Self {
+        self.ctx.path = path.to_string();
+        self
+    }
+
+    pub fn method(mut self, method: &str) -> Self {
+        self.ctx.method = method.to_string();
+        self
+    }
+
+    pub fn query_param(mut self, key: &str, value: &str) -> Self {
+        self.ctx
+            .query_params
+            .insert(key.to_string(), value.to_string());
+        self
+    }
+
+    pub fn build(self) -> limiteron::matchers::RequestContext {
+        self.ctx
+    }
+}
+
+impl Default for RequestContextBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ==================== 随机数据生成器 ====================
+
+pub fn generate_user_id() -> String {
+    format!("user_{}", generate_random_string(8))
+}
+
+pub fn generate_ip() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    format!(
+        "{}.{}.{}.{}",
+        rng.gen_range(1..255),
+        rng.gen_range(0..255),
+        rng.gen_range(0..255),
+        rng.gen_range(1..254)
+    )
+}
+
+pub fn generate_mac() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    format!(
+        "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+        rng.gen_range(0..256),
+        rng.gen_range(0..256),
+        rng.gen_range(0..256),
+        rng.gen_range(0..256),
+        rng.gen_range(0..256),
+        rng.gen_range(0..256)
+    )
+}
+
+pub fn generate_api_key() -> String {
+    format!("sk_{}", generate_random_string(32))
+}
+
+pub fn generate_device_id() -> String {
+    format!("device_{}", generate_random_string(16))
+}
+
+pub fn generate_random_string(length: usize) -> String {
+    use rand::Rng;
+    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let mut rng = rand::thread_rng();
+    (0..length)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect()
+}
+
+// ==================== 专用断言宏 ====================
+
+#[macro_export]
+macro_rules! assert_allowed {
+    ($result:expr) => {
+        assert!(
+            $result.allowed,
+            "Expected request to be allowed, but was denied"
+        );
+    };
+    ($result:expr, $msg:expr) => {
+        assert!($result.allowed, "{}", $msg);
+    };
+}
+
+#[macro_export]
+macro_rules! assert_denied {
+    ($result:expr) => {
+        assert!(
+            !$result.allowed,
+            "Expected request to be denied, but was allowed"
+        );
+    };
+    ($result:expr, $msg:expr) => {
+        assert!(!$result.allowed, "{}", $msg);
+    };
+}
+
+#[macro_export]
+macro_rules! assert_remaining {
+    ($result:expr, $expected:expr) => {
+        assert_eq!(
+            $result.remaining, $expected,
+            "Expected remaining {}, got {}",
+            $expected, $result.remaining
+        );
+    };
+}
+
+#[cfg(feature = "circuit-breaker")]
+#[macro_export]
+macro_rules! assert_circuit_closed {
+    ($breaker:expr) => {
+        assert!(
+            $breaker.is_closed(),
+            "Expected circuit breaker to be closed"
+        );
+    };
+}
+
+#[cfg(feature = "circuit-breaker")]
+#[macro_export]
+macro_rules! assert_circuit_open {
+    ($breaker:expr) => {
+        assert!($breaker.is_open(), "Expected circuit breaker to be open");
+    };
+}
+
+#[cfg(feature = "circuit-breaker")]
+#[macro_export]
+macro_rules! assert_circuit_half_open {
+    ($breaker:expr) => {
+        assert!(
+            $breaker.is_half_open(),
+            "Expected circuit breaker to be half-open"
+        );
+    };
+}
+
+#[cfg(feature = "ban-manager")]
+#[macro_export]
+macro_rules! assert_banned {
+    ($result:expr) => {
+        assert!($result.is_some(), "Expected target to be banned");
+    };
+    ($result:expr, $msg:expr) => {
+        assert!($result.is_some(), "{}", $msg);
+    };
+}
+
+#[cfg(feature = "ban-manager")]
+#[macro_export]
+macro_rules! assert_not_banned {
+    ($result:expr) => {
+        assert!($result.is_none(), "Expected target to NOT be banned");
+    };
+    ($result:expr, $msg:expr) => {
+        assert!($result.is_none(), "{}", $msg);
+    };
+}
+
+#[macro_export]
+macro_rules! assert_quota_usage {
+    ($result:expr, $expected_percent:expr) => {
+        let tolerance = 1.0;
+        let diff = ($result.usage_percent - $expected_percent).abs();
+        assert!(
+            diff <= tolerance,
+            "Expected usage percent {}%, got {}%",
+            $expected_percent,
+            $result.usage_percent
+        );
+    };
+}
+
+#[macro_export]
+macro_rules! assert_alert_triggered {
+    ($result:expr) => {
+        assert!($result.alert_triggered, "Expected alert to be triggered");
+    };
+}
+
+#[macro_export]
+macro_rules! assert_no_alert {
+    ($result:expr) => {
+        assert!(
+            !$result.alert_triggered,
+            "Expected NO alert to be triggered"
+        );
+    };
+}
+
+// ==================== 配置生成器 ====================
+
+pub fn create_basic_rule(rule_id: &str, capacity: u64, refill_rate: u64) -> Rule {
+    Rule {
+        id: rule_id.to_string(),
+        name: format!("Test Rule {}", rule_id),
+        priority: 100,
+        matchers: vec![Matcher::User {
+            user_ids: vec!["*".to_string()],
+        }],
+        limiters: vec![LimiterConfig::TokenBucket {
+            capacity,
+            refill_rate,
+        }],
+        action: ActionConfig {
+            on_exceed: "reject".to_string(),
+            ban: None,
+        },
+    }
+}
+
+pub fn create_sliding_window_rule(rule_id: &str, window_secs: u64, max_requests: u64) -> Rule {
+    Rule {
+        id: rule_id.to_string(),
+        name: format!("Sliding Window Rule {}", rule_id),
+        priority: 100,
+        matchers: vec![Matcher::User {
+            user_ids: vec!["*".to_string()],
+        }],
+        limiters: vec![LimiterConfig::SlidingWindow {
+            window_size: format!("{}s", window_secs),
+            max_requests,
+        }],
+        action: ActionConfig {
+            on_exceed: "reject".to_string(),
+            ban: None,
+        },
+    }
+}
+
+pub fn create_ip_rule(rule_id: &str, ips: &[&str], capacity: u64, refill_rate: u64) -> Rule {
+    Rule {
+        id: rule_id.to_string(),
+        name: format!("IP Rule {}", rule_id),
+        priority: 100,
+        matchers: vec![Matcher::Ip {
+            ip_ranges: ips.iter().map(|s| s.to_string()).collect(),
+        }],
+        limiters: vec![LimiterConfig::TokenBucket {
+            capacity,
+            refill_rate,
+        }],
+        action: ActionConfig {
+            on_exceed: "reject".to_string(),
+            ban: None,
+        },
+    }
+}
+
+// ==================== 封禁记录生成器 ====================
+
+#[cfg(feature = "ban-manager")]
+pub fn create_ban_record(target: BanTarget, duration_secs: u64, reason: &str) -> BanRecord {
+    let now = chrono::Utc::now();
+    BanRecord {
+        target,
+        ban_times: 1,
+        duration: Duration::from_secs(duration_secs),
+        banned_at: now,
+        expires_at: now + chrono::Duration::seconds(duration_secs as i64),
+        is_manual: false,
+        reason: reason.to_string(),
+    }
+}
+
+#[cfg(feature = "ban-manager")]
+pub fn create_ip_ban_record(ip: &str, duration_secs: u64) -> BanRecord {
+    create_ban_record(BanTarget::Ip(ip.to_string()), duration_secs, "test ban")
+}
+
+#[cfg(feature = "ban-manager")]
+pub fn create_user_ban_record(user_id: &str, duration_secs: u64) -> BanRecord {
+    create_ban_record(
+        BanTarget::UserId(user_id.to_string()),
+        duration_secs,
+        "test ban",
+    )
+}
+
+// ==================== 测试夹具 ====================
+
+pub struct TestFixture {
+    pub user_ids: Vec<String>,
+    pub ips: Vec<String>,
+    pub macs: Vec<String>,
+    pub api_keys: Vec<String>,
+    pub device_ids: Vec<String>,
+}
+
+impl TestFixture {
+    pub fn new() -> Self {
+        Self {
+            user_ids: Vec::new(),
+            ips: Vec::new(),
+            macs: Vec::new(),
+            api_keys: Vec::new(),
+            device_ids: Vec::new(),
+        }
+    }
+
+    pub fn with_users(mut self, count: usize) -> Self {
+        self.user_ids = (0..count).map(|_| generate_user_id()).collect();
+        self
+    }
+
+    pub fn with_ips(mut self, count: usize) -> Self {
+        self.ips = (0..count).map(|_| generate_ip()).collect();
+        self
+    }
+
+    pub fn with_macs(mut self, count: usize) -> Self {
+        self.macs = (0..count).map(|_| generate_mac()).collect();
+        self
+    }
+
+    pub fn with_api_keys(mut self, count: usize) -> Self {
+        self.api_keys = (0..count).map(|_| generate_api_key()).collect();
+        self
+    }
+
+    pub fn with_device_ids(mut self, count: usize) -> Self {
+        self.device_ids = (0..count).map(|_| generate_device_id()).collect();
+        self
+    }
+
+    pub fn build(self) -> Self {
+        self
+    }
+}
+
+impl Default for TestFixture {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ==================== Mock 存储单元测试 ====================
+
+#[cfg(test)]
+mod mock_storage_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_mock_quota_storage_basic_operations() {
+        let storage = MockQuotaStorage::new();
+
+        // 测试基本 KV 操作
+        storage.set("key1", "value1", None).await.unwrap();
+        let value = storage.get("key1").await.unwrap();
+        assert_eq!(value, Some("value1".to_string()));
+
+        storage.delete("key1").await.unwrap();
+        let value = storage.get("key1").await.unwrap();
+        assert_eq!(value, None);
+    }
+
+    #[tokio::test]
+    async fn test_mock_quota_storage_with_ttl() {
+        let storage = MockQuotaStorage::new();
+
+        storage.set("key1", "value1", Some(1)).await.unwrap();
+        let value = storage.get("key1").await.unwrap();
+        assert_eq!(value, Some("value1".to_string()));
+
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        let value = storage.get("key1").await.unwrap();
+        assert_eq!(value, None);
+    }
+
+    #[tokio::test]
+    async fn test_mock_quota_storage_fail_mode() {
+        let storage =
+            MockQuotaStorage::with_behavior(MockQuotaBehavior::new().with_fail_mode(true));
+
+        let result = storage.get("key1").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mock_quota_storage_quota_operations() {
+        let storage = MockQuotaStorage::new();
+
+        // 测试配额消费
+        let result = storage
+            .consume("user1", "resource1", 10, 100, Duration::from_secs(60))
+            .await
+            .unwrap();
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 90);
+
+        // 测试配额获取
+        let quota = storage.get_quota("user1", "resource1").await.unwrap();
+        assert!(quota.is_some());
+        assert_eq!(quota.unwrap().consumed, 10);
+
+        // 测试配额重置
+        storage
+            .reset("user1", "resource1", 100, Duration::from_secs(60))
+            .await
+            .unwrap();
+        let quota = storage.get_quota("user1", "resource1").await.unwrap();
+        assert!(quota.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_mock_quota_storage_over_limit() {
+        let storage = MockQuotaStorage::new();
+
+        // 消费到限制
+        let result = storage
+            .consume("user1", "resource1", 100, 100, Duration::from_secs(60))
+            .await
+            .unwrap();
+        assert!(result.allowed);
+
+        // 超过限制
+        let result = storage
+            .consume("user1", "resource1", 1, 100, Duration::from_secs(60))
+            .await
+            .unwrap();
+        assert!(!result.allowed);
+    }
+
+    #[tokio::test]
+    async fn test_mock_quota_storage_force_over_limit() {
+        let storage =
+            MockQuotaStorage::with_behavior(MockQuotaBehavior::new().with_force_over_limit(true));
+
+        let result = storage
+            .consume("user1", "resource1", 1, 100, Duration::from_secs(60))
+            .await
+            .unwrap();
+        assert!(!result.allowed);
+        assert_eq!(result.remaining, 0);
+    }
+
+    #[tokio::test]
+    async fn test_mock_quota_storage_force_expired() {
+        let storage = MockQuotaStorage::new();
+
+        // 先消费
+        let result = storage
+            .consume("user1", "resource1", 10, 100, Duration::from_secs(60))
+            .await
+            .unwrap();
+        assert!(result.allowed);
+
+        // 强制过期
+        storage
+            .set_behavior(MockQuotaBehavior::new().with_force_expired(true))
+            .await;
+
+        let quota = storage.get_quota("user1", "resource1").await.unwrap();
+        assert!(quota.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_mock_quota_storage_max_entries() {
+        let storage = MockQuotaStorage::with_behavior(MockQuotaBehavior::new().with_max_entries(2));
+
+        storage.set("key1", "value1", None).await.unwrap();
+        storage.set("key2", "value2", None).await.unwrap();
+
+        let result = storage.set("key3", "value3", None).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mock_ban_storage_basic_operations() {
+        let storage = MockBanStorage::new();
+        let target = BanTarget::Ip("192.168.1.1".to_string());
+
+        // 测试未封禁
+        let banned = storage.is_banned(&target).await.unwrap();
+        assert!(banned.is_none());
+
+        // 测试封禁
+        let record = create_ban_record(target.clone(), 60, "test ban");
+        storage.save(&record).await.unwrap();
+
+        let banned = storage.is_banned(&target).await.unwrap();
+        assert!(banned.is_some());
+
+        // 测试解封
+        storage.remove_ban(&target).await.unwrap();
+        let banned = storage.is_banned(&target).await.unwrap();
+        assert!(banned.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_mock_ban_storage_expiry() {
+        let storage = MockBanStorage::new();
+        let target = BanTarget::UserId("user1".to_string());
+
+        // 创建即将过期的封禁
+        let record = BanRecord {
+            target: target.clone(),
+            ban_times: 1,
+            duration: Duration::from_millis(100),
+            banned_at: chrono::Utc::now(),
+            expires_at: chrono::Utc::now() + chrono::Duration::milliseconds(100),
+            is_manual: false,
+            reason: "test".to_string(),
+        };
+
+        storage.save(&record).await.unwrap();
+
+        let banned = storage.is_banned(&target).await.unwrap();
+        assert!(banned.is_some());
+
+        // 等待过期
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        let banned = storage.is_banned(&target).await.unwrap();
+        assert!(banned.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_mock_ban_storage_fail_mode() {
+        let storage = MockBanStorage::with_behavior(MockBanBehavior::new().with_fail_mode(true));
+
+        let target = BanTarget::Ip("192.168.1.1".to_string());
+        let result = storage.is_banned(&target).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mock_ban_storage_force_expired() {
+        let storage = MockBanStorage::new();
+        let target = BanTarget::Ip("192.168.1.1".to_string());
+
+        // 创建封禁
+        let record = create_ban_record(target.clone(), 60, "test ban");
+        storage.save(&record).await.unwrap();
+
+        // 强制过期
+        storage
+            .set_behavior(MockBanBehavior::new().with_force_expired(true))
+            .await;
+
+        let banned = storage.is_banned(&target).await.unwrap();
+        assert!(banned.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_mock_ban_storage_history() {
+        let storage = MockBanStorage::new();
+        let target = BanTarget::UserId("user1".to_string());
+
+        // 创建封禁
+        let record = create_ban_record(target.clone(), 60, "test ban");
+        storage.save(&record).await.unwrap();
+
+        // 检查历史
+        let history = storage.get_history(&target).await.unwrap();
+        assert!(history.is_some());
+        assert_eq!(history.unwrap().ban_times, 1);
+    }
+
+    #[tokio::test]
+    async fn test_mock_ban_storage_increment_ban_times() {
+        let storage = MockBanStorage::new();
+        let target = BanTarget::UserId("user1".to_string());
+
+        // 创建封禁
+        let record = create_ban_record(target.clone(), 60, "test ban");
+        storage.save(&record).await.unwrap();
+
+        // 增加封禁次数
+        let times = storage.increment_ban_times(&target).await.unwrap();
+        assert_eq!(times, 2);
+
+        let times = storage.get_ban_times(&target).await.unwrap();
+        assert_eq!(times, 2);
+    }
+
+    #[tokio::test]
+    async fn test_mock_ban_storage_cleanup_expired() {
+        let storage = MockBanStorage::new();
+
+        // 创建多个封禁
+        let target1 = BanTarget::Ip("192.168.1.1".to_string());
+        let target2 = BanTarget::Ip("192.168.1.2".to_string());
+
+        // 即将过期的封禁
+        let record1 = BanRecord {
+            target: target1,
+            ban_times: 1,
+            duration: Duration::from_millis(50),
+            banned_at: chrono::Utc::now(),
+            expires_at: chrono::Utc::now() + chrono::Duration::milliseconds(50),
+            is_manual: false,
+            reason: "test".to_string(),
+        };
+
+        // 长期封禁
+        let record2 = create_ban_record(target2, 3600, "long ban");
+
+        storage.save(&record1).await.unwrap();
+        storage.save(&record2).await.unwrap();
+
+        // 等待第一个过期
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let cleaned = storage.cleanup_expired_bans().await.unwrap();
+        assert_eq!(cleaned, 1);
+    }
+
+    #[tokio::test]
+    async fn test_mock_ban_storage_list_bans() {
+        let storage = MockBanStorage::new();
+
+        // 创建多个封禁
+        for i in 0..5 {
+            let target = BanTarget::Ip(format!("192.168.1.{}", i));
+            let record = create_ban_record(target, 3600, "test ban");
+            storage.save(&record).await.unwrap();
+        }
+
+        // 测试分页
+        let bans = storage.list_bans(true, 0, 3).await.unwrap();
+        assert_eq!(bans.len(), 3);
+
+        let bans = storage.list_bans(true, 3, 3).await.unwrap();
+        assert_eq!(bans.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_mock_ban_storage_max_entries() {
+        let storage = MockBanStorage::with_behavior(MockBanBehavior::new().with_max_entries(2));
+
+        let target1 = BanTarget::Ip("192.168.1.1".to_string());
+        let target2 = BanTarget::Ip("192.168.1.2".to_string());
+        let target3 = BanTarget::Ip("192.168.1.3".to_string());
+
+        let record1 = create_ban_record(target1, 60, "test");
+        let record2 = create_ban_record(target2, 60, "test");
+        let record3 = create_ban_record(target3, 60, "test");
+
+        storage.save(&record1).await.unwrap();
+        storage.save(&record2).await.unwrap();
+
+        let result = storage.save(&record3).await;
+        assert!(result.is_err());
+    }
 }

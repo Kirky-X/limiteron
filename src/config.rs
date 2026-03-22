@@ -787,6 +787,844 @@ on_exceed = "reject"
         assert_eq!(config.rules.len(), 1);
         assert!(config.validate().is_ok());
     }
+
+    #[test]
+    fn test_flow_control_config_default() {
+        let config = FlowControlConfig::default();
+        assert_eq!(config.version, "0.1.0");
+        assert_eq!(config.global.storage, "memory");
+        assert_eq!(config.global.cache, "memory");
+        assert_eq!(config.global.metrics, "prometheus");
+        assert!(config.rules.is_empty());
+    }
+
+    #[test]
+    fn test_global_config_default() {
+        let global = GlobalConfig::default();
+        assert_eq!(global.storage, "memory");
+        assert_eq!(global.cache, "memory");
+        assert_eq!(global.metrics, "prometheus");
+    }
+
+    #[test]
+    fn test_global_config_validate_success() {
+        let global = GlobalConfig {
+            storage: "memory".to_string(),
+            cache: "memory".to_string(),
+            metrics: "prometheus".to_string(),
+        };
+        assert!(global.validate().is_ok());
+    }
+
+    #[test]
+    fn test_global_config_validate_invalid_storage() {
+        let global = GlobalConfig {
+            storage: "invalid".to_string(),
+            cache: "memory".to_string(),
+            metrics: "prometheus".to_string(),
+        };
+        let result = global.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("无效的存储类型"));
+    }
+
+    #[test]
+    fn test_global_config_validate_invalid_cache() {
+        let global = GlobalConfig {
+            storage: "memory".to_string(),
+            cache: "invalid".to_string(),
+            metrics: "prometheus".to_string(),
+        };
+        let result = global.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("无效的缓存类型"));
+    }
+
+    #[test]
+    fn test_global_config_validate_invalid_metrics() {
+        let global = GlobalConfig {
+            storage: "memory".to_string(),
+            cache: "memory".to_string(),
+            metrics: "invalid".to_string(),
+        };
+        let result = global.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("无效的指标类型"));
+    }
+
+    #[test]
+    fn test_config_validate_empty_version() {
+        let config = FlowControlConfig {
+            version: "".to_string(),
+            global: GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "test".to_string(),
+                name: "Test".to_string(),
+                priority: 100,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 1000,
+                    refill_rate: 100,
+                }],
+                action: ActionConfig::default(),
+            }],
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("版本号不能为空"));
+    }
+
+    #[test]
+    fn test_config_compute_hash() {
+        let config1 = FlowControlConfig::default();
+        let config2 = FlowControlConfig::default();
+        assert_eq!(config1.compute_hash(), config2.compute_hash());
+    }
+
+    #[test]
+    fn test_config_is_same_as() {
+        let config1 = FlowControlConfig::default();
+        let config2 = FlowControlConfig::default();
+        assert!(config1.is_same_as(&config2));
+    }
+
+    #[test]
+    fn test_config_compare_version() {
+        let config1 = FlowControlConfig {
+            version: "1.0".to_string(),
+            ..Default::default()
+        };
+        let config2 = FlowControlConfig {
+            version: "2.0".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(config1.compare_version(&config2), std::cmp::Ordering::Less);
+        assert_eq!(
+            config2.compare_version(&config1),
+            std::cmp::Ordering::Greater
+        );
+        assert_eq!(config1.compare_version(&config1), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn test_config_create_change_record() {
+        let old_config = FlowControlConfig {
+            version: "1.0".to_string(),
+            ..Default::default()
+        };
+        let new_config = FlowControlConfig {
+            version: "2.0".to_string(),
+            ..Default::default()
+        };
+
+        let record = new_config.create_change_record(
+            Some(&old_config),
+            ChangeSource::Manual {
+                operator: "test".to_string(),
+            },
+        );
+
+        assert_eq!(record.old_version, Some("1.0".to_string()));
+        assert_eq!(record.new_version, "2.0");
+        assert!(!record.changes.is_empty());
+    }
+
+    #[test]
+    fn test_config_create_change_record_no_old() {
+        let config = FlowControlConfig::default();
+        let record = config.create_change_record(None, ChangeSource::Poll);
+        assert!(record.old_version.is_none());
+        assert_eq!(record.changes, vec!["初始配置"]);
+    }
+
+    #[test]
+    fn test_rule_validate_empty_id() {
+        let rule = Rule {
+            id: "".to_string(),
+            name: "Test".to_string(),
+            priority: 100,
+            matchers: vec![Matcher::User {
+                user_ids: vec!["*".to_string()],
+            }],
+            limiters: vec![LimiterConfig::TokenBucket {
+                capacity: 1000,
+                refill_rate: 100,
+            }],
+            action: ActionConfig::default(),
+        };
+        let result = rule.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("规则ID不能为空"));
+    }
+
+    #[test]
+    fn test_rule_validate_empty_name() {
+        let rule = Rule {
+            id: "test".to_string(),
+            name: "".to_string(),
+            priority: 100,
+            matchers: vec![Matcher::User {
+                user_ids: vec!["*".to_string()],
+            }],
+            limiters: vec![LimiterConfig::TokenBucket {
+                capacity: 1000,
+                refill_rate: 100,
+            }],
+            action: ActionConfig::default(),
+        };
+        let result = rule.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("规则名称不能为空"));
+    }
+
+    #[test]
+    fn test_rule_validate_empty_matchers() {
+        let rule = Rule {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            priority: 100,
+            matchers: vec![],
+            limiters: vec![LimiterConfig::TokenBucket {
+                capacity: 1000,
+                refill_rate: 100,
+            }],
+            action: ActionConfig::default(),
+        };
+        let result = rule.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("规则至少需要一个匹配器"));
+    }
+
+    #[test]
+    fn test_rule_validate_empty_limiters() {
+        let rule = Rule {
+            id: "test".to_string(),
+            name: "Test".to_string(),
+            priority: 100,
+            matchers: vec![Matcher::User {
+                user_ids: vec!["*".to_string()],
+            }],
+            limiters: vec![],
+            action: ActionConfig::default(),
+        };
+        let result = rule.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("规则至少需要一个限流器"));
+    }
+
+    #[test]
+    fn test_matcher_validate_user_empty() {
+        let matcher = Matcher::User { user_ids: vec![] };
+        let result = matcher.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("用户ID列表不能为空"));
+    }
+
+    #[test]
+    fn test_matcher_validate_ip_empty() {
+        let matcher = Matcher::Ip { ip_ranges: vec![] };
+        let result = matcher.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("IP范围列表不能为空"));
+    }
+
+    #[test]
+    fn test_matcher_validate_geo_empty() {
+        let matcher = Matcher::Geo { countries: vec![] };
+        let result = matcher.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("国家列表不能为空"));
+    }
+
+    #[test]
+    fn test_matcher_validate_api_version_empty() {
+        let matcher = Matcher::ApiVersion { versions: vec![] };
+        let result = matcher.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("API版本列表不能为空"));
+    }
+
+    #[test]
+    fn test_matcher_validate_device_empty() {
+        let matcher = Matcher::Device {
+            device_types: vec![],
+        };
+        let result = matcher.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("设备类型列表不能为空"));
+    }
+
+    #[test]
+    fn test_matcher_validate_custom_empty_name() {
+        let matcher = Matcher::Custom {
+            name: "".to_string(),
+            config: serde_json::json!({"key": "value"}),
+        };
+        let result = matcher.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("自定义匹配器名称不能为空"));
+    }
+
+    #[test]
+    fn test_matcher_validate_custom_null_config() {
+        let matcher = Matcher::Custom {
+            name: "test".to_string(),
+            config: serde_json::Value::Null,
+        };
+        let result = matcher.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("自定义匹配器配置不能为空"));
+    }
+
+    #[test]
+    fn test_limiter_config_validate_token_bucket_zero_capacity() {
+        let config = LimiterConfig::TokenBucket {
+            capacity: 0,
+            refill_rate: 100,
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("令牌桶容量不能为0"));
+    }
+
+    #[test]
+    fn test_limiter_config_validate_token_bucket_zero_refill() {
+        let config = LimiterConfig::TokenBucket {
+            capacity: 1000,
+            refill_rate: 0,
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("填充速率不能为0"));
+    }
+
+    #[test]
+    fn test_limiter_config_validate_sliding_window_zero_requests() {
+        let config = LimiterConfig::SlidingWindow {
+            window_size: "1s".to_string(),
+            max_requests: 0,
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("最大请求数不能为0"));
+    }
+
+    #[test]
+    fn test_limiter_config_validate_fixed_window_zero_requests() {
+        let config = LimiterConfig::FixedWindow {
+            window_size: "1s".to_string(),
+            max_requests: 0,
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("最大请求数不能为0"));
+    }
+
+    #[test]
+    fn test_limiter_config_validate_quota_empty_type() {
+        let config = LimiterConfig::Quota {
+            quota_type: "".to_string(),
+            limit: 1000,
+            window: "1h".to_string(),
+            alert_threshold: None,
+            overdraft: None,
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("配额类型不能为空"));
+    }
+
+    #[test]
+    fn test_limiter_config_validate_quota_zero_limit() {
+        let config = LimiterConfig::Quota {
+            quota_type: "token".to_string(),
+            limit: 0,
+            window: "1h".to_string(),
+            alert_threshold: None,
+            overdraft: None,
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("配额限制不能为0"));
+    }
+
+    #[test]
+    fn test_limiter_config_validate_quota_threshold_over_100() {
+        let config = LimiterConfig::Quota {
+            quota_type: "token".to_string(),
+            limit: 1000,
+            window: "1h".to_string(),
+            alert_threshold: Some(101),
+            overdraft: None,
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("告警阈值不能超过100%"));
+    }
+
+    #[test]
+    fn test_limiter_config_validate_concurrency_zero() {
+        let config = LimiterConfig::Concurrency { max_concurrent: 0 };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("最大并发数不能为0"));
+    }
+
+    #[test]
+    fn test_limiter_config_validate_custom_empty_name() {
+        let config = LimiterConfig::Custom {
+            name: "".to_string(),
+            config: serde_json::json!({"key": "value"}),
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("自定义限流器名称不能为空"));
+    }
+
+    #[test]
+    fn test_limiter_config_validate_custom_null_config() {
+        let config = LimiterConfig::Custom {
+            name: "test".to_string(),
+            config: serde_json::Value::Null,
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("自定义限流器配置不能为空"));
+    }
+
+    #[test]
+    fn test_parse_window_size_seconds() {
+        let duration = parse_window_size("10s").unwrap();
+        assert_eq!(duration, std::time::Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_parse_window_size_minutes() {
+        let duration = parse_window_size("5m").unwrap();
+        assert_eq!(duration, std::time::Duration::from_secs(300));
+    }
+
+    #[test]
+    fn test_parse_window_size_hours() {
+        let duration = parse_window_size("2h").unwrap();
+        assert_eq!(duration, std::time::Duration::from_secs(7200));
+    }
+
+    #[test]
+    fn test_parse_window_size_days() {
+        let duration = parse_window_size("1d").unwrap();
+        assert_eq!(duration, std::time::Duration::from_secs(86400));
+    }
+
+    #[test]
+    fn test_parse_window_size_milliseconds() {
+        let duration = parse_window_size("500ms").unwrap();
+        assert_eq!(duration, std::time::Duration::from_millis(500));
+    }
+
+    #[test]
+    fn test_parse_window_size_empty() {
+        let result = parse_window_size("");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("窗口大小不能为空"));
+    }
+
+    #[test]
+    fn test_parse_window_size_no_unit() {
+        let result = parse_window_size("10");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("缺少单位"));
+    }
+
+    #[test]
+    fn test_parse_window_size_invalid_unit() {
+        let result = parse_window_size("10x");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("不支持的单位"));
+    }
+
+    #[test]
+    fn test_parse_window_size_zero() {
+        let result = parse_window_size("0s");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("窗口大小必须大于0"));
+    }
+
+    #[test]
+    fn test_overdraft_config_validate_enabled_zero() {
+        let config = OverdraftConfig {
+            enabled: true,
+            max_overdraft: 0,
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("最大透支量不能为0"));
+    }
+
+    #[test]
+    fn test_overdraft_config_validate_disabled() {
+        let config = OverdraftConfig {
+            enabled: false,
+            max_overdraft: 0,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_action_config_default() {
+        let action = ActionConfig::default();
+        assert_eq!(action.on_exceed, "reject");
+        assert!(action.ban.is_none());
+    }
+
+    #[test]
+    fn test_action_config_validate_success() {
+        let action = ActionConfig {
+            on_exceed: "reject".to_string(),
+            ban: None,
+        };
+        assert!(action.validate().is_ok());
+    }
+
+    #[test]
+    fn test_action_config_validate_invalid() {
+        let action = ActionConfig {
+            on_exceed: "invalid".to_string(),
+            ban: None,
+        };
+        let result = action.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("无效的动作"));
+    }
+
+    #[test]
+    fn test_ban_config_validate_threshold_zero() {
+        let config = BanConfig {
+            threshold: 0,
+            initial_duration: "1m".to_string(),
+            backoff_multiplier: 2.0,
+            max_duration: "1h".to_string(),
+            scope: "ip".to_string(),
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("封禁阈值不能为0"));
+    }
+
+    #[test]
+    fn test_ban_config_validate_backoff_zero() {
+        let config = BanConfig {
+            threshold: 10,
+            initial_duration: "1m".to_string(),
+            backoff_multiplier: 0.0,
+            max_duration: "1h".to_string(),
+            scope: "ip".to_string(),
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("退避倍数必须大于0"));
+    }
+
+    #[test]
+    fn test_ban_config_validate_invalid_scope() {
+        let config = BanConfig {
+            threshold: 10,
+            initial_duration: "1m".to_string(),
+            backoff_multiplier: 2.0,
+            max_duration: "1h".to_string(),
+            scope: "invalid".to_string(),
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("无效的封禁范围"));
+    }
+
+    #[test]
+    fn test_config_builder_new() {
+        let builder = ConfigBuilder::new();
+        assert_eq!(builder.storage, "memory");
+        assert_eq!(builder.cache, "memory");
+        assert_eq!(builder.metrics, "prometheus");
+        assert!(builder.rules.is_empty());
+    }
+
+    #[test]
+    fn test_config_builder_default() {
+        let builder = ConfigBuilder::default();
+        assert_eq!(builder.storage, "memory");
+    }
+
+    #[test]
+    fn test_config_builder_with_storage() {
+        let builder = ConfigBuilder::new().with_storage("postgres");
+        assert_eq!(builder.storage, "postgres");
+    }
+
+    #[test]
+    fn test_config_builder_with_cache() {
+        let builder = ConfigBuilder::new().with_cache("redis");
+        assert_eq!(builder.cache, "redis");
+    }
+
+    #[test]
+    fn test_config_builder_with_metrics() {
+        let builder = ConfigBuilder::new().with_metrics("none");
+        assert_eq!(builder.metrics, "none");
+    }
+
+    #[test]
+    fn test_config_builder_build_success() {
+        let config = ConfigBuilder::new()
+            .with_rule(|rule| {
+                rule.id("test")
+                    .name("Test Rule")
+                    .user_matcher(vec!["*".to_string()])
+                    .token_bucket(1000, 100)
+            })
+            .build();
+
+        assert!(config.is_ok());
+        let config = config.unwrap();
+        assert_eq!(config.rules.len(), 1);
+        assert_eq!(config.rules[0].id, "test");
+    }
+
+    #[test]
+    fn test_config_builder_build_empty_rules() {
+        let result = ConfigBuilder::new().build();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("至少需要一个规则"));
+    }
+
+    #[test]
+    fn test_rule_builder_new() {
+        let builder = RuleBuilder::new();
+        assert!(builder.id.is_empty());
+        assert!(builder.name.is_empty());
+        assert_eq!(builder.priority, 100);
+        assert!(builder.matchers.is_empty());
+        assert!(builder.limiters.is_empty());
+    }
+
+    #[test]
+    fn test_rule_builder_default() {
+        let builder = RuleBuilder::default();
+        assert!(builder.id.is_empty());
+    }
+
+    #[test]
+    fn test_rule_builder_id() {
+        let builder = RuleBuilder::new().id("my-rule");
+        assert_eq!(builder.id, "my-rule");
+    }
+
+    #[test]
+    fn test_rule_builder_name() {
+        let builder = RuleBuilder::new().name("My Rule");
+        assert_eq!(builder.name, "My Rule");
+    }
+
+    #[test]
+    fn test_rule_builder_priority() {
+        let builder = RuleBuilder::new().priority(200);
+        assert_eq!(builder.priority, 200);
+    }
+
+    #[test]
+    fn test_rule_builder_user_matcher() {
+        let builder = RuleBuilder::new().user_matcher(vec!["user1".to_string()]);
+        assert_eq!(builder.matchers.len(), 1);
+    }
+
+    #[test]
+    fn test_rule_builder_ip_matcher() {
+        let builder = RuleBuilder::new().ip_matcher(vec!["192.168.1.0/24".to_string()]);
+        assert_eq!(builder.matchers.len(), 1);
+    }
+
+    #[test]
+    fn test_rule_builder_token_bucket() {
+        let builder = RuleBuilder::new().token_bucket(1000, 100);
+        assert_eq!(builder.limiters.len(), 1);
+    }
+
+    #[test]
+    fn test_rule_builder_fixed_window() {
+        let builder = RuleBuilder::new().fixed_window("1s", 100);
+        assert_eq!(builder.limiters.len(), 1);
+    }
+
+    #[test]
+    fn test_rule_builder_sliding_window() {
+        let builder = RuleBuilder::new().sliding_window("1s", 100);
+        assert_eq!(builder.limiters.len(), 1);
+    }
+
+    #[test]
+    fn test_rule_builder_concurrency_limit() {
+        let builder = RuleBuilder::new().concurrency_limit(50);
+        assert_eq!(builder.limiters.len(), 1);
+    }
+
+    #[test]
+    fn test_rule_builder_on_reject() {
+        let builder = RuleBuilder::new().on_reject();
+        assert_eq!(builder.action.on_exceed, "reject");
+    }
+
+    #[test]
+    fn test_rule_builder_on_allow() {
+        let builder = RuleBuilder::new().on_allow();
+        assert_eq!(builder.action.on_exceed, "allow");
+    }
+
+    #[test]
+    fn test_rule_builder_on_degrade() {
+        let builder = RuleBuilder::new().on_degrade();
+        assert_eq!(builder.action.on_exceed, "degrade");
+    }
+
+    #[test]
+    fn test_rule_builder_build_success() {
+        let rule = RuleBuilder::new()
+            .id("test")
+            .name("Test")
+            .user_matcher(vec!["*".to_string()])
+            .token_bucket(1000, 100)
+            .build();
+
+        assert!(rule.is_ok());
+        let rule = rule.unwrap();
+        assert_eq!(rule.id, "test");
+    }
+
+    #[test]
+    fn test_rule_builder_build_empty_id() {
+        let result = RuleBuilder::new()
+            .name("Test")
+            .user_matcher(vec!["*".to_string()])
+            .token_bucket(1000, 100)
+            .build();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("规则ID不能为空"));
+    }
+
+    #[test]
+    fn test_rule_builder_build_empty_name() {
+        let result = RuleBuilder::new()
+            .id("test")
+            .user_matcher(vec!["*".to_string()])
+            .token_bucket(1000, 100)
+            .build();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("规则名称不能为空"));
+    }
+
+    #[test]
+    fn test_rule_builder_build_empty_matchers() {
+        let result = RuleBuilder::new()
+            .id("test")
+            .name("Test")
+            .token_bucket(1000, 100)
+            .build();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("规则至少需要一个匹配器"));
+    }
+
+    #[test]
+    fn test_rule_builder_build_empty_limiters() {
+        let result = RuleBuilder::new()
+            .id("test")
+            .name("Test")
+            .user_matcher(vec!["*".to_string()])
+            .build();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("规则至少需要一个限流器"));
+    }
+
+    #[test]
+    fn test_config_history_new() {
+        let history = ConfigHistory::new(50);
+        assert_eq!(history.max_records, 50);
+        assert!(history.get_records().is_empty());
+    }
+
+    #[test]
+    fn test_config_history_default() {
+        let history = ConfigHistory::default();
+        assert_eq!(history.max_records, 100);
+    }
+
+    #[test]
+    fn test_config_history_add_record() {
+        let mut history = ConfigHistory::new(10);
+        let record = ConfigChangeRecord {
+            timestamp: chrono::Utc::now(),
+            old_version: None,
+            new_version: "1.0".to_string(),
+            old_hash: None,
+            new_hash: "abc".to_string(),
+            source: ChangeSource::Poll,
+            changes: vec!["初始配置".to_string()],
+        };
+        history.add_record(record);
+        assert_eq!(history.get_records().len(), 1);
+    }
+
+    #[test]
+    fn test_config_history_max_records() {
+        let mut history = ConfigHistory::new(3);
+        for i in 0..5 {
+            let record = ConfigChangeRecord {
+                timestamp: chrono::Utc::now(),
+                old_version: None,
+                new_version: format!("{}", i),
+                old_hash: None,
+                new_hash: format!("hash{}", i),
+                source: ChangeSource::Poll,
+                changes: vec![],
+            };
+            history.add_record(record);
+        }
+        assert_eq!(history.get_records().len(), 3);
+        assert_eq!(history.get_latest().unwrap().new_version, "4");
+    }
+
+    #[test]
+    fn test_config_history_clear() {
+        let mut history = ConfigHistory::new(10);
+        let record = ConfigChangeRecord {
+            timestamp: chrono::Utc::now(),
+            old_version: None,
+            new_version: "1.0".to_string(),
+            old_hash: None,
+            new_hash: "abc".to_string(),
+            source: ChangeSource::Poll,
+            changes: vec![],
+        };
+        history.add_record(record);
+        history.clear();
+        assert!(history.get_records().is_empty());
+    }
+
+    #[test]
+    fn test_change_source_variants() {
+        let sources = vec![
+            ChangeSource::Manual {
+                operator: "admin".to_string(),
+            },
+            ChangeSource::Poll,
+            ChangeSource::Watch,
+            ChangeSource::Api,
+            ChangeSource::Reload,
+            ChangeSource::Rollback {
+                target_version: "1.0".to_string(),
+            },
+        ];
+        assert_eq!(sources.len(), 6);
+    }
 }
 
 // ============================================================================

@@ -376,7 +376,9 @@ impl GovernorBuilder {
         let l1_cache_config = self
             .l1_cache_config
             .unwrap_or_else(|| L1CacheConfig::new(std::time::Duration::from_secs(60), 10_000));
-        let l1_cache = L1Cache::with_config(l1_cache_config);
+        let l1_cache = L1Cache::with_config(l1_cache_config).await.map_err(|e| {
+            FlowGuardError::DependencyError(format!("Failed to create L1Cache: {}", e))
+        })?;
         let l1_cache_enabled = self.l1_cache_enabled;
 
         Ok(Governor {
@@ -470,7 +472,7 @@ impl Governor {
             audit_logger: Arc::new(tokio::sync::RwLock::new(None)),
             config_history: Arc::new(tokio::sync::RwLock::new(ConfigHistory::new(100))),
             stats: StatsManager::new(),
-            l1_cache: L1Cache::new(),
+            l1_cache: L1Cache::new().await.expect("Failed to create L1Cache"),
             l1_cache_enabled: std::sync::atomic::AtomicBool::new(true),
         }
     }
@@ -659,7 +661,7 @@ impl Governor {
                 let first_rule = &matched_rules[0];
                 let cache_key = self.build_cache_key(&identifier, &first_rule.id);
 
-                if let Some(cached_decision) = self.l1_cache.get(&cache_key) {
+                if let Ok(Some(cached_decision)) = self.l1_cache.get(&cache_key).await {
                     trace!("L1 缓存命中: key={}", cache_key);
                     let decision = cached_decision.to_decision();
                     self.update_stats_for_decision(&Result::Ok(decision.clone()));
@@ -744,7 +746,7 @@ impl Governor {
         if self.is_l1_cache_enabled() && !matched_rules.is_empty() {
             let cache_key = self.build_cache_key(&identifier, &matched_rules[0].id);
             let cacheable_decision = CacheableDecision::from_decision(&decision);
-            self.l1_cache.set(cache_key, cacheable_decision);
+            let _ = self.l1_cache.set(cache_key, cacheable_decision).await;
             trace!("L1 缓存已更新: decision=allowed");
         }
 
@@ -956,8 +958,8 @@ impl Governor {
     // ==================== L1 缓存相关方法 ====================
 
     /// 获取 L1 缓存统计信息
-    pub fn l1_cache_stats(&self) -> crate::l1_cache::L1CacheStats {
-        self.l1_cache.stats()
+    pub async fn l1_cache_stats(&self) -> crate::l1_cache::L1CacheStats {
+        self.l1_cache.stats().await
     }
 
     /// 启用 L1 缓存
@@ -981,14 +983,14 @@ impl Governor {
     }
 
     /// 清空 L1 缓存
-    pub fn clear_l1_cache(&self) {
-        self.l1_cache.clear();
+    pub async fn clear_l1_cache(&self) {
+        let _ = self.l1_cache.clear().await;
         info!("L1 缓存已清空");
     }
 
     /// 清理 L1 缓存中的过期条目
-    pub fn evict_expired_l1_cache(&self) -> usize {
-        let evicted = self.l1_cache.evict_expired();
+    pub async fn evict_expired_l1_cache(&self) -> usize {
+        let evicted = self.l1_cache.evict_expired().await.unwrap_or(0);
         if evicted > 0 {
             debug!("L1 缓存清理了 {} 个过期条目", evicted);
         }
@@ -999,18 +1001,28 @@ impl Governor {
     ///
     /// # 参数
     /// - `identifier`: 标识符（如用户 ID、IP 地址等）
-    pub fn invalidate_l1_cache(&self, identifier: &str) {
+    pub async fn invalidate_l1_cache(&self, identifier: &str) {
         // 使所有与该标识符相关的缓存失效
-        self.l1_cache
-            .invalidate_by_prefix(&format!("rl:user:{}:", identifier));
-        self.l1_cache
-            .invalidate_by_prefix(&format!("rl:ip:{}:", identifier));
-        self.l1_cache
-            .invalidate_by_prefix(&format!("rl:apikey:{}:", identifier));
-        self.l1_cache
-            .invalidate_by_prefix(&format!("rl:generic:{}:", identifier));
-        self.l1_cache
-            .invalidate(&RateLimitCacheKey::ban_check(identifier));
+        let _ = self
+            .l1_cache
+            .invalidate_by_prefix(&format!("rl:user:{}:", identifier))
+            .await;
+        let _ = self
+            .l1_cache
+            .invalidate_by_prefix(&format!("rl:ip:{}:", identifier))
+            .await;
+        let _ = self
+            .l1_cache
+            .invalidate_by_prefix(&format!("rl:apikey:{}:", identifier))
+            .await;
+        let _ = self
+            .l1_cache
+            .invalidate_by_prefix(&format!("rl:generic:{}:", identifier))
+            .await;
+        let _ = self
+            .l1_cache
+            .invalidate(&RateLimitCacheKey::ban_check(identifier))
+            .await;
         debug!("已使标识符 {} 的 L1 缓存失效", identifier);
     }
 
@@ -1018,16 +1030,18 @@ impl Governor {
     ///
     /// # 参数
     /// - `rule_id`: 规则 ID
-    pub fn invalidate_rule_cache(&self, rule_id: &str) {
+    pub async fn invalidate_rule_cache(&self, rule_id: &str) {
         // 使用包含匹配移除所有与该规则相关的条目
-        self.l1_cache
-            .invalidate_containing(&format!(":{}", rule_id));
+        let _ = self
+            .l1_cache
+            .invalidate_containing(&format!(":{}", rule_id))
+            .await;
         debug!("已使规则 {} 的 L1 缓存失效", rule_id);
     }
 
     /// 获取 L1 缓存大小
-    pub fn l1_cache_size(&self) -> usize {
-        self.l1_cache.len()
+    pub async fn l1_cache_size(&self) -> usize {
+        self.l1_cache.len().await.unwrap_or(0)
     }
 
     /// 设置审计日志记录器

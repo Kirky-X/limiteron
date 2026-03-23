@@ -706,6 +706,9 @@ async fn send_webhook_alert(
     url: &str,
     alert_info: &AlertInfo,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // 安全验证：检查 URL 是否安全
+    validate_webhook_url(url)?;
+
     let client = reqwest::Client::new();
     let response = client
         .post(url)
@@ -719,6 +722,48 @@ async fn send_webhook_alert(
     } else {
         Err(format!("Webhook 返回错误状态码: {}", response.status()).into())
     }
+}
+
+/// 验证 Webhook URL 安全性
+///
+/// 安全规则：
+/// - 必须使用 HTTPS 协议
+/// - 禁止内网地址（私有 IP 段）
+/// - 禁止 localhost 和回环地址
+#[cfg(feature = "webhook")]
+fn validate_webhook_url(url: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // 解析 URL
+    let parsed = url
+        .parse::<reqwest::Url>()
+        .map_err(|e| format!("无效的 URL: {}", e))?;
+
+    // 检查协议：必须使用 HTTPS
+    if parsed.scheme() != "https" {
+        return Err("Webhook URL 必须使用 HTTPS 协议".into());
+    }
+
+    // 检查主机名
+    let host = parsed.host_str().ok_or("URL 缺少主机名")?;
+
+    // 禁止 localhost 和回环地址
+    let lower_host = host.to_lowercase();
+    if lower_host == "localhost" || lower_host == "127.0.0.1" || lower_host == "::1" {
+        return Err("禁止使用 localhost 或回环地址".into());
+    }
+
+    // 禁止私有 IP 地址段
+    // IPv4 私有地址：10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        if ip.is_loopback() || ip.is_private() {
+            return Err("禁止使用私有或回环 IP 地址".into());
+        }
+        // 检查链路本地地址
+        if ip.is_link_local() {
+            return Err("禁止使用链路本地地址".into());
+        }
+    }
+
+    Ok(())
 }
 
 /// 发送 Webhook 告警（未启用 webhook feature 时的存根实现）

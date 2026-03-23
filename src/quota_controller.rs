@@ -5,6 +5,7 @@
 //! 配额控制器模块
 //!
 //! 实现配额控制功能，支持多种配额类型、滑动窗口重置、透支功能和告警机制。
+//! 包含告警去重缓存的自动清理机制，防止内存泄漏。
 
 /// 默认配额限制
 pub const DEFAULT_QUOTA_LIMIT: u64 = 1000;
@@ -18,13 +19,18 @@ pub const DEFAULT_DEDUP_WINDOW_SECS: u64 = 300;
 /// 默认透支限制百分比
 pub const DEFAULT_OVERDRAFT_LIMIT_PERCENT: u8 = 20;
 
+/// 默认告警去重缓存清理间隔（5分钟）
+pub const DEFAULT_DEDUP_CLEANUP_INTERVAL_SECS: u64 = 300;
+
 use crate::error::{ConsumeResult, FlowGuardError};
 use crate::storage_trait::QuotaStorage;
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
+use log::debug;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
+use tokio_util::sync::CancellationToken;
 
 /// 配额类型
 #[cfg(feature = "quota-control")]
@@ -166,6 +172,8 @@ pub struct QuotaController {
     config: QuotaConfig,
     /// 告警去重缓存（key: user_id:resource:threshold, value: last_alert_time）
     alert_dedup: Arc<DashMap<String, DateTime<Utc>>>,
+    /// 后台清理任务停止信号
+    cleanup_token: CancellationToken,
 }
 
 impl Clone for QuotaController {
@@ -174,7 +182,16 @@ impl Clone for QuotaController {
             storage: self.storage.clone(),
             config: self.config.clone(),
             alert_dedup: self.alert_dedup.clone(),
+            cleanup_token: self.cleanup_token.clone(),
         }
+    }
+}
+
+impl Drop for QuotaController {
+    fn drop(&mut self) {
+        // 停止后台清理任务
+        self.cleanup_token.cancel();
+        debug!("QuotaController 已停止后台清理任务");
     }
 }
 
@@ -289,10 +306,49 @@ impl QuotaController {
     /// }
     /// ```
     pub fn with_dependencies(storage: Arc<dyn QuotaStorage>, config: QuotaConfig) -> Self {
+        let alert_dedup = Arc::new(DashMap::new());
+        let cleanup_token = CancellationToken::new();
+
+        // 启动后台清理任务
+        let dedup_clone = alert_dedup.clone();
+        let token_clone = cleanup_token.clone();
+        let dedup_window = config.alert_config.dedup_window;
+
+        tokio::spawn(async move {
+            let cleanup_interval = StdDuration::from_secs(DEFAULT_DEDUP_CLEANUP_INTERVAL_SECS);
+            let mut interval = tokio::time::interval(cleanup_interval);
+
+            loop {
+                tokio::select! {
+                    _ = token_clone.cancelled() => {
+                        debug!("告警去重缓存清理任务已停止");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        let now = Utc::now();
+                        let window = Duration::seconds(dedup_window as i64);
+                        let before = dedup_clone.len();
+                        dedup_clone.retain(|_, last_alert_time| {
+                            now.signed_duration_since(*last_alert_time) < window
+                        });
+                        let after = dedup_clone.len();
+                        if before != after {
+                            debug!(
+                                "告警去重缓存清理完成: 清理 {} 条记录，剩余 {} 条",
+                                before - after,
+                                after
+                            );
+                        }
+                    }
+                }
+            }
+        });
+
         Self {
             storage,
             config,
-            alert_dedup: Arc::new(DashMap::new()),
+            alert_dedup,
+            cleanup_token,
         }
     }
 

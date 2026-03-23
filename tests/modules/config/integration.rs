@@ -3,7 +3,7 @@
 //! 测试配置模块的完整功能：验证、版本比较、ConfigBuilder、哈希、变更记录等
 
 use limiteron::config::{
-    ActionConfig, ChangeSource, ConfigBuilder, ConfigChangeRecord, ConfigHistory,
+    Action, ActionConfig, ChangeSource, ConfigBuilder, ConfigChangeRecord, ConfigHistory,
     FlowControlConfig, LimiterConfig, Matcher, Rule,
 };
 
@@ -25,7 +25,7 @@ fn make_valid_rule(id: &str, name: &str) -> Rule {
             refill_rate: 100,
         }],
         action: ActionConfig {
-            on_exceed: "reject".to_string(),
+            on_exceed: Action::Reject,
             ban: None,
         },
     }
@@ -39,6 +39,7 @@ fn make_valid_config(version: &str, rules: Vec<Rule>) -> FlowControlConfig {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules,
     }
@@ -66,6 +67,7 @@ async fn test_empty_version_fails_validation() {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![make_valid_rule("rule_001", "Test Rule")],
     };
@@ -101,6 +103,7 @@ async fn test_invalid_storage_type_fails_validation() {
             storage: "invalid_storage".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![make_valid_rule("rule_001", "Test Rule")],
     };
@@ -493,6 +496,7 @@ async fn test_change_record_identifies_modified_rules() {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![make_valid_rule("same", "Same Rule")],
     };
@@ -503,6 +507,7 @@ async fn test_change_record_identifies_modified_rules() {
             storage: "postgresql".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![make_valid_rule("same", "Same Rule")],
     };
@@ -717,6 +722,7 @@ async fn test_deep_clone_nested_structures() {
             storage: "memory".to_string(),
             cache: "redis".to_string(),
             metrics: "opentelemetry".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
             id: "nested".to_string(),
@@ -740,7 +746,7 @@ async fn test_deep_clone_nested_structures() {
                 },
             ],
             action: ActionConfig {
-                on_exceed: "degrade".to_string(),
+                on_exceed: Action::Degrade,
                 ban: None,
             },
         }],
@@ -789,6 +795,7 @@ async fn test_serialization_roundtrip_json() {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![
             make_valid_rule("serial_rule", "Serialization Test Rule"),
@@ -815,7 +822,7 @@ async fn test_serialization_roundtrip_json() {
                     },
                 ],
                 action: ActionConfig {
-                    on_exceed: "allow".to_string(),
+                    on_exceed: Action::Allow,
                     ban: None,
                 },
             },
@@ -961,6 +968,7 @@ async fn test_global_config_validation_invalid_types() {
         storage: "mongodb".to_string(),
         cache: "memory".to_string(),
         metrics: "prometheus".to_string(),
+        trusted_proxies: Default::default(),
     };
     assert!(global.validate().is_err());
 
@@ -969,6 +977,7 @@ async fn test_global_config_validation_invalid_types() {
         storage: "memory".to_string(),
         cache: "memcached".to_string(),
         metrics: "prometheus".to_string(),
+        trusted_proxies: Default::default(),
     };
     assert!(global.validate().is_err());
 
@@ -977,6 +986,7 @@ async fn test_global_config_validation_invalid_types() {
         storage: "memory".to_string(),
         cache: "memory".to_string(),
         metrics: "datadog".to_string(),
+        trusted_proxies: Default::default(),
     };
     assert!(global.validate().is_err());
 }
@@ -1000,6 +1010,7 @@ async fn test_global_config_validation_valid_types() {
             storage: storage.to_string(),
             cache: cache.to_string(),
             metrics: metrics.to_string(),
+            trusted_proxies: Default::default(),
         };
         assert!(
             global.validate().is_ok(),

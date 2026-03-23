@@ -3,7 +3,7 @@
 //! 测试规则匹配器与限流器的集成，验证规则匹配与限流联动。
 
 use crate::common::{create_governor, MockQuotaStorage, RequestContextBuilder};
-use limiteron::config::{ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
+use limiteron::config::{Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
 use limiteron::error::Decision;
 use limiteron::storage_trait::{BanStorage, Storage};
 use std::sync::Arc;
@@ -18,6 +18,7 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
             id: "test_rule".to_string(),
@@ -28,7 +29,7 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
             }],
             limiters,
             action: ActionConfig {
-                on_exceed: "reject".to_string(),
+                on_exceed: Action::Reject,
                 ban: None,
             },
         }],

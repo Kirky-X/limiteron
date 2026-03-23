@@ -5,7 +5,7 @@
 use crate::common::{
     create_governor, create_test_request, MockBanStorage, MockQuotaStorage, RequestContextBuilder,
 };
-use limiteron::config::{ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
+use limiteron::config::{Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
 use limiteron::error::Decision;
 use limiteron::limiters::Limiter;
 use limiteron::storage_trait::{BanStorage, Storage};
@@ -20,6 +20,7 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
             id: "test_rule".to_string(),
@@ -30,7 +31,7 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
             }],
             limiters,
             action: ActionConfig {
-                on_exceed: "reject".to_string(),
+                on_exceed: Action::Reject,
                 ban: None,
             },
         }],
@@ -392,7 +393,7 @@ async fn test_governor_l1_cache_hit() {
 
     // 清空缓存
     governor.clear_l1_cache();
-    assert_eq!(governor.l1_cache_size(), 0);
+    assert_eq!(governor.l1_cache_size().await, 0);
 
     let ctx = RequestContextBuilder::new()
         .user_id("cache_user")
@@ -401,7 +402,7 @@ async fn test_governor_l1_cache_hit() {
 
     // 第一次请求（缓存未命中）
     let result1 = governor.check(&ctx).await.unwrap();
-    let cache_size_after_first = governor.l1_cache_size();
+    let cache_size_after_first = governor.l1_cache_size().await;
 
     // 第二次请求（可能缓存命中）
     let result2 = governor.check(&ctx).await.unwrap();
@@ -442,7 +443,7 @@ async fn test_governor_l1_cache_disabled() {
     }
 
     // 缓存应该为空
-    assert_eq!(governor.l1_cache_size(), 0);
+    assert_eq!(governor.l1_cache_size().await, 0);
 
     // 重新启用缓存
     governor.enable_l1_cache();

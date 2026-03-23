@@ -2,7 +2,9 @@
 //!
 //! 测试配置解析、环境变量覆盖和配置验证。
 
-use limiteron::config::{ActionConfig, BanConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
+use limiteron::config::{
+    Action, ActionConfig, BanConfig, BanScope, FlowControlConfig, LimiterConfig, Matcher, Rule,
+};
 
 // ==================== YAML 配置解析测试 ====================
 
@@ -15,6 +17,7 @@ fn test_basic_config() {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
             id: "test_rule".to_string(),
@@ -28,7 +31,7 @@ fn test_basic_config() {
                 refill_rate: 100,
             }],
             action: ActionConfig {
-                on_exceed: "reject".to_string(),
+                on_exceed: Action::Reject,
                 ban: None,
             },
         }],
@@ -48,6 +51,7 @@ fn test_multi_rule_config() {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![
             Rule {
@@ -62,7 +66,7 @@ fn test_multi_rule_config() {
                     refill_rate: 100,
                 }],
                 action: ActionConfig {
-                    on_exceed: "reject".to_string(),
+                    on_exceed: Action::Reject,
                     ban: None,
                 },
             },
@@ -78,7 +82,7 @@ fn test_multi_rule_config() {
                     max_requests: 500,
                 }],
                 action: ActionConfig {
-                    on_exceed: "reject".to_string(),
+                    on_exceed: Action::Reject,
                     ban: None,
                 },
             },
@@ -206,7 +210,7 @@ fn test_rule_priority() {
                 refill_rate: 10,
             }],
             action: ActionConfig {
-                on_exceed: "reject".to_string(),
+                on_exceed: Action::Reject,
                 ban: None,
             },
         },
@@ -222,7 +226,7 @@ fn test_rule_priority() {
                 refill_rate: 100,
             }],
             action: ActionConfig {
-                on_exceed: "reject".to_string(),
+                on_exceed: Action::Reject,
                 ban: None,
             },
         },
@@ -237,24 +241,24 @@ fn test_rule_priority() {
 #[test]
 fn test_action_config() {
     let action = ActionConfig {
-        on_exceed: "reject".to_string(),
+        on_exceed: Action::Reject,
         ban: Some(BanConfig {
             threshold: 3,
             initial_duration: "1h".to_string(),
             backoff_multiplier: 2.0,
             max_duration: "24h".to_string(),
-            scope: "user".to_string(),
+            scope: BanScope::User,
         }),
     };
 
-    assert_eq!(action.on_exceed, "reject");
+    assert_eq!(action.on_exceed, Action::Reject);
     assert!(action.ban.is_some());
     let ban = action.ban.unwrap();
     assert_eq!(ban.threshold, 3);
     assert_eq!(ban.initial_duration, "1h");
     assert_eq!(ban.backoff_multiplier, 2.0);
     assert_eq!(ban.max_duration, "24h");
-    assert_eq!(ban.scope, "user");
+    assert_eq!(ban.scope, BanScope::User);
 }
 
 /// 测试全局配置
@@ -264,6 +268,7 @@ fn test_global_config() {
         storage: "postgres".to_string(),
         cache: "redis".to_string(),
         metrics: "prometheus".to_string(),
+        trusted_proxies: Default::default(),
     };
 
     assert_eq!(global.storage, "postgres");
@@ -280,6 +285,7 @@ fn test_config_serialization() {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
             id: "test_rule".to_string(),
@@ -293,7 +299,7 @@ fn test_config_serialization() {
                 refill_rate: 10,
             }],
             action: ActionConfig {
-                on_exceed: "reject".to_string(),
+                on_exceed: Action::Reject,
                 ban: None,
             },
         }],
@@ -318,6 +324,7 @@ fn test_config_serialization_json() {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![],
     };
@@ -340,6 +347,7 @@ fn test_empty_rules_config() {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![],
     };
@@ -370,7 +378,7 @@ fn test_complex_matcher_combination() {
             refill_rate: 100,
         }],
         action: ActionConfig {
-            on_exceed: "reject".to_string(),
+            on_exceed: Action::Reject,
             ban: None,
         },
     };
@@ -403,7 +411,7 @@ fn test_multiple_limiters() {
             },
         ],
         action: ActionConfig {
-            on_exceed: "reject".to_string(),
+            on_exceed: Action::Reject,
             ban: None,
         },
     };
@@ -457,7 +465,7 @@ fn test_ban_config_validation() {
         initial_duration: "1h".to_string(),
         backoff_multiplier: 2.0,
         max_duration: "24h".to_string(),
-        scope: "user".to_string(),
+        scope: BanScope::User,
     };
 
     // 验证配置
@@ -470,6 +478,6 @@ fn test_ban_config_validation() {
 fn test_default_action_config() {
     let action = ActionConfig::default();
 
-    assert_eq!(action.on_exceed, "reject");
+    assert_eq!(action.on_exceed, Action::Reject);
     assert!(action.ban.is_none());
 }

@@ -3,9 +3,7 @@
 //! 测试决策链模块的完整功能
 
 use async_trait::async_trait;
-use limiteron::decision_chain::{
-    AtomicChainStats, ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode,
-};
+use limiteron::decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
 use limiteron::error::{Decision, FlowGuardError};
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use std::sync::Arc;
@@ -227,28 +225,6 @@ async fn concurrent_checks() {
 }
 
 #[tokio::test]
-async fn atomic_chain_stats_snapshot() {
-    let stats = AtomicChainStats::new();
-    stats.increment_total();
-    stats.increment_allowed();
-    stats.increment_rejected();
-    let snap = stats.snapshot();
-    assert_eq!(snap.total_checks, 1);
-    assert_eq!(snap.allowed_count, 1);
-    assert_eq!(snap.rejected_count, 1);
-}
-
-#[tokio::test]
-async fn atomic_chain_stats_reset() {
-    let stats = AtomicChainStats::new();
-    stats.increment_total();
-    stats.increment_allowed();
-    stats.reset();
-    let snap = stats.snapshot();
-    assert_eq!(snap.total_checks, 0);
-}
-
-#[tokio::test]
 async fn token_bucket_in_chain() {
     let limiter = TokenBucketLimiter::new(100, 0);
     let node = DecisionNode::new(
@@ -279,13 +255,12 @@ async fn with_dependencies_shortcut() {
 #[tokio::test]
 async fn node_builder_pattern() {
     let limiter = Arc::new(TokenBucketLimiter::new(100, 10));
-    let node = DecisionNode::builder()
-        .id("built_node")
-        .name("Built Node")
-        .limiter(limiter)
-        .priority(50)
-        .build()
-        .unwrap();
+    let node = DecisionNode::with_dependencies(
+        "built_node".to_string(),
+        "Built Node".to_string(),
+        limiter,
+        50,
+    );
 
     assert_eq!(node.id, "built_node");
     assert_eq!(node.name, "Built Node");

@@ -13,6 +13,162 @@ use chrono::{DateTime, Utc};
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
+/// 超限动作类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Action {
+    /// 拒绝请求
+    Reject,
+    /// 允许请求通过（仅记录）
+    Allow,
+    /// 降级处理
+    Degrade,
+}
+
+impl Default for Action {
+    fn default() -> Self {
+        Self::Reject
+    }
+}
+
+impl Action {
+    /// 从字符串解析
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "reject" => Some(Self::Reject),
+            "allow" => Some(Self::Allow),
+            "degrade" => Some(Self::Degrade),
+            _ => None,
+        }
+    }
+
+    /// 转换为字符串
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Reject => "reject",
+            Self::Allow => "allow",
+            Self::Degrade => "degrade",
+        }
+    }
+}
+
+/// 封禁范围
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BanScope {
+    /// 按 IP 封禁
+    Ip,
+    /// 按用户封禁
+    User,
+    /// 按 MAC 地址封禁
+    Mac,
+}
+
+impl Default for BanScope {
+    fn default() -> Self {
+        Self::Ip
+    }
+}
+
+impl BanScope {
+    /// 从字符串解析
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "ip" => Some(Self::Ip),
+            "user" => Some(Self::User),
+            "mac" => Some(Self::Mac),
+            _ => None,
+        }
+    }
+
+    /// 转换为字符串
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ip => "ip",
+            Self::User => "user",
+            Self::Mac => "mac",
+        }
+    }
+}
+
+/// 缓存后端类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CacheBackend {
+    /// 内存缓存
+    Memory,
+    /// Redis 缓存
+    Redis,
+    /// 无缓存
+    None,
+}
+
+impl Default for CacheBackend {
+    fn default() -> Self {
+        Self::Memory
+    }
+}
+
+impl CacheBackend {
+    /// 从字符串解析
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "memory" => Some(Self::Memory),
+            "redis" => Some(Self::Redis),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
+
+    /// 转换为字符串
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Memory => "memory",
+            Self::Redis => "redis",
+            Self::None => "none",
+        }
+    }
+}
+
+/// 指标后端类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MetricsBackend {
+    /// Prometheus
+    Prometheus,
+    /// StatsD
+    Statsd,
+    /// 无指标
+    None,
+}
+
+impl Default for MetricsBackend {
+    fn default() -> Self {
+        Self::Prometheus
+    }
+}
+
+impl MetricsBackend {
+    /// 从字符串解析
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "prometheus" => Some(Self::Prometheus),
+            "statsd" => Some(Self::Statsd),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
+
+    /// 转换为字符串
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Prometheus => "prometheus",
+            Self::Statsd => "statsd",
+            Self::None => "none",
+        }
+    }
+}
+
 /// 流量控制配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlowControlConfig {
@@ -642,14 +798,14 @@ impl OverdraftConfig {
 /// 动作配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionConfig {
-    pub on_exceed: String,
+    pub on_exceed: Action,
     pub ban: Option<BanConfig>,
 }
 
 impl Default for ActionConfig {
     fn default() -> Self {
         Self {
-            on_exceed: "reject".to_string(),
+            on_exceed: Action::default(),
             ban: None,
         }
     }
@@ -658,14 +814,6 @@ impl Default for ActionConfig {
 impl ActionConfig {
     /// 校验动作配置
     pub fn validate(&self) -> Result<(), String> {
-        let valid_actions = ["reject", "allow", "degrade"];
-        if !valid_actions.contains(&self.on_exceed.as_str()) {
-            return Err(format!(
-                "无效的动作: {}, 有效值: {:?}",
-                self.on_exceed, valid_actions
-            ));
-        }
-
         if let Some(ban) = &self.ban {
             ban.validate()?;
         }
@@ -681,7 +829,7 @@ pub struct BanConfig {
     pub initial_duration: String,
     pub backoff_multiplier: f64,
     pub max_duration: String,
-    pub scope: String,
+    pub scope: BanScope,
 }
 
 impl BanConfig {
@@ -693,14 +841,6 @@ impl BanConfig {
 
         if self.backoff_multiplier <= 0.0 {
             return Err("退避倍数必须大于0".to_string());
-        }
-
-        let valid_scopes = ["ip", "user", "mac"];
-        if !valid_scopes.contains(&self.scope.as_str()) {
-            return Err(format!(
-                "无效的封禁范围: {}, 有效值: {:?}",
-                self.scope, valid_scopes
-            ));
         }
 
         Ok(())
@@ -750,7 +890,7 @@ mod tests {
                     refill_rate: 100,
                 }],
                 action: ActionConfig {
-                    on_exceed: "reject".to_string(),
+                    on_exceed: Action::Reject,
                     ban: None,
                 },
             }],
@@ -789,7 +929,7 @@ mod tests {
                 refill_rate: 100,
             }],
             action: ActionConfig {
-                on_exceed: "reject".to_string(),
+                on_exceed: Action::Reject,
                 ban: None,
             },
         };
@@ -1362,28 +1502,17 @@ on_exceed = "reject"
     #[test]
     fn test_action_config_default() {
         let action = ActionConfig::default();
-        assert_eq!(action.on_exceed, "reject");
+        assert_eq!(action.on_exceed, Action::Reject);
         assert!(action.ban.is_none());
     }
 
     #[test]
     fn test_action_config_validate_success() {
         let action = ActionConfig {
-            on_exceed: "reject".to_string(),
+            on_exceed: Action::Reject,
             ban: None,
         };
         assert!(action.validate().is_ok());
-    }
-
-    #[test]
-    fn test_action_config_validate_invalid() {
-        let action = ActionConfig {
-            on_exceed: "invalid".to_string(),
-            ban: None,
-        };
-        let result = action.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("无效的动作"));
     }
 
     #[test]
@@ -1393,7 +1522,7 @@ on_exceed = "reject"
             initial_duration: "1m".to_string(),
             backoff_multiplier: 2.0,
             max_duration: "1h".to_string(),
-            scope: "ip".to_string(),
+            scope: BanScope::Ip,
         };
         let result = config.validate();
         assert!(result.is_err());
@@ -1407,25 +1536,11 @@ on_exceed = "reject"
             initial_duration: "1m".to_string(),
             backoff_multiplier: 0.0,
             max_duration: "1h".to_string(),
-            scope: "ip".to_string(),
+            scope: BanScope::Ip,
         };
         let result = config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("退避倍数必须大于0"));
-    }
-
-    #[test]
-    fn test_ban_config_validate_invalid_scope() {
-        let config = BanConfig {
-            threshold: 10,
-            initial_duration: "1m".to_string(),
-            backoff_multiplier: 2.0,
-            max_duration: "1h".to_string(),
-            scope: "invalid".to_string(),
-        };
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("无效的封禁范围"));
     }
 
     #[test]
@@ -1558,19 +1673,19 @@ on_exceed = "reject"
     #[test]
     fn test_rule_builder_on_reject() {
         let builder = RuleBuilder::new().on_reject();
-        assert_eq!(builder.action.on_exceed, "reject");
+        assert_eq!(builder.action.on_exceed, Action::Reject);
     }
 
     #[test]
     fn test_rule_builder_on_allow() {
         let builder = RuleBuilder::new().on_allow();
-        assert_eq!(builder.action.on_exceed, "allow");
+        assert_eq!(builder.action.on_exceed, Action::Allow);
     }
 
     #[test]
     fn test_rule_builder_on_degrade() {
         let builder = RuleBuilder::new().on_degrade();
-        assert_eq!(builder.action.on_exceed, "degrade");
+        assert_eq!(builder.action.on_exceed, Action::Degrade);
     }
 
     #[test]
@@ -1856,7 +1971,7 @@ impl RuleBuilder {
             matchers: Vec::new(),
             limiters: Vec::new(),
             action: ActionConfig {
-                on_exceed: "reject".to_string(),
+                on_exceed: Action::Reject,
                 ban: None,
             },
         }
@@ -1926,17 +2041,17 @@ impl RuleBuilder {
     }
 
     pub fn on_reject(mut self) -> Self {
-        self.action.on_exceed = "reject".to_string();
+        self.action.on_exceed = Action::Reject;
         self
     }
 
     pub fn on_allow(mut self) -> Self {
-        self.action.on_exceed = "allow".to_string();
+        self.action.on_exceed = Action::Allow;
         self
     }
 
     pub fn on_degrade(mut self) -> Self {
-        self.action.on_exceed = "degrade".to_string();
+        self.action.on_exceed = Action::Degrade;
         self
     }
 

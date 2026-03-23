@@ -3,7 +3,7 @@
 
 use ahash::AHashMap;
 use limiteron::config::{
-    ActionConfig, FlowControlConfig as GovernorConfig, LimiterConfig, Matcher, Rule,
+    Action, ActionConfig, FlowControlConfig as GovernorConfig, LimiterConfig, Matcher, Rule,
 };
 use limiteron::error::{ConsumeResult, StorageError};
 use limiteron::limiters::{
@@ -364,6 +364,7 @@ pub async fn create_governor() -> Arc<Governor> {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
             id: "test_rule".to_string(),
@@ -377,7 +378,7 @@ pub async fn create_governor() -> Arc<Governor> {
                 refill_rate: 100,
             }],
             action: ActionConfig {
-                on_exceed: "reject".to_string(),
+                on_exceed: Action::Reject,
                 ban: None,
             },
         }],
@@ -1065,7 +1066,7 @@ pub fn create_basic_rule(rule_id: &str, capacity: u64, refill_rate: u64) -> Rule
             refill_rate,
         }],
         action: ActionConfig {
-            on_exceed: "reject".to_string(),
+            on_exceed: Action::Reject,
             ban: None,
         },
     }
@@ -1084,7 +1085,7 @@ pub fn create_sliding_window_rule(rule_id: &str, window_secs: u64, max_requests:
             max_requests,
         }],
         action: ActionConfig {
-            on_exceed: "reject".to_string(),
+            on_exceed: Action::Reject,
             ban: None,
         },
     }
@@ -1103,7 +1104,7 @@ pub fn create_ip_rule(rule_id: &str, ips: &[&str], capacity: u64, refill_rate: u
             refill_rate,
         }],
         action: ActionConfig {
-            on_exceed: "reject".to_string(),
+            on_exceed: Action::Reject,
             ban: None,
         },
     }

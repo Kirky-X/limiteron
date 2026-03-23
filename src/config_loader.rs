@@ -152,7 +152,7 @@ impl RuleBuilder {
             matchers: Vec::new(),
             limiters: Vec::new(),
             action: crate::config::ActionConfig {
-                on_exceed: "reject".to_string(),
+                on_exceed: crate::config::Action::Reject,
                 ban: None,
             },
         }
@@ -226,17 +226,17 @@ impl RuleBuilder {
     }
 
     pub fn on_reject(mut self) -> Self {
-        self.action.on_exceed = "reject".to_string();
+        self.action.on_exceed = crate::config::Action::Reject;
         self
     }
 
     pub fn on_allow(mut self) -> Self {
-        self.action.on_exceed = "allow".to_string();
+        self.action.on_exceed = crate::config::Action::Allow;
         self
     }
 
     pub fn on_degrade(mut self) -> Self {
-        self.action.on_exceed = "degrade".to_string();
+        self.action.on_exceed = crate::config::Action::Degrade;
         self
     }
 

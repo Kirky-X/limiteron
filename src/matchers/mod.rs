@@ -33,6 +33,7 @@ pub mod device;
 pub mod custom;
 
 use crate::config::Matcher as ConfigMatcher;
+use crate::config::TrustedProxyConfig;
 use crate::error::FlowGuardError;
 use ahash::AHashMap as HashMap;
 use parking_lot::RwLock;
@@ -454,6 +455,8 @@ pub struct IpExtractor {
     header_names: Vec<String>,
     /// 是否验证IP格式
     validate: bool,
+    /// 可信代理配置
+    trusted_proxy_config: TrustedProxyConfig,
 }
 
 impl IpExtractor {
@@ -466,6 +469,25 @@ impl IpExtractor {
         Self {
             header_names,
             validate,
+            trusted_proxy_config: TrustedProxyConfig::default(),
+        }
+    }
+
+    /// 创建带可信代理配置的IP提取器
+    ///
+    /// # 参数
+    /// - `header_names`: HTTP头名称列表（按优先级顺序）
+    /// - `validate`: 是否验证IP格式
+    /// - `trusted_proxy_config`: 可信代理配置
+    pub fn with_trusted_proxies(
+        header_names: Vec<String>,
+        validate: bool,
+        trusted_proxy_config: TrustedProxyConfig,
+    ) -> Self {
+        Self {
+            header_names,
+            validate,
+            trusted_proxy_config,
         }
     }
 
@@ -556,10 +578,6 @@ impl IpExtractor {
     /// - `Some(String)`: 解析后的 IP 地址
     /// - `None`: 无法解析或验证失败
     fn parse_ip(&self, value: &str) -> Option<String> {
-        // 处理IP列表（X-Forwarded-For格式：client, proxy1, proxy2）
-        // 注意：真实客户端IP在最左边，代理依次向右追加
-        // 攻击者可以通过在左边添加伪造IP来欺骗
-        // 因此：取最左边的IP作为客户端IP（因为它是最早由第一个代理添加的）
         let ips: Vec<&str> = value
             .split(',')
             .map(|s| s.trim())
@@ -579,19 +597,33 @@ impl IpExtractor {
             return Some(ip.to_string());
         }
 
-        // 多个IP时，取最左边的IP作为客户端IP
-        // 这是安全的，因为第一个代理会将自己的IP追加到右边
-        // 攻击者伪造的IP会在最左边，但如果我们信任第一个代理，
-        // 它会追加自己的IP，所以左边第二个IP开始是可信的
-        // 简化处理：使用最左边的IP（假设第一个代理是可信的）
-        let ip = ips[0];
-
-        // 验证IP格式
-        if self.validate && ip.parse::<IpAddr>().is_err() {
-            return None;
+        // 多个 IP 时的处理
+        if self.trusted_proxy_config.enabled {
+            // 从右向左查找第一个非可信代理 IP
+            for ip_str in ips.iter().rev() {
+                if self.validate && ip_str.parse::<IpAddr>().is_err() {
+                    continue;
+                }
+                if !self.trusted_proxy_config.is_trusted(ip_str) {
+                    return Some(ip_str.to_string());
+                }
+            }
+            // 如果全是可信代理，使用最右边的 IP
+            if let Some(&ip) = ips.last() {
+                if self.validate && ip.parse::<IpAddr>().is_err() {
+                    return None;
+                }
+                return Some(ip.to_string());
+            }
+            None
+        } else {
+            // 未启用可信代理模式：使用最左边的 IP（保持向后兼容）
+            let ip = ips[0];
+            if self.validate && ip.parse::<IpAddr>().is_err() {
+                return None;
+            }
+            Some(ip.to_string())
         }
-
-        Some(ip.to_string())
     }
 }
 
@@ -600,6 +632,7 @@ impl IpExtractor {
 pub struct IpExtractorBuilder {
     header_names: Vec<String>,
     validate: bool,
+    trusted_proxy_config: Option<TrustedProxyConfig>,
 }
 
 impl IpExtractorBuilder {
@@ -626,9 +659,20 @@ impl IpExtractorBuilder {
         self
     }
 
+    /// 设置可信代理配置
+    pub fn trusted_proxy_config(mut self, config: TrustedProxyConfig) -> Self {
+        self.trusted_proxy_config = Some(config);
+        self
+    }
+
     /// 构建IpExtractor
     pub fn build(self) -> IpExtractor {
-        IpExtractor::new(self.header_names, self.validate)
+        match self.trusted_proxy_config {
+            Some(config) => {
+                IpExtractor::with_trusted_proxies(self.header_names, self.validate, config)
+            }
+            None => IpExtractor::new(self.header_names, self.validate),
+        }
     }
 }
 
@@ -4283,6 +4327,112 @@ mod tests {
         assert!(debug_str.contains("Test Rule"));
         assert!(debug_str.contains("100"));
         assert!(debug_str.contains("enabled: true"));
+    }
+
+    // ==================== 增强测试：可信代理 IP 提取 ====================
+
+    #[test]
+    fn test_trusted_proxy_config_default() {
+        use crate::config::TrustedProxyConfig;
+        let config = TrustedProxyConfig::default();
+        assert!(!config.enabled);
+        assert!(config.proxies.is_empty());
+    }
+
+    #[test]
+    fn test_trusted_proxy_is_trusted() {
+        use crate::config::TrustedProxyConfig;
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".to_string(), "192.168.1.0/24".to_string()],
+        };
+
+        // 单个 IP 匹配
+        assert!(config.is_trusted("10.0.0.1"));
+        assert!(!config.is_trusted("10.0.0.2"));
+
+        // CIDR 匹配
+        assert!(config.is_trusted("192.168.1.100"));
+        assert!(!config.is_trusted("192.168.2.1"));
+    }
+
+    #[test]
+    fn test_trusted_proxy_cidr_ipv6() {
+        use crate::config::TrustedProxyConfig;
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["2001:db8::/32".to_string()],
+        };
+
+        assert!(config.is_trusted("2001:db8::1"));
+        assert!(config.is_trusted("2001:db8:abcd::1234"));
+        assert!(!config.is_trusted("2001:db9::1"));
+    }
+
+    #[test]
+    fn test_ip_extractor_with_trusted_proxies() {
+        let config = crate::config::TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".to_string(), "172.16.0.1".to_string()],
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
+
+        // X-Forwarded-For: 客户端IP, 代理1, 代理2
+        // 格式: client, proxy1, proxy2
+        // 代理1 (10.0.0.1) 和代理2 (172.16.0.1) 都是可信的
+        // 应该返回客户端 IP
+        let context = RequestContext::new()
+            .with_header("X-Forwarded-For", "192.168.1.100, 10.0.0.1, 172.16.0.1");
+        let result = extractor.extract(&context);
+        assert_eq!(result, Some(Identifier::Ip("192.168.1.100".to_string())));
+    }
+
+    #[test]
+    fn test_ip_extractor_trusted_proxy_all_proxies_trusted() {
+        let config = crate::config::TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".to_string()],
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
+
+        // 所有 IP 都是可信代理，返回最右边的
+        let context = RequestContext::new().with_header("X-Forwarded-For", "10.0.0.1, 10.0.0.1");
+        let result = extractor.extract(&context);
+        assert_eq!(result, Some(Identifier::Ip("10.0.0.1".to_string())));
+    }
+
+    #[test]
+    fn test_ip_extractor_trusted_proxy_disabled() {
+        let config = crate::config::TrustedProxyConfig {
+            enabled: false,
+            proxies: vec!["10.0.0.1".to_string()],
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
+
+        // 禁用时，使用最左边的 IP
+        let context = RequestContext::new().with_header("X-Forwarded-For", "10.0.0.1, 192.168.1.1");
+        let result = extractor.extract(&context);
+        assert_eq!(result, Some(Identifier::Ip("10.0.0.1".to_string())));
+    }
+
+    #[test]
+    fn test_ip_extractor_builder_with_trusted_proxies() {
+        let config = crate::config::TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".to_string()],
+        };
+        let extractor = IpExtractor::builder()
+            .header_name("X-Forwarded-For")
+            .validate(true)
+            .trusted_proxy_config(config)
+            .build();
+
+        let context = RequestContext::new().with_header("X-Forwarded-For", "192.168.1.1, 10.0.0.1");
+        let result = extractor.extract(&context);
+        assert_eq!(result, Some(Identifier::Ip("192.168.1.1".to_string())));
     }
 }
 

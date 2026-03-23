@@ -49,6 +49,8 @@ pub struct ConfigBuilder {
     storage: String,
     cache: String,
     metrics: String,
+    /// 可信代理配置
+    trusted_proxies: crate::config::TrustedProxyConfig,
     /// 规则列表
     rules: Vec<RuleBuilder>,
 }
@@ -59,6 +61,7 @@ impl Default for ConfigBuilder {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: crate::config::TrustedProxyConfig::default(),
             rules: Vec::new(),
         }
     }
@@ -79,6 +82,12 @@ impl ConfigBuilder {
     /// 设置缓存类型
     pub fn with_cache(mut self, cache: impl Into<String>) -> Self {
         self.cache = cache.into();
+        self
+    }
+
+    /// 设置可信代理配置
+    pub fn with_trusted_proxies(mut self, config: crate::config::TrustedProxyConfig) -> Self {
+        self.trusted_proxies = config;
         self
     }
 
@@ -113,6 +122,7 @@ impl ConfigBuilder {
                 storage: self.storage,
                 cache: self.cache,
                 metrics: self.metrics,
+                trusted_proxies: self.trusted_proxies,
             },
             rules,
         };

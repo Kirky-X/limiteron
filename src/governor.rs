@@ -642,31 +642,28 @@ impl Governor {
         })?;
         trace!("Extracted identifier: {}", identifier.key());
 
+        // 规则匹配 - 只计算一次，贯穿整个检查流程
+        let matched_rules = {
+            let matcher = self.rule_matcher.read().await;
+            #[allow(clippy::disallowed_methods)]
+            matcher
+                .match_all(context)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
         // 尝试从 L1 缓存获取结果
-        if self.is_l1_cache_enabled() {
-            // 获取匹配的规则（用于构建缓存键）
-            let matched_rules = {
-                let matcher = self.rule_matcher.read().await;
-                #[allow(clippy::disallowed_methods)]
-                matcher
-                    .match_all(context)
-                    .into_iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
-            };
+        if self.is_l1_cache_enabled() && !matched_rules.is_empty() {
+            // 使用第一个规则构建缓存键
+            let first_rule = &matched_rules[0];
+            let cache_key = self.build_cache_key(&identifier, &first_rule.id);
 
-            // 如果有匹配的规则，尝试从缓存获取
-            if !matched_rules.is_empty() {
-                // 使用第一个规则构建缓存键
-                let first_rule = &matched_rules[0];
-                let cache_key = self.build_cache_key(&identifier, &first_rule.id);
-
-                if let Ok(Some(cached_decision)) = self.l1_cache.get(&cache_key).await {
-                    trace!("L1 缓存命中: key={}", cache_key);
-                    let decision = cached_decision.to_decision();
-                    self.update_stats_for_decision(&Result::Ok(decision.clone()));
-                    return Ok(decision);
-                }
+            if let Ok(Some(cached_decision)) = self.l1_cache.get(&cache_key).await {
+                trace!("L1 缓存命中: key={}", cache_key);
+                let decision = cached_decision.to_decision();
+                self.update_stats_for_decision(&Result::Ok(decision.clone()));
+                return Ok(decision);
             }
         }
 
@@ -695,17 +692,7 @@ impl Governor {
             }
         }
 
-        // 继续其他检查
-        // 规则匹配
-        let matched_rules = {
-            let matcher = self.rule_matcher.read().await;
-            #[allow(clippy::disallowed_methods)]
-            matcher
-                .match_all(context)
-                .into_iter()
-                .cloned()
-                .collect::<Vec<_>>()
-        };
+        // 继续其他检查（使用已计算的 matched_rules）
 
         if matched_rules.is_empty() {
             // 如果没有匹配的规则，检查默认决策链

@@ -158,9 +158,8 @@ pub use custom_limiter::{
     CustomLimiter, CustomLimiterRegistry, CustomTokenBucketLimiter, LeakyBucketLimiter,
     LimiterStats,
 };
-pub use decision_chain::{
-    AtomicChainStats, ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode,
-};
+pub use decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
+// AtomicChainStats 改为 pub(crate)，不再公开导出
 pub use error::{
     BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, FlowGuardError,
     StorageError,
@@ -172,7 +171,7 @@ pub use governor::{Governor, GovernorStats};
 pub use l1_cache::{
     CacheableBanInfo, CacheableDecision, L1Cache, L1CacheConfig, L1CacheStats, RateLimitCacheKey,
 };
-pub use limiter_manager::GLOBAL_LIMITER_MANAGER;
+// GLOBAL_LIMITER_MANAGER 改为 pub(crate)，不再公开导出
 #[cfg(feature = "quota-control")]
 pub use limiters::QuotaLimiter;
 #[cfg(feature = "macros")]

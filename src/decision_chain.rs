@@ -52,7 +52,7 @@ impl DecisionNode {
     ///
     /// # 返回
     /// - 决策节点构建器
-    pub fn builder() -> DecisionNodeBuilder {
+    pub(crate) fn builder() -> DecisionNodeBuilder {
         DecisionNodeBuilder::new()
     }
 
@@ -60,7 +60,7 @@ impl DecisionNode {
     ///
     /// # 参数
     /// - `id`: 节点ID
-    /// - `name`: 节点名称  
+    /// - `name`: 节点名称
     /// - `limiter`: 限流器（依赖注入）
     /// - `priority`: 优先级
     ///
@@ -143,7 +143,7 @@ impl DecisionNode {
 /// 决策节点构建器
 ///
 /// 提供流式API构建决策节点。
-pub struct DecisionNodeBuilder {
+pub(crate) struct DecisionNodeBuilder {
     id: Option<String>,
     name: Option<String>,
     limiter: Option<Arc<dyn Limiter>>,
@@ -289,7 +289,7 @@ impl Default for DecisionNodeBuilder {
 /// assert_eq!(snapshot.total_checks, 1);
 /// assert_eq!(snapshot.allowed_count, 1);
 /// ```
-pub struct AtomicChainStats {
+pub(crate) struct AtomicChainStats {
     /// 总检查次数
     total_checks: AtomicU64,
     /// 允许次数

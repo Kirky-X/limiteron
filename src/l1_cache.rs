@@ -58,14 +58,14 @@ impl CacheableDecision {
     }
 
     /// 创建封禁决策
-    pub fn banned(ban_info: BanInfo) -> Self {
+    pub fn banned(ban_info: &BanInfo) -> Self {
         Self {
             decision_type: "banned".to_string(),
-            reason: Some(ban_info.reason.clone()),
+            reason: Some(ban_info.reason().to_string()),
             ban_info: Some(CacheableBanInfo {
-                reason: ban_info.reason,
-                banned_until: ban_info.banned_until.to_rfc3339(),
-                ban_times: ban_info.ban_times,
+                reason: ban_info.reason().to_string(),
+                banned_until: ban_info.banned_until().to_rfc3339(),
+                ban_times: ban_info.ban_times(),
             }),
         }
     }
@@ -83,7 +83,7 @@ impl CacheableDecision {
                 reason: Some(reason.clone()),
                 ban_info: None,
             },
-            Decision::Banned(info) => Self::banned(info.clone()),
+            Decision::Banned(info) => Self::banned(info),
         }
     }
 
@@ -94,19 +94,15 @@ impl CacheableDecision {
             "rejected" => Decision::Rejected(self.reason.clone().unwrap_or_default()),
             "banned" => {
                 if let Some(info) = &self.ban_info {
-                    Decision::Banned(BanInfo {
-                        reason: info.reason.clone(),
-                        banned_until: chrono::DateTime::parse_from_rfc3339(&info.banned_until)
+                    Decision::Banned(BanInfo::new(
+                        info.reason.clone(),
+                        chrono::DateTime::parse_from_rfc3339(&info.banned_until)
                             .map(|dt| dt.with_timezone(&chrono::Utc))
                             .unwrap_or_else(|_| chrono::Utc::now()),
-                        ban_times: info.ban_times,
-                    })
+                        info.ban_times,
+                    ))
                 } else {
-                    Decision::Banned(BanInfo {
-                        reason: "unknown".to_string(),
-                        banned_until: chrono::Utc::now(),
-                        ban_times: 0,
-                    })
+                    Decision::Banned(BanInfo::new("unknown".to_string(), chrono::Utc::now(), 0))
                 }
             }
             _ => Decision::Allowed(None),
@@ -666,12 +662,8 @@ mod tests {
         );
 
         // 测试封禁决策
-        let ban_info = BanInfo {
-            reason: "spam".to_string(),
-            banned_until: chrono::Utc::now(),
-            ban_times: 3,
-        };
-        let banned = CacheableDecision::banned(ban_info.clone());
+        let ban_info = BanInfo::new("spam".to_string(), chrono::Utc::now(), 3);
+        let banned = CacheableDecision::banned(&ban_info);
         assert!(banned.is_banned());
 
         // 测试从 Decision 转换

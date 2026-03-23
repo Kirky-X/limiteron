@@ -195,9 +195,42 @@ pub enum Decision {
 /// 封禁信息
 #[derive(Debug, Clone, PartialEq)]
 pub struct BanInfo {
-    pub reason: String,
-    pub banned_until: chrono::DateTime<chrono::Utc>,
-    pub ban_times: u32,
+    /// 封禁原因
+    reason: String,
+    /// 封禁到期时间
+    banned_until: chrono::DateTime<chrono::Utc>,
+    /// 封禁次数
+    ban_times: u32,
+}
+
+impl BanInfo {
+    /// 创建新的封禁信息
+    pub fn new(
+        reason: String,
+        banned_until: chrono::DateTime<chrono::Utc>,
+        ban_times: u32,
+    ) -> Self {
+        Self {
+            reason,
+            banned_until,
+            ban_times,
+        }
+    }
+
+    /// 获取封禁原因
+    pub fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    /// 获取封禁到期时间
+    pub fn banned_until(&self) -> chrono::DateTime<chrono::Utc> {
+        self.banned_until
+    }
+
+    /// 获取封禁次数
+    pub fn ban_times(&self) -> u32 {
+        self.ban_times
+    }
 }
 
 /// 配额消费结果
@@ -252,27 +285,16 @@ mod tests {
 
     #[test]
     fn test_decision_banned() {
-        let info = BanInfo {
-            reason: "spam".to_string(),
-            banned_until: chrono::Utc::now(),
-            ban_times: 3,
-        };
+        let info = BanInfo::new("spam".to_string(), chrono::Utc::now(), 3);
         let decision = Decision::Banned(info);
         assert!(matches!(decision, Decision::Banned(_)));
     }
 
     #[test]
     fn test_ban_info_equality() {
-        let info1 = BanInfo {
-            reason: "test".to_string(),
-            banned_until: chrono::Utc::now(),
-            ban_times: 1,
-        };
-        let info2 = BanInfo {
-            reason: "test".to_string(),
-            banned_until: info1.banned_until,
-            ban_times: 1,
-        };
+        let now = chrono::Utc::now();
+        let info1 = BanInfo::new("test".to_string(), now, 1);
+        let info2 = BanInfo::new("test".to_string(), now, 1);
         assert_eq!(info1, info2);
     }
 }

@@ -10,6 +10,7 @@
 use crate::constants::{VALID_CACHE_TYPES, VALID_METRICS_TYPES, VALID_STORAGE_TYPES};
 use ahash::AHashSet as HashSet;
 use chrono::{DateTime, Utc};
+use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
 /// 流量控制配置
@@ -224,6 +225,23 @@ pub struct GlobalConfig {
     pub storage: String,
     pub cache: String,
     pub metrics: String,
+    /// 可信代理配置（用于安全提取客户端 IP）
+    #[serde(default)]
+    pub trusted_proxies: TrustedProxyConfig,
+}
+
+/// 可信代理配置
+///
+/// 用于从 X-Forwarded-For 头中安全提取真实客户端 IP 地址。
+/// 配置可信代理列表后，系统会从右向左查找第一个非可信代理的 IP 作为客户端 IP。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrustedProxyConfig {
+    /// 是否启用可信代理模式
+    #[serde(default)]
+    pub enabled: bool,
+    /// 可信代理 IP 列表（支持 CIDR 表示法）
+    #[serde(default)]
+    pub proxies: Vec<String>,
 }
 
 impl Default for GlobalConfig {
@@ -232,7 +250,65 @@ impl Default for GlobalConfig {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: TrustedProxyConfig::default(),
         }
+    }
+}
+
+impl Default for TrustedProxyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            proxies: Vec::new(),
+        }
+    }
+}
+
+impl TrustedProxyConfig {
+    /// 校验可信代理配置
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
+        }
+        for proxy in &self.proxies {
+            if let Err(e) = Self::parse_cidr_or_ip(proxy) {
+                return Err(format!("无效的代理地址 '{}': {}", proxy, e));
+            }
+        }
+        Ok(())
+    }
+
+    /// 解析 CIDR 或单个 IP 地址
+    fn parse_cidr_or_ip(s: &str) -> Result<(), String> {
+        if s.contains('/') {
+            s.parse::<IpNet>().map(|_| ()).map_err(|e| e.to_string())
+        } else {
+            s.parse::<std::net::IpAddr>()
+                .map(|_| ())
+                .map_err(|e| e.to_string())
+        }
+    }
+
+    /// 检查 IP 是否在可信代理列表中
+    pub fn is_trusted(&self, ip: &str) -> bool {
+        if !self.enabled || self.proxies.is_empty() {
+            return false;
+        }
+        let Ok(ip_addr) = ip.parse::<std::net::IpAddr>() else {
+            return false;
+        };
+        for proxy in &self.proxies {
+            if proxy.contains('/') {
+                if let Ok(network) = proxy.parse::<IpNet>() {
+                    if network.contains(&ip_addr) {
+                        return true;
+                    }
+                }
+            } else if proxy == ip {
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -259,6 +335,9 @@ impl GlobalConfig {
                 self.metrics, VALID_METRICS_TYPES
             ));
         }
+
+        // 校验可信代理配置
+        self.trusted_proxies.validate()?;
 
         Ok(())
     }
@@ -640,6 +719,7 @@ mod tests {
                 storage: "memory".to_string(),
                 cache: "memory".to_string(),
                 metrics: "prometheus".to_string(),
+                trusted_proxies: TrustedProxyConfig::default(),
             },
             rules: vec![],
         };
@@ -656,6 +736,7 @@ mod tests {
                 storage: "memory".to_string(),
                 cache: "memory".to_string(),
                 metrics: "prometheus".to_string(),
+                trusted_proxies: TrustedProxyConfig::default(),
             },
             rules: vec![Rule {
                 id: "test_rule".to_string(),
@@ -686,6 +767,7 @@ mod tests {
                 storage: "invalid".to_string(),
                 cache: "memory".to_string(),
                 metrics: "prometheus".to_string(),
+                trusted_proxies: TrustedProxyConfig::default(),
             },
             rules: vec![],
         };
@@ -718,6 +800,7 @@ mod tests {
                 storage: "memory".to_string(),
                 cache: "memory".to_string(),
                 metrics: "prometheus".to_string(),
+                trusted_proxies: TrustedProxyConfig::default(),
             },
             rules: vec![rule.clone(), rule],
         };
@@ -812,6 +895,7 @@ on_exceed = "reject"
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: TrustedProxyConfig::default(),
         };
         assert!(global.validate().is_ok());
     }
@@ -822,6 +906,7 @@ on_exceed = "reject"
             storage: "invalid".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: TrustedProxyConfig::default(),
         };
         let result = global.validate();
         assert!(result.is_err());
@@ -834,6 +919,7 @@ on_exceed = "reject"
             storage: "memory".to_string(),
             cache: "invalid".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: TrustedProxyConfig::default(),
         };
         let result = global.validate();
         assert!(result.is_err());
@@ -846,6 +932,7 @@ on_exceed = "reject"
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "invalid".to_string(),
+            trusted_proxies: TrustedProxyConfig::default(),
         };
         let result = global.validate();
         assert!(result.is_err());
@@ -1665,6 +1752,8 @@ pub struct ConfigBuilder {
     storage: String,
     cache: String,
     metrics: String,
+    /// 可信代理配置
+    trusted_proxies: TrustedProxyConfig,
     /// 规则列表
     rules: Vec<RuleBuilder>,
 }
@@ -1675,6 +1764,7 @@ impl Default for ConfigBuilder {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: TrustedProxyConfig::default(),
             rules: Vec::new(),
         }
     }
@@ -1695,6 +1785,12 @@ impl ConfigBuilder {
     /// 设置缓存类型
     pub fn with_cache(mut self, cache: impl Into<String>) -> Self {
         self.cache = cache.into();
+        self
+    }
+
+    /// 设置可信代理配置
+    pub fn with_trusted_proxies(mut self, config: TrustedProxyConfig) -> Self {
+        self.trusted_proxies = config;
         self
     }
 
@@ -1729,6 +1825,7 @@ impl ConfigBuilder {
                 storage: self.storage,
                 cache: self.cache,
                 metrics: self.metrics,
+                trusted_proxies: self.trusted_proxies,
             },
             rules,
         };

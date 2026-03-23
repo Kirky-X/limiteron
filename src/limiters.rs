@@ -305,6 +305,22 @@ impl Limiter for TokenBucketLimiter {
 
 /// 滑动窗口限流器
 ///
+/// **已弃用**: 此实现使用 O(n) 复杂度，高并发场景下性能较差。
+/// 请使用 [`ShardedSlidingWindowLimiter`] 替代，它提供 O(1) 复杂度和更好的并发性能。
+///
+/// # 弃用原因
+/// - 每次请求需要清理过期条目，时间复杂度为 O(n)
+/// - 使用单一 Mutex，高并发下锁竞争严重
+///
+/// # 迁移指南
+/// ```rust,ignore
+/// // 旧实现
+/// let limiter = SlidingWindowLimiter::new(window_size, max_requests);
+///
+/// // 新实现
+/// let limiter = ShardedSlidingWindowLimiter::new(window_size, max_requests);
+/// ```
+///
 /// 使用滑动窗口算法实现速率限制，记录请求的时间戳，
 /// 统计滑动窗口内的请求数量，超过阈值则拒绝请求。
 ///
@@ -329,6 +345,10 @@ impl Limiter for TokenBucketLimiter {
 ///     assert!(allowed);
 /// }
 /// ```
+#[deprecated(
+    since = "0.2.0",
+    note = "使用 `ShardedSlidingWindowLimiter` 替代。此实现使用 O(n) 复杂度，高并发场景下性能较差。将在未来版本中移除。"
+)]
 pub struct SlidingWindowLimiter {
     /// 窗口大小
     window_size: Duration,

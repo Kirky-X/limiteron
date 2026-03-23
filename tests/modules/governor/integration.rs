@@ -3,7 +3,7 @@
 //! 测试控制器模块的基本功能
 
 use async_trait::async_trait;
-use limiteron::config::{ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
+use limiteron::config::{Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
 use limiteron::error::{ConsumeResult, Decision, FlowGuardError, StorageError};
 use limiteron::governor::GovernorStats;
 use limiteron::limiters::Limiter;
@@ -105,6 +105,7 @@ async fn create_governor() -> Arc<limiteron::Governor> {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
             id: "test_rule".to_string(),
@@ -118,7 +119,7 @@ async fn create_governor() -> Arc<limiteron::Governor> {
                 refill_rate: 100,
             }],
             action: ActionConfig {
-                on_exceed: "reject".to_string(),
+                on_exceed: Action::Reject,
                 ban: None,
             },
         }],
@@ -405,14 +406,14 @@ async fn test_governor_caches_decisions_in_l1_cache() {
     assert!(governor.is_l1_cache_enabled());
 
     governor.clear_l1_cache();
-    assert_eq!(governor.l1_cache_size(), 0);
+    assert_eq!(governor.l1_cache_size().await, 0);
 
     let ctx = create_test_request("cache_test_user", "10.0.0.2");
 
     let result1: Result<Decision, _> = governor.check(&ctx).await;
     assert!(result1.is_ok());
 
-    let _cache_size = governor.l1_cache_size();
+    let _cache_size = governor.l1_cache_size().await;
 
     let result2: Result<Decision, _> = governor.check(&ctx).await;
     assert!(result2.is_ok());
@@ -478,7 +479,7 @@ async fn test_governor_handles_cache_miss_correctly() {
     governor.disable_l1_cache();
     assert!(!governor.is_l1_cache_enabled());
 
-    assert_eq!(governor.l1_cache_size(), 0);
+    assert_eq!(governor.l1_cache_size().await, 0);
 
     let ctx = create_test_request("miss_test_user", "10.0.0.4");
     let result: Result<Decision, _> = governor.check(&ctx).await;

@@ -117,5 +117,5 @@ mod tests {
 
 lazy_static::lazy_static! {
     /// 全局限流器管理器实例
-    pub static ref GLOBAL_LIMITER_MANAGER: LimiterManager = LimiterManager::new();
+    pub(crate) static ref GLOBAL_LIMITER_MANAGER: LimiterManager = LimiterManager::new();
 }

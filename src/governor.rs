@@ -687,7 +687,7 @@ impl Governor {
                     warn!(
                         "Request banned: 用户={}, 原因={}",
                         crate::log_redaction::redact_user_id(Some(identifier.key().as_str())),
-                        &info.reason
+                        info.reason()
                     );
                     self.stats.increment_banned();
                     return Ok(Decision::Banned(info));
@@ -803,7 +803,7 @@ impl Governor {
 
         match ban_info {
             Some(info) => {
-                warn!("Resource banned: 资源={}, 原因={}", resource, info.reason);
+                warn!("Resource banned: 资源={}, 原因={}", resource, info.reason());
                 Ok(Decision::Banned(info))
             }
             None => Ok(Decision::Allowed(None)),
@@ -822,11 +822,11 @@ impl Governor {
             let ban_record = self.ban_manager.is_banned(&target).await?;
 
             if let Some(record) = ban_record {
-                return Ok(Decision::Banned(BanInfo {
-                    reason: record.reason,
-                    banned_until: record.expires_at,
-                    ban_times: record.ban_times,
-                }));
+                return Ok(Decision::Banned(BanInfo::new(
+                    record.reason,
+                    record.expires_at,
+                    record.ban_times,
+                )));
             }
 
             return Ok(Decision::Allowed(None));

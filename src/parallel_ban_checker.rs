@@ -69,11 +69,11 @@ impl ParallelBanChecker {
                         target, detail.reason, duration
                     );
 
-                    return Ok(Some(BanInfo {
-                        reason: detail.reason.clone(),
-                        banned_until: detail.expires_at,
-                        ban_times: detail.ban_times,
-                    }));
+                    return Ok(Some(BanInfo::new(
+                        detail.reason.clone(),
+                        detail.expires_at,
+                        detail.ban_times,
+                    )));
                 }
             }
         }

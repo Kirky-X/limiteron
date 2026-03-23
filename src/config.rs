@@ -14,10 +14,11 @@ use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
 /// 超限动作类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Action {
     /// 拒绝请求
+    #[default]
     Reject,
     /// 允许请求通过（仅记录）
     Allow,
@@ -25,15 +26,9 @@ pub enum Action {
     Degrade,
 }
 
-impl Default for Action {
-    fn default() -> Self {
-        Self::Reject
-    }
-}
-
 impl Action {
     /// 从字符串解析
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "reject" => Some(Self::Reject),
             "allow" => Some(Self::Allow),
@@ -53,10 +48,11 @@ impl Action {
 }
 
 /// 封禁范围
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BanScope {
     /// 按 IP 封禁
+    #[default]
     Ip,
     /// 按用户封禁
     User,
@@ -64,15 +60,9 @@ pub enum BanScope {
     Mac,
 }
 
-impl Default for BanScope {
-    fn default() -> Self {
-        Self::Ip
-    }
-}
-
 impl BanScope {
     /// 从字符串解析
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "ip" => Some(Self::Ip),
             "user" => Some(Self::User),
@@ -92,10 +82,11 @@ impl BanScope {
 }
 
 /// 缓存后端类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CacheBackend {
     /// 内存缓存
+    #[default]
     Memory,
     /// Redis 缓存
     Redis,
@@ -103,15 +94,9 @@ pub enum CacheBackend {
     None,
 }
 
-impl Default for CacheBackend {
-    fn default() -> Self {
-        Self::Memory
-    }
-}
-
 impl CacheBackend {
     /// 从字符串解析
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "memory" => Some(Self::Memory),
             "redis" => Some(Self::Redis),
@@ -131,10 +116,11 @@ impl CacheBackend {
 }
 
 /// 指标后端类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MetricsBackend {
     /// Prometheus
+    #[default]
     Prometheus,
     /// StatsD
     Statsd,
@@ -142,15 +128,9 @@ pub enum MetricsBackend {
     None,
 }
 
-impl Default for MetricsBackend {
-    fn default() -> Self {
-        Self::Prometheus
-    }
-}
-
 impl MetricsBackend {
     /// 从字符串解析
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "prometheus" => Some(Self::Prometheus),
             "statsd" => Some(Self::Statsd),

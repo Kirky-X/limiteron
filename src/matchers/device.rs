@@ -1112,11 +1112,11 @@ mod tests {
     async fn test_device_matcher_parse_empty() {
         let matcher = DeviceMatcher::new().await.unwrap();
         // 空字符串应该被清理为空，然后返回空的 DeviceInfo
-        let info = matcher.parse("").unwrap();
+        let info = matcher.parse("").await.unwrap();
         assert!(info.is_empty());
 
         // 只有空格的字符串也应该返回空的 DeviceInfo
-        let info = matcher.parse("   ").unwrap();
+        let info = matcher.parse("   ").await.unwrap();
         assert!(info.is_empty());
     }
 
@@ -1126,7 +1126,7 @@ mod tests {
         let user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) \
                           AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 \
                           Safari/604.1";
-        let info = matcher.parse(user_agent).unwrap();
+        let info = matcher.parse(user_agent).await.unwrap();
         assert_eq!(info.device_type, DeviceType::Mobile);
         assert!(info.browser.as_ref().unwrap().contains("Safari"));
         // woothee可能返回不同的OS名称，所以只检查不为空
@@ -1138,7 +1138,7 @@ mod tests {
         let matcher = DeviceMatcher::new().await.unwrap();
         let user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, \
                           like Gecko) Chrome/91.0.4472.124 Safari/537.36";
-        let info = matcher.parse(user_agent).unwrap();
+        let info = matcher.parse(user_agent).await.unwrap();
         assert_eq!(info.device_type, DeviceType::Desktop);
         assert!(info.browser.as_ref().unwrap().contains("Chrome"));
         assert!(info.os.as_ref().unwrap().contains("Windows"));
@@ -1148,7 +1148,7 @@ mod tests {
     async fn test_device_matcher_parse_curl() {
         let matcher = DeviceMatcher::new().await.unwrap();
         let user_agent = "curl/7.68.0";
-        let info = matcher.parse(user_agent).unwrap();
+        let info = matcher.parse(user_agent).await.unwrap();
         assert_eq!(info.device_type, DeviceType::API);
         assert_eq!(info.browser, Some("curl".to_string()));
     }
@@ -1158,19 +1158,27 @@ mod tests {
         let matcher = DeviceMatcher::new().await.unwrap();
         let user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)";
 
-        // 第一次解析
-        let info1 = matcher.parse(user_agent).unwrap();
-        let stats1 = matcher.cache_stats();
-        assert_eq!(stats1.size, 1);
+        // 第一次解析 - 应该缓存未命中
+        let info1 = matcher.parse(user_agent).await.unwrap();
+        let stats1 = matcher.cache_stats().await;
+        // 第一次解析后应该有1次缓存未命中，0次命中
+        assert_eq!(stats1.misses, 1);
+        assert_eq!(stats1.hits, 0);
 
         // 第二次解析（应该命中缓存）
-        let info2 = matcher.parse(user_agent).unwrap();
+        let info2 = matcher.parse(user_agent).await.unwrap();
         assert_eq!(info1, info2);
+        let stats2 = matcher.cache_stats().await;
+        // 第二次解析后应该有1次缓存命中，1次未命中
+        assert_eq!(stats2.hits, 1);
+        assert_eq!(stats2.misses, 1);
 
-        // 清空缓存
-        matcher.clear_cache();
-        let stats2 = matcher.cache_stats();
-        assert_eq!(stats2.size, 0);
+        // 清空缓存 - 注意：清空缓存不会重置计数器
+        matcher.clear_cache().await;
+        let stats3 = matcher.cache_stats().await;
+        // 计数器保持不变
+        assert_eq!(stats3.hits, 1);
+        assert_eq!(stats3.misses, 1);
     }
 
     #[tokio::test]
@@ -1186,7 +1194,7 @@ mod tests {
         );
 
         let user_agent = "TestApp/1.0.0";
-        let info = matcher.parse(user_agent).unwrap();
+        let info = matcher.parse(user_agent).await.unwrap();
         assert_eq!(info.device_type, DeviceType::Mobile);
         assert_eq!(info.browser, Some("TestApp".to_string()));
     }
@@ -1217,7 +1225,7 @@ mod tests {
             "curl/7.68.0".to_string(),
         ];
 
-        let results = matcher.batch_parse(&user_agents);
+        let results = matcher.batch_parse(&user_agents).await;
         assert_eq!(results.len(), 3);
         assert!(results.iter().all(|r| r.is_ok()));
 
@@ -1235,11 +1243,11 @@ mod tests {
         let condition = DeviceCondition::device_types(vec![DeviceType::Mobile]);
 
         let user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)";
-        let matched = matcher.matches_user_agent(user_agent, &condition).unwrap();
+        let matched = matcher.matches_user_agent(user_agent, &condition).await.unwrap();
         assert!(matched);
 
         let user_agent2 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
-        let matched2 = matcher.matches_user_agent(user_agent2, &condition).unwrap();
+        let matched2 = matcher.matches_user_agent(user_agent2, &condition).await.unwrap();
         assert!(!matched2);
     }
 }

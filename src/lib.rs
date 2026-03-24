@@ -216,7 +216,8 @@ pub use oxcache_lua::{
 
 // Re-export storage traits for compatibility
 pub use storage_trait::{
-    BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage,
+    BanHistory, BanRecord, BanStorage, BanStorageCreate, BanTarget, MemoryBanStorage,
+    MemoryStorage, QuotaInfo, QuotaStorage, Storage, StorageCreate,
 };
 
 // Re-export rule builder

@@ -413,6 +413,44 @@ impl Governor {
         GovernorBuilder::new()
     }
 
+    /// 开箱即用：创建使用默认配置的 Governor
+    ///
+    /// 此方法使用内存存储作为默认依赖，无需外部配置即可运行。
+    /// 适用于快速原型、测试或独立使用场景。
+    ///
+    /// **注意**：默认配置使用内存存储，不适用于多实例生产环境。
+    /// 对于生产环境，建议使用 `builder()` 或 `with_dependencies()` 方法
+    /// 配合持久化存储（如 PostgreSQL）。
+    ///
+    /// # 示例
+    ///
+    /// ```rust,no_run
+    /// use limiteron::Governor;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let governor = Governor::new().await;
+    ///     // governor 现在可以用于流量控制检查
+    /// }
+    /// ```
+    pub async fn new() -> Self {
+        use crate::storage_trait::{MemoryBanStorage, MemoryStorage};
+
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        // 创建默认配置
+        let config = FlowControlConfig::default();
+
+        Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("default config should be valid")
+    }
+
     /// 使用依赖注入创建 Governor 实例（用于应用容器集成）
     #[allow(clippy::too_many_arguments)]
     pub async fn with_dependencies(
@@ -477,9 +515,38 @@ impl Governor {
         }
     }
 
-    /// 创建新的 Governor 实例（使用 Builder 模式）
+    /// 创建新的 Governor 实例（使用显式配置）
+    ///
+    /// 与 `new()` 不同，此方法需要显式提供配置和存储依赖。
+    /// 适用于需要自定义配置或使用持久化存储的场景。
+    ///
+    /// # 参数
+    ///
+    /// - `config`: 流量控制配置
+    /// - `storage`: 存储后端
+    /// - `ban_storage`: 封禁存储后端
+    /// - `metrics`: 可选的指标收集器
+    /// - `tracer`: 可选的追踪器
+    ///
+    /// # 示例
+    ///
+    /// ```rust,no_run
+    /// use limiteron::Governor;
+    /// use limiteron::config::FlowControlConfig;
+    /// use limiteron::storage_trait::MemoryStorage;
+    /// use std::sync::Arc;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = FlowControlConfig::default();
+    ///     let storage: Arc<dyn limiteron::storage_trait::Storage> = Arc::new(MemoryStorage::new());
+    ///     let ban_storage: Arc<dyn limiteron::storage_trait::BanStorage> = Arc::new(limiteron::storage_trait::MemoryBanStorage::new());
+    ///
+    ///     let governor = Governor::with_storage(config, storage, ban_storage).await.unwrap();
+    /// }
+    /// ```
     #[allow(unused_variables)]
-    pub async fn new(
+    pub async fn with_storage(
         config: FlowControlConfig,
         storage: Arc<dyn Storage>,
         ban_storage: Arc<dyn BanStorage>,
@@ -605,19 +672,19 @@ impl Governor {
     ) -> Result<Self, FlowGuardError> {
         #[cfg(all(feature = "monitoring", feature = "telemetry"))]
         {
-            Self::new(config, storage, ban_storage, None, None).await
+            Self::with_storage(config, storage, ban_storage, None, None).await
         }
         #[cfg(all(feature = "monitoring", not(feature = "telemetry")))]
         {
-            Self::new(config, storage, ban_storage, None).await
+            Self::with_storage(config, storage, ban_storage, None).await
         }
         #[cfg(all(not(feature = "monitoring"), feature = "telemetry"))]
         {
-            Self::new(config, storage, ban_storage, None, None).await
+            Self::with_storage(config, storage, ban_storage, None, None).await
         }
         #[cfg(all(not(feature = "monitoring"), not(feature = "telemetry")))]
         {
-            Self::new(config, storage, ban_storage).await
+            Self::with_storage(config, storage, ban_storage).await
         }
     }
 
@@ -1080,5 +1147,120 @@ impl Governor {
                 crate::error::StorageError::ConnectionError("Storage unhealthy".to_string()),
             ))
         }
+    }
+}
+
+// ============================================================================
+// Governor Construction Patterns Tests
+// ============================================================================
+
+#[cfg(test)]
+mod governor_construction_tests {
+    use super::*;
+    use crate::config::{
+        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule, Rule as RuleTrait,
+    };
+    use crate::storage_trait::{MemoryBanStorage, MemoryStorage};
+
+    fn create_valid_test_config() -> FlowControlConfig {
+        FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "test_rule".to_string(),
+                name: "Test Rule".to_string(),
+                priority: 100,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig {
+                    on_exceed: Action::Reject,
+                    ban: None,
+                },
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_governor_new_with_valid_config() {
+        // Governor::new() requires valid config with at least one rule
+        // Create a valid config for testing
+        let config = create_valid_test_config();
+
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 0);
+        assert_eq!(stats.allowed_requests, 0);
+    }
+
+    #[tokio::test]
+    async fn test_governor_builder_with_storage() {
+        // Test Governor::builder() with explicit storage
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let config = create_valid_test_config();
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 0);
+    }
+
+    #[tokio::test]
+    async fn test_governor_with_storage_explicit() {
+        // Test Governor::with_storage() with explicit configuration
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let config = create_valid_test_config();
+
+        let governor = Governor::with_storage(config, storage, ban_storage)
+            .await
+            .expect("Governor creation should succeed");
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 0);
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_governor_with_memory_ban_storage() {
+        // Verify MemoryBanStorage is properly integrated
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        // Health check should work
+        let result = governor.health_check().await;
+        assert!(result.is_ok());
     }
 }

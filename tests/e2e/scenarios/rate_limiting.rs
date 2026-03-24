@@ -3,7 +3,7 @@
 //! 测试用户请求超过限流配置后被拒绝的完整流程
 
 use ahash::AHashMap;
-use limiteron::config::{ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
+use limiteron::config::{Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
 use limiteron::error::{Decision, StorageError};
 use limiteron::limiters::Limiter;
 use limiteron::matchers::RequestContext;
@@ -149,6 +149,7 @@ async fn create_governor_with_low_limit() -> Arc<Governor> {
             storage: "memory".to_string(),
             cache: "memory".to_string(),
             metrics: "prometheus".to_string(),
+            trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
             id: "rate_limit_rule".to_string(),
@@ -162,7 +163,7 @@ async fn create_governor_with_low_limit() -> Arc<Governor> {
                 refill_rate: 1,
             }],
             action: ActionConfig {
-                on_exceed: "reject".to_string(),
+                on_exceed: Action::Reject,
                 ban: None,
             },
         }],

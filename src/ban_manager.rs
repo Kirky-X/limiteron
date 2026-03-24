@@ -320,10 +320,18 @@ impl BanManagerBuilder {
     }
 
     /// 构建 BanManager 实例
+    ///
+    /// 如果未提供 storage，将使用内存存储作为默认依赖。
+    /// 这允许使用 `BanManager::builder().build()` 进行快速原型开发。
+    ///
+    /// **注意**：默认内存存储不适用于多实例生产环境。
     pub async fn build(self) -> Result<BanManager, FlowGuardError> {
-        let storage = self
-            .storage
-            .ok_or_else(|| FlowGuardError::DependencyError("storage is required".to_string()))?;
+        use crate::storage_trait::MemoryBanStorage;
+
+        let storage = match self.storage {
+            Some(s) => s,
+            None => Arc::new(MemoryBanStorage::new()),
+        };
         let config = self.config.unwrap_or_default();
 
         BanManager::with_dependencies_and_auth(storage, config, self.authorization_provider).await
@@ -370,6 +378,35 @@ fn validate_ban_reason(reason: &str) -> Result<(), FlowGuardError> {
 }
 
 impl BanManager {
+    /// 开箱即用：创建使用默认配置的 BanManager
+    ///
+    /// 此方法使用内存存储作为默认依赖，无需外部配置即可运行。
+    /// 适用于快速原型、测试或独立使用场景。
+    ///
+    /// **注意**：默认配置使用内存存储，不适用于多实例生产环境。
+    /// 对于生产环境，建议使用 `builder()` 或 `with_dependencies()` 方法
+    /// 配合持久化存储（如 PostgreSQL）。
+    ///
+    /// # 示例
+    ///
+    /// ```rust,no_run
+    /// use limiteron::ban_manager::BanManager;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let ban_manager = BanManager::new().await;
+    ///     // ban_manager 现在可以用于封禁管理
+    /// }
+    /// ```
+    pub async fn new() -> Result<Self, FlowGuardError> {
+        use crate::storage_trait::MemoryBanStorage;
+
+        let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+        let config = BanManagerConfig::default();
+
+        Self::with_dependencies(storage, config).await
+    }
+
     /// 创建 BanManagerBuilder 用于链式配置
     ///
     /// # 示例
@@ -2577,5 +2614,67 @@ mod tests {
 
         let result = ban_manager.is_banned(&target).await.unwrap();
         assert!(result.is_some());
+    }
+
+    // ========================================================================
+    // BanManager Construction Patterns Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_ban_manager_new_uses_memory_storage() {
+        // Test that BanManager::new() uses MemoryBanStorage by default
+        let ban_manager = BanManager::new()
+            .await
+            .expect("BanManager creation should succeed");
+
+        let target = BanTarget::UserId("test_user".to_string());
+        let result = ban_manager.is_banned(&target).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_ban_manager_builder_with_storage() {
+        // Test BanManager::builder() with explicit storage
+        use crate::storage_trait::MemoryBanStorage;
+        let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let ban_manager = BanManager::builder()
+            .with_storage(storage)
+            .build()
+            .await
+            .expect("BanManager build should succeed");
+
+        let target = BanTarget::Ip("192.168.1.1".to_string());
+        let result = ban_manager.is_banned(&target).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_ban_manager_builder_without_storage() {
+        // Test BanManager::builder() without storage (uses default MemoryBanStorage)
+        let ban_manager = BanManager::builder()
+            .build()
+            .await
+            .expect("BanManager build should succeed with default storage");
+
+        let target = BanTarget::UserId("default_test".to_string());
+        let result = ban_manager.is_banned(&target).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_ban_manager_with_dependencies() {
+        // Test BanManager::with_dependencies() with explicit configuration
+        use crate::storage_trait::MemoryBanStorage;
+        let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+        let config = BanManagerConfig::default();
+
+        let ban_manager = BanManager::with_dependencies(storage, config)
+            .await
+            .expect("BanManager creation should succeed");
+
+        let target = BanTarget::Mac("aa:bb:cc:dd:ee:ff".to_string());
+        let result = ban_manager.is_banned(&target).await;
+        assert!(result.is_ok());
     }
 }

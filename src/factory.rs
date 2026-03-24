@@ -13,6 +13,7 @@
 //! - **扩展性强** - 易于添加新的限流器类型
 //! - **错误处理** - 完善的错误信息和类型
 
+use crate::config::types::parse_window_size;
 use crate::config::LimiterConfig;
 use crate::error::FlowGuardError;
 use crate::limiters::{
@@ -179,7 +180,7 @@ impl LimiterFactory {
     /// assert_eq!(duration, Duration::from_secs(300));
     /// ```
     pub fn parse_window_size(window_size: &str) -> Result<std::time::Duration, FlowGuardError> {
-        crate::config::parse_window_size(window_size).map_err(FlowGuardError::ConfigError)
+        parse_window_size(window_size).map_err(FlowGuardError::ConfigError)
     }
 
     /// 验证限流器配置

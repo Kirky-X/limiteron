@@ -723,6 +723,6 @@ mod tests {
         let manager = FallbackManager::new(l2_cache);
 
         let cache = manager.l2_cache();
-        assert_eq!(cache.len().await, 0);
+        assert_eq!(cache.len().await.unwrap(), 0);
     }
 }

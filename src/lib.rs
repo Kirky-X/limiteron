@@ -66,21 +66,17 @@ pub mod prelude;
 pub mod audit_log;
 pub mod authorization;
 #[cfg(feature = "ban-manager")]
-pub mod ban_manager;
+pub mod ban;
 #[cfg(feature = "circuit-breaker")]
-pub mod circuit_breaker;
-#[cfg(feature = "code-review")]
-pub mod code_review;
+pub mod circuit;
 pub mod config;
+// Re-export all config submodules through config module
 #[cfg(feature = "config-security")]
-pub mod config_security;
+pub use config::config_security;
 #[cfg(feature = "config-watcher")]
-pub mod config_watcher;
-#[cfg(feature = "config-security")]
-pub use config_security::{ConfigSecurityReport, ConfigSecurityValidator};
-// config_loader 需要 confers 特性
+pub use config::config_watcher;
 #[cfg(feature = "confers")]
-pub mod config_loader;
+pub use config::config_loader;
 
 #[cfg(feature = "postgres")]
 pub mod adapters;
@@ -96,8 +92,6 @@ pub use adapters::{
 #[cfg(feature = "cache-service")]
 pub mod cache;
 pub mod constants;
-#[cfg(feature = "custom-limiter")]
-pub mod custom_limiter;
 #[cfg(feature = "postgres")]
 pub mod dbnexus_entities;
 pub mod decision_chain;
@@ -119,7 +113,7 @@ pub mod oxcache_lua;
 #[cfg(feature = "parallel-checker")]
 pub mod parallel_ban_checker;
 #[cfg(feature = "quota-control")]
-pub mod quota_controller;
+pub mod quota;
 pub mod rule_builder;
 pub mod stats_manager;
 pub mod storage_trait;
@@ -137,27 +131,22 @@ pub use authorization::{
     SimpleAuthorizationProvider,
 };
 #[cfg(feature = "ban-manager")]
-pub use ban_manager::{
+pub use ban::{
     BackoffConfig, BanDetail, BanFilter, BanManager, BanManagerConfig, BanPriority, BanSource,
 };
 #[cfg(feature = "circuit-breaker")]
-pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+pub use circuit::{CircuitBreaker, CircuitBreakerConfig};
 // 导出配置相关类型和加载API
 #[cfg(feature = "cache-service")]
 pub use cache::{cache_service::CacheService, Cache, CacheKey, Cacheable};
 pub use config::{
     ActionConfig, ChangeSource, ConfigBuilder, ConfigChangeRecord, ConfigHistory,
-    FlowControlConfig, LimiterConfig, Matcher as ConfigMatcher, Rule as ConfigRule,
+    FlowControlConfig, LimiterConfig, ConfigMatcher, Rule as ConfigRule,
 };
 #[cfg(feature = "confers")]
-pub use config_loader::ConfigLoader;
+pub use config::ConfigLoader;
 #[cfg(feature = "config-watcher")]
-pub use config_watcher::{ConfigChangeCallback, ConfigWatcher, WatchMode};
-#[cfg(feature = "custom-limiter")]
-pub use custom_limiter::{
-    CustomLimiter, CustomLimiterRegistry, CustomTokenBucketLimiter, LeakyBucketLimiter,
-    LimiterStats,
-};
+pub use config::{ConfigChangeCallback, ConfigWatcher, WatchMode};
 pub use decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
 // AtomicChainStats 改为 pub(crate)，不再公开导出
 pub use error::{

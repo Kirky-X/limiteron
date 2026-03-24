@@ -12,7 +12,7 @@
 //! - 从 FlowControlConfig 构建决策链映射
 //! - 时长字符串解析
 
-use crate::config::{FlowControlConfig, LimiterConfig, Matcher as ConfigMatcher};
+use crate::config::types::{FlowControlConfig, LimiterConfig, Matcher as ConfigMatcher};
 use crate::constants::{SECONDS_PER_HOUR, SECONDS_PER_MINUTE};
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::FlowGuardError;

@@ -9,7 +9,7 @@
 //! statement instead of importing each type individually.
 
 // Core types - always available
-pub use crate::config::FlowControlConfig;
+pub use crate::config::types::FlowControlConfig;
 pub use crate::error::{Decision, FlowGuardError};
 pub use crate::governor::Governor;
 
@@ -23,10 +23,10 @@ pub use crate::limiters::{FixedWindowLimiter, SlidingWindowLimiter, TokenBucketL
 
 // Feature-gated exports
 #[cfg(feature = "ban-manager")]
-pub use crate::ban_manager::BanManager;
+pub use crate::ban::BanManager;
 
 #[cfg(feature = "circuit-breaker")]
-pub use crate::circuit_breaker::CircuitBreaker;
+pub use crate::circuit::CircuitBreaker;
 
 #[cfg(feature = "quota-control")]
 pub use crate::quota_controller::QuotaController;

@@ -19,17 +19,22 @@ use confers::loader::{load_file, LoaderConfig};
 use std::path::Path;
 
 // ============================================================================
-// ConfigBuilder - 程序化配置构建
+// ConfigBuilder and RuleBuilder - Re-exports from config module
 // ============================================================================
+//
+// DEPRECATED: These types are now re-exported from `config` module.
+// Please use `crate::config::ConfigBuilder` and `crate::config::RuleBuilder` instead.
+//
+// The following aliases are provided for backward compatibility only.
 
-/// 配置构建器
+/// 配置构建器（已弃用，请使用 `crate::config::ConfigBuilder`）
 ///
 /// 提供流式API构建FlowControlConfig配置。
 ///
 /// # 示例
 ///
-/// ```rust
-/// use limiteron::config_loader::ConfigBuilder;
+/// ```rust,ignore
+/// use limiteron::config::ConfigBuilder;
 ///
 /// let config = ConfigBuilder::new()
 ///     .with_storage("memory")
@@ -43,254 +48,14 @@ use std::path::Path;
 ///     })
 ///     .build();
 /// ```
-#[derive(Clone, Debug)]
-pub struct ConfigBuilder {
-    /// 全局配置
-    storage: String,
-    cache: String,
-    metrics: String,
-    /// 可信代理配置
-    trusted_proxies: crate::config::TrustedProxyConfig,
-    /// 规则列表
-    rules: Vec<RuleBuilder>,
-}
+#[deprecated(since = "0.1.1", note = "Use `crate::config::ConfigBuilder` instead")]
+pub use crate::config::ConfigBuilder;
 
-impl Default for ConfigBuilder {
-    fn default() -> Self {
-        Self {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
-            trusted_proxies: crate::config::TrustedProxyConfig::default(),
-            rules: Vec::new(),
-        }
-    }
-}
+/// 规则构建器（已弃用，请使用 `crate::config::RuleBuilder`）
+#[deprecated(since = "0.1.1", note = "Use `crate::config::RuleBuilder` instead")]
+pub use crate::config::RuleBuilder;
 
-impl ConfigBuilder {
-    /// 创建新的配置构建器
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// 设置存储类型
-    pub fn with_storage(mut self, storage: impl Into<String>) -> Self {
-        self.storage = storage.into();
-        self
-    }
-
-    /// 设置缓存类型
-    pub fn with_cache(mut self, cache: impl Into<String>) -> Self {
-        self.cache = cache.into();
-        self
-    }
-
-    /// 设置可信代理配置
-    pub fn with_trusted_proxies(mut self, config: crate::config::TrustedProxyConfig) -> Self {
-        self.trusted_proxies = config;
-        self
-    }
-
-    /// 设置指标类型
-    pub fn with_metrics(mut self, metrics: impl Into<String>) -> Self {
-        self.metrics = metrics.into();
-        self
-    }
-
-    /// 添加规则
-    pub fn with_rule<F>(mut self, f: F) -> Self
-    where
-        F: FnOnce(RuleBuilder) -> RuleBuilder,
-    {
-        let rule = f(RuleBuilder::new());
-        self.rules.push(rule);
-        self
-    }
-
-    /// 构建配置
-    pub fn build(self) -> Result<FlowControlConfig, FlowGuardError> {
-        let rules: Result<Vec<_>, _> = self.rules.into_iter().map(|r| r.build()).collect();
-        let rules = rules.map_err(|e| FlowGuardError::ConfigError(e.to_string()))?;
-
-        if rules.is_empty() {
-            return Err(FlowGuardError::ConfigError("至少需要一个规则".to_string()));
-        }
-
-        let config = FlowControlConfig {
-            version: "0.1.0".to_string(),
-            global: crate::config::GlobalConfig {
-                storage: self.storage,
-                cache: self.cache,
-                metrics: self.metrics,
-                trusted_proxies: self.trusted_proxies,
-            },
-            rules,
-        };
-
-        config.validate().map_err(FlowGuardError::ConfigError)?;
-        Ok(config)
-    }
-}
-
-/// 规则构建器
-#[derive(Clone, Debug)]
-pub struct RuleBuilder {
-    id: String,
-    name: String,
-    priority: u16,
-    matchers: Vec<crate::config::Matcher>,
-    limiters: Vec<crate::config::LimiterConfig>,
-    action: crate::config::ActionConfig,
-}
-
-impl RuleBuilder {
-    pub fn new() -> Self {
-        Self {
-            id: String::new(),
-            name: String::new(),
-            priority: 100,
-            matchers: Vec::new(),
-            limiters: Vec::new(),
-            action: crate::config::ActionConfig {
-                on_exceed: crate::config::Action::Reject,
-                ban: None,
-            },
-        }
-    }
-}
-
-impl Default for RuleBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RuleBuilder {
-    pub fn id(mut self, id: impl Into<String>) -> Self {
-        self.id = id.into();
-        self
-    }
-
-    pub fn name(mut self, name: impl Into<String>) -> Self {
-        self.name = name.into();
-        self
-    }
-
-    pub fn priority(mut self, priority: u16) -> Self {
-        self.priority = priority;
-        self
-    }
-
-    pub fn user_matcher(mut self, user_ids: Vec<String>) -> Self {
-        self.matchers
-            .push(crate::config::Matcher::User { user_ids });
-        self
-    }
-
-    pub fn ip_matcher(mut self, ip_ranges: Vec<String>) -> Self {
-        self.matchers.push(crate::config::Matcher::Ip { ip_ranges });
-        self
-    }
-
-    pub fn token_bucket(mut self, capacity: u64, refill_rate: u64) -> Self {
-        self.limiters
-            .push(crate::config::LimiterConfig::TokenBucket {
-                capacity,
-                refill_rate,
-            });
-        self
-    }
-
-    pub fn fixed_window(mut self, window_size: impl Into<String>, max_requests: u64) -> Self {
-        self.limiters
-            .push(crate::config::LimiterConfig::FixedWindow {
-                window_size: window_size.into(),
-                max_requests,
-            });
-        self
-    }
-
-    pub fn sliding_window(mut self, window_size: impl Into<String>, max_requests: u64) -> Self {
-        self.limiters
-            .push(crate::config::LimiterConfig::SlidingWindow {
-                window_size: window_size.into(),
-                max_requests,
-            });
-        self
-    }
-
-    pub fn concurrency_limit(mut self, max_concurrent: u64) -> Self {
-        self.limiters
-            .push(crate::config::LimiterConfig::Concurrency { max_concurrent });
-        self
-    }
-
-    pub fn on_reject(mut self) -> Self {
-        self.action.on_exceed = crate::config::Action::Reject;
-        self
-    }
-
-    pub fn on_allow(mut self) -> Self {
-        self.action.on_exceed = crate::config::Action::Allow;
-        self
-    }
-
-    pub fn on_degrade(mut self) -> Self {
-        self.action.on_exceed = crate::config::Action::Degrade;
-        self
-    }
-
-    pub fn build(self) -> Result<crate::config::Rule, String> {
-        if self.id.is_empty() {
-            return Err("规则ID不能为空".to_string());
-        }
-        if self.name.is_empty() {
-            return Err("规则名称不能为空".to_string());
-        }
-        if self.matchers.is_empty() {
-            return Err("规则至少需要一个匹配器".to_string());
-        }
-        if self.limiters.is_empty() {
-            return Err("规则至少需要一个限流器".to_string());
-        }
-
-        Ok(crate::config::Rule {
-            id: self.id,
-            name: self.name,
-            priority: self.priority,
-            matchers: self.matchers,
-            limiters: self.limiters,
-            action: self.action,
-        })
-    }
-}
-
-// ============================================================================
-// ConfigLoader - 使用Confers配置加载
-// ============================================================================
-
-/// 配置加载器
-///
-/// 使用confers库进行配置加载，支持：
-/// - 多格式配置文件（TOML、YAML、JSON）
-/// - 环境变量覆盖（使用LIMITERON_前缀）
-/// - 文件监听和热重载（通过ConfigWatcher）
-///
-/// # 示例
-///
-/// ```rust,no_run
-/// use limiteron::config_loader::ConfigLoader;
-///
-/// // 从TOML文件加载配置（主要格式）
-/// let config = ConfigLoader::load_from_file("config.toml")?;
-///
-/// // 从文件加载配置并支持环境变量覆盖
-/// let config = ConfigLoader::load_from_file("config.toml")?;
-///
-/// // 使用默认配置文件（优先config.toml）
-/// let config = ConfigLoader::load_default()?;
-/// # Ok::<(), limiteron::error::FlowGuardError>(())
-/// ```
+// Keep the ConfigLoader struct and its implementation
 #[cfg(feature = "confers")]
 #[derive(Clone)]
 pub struct ConfigLoader;

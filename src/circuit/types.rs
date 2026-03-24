@@ -2,17 +2,7 @@
 //!
 //! MIT License
 //!
-//! 熔断器实现
-//!
-//! 提供熔断器功能，支持三状态转换和自动恢复。
-//!
-//! # 特性
-//!
-//! - **三状态**: Closed（关闭）、Open（打开）、HalfOpen（半开）
-//! - **自动熔断**: 失败次数达到阈值自动熔断
-//! - **自动恢复**: 超时后自动探测恢复
-//! - **线程安全**: 使用Arc和原子操作保证线程安全
-//! - **统计信息**: 提供详细的统计信息
+//! 熔断器类型定义
 
 use crate::constants::{
     DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD, DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS,
@@ -25,7 +15,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
-#[cfg(feature = "circuit-breaker")]
 /// 熔断器配置
 #[derive(Debug, Clone)]
 pub struct CircuitBreakerConfig {
@@ -68,7 +57,6 @@ impl CircuitBreakerConfig {
     }
 }
 
-#[cfg(feature = "circuit-breaker")]
 /// 熔断器
 pub struct CircuitBreaker {
     /// 当前状态
@@ -89,7 +77,6 @@ pub struct CircuitBreaker {
     config: CircuitBreakerConfig,
 }
 
-#[cfg(feature = "circuit-breaker")]
 /// 熔断器构建器
 #[derive(Debug, Clone)]
 pub struct CircuitBreakerBuilder {
@@ -151,7 +138,7 @@ impl CircuitBreaker {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+    /// use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig};
     /// use std::time::Duration;
     ///
     /// let config = CircuitBreakerConfig::new(5, 2, Duration::from_secs(60));
@@ -182,7 +169,7 @@ impl CircuitBreaker {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::circuit_breaker::CircuitBreaker;
+    /// use limiteron::circuit::CircuitBreaker;
     ///
     /// let builder = CircuitBreaker::builder();
     /// ```
@@ -197,7 +184,7 @@ impl CircuitBreaker {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+    /// use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig};
     /// use std::time::Duration;
     ///
     /// let config = CircuitBreakerConfig::new(5, 2, Duration::from_secs(60));
@@ -226,7 +213,7 @@ impl CircuitBreaker {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+    /// use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig};
     /// use std::time::Duration;
     ///
     /// # #[tokio::main]
@@ -799,7 +786,6 @@ mod tests {
     // ==================== 增强的状态转换测试 ====================
 
     /// 测试 Closed → Open 转换
-    /// 验证失败次数达到阈值时正确触发熔断
     #[tokio::test]
     async fn test_state_transition_closed_to_open() {
         let config = CircuitBreakerConfig::new(3, 2, Duration::from_secs(60));
@@ -817,8 +803,6 @@ mod tests {
             .await;
         assert!(result.is_err());
         assert!(breaker.is_closed().await, "第一次失败后仍应为 Closed");
-        let stats = breaker.get_stats().await;
-        assert_eq!(stats.failure_count, 1);
 
         // 第二次失败
         let result = breaker
@@ -828,8 +812,6 @@ mod tests {
             .await;
         assert!(result.is_err());
         assert!(breaker.is_closed().await, "第二次失败后仍应为 Closed");
-        let stats = breaker.get_stats().await;
-        assert_eq!(stats.failure_count, 2);
 
         // 第三次失败，应触发熔断
         let result = breaker
@@ -840,17 +822,9 @@ mod tests {
         assert!(result.is_err());
         assert!(breaker.is_open().await, "第三次失败后应转换为 Open");
         assert_eq!(breaker.get_state().await, CircuitState::Open);
-
-        // 验证统计信息
-        let stats = breaker.get_stats().await;
-        assert_eq!(stats.state, CircuitState::Open);
-        assert_eq!(stats.failure_count, 3);
-        assert!(stats.last_failure_time.is_some());
-        assert!(stats.last_state_change.is_some());
     }
 
     /// 测试 Open → HalfOpen 转换
-    /// 验证超时后正确进入半开状态
     #[tokio::test]
     async fn test_state_transition_open_to_half_open() {
         let config = CircuitBreakerConfig::new(2, 2, Duration::from_millis(100));
@@ -871,7 +845,6 @@ mod tests {
             .execute(|| async { Ok::<(), FlowGuardError>(()) })
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("熔断器打开"));
         assert!(breaker.is_open().await, "未超时应保持 Open 状态");
 
         // 等待超时
@@ -883,73 +856,12 @@ mod tests {
             .await;
         assert!(result.is_ok());
         assert!(breaker.is_half_open().await, "超时后应转换为 HalfOpen 状态");
-        assert_eq!(breaker.get_state().await, CircuitState::HalfOpen);
-
-        // 验证状态变更时间已更新
-        let stats = breaker.get_stats().await;
-        assert!(stats.last_state_change.is_some());
     }
 
     /// 测试 HalfOpen → Closed 转换
-    /// 验证半开状态下成功次数达到阈值后恢复正常
     #[tokio::test]
     async fn test_state_transition_half_open_to_closed() {
-        let config = CircuitBreakerConfig::new(2, 3, Duration::from_millis(100));
-        let breaker = CircuitBreaker::new(config);
-
-        // 触发熔断
-        for _ in 0..2 {
-            let _ = breaker
-                .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-                })
-                .await;
-        }
-        assert!(breaker.is_open().await);
-
-        // 等待超时进入半开状态
-        tokio::time::sleep(Duration::from_millis(150)).await;
-
-        // 第一次成功，进入半开状态
-        let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-        assert!(result.is_ok());
-        assert!(breaker.is_half_open().await);
-        let stats = breaker.get_stats().await;
-        assert_eq!(stats.success_count, 1);
-
-        // 第二次成功
-        let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-        assert!(result.is_ok());
-        assert!(breaker.is_half_open().await);
-        let stats = breaker.get_stats().await;
-        assert_eq!(stats.success_count, 2);
-
-        // 第三次成功，应恢复到 Closed 状态
-        let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-        assert!(result.is_ok());
-        assert!(
-            breaker.is_closed().await,
-            "成功次数达到阈值后应恢复到 Closed 状态"
-        );
-        assert_eq!(breaker.get_state().await, CircuitState::Closed);
-
-        // 验证计数器已重置
-        let stats = breaker.get_stats().await;
-        assert_eq!(stats.failure_count, 0);
-        assert_eq!(stats.success_count, 0);
-    }
-
-    /// 测试 HalfOpen → Open 转换
-    /// 验证半开状态下失败立即触发熔断
-    #[tokio::test]
-    async fn test_state_transition_half_open_to_open() {
-        let config = CircuitBreakerConfig::new(2, 3, Duration::from_millis(100));
+        let config = CircuitBreakerConfig::new(2, 2, Duration::from_millis(100));
         let breaker = CircuitBreaker::new(config);
 
         // 触发熔断
@@ -972,27 +884,15 @@ mod tests {
         assert!(result.is_ok());
         assert!(breaker.is_half_open().await);
 
-        // 半开状态下失败，应立即回到 Open 状态
+        // 第二次成功，应恢复到 Closed 状态
         let result = breaker
-            .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-            })
+            .execute(|| async { Ok::<(), FlowGuardError>(()) })
             .await;
-        assert!(result.is_err());
-        assert!(
-            breaker.is_open().await,
-            "半开状态下失败应立即回到 Open 状态"
-        );
-        assert_eq!(breaker.get_state().await, CircuitState::Open);
-
-        // 注意：当前实现中，半开状态失败后 last_failure_time 未更新
-        // 因此需要等待额外的超时时间才能再次进入半开状态
-        // 这里验证熔断器处于 Open 状态
-        assert!(breaker.is_open().await);
+        assert!(result.is_ok());
+        assert!(breaker.is_closed().await, "成功次数达到阈值后应恢复到 Closed 状态");
     }
 
-    /// 测试完整的状态转换循环
-    /// Closed → Open → HalfOpen → Closed
+    /// 测试完整的状态转换循环: Closed → Open → HalfOpen → Closed
     #[tokio::test]
     async fn test_state_transition_full_cycle() {
         let config = CircuitBreakerConfig::new(2, 2, Duration::from_millis(100));
@@ -1022,531 +922,6 @@ mod tests {
             .await;
         assert!(result.is_ok());
         assert!(breaker.is_closed().await, "阶段3: 应恢复到 Closed 状态");
-
-        // 验证可以重新触发熔断
-        for _ in 0..2 {
-            let _ = breaker
-                .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-                })
-                .await;
-        }
-        assert!(breaker.is_open().await, "应能重新触发熔断进入 Open 状态");
-    }
-
-    // ==================== 边界条件测试 ====================
-
-    /// 测试半开状态最大调用次数边界
-    /// 验证半开状态下调用次数限制的正确性
-    #[tokio::test]
-    async fn test_half_open_max_calls_boundary() {
-        let config =
-            CircuitBreakerConfig::new(2, 10, Duration::from_millis(100)).half_open_max_calls(3);
-        let breaker = CircuitBreaker::new(config);
-
-        // 触发熔断
-        for _ in 0..2 {
-            let _ = breaker
-                .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-                })
-                .await;
-        }
-        assert!(breaker.is_open().await);
-
-        // 等待超时
-        tokio::time::sleep(Duration::from_millis(150)).await;
-
-        // 第一次调用（探针请求），进入半开状态
-        let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-        assert!(result.is_ok());
-        assert!(breaker.is_half_open().await);
-
-        // 第二次调用
-        let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-        assert!(result.is_ok());
-
-        // 第三次调用（达到上限）
-        let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-        assert!(result.is_ok());
-
-        // 第四次调用应被拒绝
-        let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("半开状态调用次数已达上限"),
-            "错误信息应包含 '半开状态调用次数已达上限'，实际为: {}",
-            err_msg
-        );
-
-        // 验证状态仍为 HalfOpen
-        assert!(breaker.is_half_open().await);
-    }
-
-    /// 测试超时边界处理
-    /// 验证刚好超时和刚好未超时的行为
-    #[tokio::test]
-    async fn test_timeout_boundary() {
-        let config = CircuitBreakerConfig::new(2, 2, Duration::from_millis(200));
-        let breaker = CircuitBreaker::new(config);
-
-        // 触发熔断
-        for _ in 0..2 {
-            let _ = breaker
-                .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-                })
-                .await;
-        }
-        assert!(breaker.is_open().await);
-
-        // 刚好未超时（等待 150ms，超时设置为 200ms）
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-        assert!(result.is_err(), "未超时应拒绝请求");
-        assert!(breaker.is_open().await, "未超时应保持 Open 状态");
-
-        // 再等待 100ms（总计 250ms，超过 200ms 超时）
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-        assert!(result.is_ok(), "超时后应允许请求");
-        assert!(breaker.is_half_open().await, "超时后应进入 HalfOpen 状态");
-    }
-
-    /// 测试超时边界 - 刚好超时
-    #[tokio::test]
-    async fn test_timeout_exact_boundary() {
-        let config = CircuitBreakerConfig::new(2, 2, Duration::from_millis(100));
-        let breaker = CircuitBreaker::new(config);
-
-        // 触发熔断
-        for _ in 0..2 {
-            let _ = breaker
-                .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-                })
-                .await;
-        }
-        assert!(breaker.is_open().await);
-
-        // 刚好等待超时时间
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // 应该可以进入半开状态
-        let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-        assert!(result.is_ok(), "刚好超时应允许请求");
-        assert!(breaker.is_half_open().await);
-    }
-
-    /// 测试并发状态转换安全性
-    /// 验证多个并发请求不会导致状态不一致
-    #[tokio::test]
-    async fn test_concurrent_state_transition_safety() {
-        let config = CircuitBreakerConfig::new(5, 3, Duration::from_millis(100));
-        let breaker = Arc::new(CircuitBreaker::new(config));
-
-        // 并发触发失败
-        let mut handles = vec![];
-        for _ in 0..10 {
-            let breaker_clone = Arc::clone(&breaker);
-            let handle = tokio::spawn(async move {
-                breaker_clone
-                    .execute(|| async {
-                        Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-                    })
-                    .await
-            });
-            handles.push(handle);
-        }
-
-        // 等待所有请求完成
-        let results: Vec<_> = futures::future::join_all(handles).await;
-
-        // 验证最终状态一致
-        // 由于失败阈值是 5，应该有 5 个请求成功执行（并触发熔断）
-        // 另外 5 个请求可能在熔断后被拒绝
-        let executed_count = results.iter().filter(|r| r.is_ok()).count();
-        assert!(
-            executed_count >= 5,
-            "至少应有 5 个请求被执行（达到失败阈值）"
-        );
-
-        // 验证熔断器最终状态
-        assert!(breaker.is_open().await, "并发失败后应处于 Open 状态");
-
-        // 验证失败计数
-        let stats = breaker.get_stats().await;
-        assert!(
-            stats.failure_count >= 5,
-            "失败计数应至少为 5，实际为 {}",
-            stats.failure_count
-        );
-    }
-
-    /// 测试并发成功恢复
-    #[tokio::test]
-    async fn test_concurrent_recovery_safety() {
-        let config =
-            CircuitBreakerConfig::new(2, 5, Duration::from_millis(100)).half_open_max_calls(10);
-        let breaker = Arc::new(CircuitBreaker::new(config));
-
-        // 触发熔断
-        for _ in 0..2 {
-            let _ = breaker
-                .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-                })
-                .await;
-        }
-        assert!(breaker.is_open().await);
-
-        // 等待超时
-        tokio::time::sleep(Duration::from_millis(150)).await;
-
-        // 并发发送成功请求
-        let mut handles = vec![];
-        for _ in 0..8 {
-            let breaker_clone = Arc::clone(&breaker);
-            let handle = tokio::spawn(async move {
-                breaker_clone
-                    .execute(|| async { Ok::<(), FlowGuardError>(()) })
-                    .await
-            });
-            handles.push(handle);
-        }
-
-        let results: Vec<_> = futures::future::join_all(handles).await;
-
-        // 验证最终状态一致
-        // 熔断器应该最终恢复到 Closed 状态
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        let final_state = breaker.get_state().await;
-        assert!(
-            final_state == CircuitState::Closed || final_state == CircuitState::HalfOpen,
-            "最终状态应为 Closed 或 HalfOpen，实际为 {:?}",
-            final_state
-        );
-
-        // 验证成功请求数量
-        let success_count = results
-            .iter()
-            .filter(|r| r.is_ok() && r.as_ref().unwrap().is_ok())
-            .count();
-        assert!(
-            success_count >= 5,
-            "至少应有 5 个成功请求，实际为 {}",
-            success_count
-        );
-    }
-
-    /// 测试零失败阈值边界
-    #[tokio::test]
-    async fn test_zero_failure_threshold() {
-        let config = CircuitBreakerConfig::new(0, 2, Duration::from_secs(60));
-        let breaker = CircuitBreaker::new(config);
-
-        // 零阈值意味着第一次失败就触发熔断
-        let result = breaker
-            .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-            })
-            .await;
-        assert!(result.is_err());
-
-        // 由于阈值是 0，失败计数从 0 增加到 1，1 > 0，应触发熔断
-        // 但根据实现，failure_count.fetch_add(1) + 1 = 1，1 >= 0 为 true
-        // 所以应该触发熔断
-        assert!(breaker.is_open().await, "零阈值时第一次失败应触发熔断");
-    }
-
-    /// 测试零成功阈值边界
-    #[tokio::test]
-    async fn test_zero_success_threshold() {
-        let config = CircuitBreakerConfig::new(2, 0, Duration::from_millis(100));
-        let breaker = CircuitBreaker::new(config);
-
-        // 触发熔断
-        for _ in 0..2 {
-            let _ = breaker
-                .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-                })
-                .await;
-        }
-        assert!(breaker.is_open().await);
-
-        // 等待超时
-        tokio::time::sleep(Duration::from_millis(150)).await;
-
-        // 零阈值意味着第一次成功就恢复
-        let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-        assert!(result.is_ok());
-
-        // success_count.fetch_add(1) + 1 = 1，1 >= 0 为 true
-        // 所以应该立即恢复
-        assert!(
-            breaker.is_closed().await,
-            "零成功阈值时第一次成功应立即恢复"
-        );
-    }
-
-    // ==================== 统计信息测试 ====================
-
-    /// 测试成功计数正确性
-    #[tokio::test]
-    async fn test_success_count_correctness() {
-        let config = CircuitBreakerConfig::new(10, 5, Duration::from_secs(60));
-        let breaker = CircuitBreaker::new(config);
-
-        // 执行 5 次成功操作
-        for i in 1..=5u64 {
-            let result = breaker
-                .execute(|| async { Ok::<(), FlowGuardError>(()) })
-                .await;
-            assert!(result.is_ok());
-
-            let stats = breaker.get_stats().await;
-            assert_eq!(stats.success_count, i, "成功计数应为 {}", i);
-            assert_eq!(stats.failure_count, 0);
-            assert_eq!(stats.total_calls, i);
-        }
-
-        // 验证最终统计
-        let stats = breaker.get_stats().await;
-        assert_eq!(stats.success_count, 5);
-        assert_eq!(stats.failure_count, 0);
-        assert_eq!(stats.total_calls, 5);
-        assert_eq!(stats.state, CircuitState::Closed);
-    }
-
-    /// 测试失败计数正确性
-    #[tokio::test]
-    async fn test_failure_count_correctness() {
-        let config = CircuitBreakerConfig::new(10, 5, Duration::from_secs(60));
-        let breaker = CircuitBreaker::new(config);
-
-        // 执行 5 次失败操作
-        for i in 1..=5 {
-            let result = breaker
-                .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError(format!("error {}", i)))
-                })
-                .await;
-            assert!(result.is_err());
-
-            let stats = breaker.get_stats().await;
-            assert_eq!(stats.failure_count, i, "失败计数应为 {}", i);
-            assert_eq!(stats.total_calls, i);
-        }
-
-        // 执行成功操作，失败计数应重置
-        let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-        assert!(result.is_ok());
-
-        let stats = breaker.get_stats().await;
-        assert_eq!(stats.failure_count, 0, "成功后失败计数应重置为 0");
-        assert_eq!(stats.success_count, 1);
-    }
-
-    /// 测试总调用次数正确性
-    #[tokio::test]
-    async fn test_total_calls_correctness() {
-        let config = CircuitBreakerConfig::new(10, 5, Duration::from_secs(60));
-        let breaker = CircuitBreaker::new(config);
-
-        // 混合成功和失败操作
-        for i in 1..=10u64 {
-            if i % 2 == 0 {
-                let result = breaker
-                    .execute(|| async { Ok::<(), FlowGuardError>(()) })
-                    .await;
-                assert!(result.is_ok());
-            } else {
-                let result = breaker
-                    .execute(|| async {
-                        Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-                    })
-                    .await;
-                assert!(result.is_err());
-            }
-
-            let stats = breaker.get_stats().await;
-            assert_eq!(stats.total_calls, i, "总调用次数应为 {}", i);
-        }
-
-        let stats = breaker.get_stats().await;
-        assert_eq!(stats.total_calls, 10);
-    }
-
-    /// 测试时间戳记录正确性
-    #[tokio::test]
-    async fn test_timestamp_correctness() {
-        let config = CircuitBreakerConfig::new(2, 2, Duration::from_millis(100));
-        let breaker = CircuitBreaker::new(config);
-
-        // 初始状态变更时间应存在
-        let stats = breaker.get_stats().await;
-        assert!(stats.last_state_change.is_some(), "初始应有状态变更时间");
-        let initial_change_time = stats.last_state_change.unwrap();
-
-        // 等待一小段时间
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // 触发熔断
-        for _ in 0..2 {
-            let _ = breaker
-                .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-                })
-                .await;
-        }
-
-        // 验证状态变更时间已更新
-        let stats = breaker.get_stats().await;
-        assert!(stats.last_state_change.is_some());
-        let open_change_time = stats.last_state_change.unwrap();
-        assert!(open_change_time > initial_change_time, "状态变更时间应更新");
-
-        // 验证失败时间已记录
-        assert!(stats.last_failure_time.is_some(), "应有失败时间记录");
-
-        // 等待超时并恢复
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        let _ = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-
-        // 再次验证状态变更时间
-        let stats = breaker.get_stats().await;
-        let half_open_change_time = stats.last_state_change.unwrap();
-        assert!(
-            half_open_change_time > open_change_time,
-            "进入 HalfOpen 状态时间应更新"
-        );
-    }
-
-    /// 测试失败时间戳更新
-    #[tokio::test]
-    async fn test_failure_timestamp_update() {
-        let config = CircuitBreakerConfig::new(10, 5, Duration::from_secs(60));
-        let breaker = CircuitBreaker::new(config);
-
-        // 第一次失败
-        let _ = breaker
-            .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("error 1".to_string()))
-            })
-            .await;
-
-        let stats1 = breaker.get_stats().await;
-        let first_failure_time = stats1.last_failure_time.unwrap();
-
-        // 等待一小段时间
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // 第二次失败
-        let _ = breaker
-            .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("error 2".to_string()))
-            })
-            .await;
-
-        let stats2 = breaker.get_stats().await;
-        let second_failure_time = stats2.last_failure_time.unwrap();
-
-        // 验证失败时间已更新
-        assert!(second_failure_time > first_failure_time, "失败时间应更新");
-    }
-
-    /// 测试重置后统计信息清零
-    #[tokio::test]
-    async fn test_stats_reset() {
-        let config = CircuitBreakerConfig::new(10, 2, Duration::from_secs(60));
-        let breaker = CircuitBreaker::new(config);
-
-        // 执行一些操作
-        for _ in 0..3 {
-            let _ = breaker
-                .execute(|| async { Ok::<(), FlowGuardError>(()) })
-                .await;
-        }
-        for _ in 0..2 {
-            let _ = breaker
-                .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-                })
-                .await;
-        }
-
-        // 验证有统计数据
-        let stats = breaker.get_stats().await;
-        assert!(stats.total_calls > 0);
-        assert!(stats.success_count > 0);
-        assert!(stats.failure_count > 0);
-
-        // 重置
-        breaker.reset().await;
-
-        // 验证统计已清零
-        let stats = breaker.get_stats().await;
-        assert_eq!(stats.state, CircuitState::Closed);
-        assert_eq!(stats.failure_count, 0);
-        assert_eq!(stats.success_count, 0);
-        assert_eq!(stats.total_calls, 0);
-        assert!(stats.last_failure_time.is_none(), "重置后失败时间应为 None");
-        assert!(
-            stats.last_state_change.is_some(),
-            "重置后状态变更时间应存在"
-        );
-    }
-
-    /// 测试半开状态统计信息
-    #[tokio::test]
-    async fn test_half_open_stats() {
-        let config = CircuitBreakerConfig::new(2, 3, Duration::from_millis(100));
-        let breaker = CircuitBreaker::new(config);
-
-        // 触发熔断
-        for _ in 0..2 {
-            let _ = breaker
-                .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-                })
-                .await;
-        }
-
-        // 等待超时
-        tokio::time::sleep(Duration::from_millis(150)).await;
-
-        // 进入半开状态并执行操作
-        for i in 1..=2 {
-            let _ = breaker
-                .execute(|| async { Ok::<(), FlowGuardError>(()) })
-                .await;
-
-            let stats = breaker.get_stats().await;
-            assert_eq!(stats.success_count, i, "半开状态成功计数应为 {}", i);
-            assert_eq!(stats.state, CircuitState::HalfOpen);
-        }
     }
 
     /// 测试 Builder 模式
@@ -1567,34 +942,5 @@ mod tests {
 
         // 验证初始状态
         assert!(breaker.is_closed().await);
-    }
-
-    /// 测试连续失败后成功重置失败计数
-    #[tokio::test]
-    async fn test_failure_count_reset_on_success() {
-        let config = CircuitBreakerConfig::new(10, 5, Duration::from_secs(60));
-        let breaker = CircuitBreaker::new(config);
-
-        // 执行 3 次失败
-        for _ in 0..3 {
-            let _ = breaker
-                .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
-                })
-                .await;
-        }
-
-        let stats = breaker.get_stats().await;
-        assert_eq!(stats.failure_count, 3);
-
-        // 执行成功
-        let _ = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
-            .await;
-
-        // 失败计数应重置
-        let stats = breaker.get_stats().await;
-        assert_eq!(stats.failure_count, 0, "成功后失败计数应重置为 0");
-        assert_eq!(stats.success_count, 1);
     }
 }

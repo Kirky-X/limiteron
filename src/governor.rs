@@ -12,7 +12,7 @@
 //! - 简化核心逻辑，提高可维护性
 //! - 保持向后兼容性
 
-use crate::config::{ConfigChangeRecord, ConfigHistory, FlowControlConfig};
+use crate::config::types::{ConfigChangeRecord, ConfigHistory, FlowControlConfig};
 use crate::decision_chain::DecisionChain;
 use crate::error::Decision;
 use crate::error::FlowGuardError;
@@ -42,7 +42,7 @@ use crate::audit_log::AuditLogger;
 #[cfg(feature = "ban-manager")]
 use crate::ban_manager::BanManager;
 #[cfg(feature = "circuit-breaker")]
-use crate::circuit_breaker::CircuitBreaker;
+use crate::circuit::CircuitBreaker;
 #[cfg(any(feature = "parallel-checker", feature = "ban-manager"))]
 use crate::matchers::Identifier;
 #[cfg(feature = "monitoring")]
@@ -357,7 +357,7 @@ impl GovernorBuilder {
         #[cfg(feature = "circuit-breaker")]
         let circuit_breaker = self.circuit_breaker.unwrap_or_else(|| {
             Arc::new(CircuitBreaker::with_dependencies(
-                crate::circuit_breaker::CircuitBreakerConfig::default(),
+                crate::circuit::CircuitBreakerConfig::default(),
             ))
         });
 
@@ -397,7 +397,7 @@ impl GovernorBuilder {
             identifier_extractor,
             #[cfg(feature = "audit-log")]
             audit_logger,
-            config_history: Arc::new(tokio::sync::RwLock::new(crate::config::ConfigHistory::new(
+            config_history: Arc::new(tokio::sync::RwLock::new(crate::config::types::ConfigHistory::new(
                 100,
             ))),
             stats: StatsManager::new(),
@@ -1157,7 +1157,7 @@ impl Governor {
 #[cfg(test)]
 mod governor_construction_tests {
     use super::*;
-    use crate::config::{
+    use crate::config::types::{
         Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule, Rule as RuleTrait,
     };
     use crate::storage_trait::{MemoryBanStorage, MemoryStorage};
@@ -1165,7 +1165,7 @@ mod governor_construction_tests {
     fn create_valid_test_config() -> FlowControlConfig {
         FlowControlConfig {
             version: "0.1.0".to_string(),
-            global: crate::config::GlobalConfig::default(),
+            global: crate::config::types::GlobalConfig::default(),
             rules: vec![Rule {
                 id: "test_rule".to_string(),
                 name: "Test Rule".to_string(),

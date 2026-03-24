@@ -172,6 +172,14 @@ mod tests {
         async fn cleanup_expired_bans(&self) -> Result<u64, StorageError> {
             Ok(0)
         }
+        async fn list_bans(
+            &self,
+            _active_only: bool,
+            _offset: u64,
+            _limit: u64,
+        ) -> Result<Vec<BanRecord>, StorageError> {
+            Ok(Vec::new())
+        }
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
@@ -180,7 +188,13 @@ mod tests {
     #[tokio::test]
     async fn test_parallel_ban_checker() {
         let ban_storage = Arc::new(TestBanStorage::new());
-        let ban_manager = Arc::new(BanManager::new(ban_storage.clone(), None).await.unwrap());
+        let ban_manager = Arc::new(
+            BanManager::builder()
+                .with_storage(ban_storage.clone())
+                .build()
+                .await
+                .unwrap(),
+        );
 
         // Setup ban
         let banned_user = BanTarget::UserId("banned_user".to_string());

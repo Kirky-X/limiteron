@@ -330,7 +330,9 @@ mod tests {
         #[test]
         fn test_redact_advanced() {
             assert_eq!(redact_advanced(None, None), "unknown");
-            assert_eq!(redact_advanced(Some("password123"), None), "***");
+            // field_name 为 None 时，基础脱敏保留首尾字符
+            assert_eq!(redact_advanced(Some("password123"), None), "pa***23");
+            // field_name 为 None 时，基础脱敏保留首尾字符
             assert_eq!(redact_advanced(Some("token123"), Some("api_key")), "***");
 
             // Common field uses basic redaction

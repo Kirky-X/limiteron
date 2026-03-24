@@ -810,12 +810,24 @@ fn validate_webhook_url(url: &str) -> Result<(), Box<dyn std::error::Error>> {
     // 禁止私有 IP 地址段
     // IPv4 私有地址：10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        if ip.is_loopback() || ip.is_private() {
-            return Err("禁止使用私有或回环 IP 地址".into());
+        if ip.is_loopback() {
+            return Err("禁止使用回环 IP 地址".into());
         }
-        // 检查链路本地地址
-        if ip.is_link_local() {
-            return Err("禁止使用链路本地地址".into());
+        match ip {
+            std::net::IpAddr::V4(v4) => {
+                if v4.is_private() {
+                    return Err("禁止使用私有 IP 地址".into());
+                }
+                if v4.is_link_local() {
+                    return Err("禁止使用链路本地地址".into());
+                }
+            }
+            std::net::IpAddr::V6(v6) => {
+                // IPv6 没有直接的 is_private 方法，检查唯一本地地址 fc00::/7
+                if v6.is_unique_local() {
+                    return Err("禁止使用唯一本地 IPv6 地址".into());
+                }
+            }
         }
     }
 
@@ -997,8 +1009,8 @@ mod tests {
     }
 
     /// 测试创建配额控制器
-    #[test]
-    fn test_quota_controller_new() {
+    #[tokio::test]
+    async fn test_quota_controller_new() {
         let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig::default();
         let controller = QuotaController::with_dependencies(storage, config);
@@ -1343,8 +1355,8 @@ mod tests {
     }
 
     /// 测试更新配置
-    #[test]
-    fn test_update_config() {
+    #[tokio::test]
+    async fn test_update_config() {
         let storage = Arc::new(TestQuotaStorage::new());
         let config = QuotaConfig::default();
         let mut controller = QuotaController::with_dependencies(storage, config);

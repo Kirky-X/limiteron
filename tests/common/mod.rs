@@ -3,13 +3,15 @@
 
 use ahash::AHashMap;
 use limiteron::config::{
-    Action, ActionConfig, FlowControlConfig as GovernorConfig, LimiterConfig, Matcher, Rule,
+    Action, ActionConfig, CacheBackend, FlowControlConfig as GovernorConfig, LimiterConfig,
+    Matcher, MetricsBackend, Rule, StorageType,
 };
+use rand::Rng;
 use limiteron::error::{ConsumeResult, StorageError};
 use limiteron::limiters::{
-    ConcurrencyLimiter, FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter,
+    ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter,
 };
-use limiteron::storage_trait::{
+use limiteron::storage::{
     BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage,
 };
 use limiteron::Governor;
@@ -361,9 +363,9 @@ pub async fn create_governor() -> Arc<Governor> {
     let config = GovernorConfig {
         version: "1.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
@@ -387,17 +389,13 @@ pub async fn create_governor() -> Arc<Governor> {
     let ban_storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
 
     Arc::new(
-        Governor::new(
-            config,
-            storage,
-            ban_storage,
-            #[cfg(feature = "monitoring")]
-            None,
-            #[cfg(feature = "telemetry")]
-            None,
-        )
-        .await
-        .expect("Failed to create governor"),
+        Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Failed to create governor"),
     )
 }
 
@@ -709,8 +707,8 @@ pub fn create_token_bucket_limiter(capacity: u64, refill_rate: u64) -> TokenBuck
     TokenBucketLimiter::new(capacity, refill_rate)
 }
 
-pub fn create_sliding_window_limiter(window: Duration, max_requests: u64) -> SlidingWindowLimiter {
-    SlidingWindowLimiter::new(window, max_requests)
+pub fn create_sliding_window_limiter(window: Duration, max_requests: u64) -> ShardedSlidingWindowLimiter {
+    ShardedSlidingWindowLimiter::new(window, max_requests)
 }
 
 pub fn create_fixed_window_limiter(window: Duration, max_requests: u64) -> FixedWindowLimiter {
@@ -884,28 +882,24 @@ pub fn generate_user_id() -> String {
 }
 
 pub fn generate_ip() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
     format!(
         "{}.{}.{}.{}",
-        rng.gen_range(1..255),
-        rng.gen_range(0..255),
-        rng.gen_range(0..255),
-        rng.gen_range(1..254)
+        rand::random::<u8>() % 254 + 1,
+        rand::random::<u8>(),
+        rand::random::<u8>(),
+        rand::random::<u8>() % 254 + 1
     )
 }
 
 pub fn generate_mac() -> String {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
     format!(
         "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-        rng.gen_range(0..256),
-        rng.gen_range(0..256),
-        rng.gen_range(0..256),
-        rng.gen_range(0..256),
-        rng.gen_range(0..256),
-        rng.gen_range(0..256)
+        rand::random::<u8>(),
+        rand::random::<u8>(),
+        rand::random::<u8>(),
+        rand::random::<u8>(),
+        rand::random::<u8>(),
+        rand::random::<u8>()
     )
 }
 
@@ -918,12 +912,10 @@ pub fn generate_device_id() -> String {
 }
 
 pub fn generate_random_string(length: usize) -> String {
-    use rand::Rng;
     const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let mut rng = rand::thread_rng();
     (0..length)
         .map(|_| {
-            let idx = rng.gen_range(0..CHARSET.len());
+            let idx = (rand::random::<u64>() % CHARSET.len() as u64) as usize;
             CHARSET[idx] as char
         })
         .collect()

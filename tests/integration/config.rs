@@ -3,7 +3,8 @@
 //! 测试配置解析、环境变量覆盖和配置验证。
 
 use limiteron::config::{
-    Action, ActionConfig, BanConfig, BanScope, FlowControlConfig, LimiterConfig, Matcher, Rule,
+    Action, ActionConfig, BanConfig, BanScope, CacheBackend, FlowControlConfig, LimiterConfig,
+    MetricsBackend, ConfigMatcher as Matcher, Rule, StorageType,
 };
 
 // ==================== YAML 配置解析测试 ====================
@@ -14,9 +15,9 @@ fn test_basic_config() {
     let config = FlowControlConfig {
         version: "1.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
@@ -48,9 +49,9 @@ fn test_multi_rule_config() {
     let config = FlowControlConfig {
         version: "1.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![
@@ -265,15 +266,15 @@ fn test_action_config() {
 #[test]
 fn test_global_config() {
     let global = limiteron::config::GlobalConfig {
-        storage: "postgres".to_string(),
-        cache: "redis".to_string(),
-        metrics: "prometheus".to_string(),
+        storage: StorageType::PostgreSQL,
+        cache: CacheBackend::Redis,
+        metrics: MetricsBackend::Prometheus,
         trusted_proxies: Default::default(),
     };
 
-    assert_eq!(global.storage, "postgres");
-    assert_eq!(global.cache, "redis");
-    assert_eq!(global.metrics, "prometheus");
+    assert_eq!(global.storage, StorageType::PostgreSQL);
+    assert_eq!(global.cache, CacheBackend::Redis);
+    assert_eq!(global.metrics, MetricsBackend::Prometheus);
 }
 
 /// 测试配置序列化
@@ -282,9 +283,9 @@ fn test_config_serialization() {
     let config = FlowControlConfig {
         version: "1.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
@@ -321,9 +322,9 @@ fn test_config_serialization_json() {
     let config = FlowControlConfig {
         version: "1.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![],
@@ -344,9 +345,9 @@ fn test_empty_rules_config() {
     let config = FlowControlConfig {
         version: "1.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![],

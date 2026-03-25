@@ -24,7 +24,7 @@ impl MockCache {
 }
 
 #[async_trait]
-impl limiteron::cache_service::CacheService for MockCache {
+impl limiteron::cache::cache_service::CacheService for MockCache {
     async fn get(&self, key: &str) -> Result<Option<String>, StorageError> {
         let data = self.data.lock().unwrap();
         Ok(data.get(key).cloned())
@@ -225,10 +225,10 @@ async fn test_cache_is_empty() {
 #[tokio::test]
 async fn test_mock_cache_service_get_set() {
     let cache = MockCache::new();
-    limiteron::cache_service::CacheService::set(&cache, "key1", "val1", Some(60))
+    limiteron::cache::cache_service::CacheService::set(&cache, "key1", "val1", Some(60))
         .await
         .unwrap();
-    let result = limiteron::cache_service::CacheService::get(&cache, "key1")
+    let result = limiteron::cache::cache_service::CacheService::get(&cache, "key1")
         .await
         .unwrap();
     assert_eq!(result, Some("val1".to_string()));
@@ -237,13 +237,13 @@ async fn test_mock_cache_service_get_set() {
 #[tokio::test]
 async fn test_mock_cache_service_delete() {
     let cache = MockCache::new();
-    limiteron::cache_service::CacheService::set(&cache, "key1", "val1", Some(60))
+    limiteron::cache::cache_service::CacheService::set(&cache, "key1", "val1", Some(60))
         .await
         .unwrap();
-    limiteron::cache_service::CacheService::delete(&cache, "key1")
+    limiteron::cache::cache_service::CacheService::delete(&cache, "key1")
         .await
         .unwrap();
-    let result = limiteron::cache_service::CacheService::get(&cache, "key1")
+    let result = limiteron::cache::cache_service::CacheService::get(&cache, "key1")
         .await
         .unwrap();
     assert!(result.is_none());
@@ -252,7 +252,7 @@ async fn test_mock_cache_service_delete() {
 #[tokio::test]
 async fn test_mock_cache_service_set_with_ttl() {
     let cache = MockCache::new();
-    limiteron::cache_service::CacheService::set_with_ttl(
+    limiteron::cache::cache_service::CacheService::set_with_ttl(
         &cache,
         "key1",
         "val1",
@@ -260,7 +260,7 @@ async fn test_mock_cache_service_set_with_ttl() {
     )
     .await
     .unwrap();
-    let result = limiteron::cache_service::CacheService::get(&cache, "key1")
+    let result = limiteron::cache::cache_service::CacheService::get(&cache, "key1")
         .await
         .unwrap();
     assert_eq!(result, Some("val1".to_string()));

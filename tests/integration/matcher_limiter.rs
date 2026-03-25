@@ -3,9 +3,12 @@
 //! 测试规则匹配器与限流器的集成，验证规则匹配与限流联动。
 
 use crate::common::{create_governor, MockQuotaStorage, RequestContextBuilder};
-use limiteron::config::{Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
+use limiteron::config::{
+    Action, ActionConfig, CacheBackend, FlowControlConfig, LimiterConfig,
+    MetricsBackend, ConfigMatcher as Matcher, Rule, StorageType,
+};
 use limiteron::error::Decision;
-use limiteron::storage_trait::{BanStorage, Storage};
+use limiteron::storage::{BanStorage, Storage};
 use std::sync::Arc;
 
 // ==================== 辅助函数 ====================
@@ -15,9 +18,9 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
     let config = FlowControlConfig {
         version: "1.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
@@ -39,17 +42,13 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
     let ban_storage: Arc<dyn BanStorage> = Arc::new(crate::common::MockBanStorage::new());
 
     let governor = Arc::new(
-        limiteron::Governor::new(
-            config,
-            storage,
-            ban_storage,
-            #[cfg(feature = "monitoring")]
-            None,
-            #[cfg(feature = "telemetry")]
-            None,
-        )
-        .await
-        .expect("Failed to create governor"),
+        limiteron::Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Failed to create governor"),
     );
 
     // 禁用 L1 缓存以确保限流器状态正确更新

@@ -5,8 +5,9 @@
 #[cfg(feature = "ban-manager")]
 mod ban_manager_tests {
     use crate::common::{MockBanStorage, MockQuotaStorage};
-    use limiteron::ban_manager::{BanConfig, BanManager};
-    use limiteron::storage_trait::{BanStorage, Storage};
+    use limiteron::ban::BanManager;
+    use limiteron::config::BanConfig;
+    use limiteron::storage::{BanStorage, Storage};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -34,7 +35,7 @@ mod ban_manager_tests {
         // 添加 IP 封禁
         let result = manager
             .ban(
-                &limiteron::storage_trait::BanTarget::Ip("192.168.1.100".to_string()),
+                &limiteron::storage::BanTarget::Ip("192.168.1.100".to_string()),
                 Duration::from_secs(3600),
                 Some("恶意请求".to_string()),
                 None,
@@ -45,7 +46,7 @@ mod ban_manager_tests {
 
         // 验证封禁记录
         let is_banned = manager
-            .is_banned(&limiteron::storage_trait::BanTarget::Ip(
+            .is_banned(&limiteron::storage::BanTarget::Ip(
                 "192.168.1.100".to_string(),
             ))
             .await;
@@ -60,7 +61,7 @@ mod ban_manager_tests {
         // 添加用户封禁
         let result = manager
             .ban(
-                &limiteron::storage_trait::BanTarget::UserId("user_12345".to_string()),
+                &limiteron::storage::BanTarget::UserId("user_12345".to_string()),
                 Duration::from_secs(7200),
                 Some("违规操作".to_string()),
                 None,
@@ -71,7 +72,7 @@ mod ban_manager_tests {
 
         // 验证封禁记录
         let is_banned = manager
-            .is_banned(&limiteron::storage_trait::BanTarget::UserId(
+            .is_banned(&limiteron::storage::BanTarget::UserId(
                 "user_12345".to_string(),
             ))
             .await;
@@ -86,7 +87,7 @@ mod ban_manager_tests {
         // 先添加封禁
         manager
             .ban(
-                &limiteron::storage_trait::BanTarget::Ip("192.168.1.200".to_string()),
+                &limiteron::storage::BanTarget::Ip("192.168.1.200".to_string()),
                 Duration::from_secs(3600),
                 Some("测试封禁".to_string()),
                 None,
@@ -97,7 +98,7 @@ mod ban_manager_tests {
         // 验证已封禁
         assert!(
             manager
-                .is_banned(&limiteron::storage_trait::BanTarget::Ip(
+                .is_banned(&limiteron::storage::BanTarget::Ip(
                     "192.168.1.200".to_string()
                 ))
                 .await
@@ -105,7 +106,7 @@ mod ban_manager_tests {
 
         // 解封
         let result = manager
-            .unban(&limiteron::storage_trait::BanTarget::Ip(
+            .unban(&limiteron::storage::BanTarget::Ip(
                 "192.168.1.200".to_string(),
             ))
             .await;
@@ -114,7 +115,7 @@ mod ban_manager_tests {
         // 验证已解封
         assert!(
             !manager
-                .is_banned(&limiteron::storage_trait::BanTarget::Ip(
+                .is_banned(&limiteron::storage::BanTarget::Ip(
                     "192.168.1.200".to_string()
                 ))
                 .await
@@ -128,7 +129,7 @@ mod ban_manager_tests {
 
         // 解封不存在的记录应该成功（幂等操作）
         let result = manager
-            .unban(&limiteron::storage_trait::BanTarget::Ip(
+            .unban(&limiteron::storage::BanTarget::Ip(
                 "nonexistent_ip".to_string(),
             ))
             .await;
@@ -145,7 +146,7 @@ mod ban_manager_tests {
         // 添加短期封禁（1秒）
         manager
             .ban(
-                &limiteron::storage_trait::BanTarget::Ip("192.168.1.50".to_string()),
+                &limiteron::storage::BanTarget::Ip("192.168.1.50".to_string()),
                 Duration::from_secs(1),
                 Some("短期封禁测试".to_string()),
                 None,
@@ -156,7 +157,7 @@ mod ban_manager_tests {
         // 立即检查应该被封禁
         assert!(
             manager
-                .is_banned(&limiteron::storage_trait::BanTarget::Ip(
+                .is_banned(&limiteron::storage::BanTarget::Ip(
                     "192.168.1.50".to_string()
                 ))
                 .await
@@ -168,7 +169,7 @@ mod ban_manager_tests {
         // 过期后应该自动解除
         assert!(
             !manager
-                .is_banned(&limiteron::storage_trait::BanTarget::Ip(
+                .is_banned(&limiteron::storage::BanTarget::Ip(
                     "192.168.1.50".to_string()
                 ))
                 .await,
@@ -184,11 +185,11 @@ mod ban_manager_tests {
         let manager = create_ban_manager();
 
         let targets = vec![
-            limiteron::storage_trait::BanTarget::Ip("192.168.1.1".to_string()),
-            limiteron::storage_trait::BanTarget::Ip("192.168.1.2".to_string()),
-            limiteron::storage_trait::BanTarget::Ip("192.168.1.3".to_string()),
-            limiteron::storage_trait::BanTarget::UserId("user_a".to_string()),
-            limiteron::storage_trait::BanTarget::UserId("user_b".to_string()),
+            limiteron::storage::BanTarget::Ip("192.168.1.1".to_string()),
+            limiteron::storage::BanTarget::Ip("192.168.1.2".to_string()),
+            limiteron::storage::BanTarget::Ip("192.168.1.3".to_string()),
+            limiteron::storage::BanTarget::UserId("user_a".to_string()),
+            limiteron::storage::BanTarget::UserId("user_b".to_string()),
         ];
 
         // 批量封禁
@@ -216,10 +217,10 @@ mod ban_manager_tests {
         let manager = create_ban_manager();
 
         // 先批量封禁
-        let targets: Vec<limiteron::storage_trait::BanTarget> = vec![
-            limiteron::storage_trait::BanTarget::Ip("10.0.0.1".to_string()),
-            limiteron::storage_trait::BanTarget::Ip("10.0.0.2".to_string()),
-            limiteron::storage_trait::BanTarget::Ip("10.0.0.3".to_string()),
+        let targets: Vec<limiteron::storage::BanTarget> = vec![
+            limiteron::storage::BanTarget::Ip("10.0.0.1".to_string()),
+            limiteron::storage::BanTarget::Ip("10.0.0.2".to_string()),
+            limiteron::storage::BanTarget::Ip("10.0.0.3".to_string()),
         ];
 
         for target in &targets {
@@ -258,7 +259,7 @@ mod ban_manager_tests {
             let mgr = Arc::clone(&manager);
             handles.push(tokio::spawn(async move {
                 mgr.ban(
-                    &limiteron::storage_trait::BanTarget::Ip(format!("concurrent_{}", i)),
+                    &limiteron::storage::BanTarget::Ip(format!("concurrent_{}", i)),
                     Duration::from_secs(3600),
                     Some(format!("并发封禁 {}", i)),
                     None,
@@ -279,7 +280,7 @@ mod ban_manager_tests {
         for i in 0..20 {
             assert!(
                 manager
-                    .is_banned(&limiteron::storage_trait::BanTarget::Ip(format!(
+                    .is_banned(&limiteron::storage::BanTarget::Ip(format!(
                         "concurrent_{}",
                         i
                     )))
@@ -301,7 +302,7 @@ mod ban_manager_tests {
             let mgr = Arc::clone(&manager);
             handles.push(tokio::spawn(async move {
                 mgr.ban(
-                    &limiteron::storage_trait::BanTarget::Ip("concurrent_same".to_string()),
+                    &limiteron::storage::BanTarget::Ip("concurrent_same".to_string()),
                     Duration::from_secs(3600),
                     None,
                     None,
@@ -311,7 +312,7 @@ mod ban_manager_tests {
 
             let mgr = Arc::clone(&manager);
             handles.push(tokio::spawn(async move {
-                mgr.unban(&limiteron::storage_trait::BanTarget::Ip(
+                mgr.unban(&limiteron::storage::BanTarget::Ip(
                     "concurrent_same".to_string(),
                 ))
                 .await
@@ -323,7 +324,7 @@ mod ban_manager_tests {
 
         // 最终状态应该是确定的（要么封禁要么未封禁）
         let _ = manager
-            .is_banned(&limiteron::storage_trait::BanTarget::Ip(
+            .is_banned(&limiteron::storage::BanTarget::Ip(
                 "concurrent_same".to_string(),
             ))
             .await;
@@ -340,7 +341,7 @@ mod ban_manager_tests {
         // 添加封禁
         manager
             .ban(
-                &limiteron::storage_trait::BanTarget::Ip("storage_test".to_string()),
+                &limiteron::storage::BanTarget::Ip("storage_test".to_string()),
                 Duration::from_secs(3600),
                 None,
                 None,
@@ -351,7 +352,7 @@ mod ban_manager_tests {
         // 验证封禁存在
         assert!(
             manager
-                .is_banned(&limiteron::storage_trait::BanTarget::Ip(
+                .is_banned(&limiteron::storage::BanTarget::Ip(
                     "storage_test".to_string()
                 ))
                 .await
@@ -359,7 +360,7 @@ mod ban_manager_tests {
 
         // 解封
         manager
-            .unban(&limiteron::storage_trait::BanTarget::Ip(
+            .unban(&limiteron::storage::BanTarget::Ip(
                 "storage_test".to_string(),
             ))
             .await
@@ -368,7 +369,7 @@ mod ban_manager_tests {
         // 验证已解封
         assert!(
             !manager
-                .is_banned(&limiteron::storage_trait::BanTarget::Ip(
+                .is_banned(&limiteron::storage::BanTarget::Ip(
                     "storage_test".to_string()
                 ))
                 .await
@@ -385,7 +386,7 @@ mod ban_manager_tests {
         // 添加一些封禁
         manager
             .ban(
-                &limiteron::storage_trait::BanTarget::Ip("cleanup_permanent".to_string()),
+                &limiteron::storage::BanTarget::Ip("cleanup_permanent".to_string()),
                 Duration::from_secs(u64::MAX),
                 None,
                 None,
@@ -395,7 +396,7 @@ mod ban_manager_tests {
 
         manager
             .ban(
-                &limiteron::storage_trait::BanTarget::Ip("cleanup_short".to_string()),
+                &limiteron::storage::BanTarget::Ip("cleanup_short".to_string()),
                 Duration::from_millis(100),
                 None,
                 None,
@@ -415,7 +416,7 @@ mod ban_manager_tests {
         // 验证永久封禁仍然存在
         assert!(
             manager
-                .is_banned(&limiteron::storage_trait::BanTarget::Ip(
+                .is_banned(&limiteron::storage::BanTarget::Ip(
                     "cleanup_permanent".to_string()
                 ))
                 .await,
@@ -425,7 +426,7 @@ mod ban_manager_tests {
         // 验证过期封禁已删除
         assert!(
             !manager
-                .is_banned(&limiteron::storage_trait::BanTarget::Ip(
+                .is_banned(&limiteron::storage::BanTarget::Ip(
                     "cleanup_short".to_string()
                 ))
                 .await,

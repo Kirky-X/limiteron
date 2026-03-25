@@ -9,11 +9,11 @@ use chrono::{DateTime, Duration, Utc};
 #[cfg(feature = "quota-control")]
 use limiteron::error::StorageError;
 #[cfg(feature = "quota-control")]
-use limiteron::quota_controller::{
+use limiteron::quota::{
     AlertChannel, AlertConfig, QuotaConfig, QuotaController, QuotaType,
 };
 #[cfg(feature = "quota-control")]
-use limiteron::storage_trait::{QuotaInfo, QuotaStorage};
+use limiteron::storage::{QuotaInfo, QuotaStorage};
 #[cfg(feature = "quota-control")]
 use std::sync::Arc;
 #[cfg(feature = "quota-control")]

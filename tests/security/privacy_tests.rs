@@ -9,10 +9,10 @@
 //! - 错误消息安全测试（无内部信息泄露、无敏感数据泄露）
 
 #[cfg(feature = "log-redaction")]
-use limiteron::log_redaction::{
+use limiteron::logging::{
     contains_sensitive_info, redact_advanced, redact_http_content, RedactionConfig,
 };
-use limiteron::log_redaction::{redact_basic, redact_email, redact_ip, redact_user_id};
+use limiteron::logging::{redact_basic, redact_email, redact_ip, redact_user_id};
 use limiteron::matchers::{Identifier, IdentifierExtractor, IpExtractor, RequestContext};
 
 // ============================================================================
@@ -265,7 +265,6 @@ fn test_redaction_config() {
 /// 验证错误消息不包含敏感的内部实现细节
 #[tokio::test]
 async fn test_error_message_no_internal_leak() {
-    use limiteron::error::FlowGuardError;
     use limiteron::limiters::{Limiter, TokenBucketLimiter};
 
     let limiter = TokenBucketLimiter::new(100, 10);
@@ -359,14 +358,14 @@ fn test_validation_error_no_sensitive_leak() {
 #[test]
 fn test_config_error_no_sensitive_config_leak() {
     use limiteron::config::{FlowControlConfig, GlobalConfig, Rule};
-    use limiteron::ConfigSecurityValidator;
+    use limiteron::config::ConfigSecurityValidator;
 
     let config = FlowControlConfig {
         version: "1.0.0".to_string(),
         global: GlobalConfig {
-            storage: "postgresql://user:password@localhost/db".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::PostgreSQL,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
         },
         rules: vec![],
     };

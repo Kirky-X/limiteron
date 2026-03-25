@@ -1,7 +1,3 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
 //! 输入验证安全测试
 //!
 //! 测试覆盖：
@@ -9,7 +5,7 @@
 //! - 数值注入测试（负数消费拒绝、整数溢出保护）
 //! - 配置注入测试
 
-use limiteron::limiters::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, SlidingWindowLimiter, TokenBucketLimiter};
+use limiteron::limiters::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter};
 use limiteron::matchers::{IpExtractor, RequestContext};
 use limiteron::validation::{validate_ip_address, validate_user_id, validate_mac_address, validate_api_key};
 use limiteron::error::FlowGuardError;
@@ -139,13 +135,13 @@ async fn test_negative_cost_rejection() {
     let result = limiter.allow(0).await;
     assert!(result.is_err(), "Zero cost should be rejected");
 
-    // SlidingWindowLimiter
-    let limiter = SlidingWindowLimiter::new(Duration::from_secs(1), 10);
+    // ShardedSlidingWindowLimiter
+    let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 10);
     let result = limiter.allow(0).await;
     assert!(result.is_err(), "Zero cost should be rejected");
 
     // FixedWindowLimiter
-    let limiter = FixedWindowLimiter::new(Duration::from_secs(1), 10);
+    let limiter = FixedWindowLimiter::new(Duration::from_secs(60), 10);
     let result = limiter.allow(0).await;
     assert!(result.is_err(), "Zero cost should be rejected");
 
@@ -319,7 +315,7 @@ fn test_api_key_validation_security() {
 /// 测试配置验证拒绝恶意输入
 #[test]
 fn test_config_validation_rejects_malicious_input() {
-    use limiteron::config::{FlowControlConfig, GlobalConfig, Rule, Matcher, LimiterConfig, ActionConfig};
+    use limiteron::config::{FlowControlConfig, GlobalConfig, Rule, ConfigMatcher as Matcher, LimiterConfig, ActionConfig};
 
     // 测试规则ID注入
     let malicious_ids = vec![

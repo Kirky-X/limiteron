@@ -3,8 +3,9 @@
 //! 测试配置模块的完整功能：验证、版本比较、ConfigBuilder、哈希、变更记录等
 
 use limiteron::config::{
-    Action, ActionConfig, ChangeSource, ConfigBuilder, ConfigChangeRecord, ConfigHistory,
-    FlowControlConfig, LimiterConfig, Matcher, Rule,
+    Action, ActionConfig, CacheBackend, ChangeSource, ConfigBuilder, ConfigChangeRecord,
+    ConfigHistory, FlowControlConfig, LimiterConfig, Matcher, MetricsBackend, Rule,
+    StorageType,
 };
 
 // ============================================================================
@@ -36,9 +37,9 @@ fn make_valid_config(version: &str, rules: Vec<Rule>) -> FlowControlConfig {
     FlowControlConfig {
         version: version.to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules,
@@ -64,9 +65,9 @@ async fn test_empty_version_fails_validation() {
     let config = FlowControlConfig {
         version: "".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![make_valid_rule("rule_001", "Test Rule")],
@@ -92,27 +93,27 @@ async fn test_duplicate_rule_ids_fail_validation() {
 }
 
 // ============================================================================
-// 测试 4: 无效存储类型校验失败
+// 测试 4: 存储类型使用默认值
 // ============================================================================
 
 #[tokio::test]
-async fn test_invalid_storage_type_fails_validation() {
+async fn test_storage_type_default() {
+    // 由于 StorageType 是 enum 类型，无效值在编译时就被拒绝
+    // 此测试验证有效的存储类型配置
     let config = FlowControlConfig {
         version: "1.0.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "invalid_storage".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![make_valid_rule("rule_001", "Test Rule")],
     };
 
+    // 有效配置应该验证通过
     let result = config.validate();
-    assert!(result.is_err(), "无效存储类型应校验失败");
-    let err = result.unwrap_err();
-    assert!(err.contains("无效的存储类型"));
-    assert!(err.contains("postgresql") || err.contains("memory"));
+    assert!(result.is_ok(), "有效配置应校验通过");
 }
 
 // ============================================================================
@@ -221,7 +222,7 @@ async fn test_config_builder_minimal_valid() {
     assert!(config.is_ok(), "最小有效配置应构建成功");
     let cfg = config.unwrap();
     assert_eq!(cfg.version, "0.1.0");
-    assert_eq!(cfg.global.storage, "memory");
+    assert_eq!(cfg.global.storage, StorageType::Memory);
     assert_eq!(cfg.rules.len(), 1);
     assert_eq!(cfg.rules[0].id, "minimal");
 }
@@ -233,9 +234,9 @@ async fn test_config_builder_minimal_valid() {
 #[tokio::test]
 async fn test_config_builder_with_multiple_rules() {
     let config = ConfigBuilder::new()
-        .with_storage("memory")
-        .with_cache("memory")
-        .with_metrics("prometheus")
+        .with_storage(StorageType::Memory)
+        .with_cache(CacheBackend::Memory)
+        .with_metrics(MetricsBackend::Prometheus)
         .with_rule(|rule| {
             rule.id("rule_token_bucket")
                 .name("Token Bucket Rule")
@@ -336,9 +337,9 @@ async fn test_config_builder_validation_during_construction() {
 async fn test_config_builder_method_chaining() {
     // 验证 with_rule 返回的 &mut Self 支持链式调用
     let config = ConfigBuilder::new()
-        .with_storage("memory")
-        .with_cache("memory")
-        .with_metrics("prometheus")
+        .with_storage(StorageType::Memory)
+        .with_cache(CacheBackend::Memory)
+        .with_metrics(MetricsBackend::Prometheus)
         .with_rule(|rule| {
             rule.id("chained")
                 .name("Chained Rule")
@@ -351,9 +352,9 @@ async fn test_config_builder_method_chaining() {
 
     assert!(config.is_ok(), "链式调用应正常工作");
     let cfg = config.unwrap();
-    assert_eq!(cfg.global.storage, "memory");
-    assert_eq!(cfg.global.cache, "memory");
-    assert_eq!(cfg.global.metrics, "prometheus");
+    assert_eq!(cfg.global.storage, StorageType::Memory);
+    assert_eq!(cfg.global.cache, CacheBackend::Memory);
+    assert_eq!(cfg.global.metrics, MetricsBackend::Prometheus);
     assert_eq!(cfg.rules[0].priority, 50);
 }
 
@@ -493,9 +494,9 @@ async fn test_change_record_identifies_modified_rules() {
     let old_config = FlowControlConfig {
         version: "1.0.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![make_valid_rule("same", "Same Rule")],
@@ -504,9 +505,9 @@ async fn test_change_record_identifies_modified_rules() {
     let new_config = FlowControlConfig {
         version: "1.0.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "postgresql".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::PostgreSQL,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![make_valid_rule("same", "Same Rule")],
@@ -719,9 +720,9 @@ async fn test_deep_clone_nested_structures() {
     let original = FlowControlConfig {
         version: "1.0.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "redis".to_string(),
-            metrics: "opentelemetry".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Redis,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
@@ -792,9 +793,9 @@ async fn test_serialization_roundtrip_json() {
     let original = FlowControlConfig {
         version: "1.0.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![
@@ -958,66 +959,63 @@ async fn test_change_source_variants() {
 }
 
 // ============================================================================
-// 测试 28: GlobalConfig 验证所有无效类型
-// ============================================================================
-
-#[tokio::test]
-async fn test_global_config_validation_invalid_types() {
-    // 无效 storage
-    let global = limiteron::config::GlobalConfig {
-        storage: "mongodb".to_string(),
-        cache: "memory".to_string(),
-        metrics: "prometheus".to_string(),
-        trusted_proxies: Default::default(),
-    };
-    assert!(global.validate().is_err());
-
-    // 无效 cache
-    let global = limiteron::config::GlobalConfig {
-        storage: "memory".to_string(),
-        cache: "memcached".to_string(),
-        metrics: "prometheus".to_string(),
-        trusted_proxies: Default::default(),
-    };
-    assert!(global.validate().is_err());
-
-    // 无效 metrics
-    let global = limiteron::config::GlobalConfig {
-        storage: "memory".to_string(),
-        cache: "memory".to_string(),
-        metrics: "datadog".to_string(),
-        trusted_proxies: Default::default(),
-    };
-    assert!(global.validate().is_err());
-}
-
-// ============================================================================
-// 测试 29: GlobalConfig 验证所有有效类型
+// 测试 28: GlobalConfig 有效类型验证
 // ============================================================================
 
 #[tokio::test]
 async fn test_global_config_validation_valid_types() {
-    let valid_combos = vec![
-        ("memory", "memory", "prometheus"),
-        ("memory", "memory", "opentelemetry"),
-        ("postgresql", "memory", "prometheus"),
-        ("postgresql", "redis", "opentelemetry"),
-        ("memory", "redis", "prometheus"),
+    // 由于类型系统保证，无效值在编译时就被拒绝
+    // 此测试验证所有有效的存储/缓存/指标类型组合
+    let valid_configs = vec![
+        (
+            StorageType::Memory,
+            CacheBackend::Memory,
+            MetricsBackend::Prometheus,
+        ),
+        (
+            StorageType::PostgreSQL,
+            CacheBackend::Redis,
+            MetricsBackend::Prometheus,
+        ),
     ];
 
-    for (storage, cache, metrics) in valid_combos {
+    for (storage, cache, metrics) in valid_configs {
         let global = limiteron::config::GlobalConfig {
-            storage: storage.to_string(),
-            cache: cache.to_string(),
-            metrics: metrics.to_string(),
+            storage,
+            cache,
+            metrics,
             trusted_proxies: Default::default(),
         };
         assert!(
             global.validate().is_ok(),
-            "有效组合 ({}, {}, {}) 应通过验证",
+            "有效配置应校验通过"
+        );
+    }
+}
+
+// ============================================================================
+// 测试 29: GlobalConfig 各种有效类型组合
+// ============================================================================
+
+#[tokio::test]
+async fn test_global_config_various_type_combinations() {
+    // 由于类型系统保证，所有这些都是有效的
+    let valid_combos = vec![
+        (StorageType::Memory, CacheBackend::Memory, MetricsBackend::Prometheus),
+        (StorageType::PostgreSQL, CacheBackend::Redis, MetricsBackend::Prometheus),
+        (StorageType::Redis, CacheBackend::None, MetricsBackend::Statsd),
+    ];
+
+    for (storage, cache, metrics) in valid_combos {
+        let global = limiteron::config::GlobalConfig {
             storage,
             cache,
-            metrics
+            metrics,
+            trusted_proxies: Default::default(),
+        };
+        assert!(
+            global.validate().is_ok(),
+            "有效组合应通过验证"
         );
     }
 }

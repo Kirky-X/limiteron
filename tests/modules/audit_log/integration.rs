@@ -5,7 +5,7 @@
 #[cfg(feature = "audit-log")]
 mod tests {
     use chrono::Utc;
-    use limiteron::audit_log::{AuditEvent, AuditLogEntry, AuditLogStats};
+    use limiteron::logging::{AuditEvent, AuditLogEntry, AuditLogStats};
 
     // ============================================================================
     // AuditEvent Tests

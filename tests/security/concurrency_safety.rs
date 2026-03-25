@@ -1,7 +1,3 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
 //! 并发安全测试
 //!
 //! 测试覆盖：
@@ -9,7 +5,7 @@
 //! - 死锁测试
 //! - 并发状态一致性测试
 
-use limiteron::limiters::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, SlidingWindowLimiter, TokenBucketLimiter, ConcurrencyLimiter};
+use limiteron::limiters::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter, ConcurrencyLimiter};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -74,7 +70,7 @@ async fn test_token_bucket_race_condition() {
 #[tokio::test]
 async fn test_sliding_window_race_condition() {
     let max_requests = 50u64;
-    let limiter = Arc::new(SlidingWindowLimiter::new(Duration::from_secs(10), max_requests));
+    let limiter = Arc::new(ShardedSlidingWindowLimiter::new(Duration::from_secs(60), max_requests));
     let success_count = Arc::new(AtomicU64::new(0));
 
     let barrier = Arc::new(tokio::sync::Barrier::new(100));
@@ -211,12 +207,12 @@ async fn test_sharded_sliding_window_race_condition() {
 // 死锁测试
 // ============================================================================
 
-/// 测试 SlidingWindowLimiter 无死锁
+/// 测试 ShardedSlidingWindowLimiter 无死锁
 ///
 /// 使用超时机制确保不会发生死锁
 #[tokio::test]
 async fn test_sliding_window_no_deadlock() {
-    let limiter = Arc::new(SlidingWindowLimiter::new(Duration::from_secs(1), 10000));
+    let limiter = Arc::new(ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 10000));
     let mut handles = vec![];
 
     for _ in 0..500 {
@@ -389,7 +385,7 @@ async fn test_token_bucket_state_consistency() {
 #[tokio::test]
 async fn test_sliding_window_state_consistency() {
     let max_requests = 100u64;
-    let limiter = Arc::new(SlidingWindowLimiter::new(Duration::from_secs(10), max_requests));
+    let limiter = Arc::new(ShardedSlidingWindowLimiter::new(Duration::from_secs(60), max_requests));
     let consumed = Arc::new(AtomicU64::new(0));
 
     let mut handles = vec![];
@@ -468,7 +464,7 @@ async fn test_fixed_window_state_consistency() {
 #[tokio::test]
 async fn test_multiple_limiters_concurrent_access() {
     let token_bucket = Arc::new(TokenBucketLimiter::new(100, 10));
-    let sliding_window = Arc::new(SlidingWindowLimiter::new(Duration::from_secs(1), 50));
+    let sliding_window = Arc::new(ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 50));
     let fixed_window = Arc::new(FixedWindowLimiter::new(Duration::from_secs(1), 50));
     let sharded_window = Arc::new(ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 100));
 
@@ -503,7 +499,7 @@ async fn test_multiple_limiters_concurrent_access() {
 #[tokio::test]
 async fn test_nested_limiter_calls() {
     let outer_limiter = Arc::new(TokenBucketLimiter::new(100, 10));
-    let inner_limiter = Arc::new(SlidingWindowLimiter::new(Duration::from_secs(1), 50));
+    let inner_limiter = Arc::new(ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 50));
 
     let mut handles = vec![];
 

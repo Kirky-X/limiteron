@@ -2,13 +2,14 @@
 //!
 //! 测试 Governor 与各种限流器的集成，验证完整决策流程和多限流器协作。
 
-use crate::common::{
-    create_governor, create_test_request, MockBanStorage, MockQuotaStorage, RequestContextBuilder,
+use crate::common::{create_governor, MockBanStorage, MockQuotaStorage, RequestContextBuilder};
+use limiteron::config::{
+    Action, ActionConfig, CacheBackend, FlowControlConfig, LimiterConfig,
+    MetricsBackend, ConfigMatcher as Matcher, Rule, StorageType,
 };
-use limiteron::config::{Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
 use limiteron::error::Decision;
 use limiteron::limiters::Limiter;
-use limiteron::storage_trait::{BanStorage, Storage};
+use limiteron::storage::{BanStorage, Storage};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,9 +18,9 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
     let config = FlowControlConfig {
         version: "1.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
@@ -41,17 +42,13 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
     let ban_storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
 
     let governor = Arc::new(
-        limiteron::Governor::new(
-            config,
-            storage,
-            ban_storage,
-            #[cfg(feature = "monitoring")]
-            None,
-            #[cfg(feature = "telemetry")]
-            None,
-        )
-        .await
-        .expect("Failed to create governor"),
+        limiteron::Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Failed to create governor"),
     );
 
     // 禁用 L1 缓存以确保限流器状态正确更新

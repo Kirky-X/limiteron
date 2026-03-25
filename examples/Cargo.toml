@@ -23,7 +23,6 @@ path = "src/bin/simple_rate_limit.rs"
 [[bin]]
 name = "macro_usage"
 path = "src/bin/macro_usage.rs"
-required-features = ["macros"]
 
 [[bin]]
 name = "rate_limiters"
@@ -51,6 +50,8 @@ circuit-breaker = ["limiteron/circuit-breaker"]
 quota-control = ["limiteron/quota-control"]
 ban-manager = ["limiteron/ban-manager"]
 full = ["macros", "circuit-breaker", "quota-control", "ban-manager"]
+telemetry = ["limiteron/telemetry"]
+monitoring = ["limiteron/monitoring"]
 
 [dev-dependencies]
 tokio-test = "0.4"

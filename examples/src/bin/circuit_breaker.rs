@@ -7,7 +7,7 @@
 //!
 //! Run: cargo run --bin circuit_breaker --features circuit-breaker
 
-use limiteron::circuit_breaker::CircuitBreaker;
+use limiteron::circuit::CircuitBreaker;
 use limiteron::error::FlowGuardError;
 use std::time::Duration;
 
@@ -38,7 +38,7 @@ async fn demo_basic_operations() -> Result<(), FlowGuardError> {
     println!("Is closed: {}", breaker.is_closed().await);
     println!("Is open: {}\n", breaker.is_open().await);
 
-    let success = breaker.execute(|| async { Ok::<(), FlowGuardError>(()) }).await;
+    let success: Result<(), FlowGuardError> = breaker.execute(|| async { Ok::<(), FlowGuardError>(()) }).await;
     println!("Execute success operation: {:?}", success.is_ok());
 
     let stats = breaker.get_stats().await;
@@ -108,7 +108,7 @@ async fn demo_recovery() -> Result<(), FlowGuardError> {
     tokio::time::sleep(Duration::from_millis(120)).await;
 
     println!("\nProbing with success operation...");
-    let result = breaker.execute(success_operation).await;
+    let result: Result<(), FlowGuardError> = breaker.execute(success_operation).await;
     println!("Probe result: {:?}", result.is_ok());
 
     let stats = breaker.get_stats().await;

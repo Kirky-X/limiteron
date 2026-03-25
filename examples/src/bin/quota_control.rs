@@ -8,11 +8,10 @@
 //! Run: cargo run --bin quota_control --features quota-control
 
 use limiteron::error::FlowGuardError;
-use limiteron::quota_controller::{AlertChannel, AlertConfig, QuotaConfig, QuotaController, QuotaType};
-use limiteron::storage_trait::QuotaStorage;
+use limiteron::quota::{AlertChannel, AlertConfig, QuotaConfig, QuotaController, QuotaType};
+use limiteron::QuotaStorage;
 use limiteron_examples::MemoryQuotaStorage;
 use std::sync::Arc;
-use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), FlowGuardError> {

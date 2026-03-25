@@ -1243,11 +1243,17 @@ mod tests {
         let condition = DeviceCondition::device_types(vec![DeviceType::Mobile]);
 
         let user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)";
-        let matched = matcher.matches_user_agent(user_agent, &condition).await.unwrap();
+        let matched = matcher
+            .matches_user_agent(user_agent, &condition)
+            .await
+            .unwrap();
         assert!(matched);
 
         let user_agent2 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
-        let matched2 = matcher.matches_user_agent(user_agent2, &condition).await.unwrap();
+        let matched2 = matcher
+            .matches_user_agent(user_agent2, &condition)
+            .await
+            .unwrap();
         assert!(!matched2);
     }
 }

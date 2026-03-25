@@ -8,9 +8,9 @@
 //! 使用 `FuturesUnordered` 实现真正的并行提前退出机制。
 //! 需要同时启用 `ban-manager` 和 `parallel-checker` feature。
 
+use super::BanTarget;
 use crate::error::{BanInfo, FlowGuardError};
 use crate::matchers::RequestContext;
-use super::BanTarget;
 use futures::stream::{FuturesUnordered, StreamExt};
 use log::debug;
 use std::sync::Arc;

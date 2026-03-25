@@ -4,8 +4,7 @@
 
 use limiteron::config::{
     Action, ActionConfig, CacheBackend, ChangeSource, ConfigBuilder, ConfigChangeRecord,
-    ConfigHistory, FlowControlConfig, LimiterConfig, Matcher, MetricsBackend, Rule,
-    StorageType,
+    ConfigHistory, FlowControlConfig, LimiterConfig, Matcher, MetricsBackend, Rule, StorageType,
 };
 
 // ============================================================================
@@ -986,10 +985,7 @@ async fn test_global_config_validation_valid_types() {
             metrics,
             trusted_proxies: Default::default(),
         };
-        assert!(
-            global.validate().is_ok(),
-            "有效配置应校验通过"
-        );
+        assert!(global.validate().is_ok(), "有效配置应校验通过");
     }
 }
 
@@ -1001,9 +997,21 @@ async fn test_global_config_validation_valid_types() {
 async fn test_global_config_various_type_combinations() {
     // 由于类型系统保证，所有这些都是有效的
     let valid_combos = vec![
-        (StorageType::Memory, CacheBackend::Memory, MetricsBackend::Prometheus),
-        (StorageType::PostgreSQL, CacheBackend::Redis, MetricsBackend::Prometheus),
-        (StorageType::Redis, CacheBackend::None, MetricsBackend::Statsd),
+        (
+            StorageType::Memory,
+            CacheBackend::Memory,
+            MetricsBackend::Prometheus,
+        ),
+        (
+            StorageType::PostgreSQL,
+            CacheBackend::Redis,
+            MetricsBackend::Prometheus,
+        ),
+        (
+            StorageType::Redis,
+            CacheBackend::None,
+            MetricsBackend::Statsd,
+        ),
     ];
 
     for (storage, cache, metrics) in valid_combos {
@@ -1013,10 +1021,7 @@ async fn test_global_config_various_type_combinations() {
             metrics,
             trusted_proxies: Default::default(),
         };
-        assert!(
-            global.validate().is_ok(),
-            "有效组合应通过验证"
-        );
+        assert!(global.validate().is_ok(), "有效组合应通过验证");
     }
 }
 

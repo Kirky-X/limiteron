@@ -150,10 +150,7 @@ impl RuleBuilder {
                     } => {
                         let duration = Self::parse_duration(window_size)?;
                         (
-                            Arc::new(ShardedSlidingWindowLimiter::new(
-                                duration,
-                                *max_requests,
-                            )),
+                            Arc::new(ShardedSlidingWindowLimiter::new(duration, *max_requests)),
                             "SlidingWindow",
                         )
                     }

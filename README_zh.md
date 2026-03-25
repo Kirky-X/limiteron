@@ -8,6 +8,9 @@
   <img src="https://img.shields.io/badge/version-0.1.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust Version">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License">
+  <a href="https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml"><img src="https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://codecov.io/gh/Kirky-X/limiteron"><img src="https://codecov.io/gh/Kirky-X/limiteron/branch/main/graph/badge.svg?token=limiteron" alt="Coverage"></a>
+  <a href="https://github.com/Kirky-X/limiteron/actions/workflows/benchmark.yml"><img src="https://github.com/Kirky-X/limiteron/actions/workflows/benchmark.yml/badge.svg" alt="Benchmarks"></a>
   <img src="https://github.com/Kirky-X/limiteron/workflows/CI/badge.svg" alt="Build">
   <img src="https://img.shields.io/github/stars/Kirky-X/limiteron?style=social" alt="GitHub Stars">
   <img src="https://img.shields.io/github/forks/Kirky-X/limiteron?style=social" alt="GitHub Forks">
@@ -16,15 +19,15 @@
 </p>
 
 <p align="center">
-  <strong>Rust 统一流控框架</strong>
+  <strong>Rust 统一流量控制框架</strong>
 </p>
 
 <p align="center">
-  <a href="#-features">特性</a> •
-  <a href="#-quick-start">快速开始</a> •
-  <a href="#-documentation">文档</a> •
-  <a href="#-examples">示例</a> •
-  <a href="#-contributing">贡献</a>
+  <a href="#-特性">特性</a> •
+  <a href="#-快速开始">快速开始</a> •
+  <a href="#-文档">文档</a> •
+  <a href="#-示例">示例</a> •
+  <a href="#-贡献">贡献</a>
 </p>
 
 </div>
@@ -40,14 +43,14 @@
 - [🎯 使用场景](#🎯-使用场景)
 - [🚀 快速开始](#🚀-快速开始)
   - [安装](#安装)
-  - [基础用法](#基础用法)
+  - [基本用法](#基本用法)
 - [📚 文档](#📚-文档)
 - [🎨 示例](#🎨-示例)
 - [🏗️ 架构](#🏗️-架构)
 - [⚙️ 配置](#⚙️-配置)
 - [🧪 测试](#🧪-测试)
 - [📊 性能](#📊-性能)
-- [🔒 安全性](#🔒-安全性)
+- [🔒 安全](#🔒-安全)
 - [🗺️ 路线图](#🗺️-路线图)
 - [🤝 贡献](#🤝-贡献)
 - [📄 许可证](#📄-许可证)
@@ -66,7 +69,7 @@
 ### 🎯 核心特性
 
 - ✅ **多种限流算法** - 令牌桶、固定窗口、滑动窗口、并发控制
-- ✅ **封禁管理** - IP封禁、自动封禁、封禁优先级
+- ✅ **封禁管理** - IP 封禁、自动封禁、封禁优先级
 - ✅ **配额控制** - 配额分配、配额预警、配额透支
 - ✅ **熔断器** - 自动故障转移、状态恢复、降级策略
 
@@ -75,10 +78,10 @@
 
 ### ⚡ 高级特性
 
-- 🚀 **高性能** - 延迟 < 200μs P99
-- 🔐 **安全可靠** - 内存安全、SQL注入防护
-- 🌐 **多存储支持** - PostgreSQL、Redis、内存存储
-- 📦 **易于使用** - 宏支持、简洁API
+- 🚀 **高性能** - P99 延迟 < 200μs
+- 🔐 **安全可靠** - 内存安全、SQL 注入防护
+- 🌐 **多存储支持** - 通过 DBNexus 支持 PostgreSQL、内存存储；支持 Redis 存储
+- 📦 **易于使用** - 宏支持、简洁 API
 
 </td>
 </tr>
@@ -123,7 +126,7 @@ graph LR
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 
 async fn enterprise_api() -> Result<(), Box<dyn std::error::Error>> {
-    let limiter = TokenBucketLimiter::new(100, 10); // 100个令牌,每秒补充10个
+    let limiter = TokenBucketLimiter::new(100, 10); // 100 个令牌，每秒补充 10 个
 
     // 限流检查
     match limiter.allow(1).await {
@@ -132,7 +135,7 @@ async fn enterprise_api() -> Result<(), Box<dyn std::error::Error>> {
             process_request().await;
         }
         Ok(false) => {
-            eprintln!("超过限流阈值");
+            eprintln!("超出限流限制");
         }
         Err(e) => {
             eprintln!("错误: {:?}", e);
@@ -143,7 +146,7 @@ async fn enterprise_api() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn process_request() {
-    println!("处理请求中...");
+    println!("处理请求...");
 }
 ```
 
@@ -152,7 +155,7 @@ async fn process_request() {
 </details>
 
 <details>
-<summary><b>🔧 API服务</b></summary>
+<summary><b>🔧 API 服务</b></summary>
 
 <br>
 
@@ -161,26 +164,55 @@ use limiteron::flow_control;
 
 #[flow_control(rate = "100/s", quota = "10000/m", concurrency = 50)]
 async fn api_handler(user_id: &str) -> Result<String, limiteron::error::FlowGuardError> {
-    // API业务逻辑
-    Ok("成功".to_string())
+    // API 业务逻辑
+    Ok(format!("处理用户 {} 的请求", user_id))
 }
 ```
 
-适用于保护API服务免受滥用和DDoS攻击。
+适用于保护 API 服务免受滥用和 DDoS 攻击。
 
 </details>
 
 <details>
-<summary><b>🌐 Web应用</b></summary>
+<summary><b>🌐 Web 应用</b></summary>
 
 <br>
+
+```rust
+use limiteron::ban_manager::{BanManager, BanManagerConfig, BanTarget};
+use limiteron::adapters::StorageFactory;
+use std::sync::Arc;
+
+async fn web_app() -> Result<(), Box<dyn std::error::Error>> {
+    // 使用 DBNexus 工厂创建存储
+    let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+    factory.initialize(None).await?;
+    let ban_storage = factory.create_ban_storage().await?;
+    let ban_manager = BanManager::with_dependencies(ban_storage, BanManagerConfig::default()).await?;
+
+    // 检查用户是否被封禁
+    let user_target = BanTarget::UserId("user123".to_string());
+    if let Some(ban_detail) = ban_manager.is_banned(&user_target).await? {
+        println!("用户已被封禁: {}", ban_detail.reason);
+        return Err("用户已被封禁".into());
+    }
+
+    // 处理请求
+    println!("处理 user123 的请求");
+    Ok(())
+}
+```
+
+适用于需要防止恶意用户和爬虫的 Web 应用。
+
+**或者使用 Mock 存储进行测试：**
 
 ```rust
 use limiteron::ban_manager::{BanManager, BanTarget};
 use limiteron::storage::MockBanStorage;
 use std::sync::Arc;
 
-async fn web_app() -> Result<(), Box<dyn std::error::Error>> {
+async fn web_app_test() -> Result<(), Box<dyn std::error::Error>> {
     // 创建存储和封禁管理器
     let storage = Arc::new(MockBanStorage::default());
     let ban_manager = BanManager::new(storage, None).await?;
@@ -193,12 +225,10 @@ async fn web_app() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 处理请求
-    println!("处理user123的请求");
+    println!("处理 user123 的请求");
     Ok(())
 }
 ```
-
-适用于需要防止恶意用户和爬虫的Web应用。
 
 </details>
 
@@ -222,7 +252,7 @@ limiteron = { version = "0.1", features = ["macros"] }
 </td>
 <td width="50%">
 
-#### 🔧 特性
+#### 🔧 特性配置
 
 ```toml
 [dependencies]
@@ -241,7 +271,7 @@ limiteron = { version = "0.1", features = ["postgres", "redis", "macros"] }
 
 </div>
 
-Limiteron 使用特性标志来控制功能启用，默认只启用内存存储：
+Limiteron 使用 feature flags 来控制功能启用，默认只启用内存存储：
 
 <table>
 <tr>
@@ -286,22 +316,31 @@ limiteron = { version = "0.1", features = ["macros"] }
 | 特性 | 描述 | 默认 |
 |------|------|------|
 | `memory` | 内存存储 | ✅ |
-| `postgres` | PostgreSQL 存储 | ❌ |
+| `postgres` | PostgreSQL 存储（DBNexus） | ❌ |
 | `redis` | Redis 存储 | ❌ |
 | `ban-manager` | 封禁管理 | ❌ |
 | `quota-control` | 配额控制 | ❌ |
 | `circuit-breaker` | 熔断器 | ❌ |
+| `cache-service` | 统一缓存服务（支持 DI） | ❌ |
 | `macros` | 宏支持 | ❌ |
 | `telemetry` | 遥测和追踪 | ❌ |
 | `monitoring` | Prometheus 指标 | ❌ |
+| `confers` | 配置加载支持 | ✅ |
+| `config-watcher` | 配置热更新 | ❌ |
+| `config-security` | 配置安全验证 | ❌ |
+| `fallback` | 降级策略 | ❌ |
+| `audit-log` | 审计日志 | ❌ |
+| `parallel-checker` | 并行封禁检查 | ❌ |
+| `geo-matching` | 地理位置匹配 | ❌ |
+| `device-matching` | 设备信息匹配 | ❌ |
 
 </details>
 
-### 基础用法
+### 基本用法
 
 <div align="center">
 
-#### 🎬 5分钟快速入门
+#### 🎬 5 分钟快速开始
 
 </div>
 
@@ -309,7 +348,7 @@ limiteron = { version = "0.1", features = ["macros"] }
 <tr>
 <td width="50%">
 
-**步骤1: 添加依赖**
+**步骤 1: 添加依赖**
 
 ```toml
 [dependencies]
@@ -319,7 +358,7 @@ limiteron = { version = "0.1", features = ["macros"] }
 </td>
 <td width="50%">
 
-**步骤2: 使用宏**
+**步骤 2: 使用宏**
 
 ```rust
 use limiteron::flow_control;
@@ -344,20 +383,20 @@ use limiteron::limiters::{Limiter, TokenBucketLimiter};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 步骤1: 创建限流器
-    let limiter = TokenBucketLimiter::new(10, 1); // 10个令牌,每秒补充1个
+    // 步骤 1: 创建限流器
+    let limiter = TokenBucketLimiter::new(10, 1); // 10 个令牌，每秒补充 1 个
 
-    // 步骤2: 检查限流
+    // 步骤 2: 检查限流
     match limiter.allow(1).await {
         Ok(true) => println!("✅ 请求允许"),
         Ok(false) => println!("❌ 请求被限流"),
         Err(e) => println!("❌ 错误: {:?}", e),
     }
 
-    // 步骤3: 使用成本
+    // 步骤 3: 使用成本
     match limiter.allow(2).await {
-        Ok(true) => println!("✅ 成本为2的请求允许"),
-        Ok(false) => println!("❌ 成本为2的请求被限流"),
+        Ok(true) => println!("✅ 成本为 2 的请求允许"),
+        Ok(false) => println!("❌ 成本为 2 的请求被限流"),
         Err(e) => println!("❌ 错误: {:?}", e),
     }
 
@@ -385,10 +424,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 <td align="center" width="25%">
 <a href="docs/API_REFERENCE.md">
 <img src="https://img.icons8.com/fluency/96/000000/api.png" width="64" height="64"><br>
-<b>API参考</b>
+<b>API 参考</b>
 </a><br>
-完整API文档
- </td>
+完整 API 文档
+</td>
 <td align="center" width="25%">
 <a href="docs/FAQ.md">
 <img src="https://img.icons8.com/fluency/96/000000/question.png" width="64" height="64"><br>
@@ -411,7 +450,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### 📖 更多资源
 
 - 🎓 [用户指南](docs/USER_GUIDE.md) - 详细教程
-- 🔧 [API参考](docs/API_REFERENCE.md) - API文档
+- 🔧 [API 参考](docs/API_REFERENCE.md) - API 文档
 - ❓ [常见问题](docs/FAQ.md) - 常见问题解答
 - 🐛 [故障排除](docs/FAQ.md#troubleshooting) - 常见问题和解决方案
 
@@ -429,7 +468,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 <tr>
 <td width="50%">
 
-#### 📝 示例1: 基础限流
+#### 📝 示例 1: 基础限流
 
 ```rust
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
@@ -461,7 +500,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 请求 10 ❌
 ...
 请求 14 ❌
-✅ 前10个请求允许,其余被限流
+✅ 前 10 个请求允许，其余被限流
 ```
 
 </details>
@@ -469,14 +508,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 </td>
 <td width="50%">
 
-#### 🔥 示例2: 使用宏
+#### 🔥 示例 2: 使用宏
 
 ```rust
 use limiteron::flow_control;
 
 #[flow_control(rate = "100/s", quota = "10000/m", concurrency = 50)]
 async fn api_handler(user_id: &str) -> Result<String, Box<dyn std::error::Error>> {
-    // API业务逻辑
+    // API 业务逻辑
     Ok(format!("处理用户 {} 的请求", user_id))
 }
 
@@ -520,7 +559,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```mermaid
 graph TB
-    A[用户应用] --> B[API层]
+    A[用户应用] --> B[API 层]
     B --> C[Governor]
     C --> D[标识符提取]
     C --> E[决策链]
@@ -529,13 +568,13 @@ graph TB
     E --> H[封禁管理]
     E --> I[配额控制]
     E --> J[熔断器]
-    G --> K[L2/L3缓存]
+    G --> K[L2/L3 缓存]
     H --> K
     I --> K
     K --> L[存储层]
-    L --> M[PostgreSQL]
+    L --> M[PostgreSQL via DBNexus]
     L --> N[Redis]
-    L --> O[内存]
+    L --> O[内存存储]
 
     style A fill:#e1f5ff
     style B fill:#b3e5fc
@@ -560,15 +599,15 @@ graph TB
 <br>
 
 | 组件 | 描述 | 状态 |
-|-----------|-------------|--------|
-| **Governor** | 主控制器,端到端流控 | ✅ 稳定 |
-| **Matchers** | 标识符提取(IP、用户ID、设备ID等) | ✅ 稳定 |
+|------|------|------|
+| **Governor** | 主控制器，端到端流量控制 | ✅ 稳定 |
+| **Matchers** | 标识符提取（IP、用户 ID、设备 ID 等） | ✅ 稳定 |
 | **Limiters** | 多种限流算法 | ✅ 稳定 |
-| **Ban Management** | IP封禁、自动封禁 | ✅ 稳定 |
-| **Quota Control** | 配额分配、配额预警 | ✅ 稳定 |
-| **Circuit Breaker** | 自动故障转移、状态恢复 | ✅ 稳定 |
-| **Cache** | L2/L3缓存支持 | ✅ 稳定 |
-| **Storage Layer** | PostgreSQL、Redis、内存 | ✅ 稳定 |
+| **封禁管理** | IP 封禁、自动封禁 | ✅ 稳定 |
+| **配额控制** | 配额分配、配额预警 | ✅ 稳定 |
+| **熔断器** | 自动故障转移、状态恢复 | ✅ 稳定 |
+| **缓存** | L2/L3 缓存支持 | ✅ 稳定 |
+| **存储层** | PostgreSQL via DBNexus、Redis、内存 | ✅ 稳定 |
 
 </details>
 
@@ -582,41 +621,59 @@ graph TB
 
 </div>
 
+Limiteron 使用 TOML 格式的配置文件（`config.toml`），支持环境变量覆盖。
+
 <table>
 <tr>
 <td width="50%">
 
-**基础配置**
+**TOML 配置 (config.toml)**
 
 ```toml
-[limiter]
-rate_limit = "100/s"
-quota_limit = "10000/m"
-concurrency_limit = 50
+version = "1.0"
 
-[cache]
-l2_capacity = 10000
-l3_capacity = 100000
+[global]
+storage = "memory"
+cache = "memory"
+metrics = "prometheus"
+
+[[rules]]
+id = "api_rate_limit"
+name = "API Rate Limit"
+priority = 100
+
+[rules.matchers]
+type = "User"
+user_ids = ["*"]
+
+[[rules.limiters]]
+type = "TokenBucket"
+capacity = 1000
+refill_rate = 100
+
+[rules.action]
+on_exceed = "reject"
 ```
 
 </td>
 <td width="50%">
 
-**高级配置**
+**环境变量覆盖**
 
-```toml
-[limiter]
-rate_limit = "100/s"
-quota_limit = "10000/m"
-concurrency_limit = 50
+```bash
+# 覆盖全局存储
+export LIMITERON_GLOBAL_STORAGE=redis
 
-[storage]
-type = "redis"
-connection_string = "redis://localhost:6379"
+# 覆盖限流器容量
+export LIMITERON_RULES_0_LIMITERS_0_CAPACITY=2000
+```
 
-[telemetry]
-enable_metrics = true
-enable_tracing = true
+**加载配置**
+
+```rust
+use limiteron::ConfigLoader;
+
+let config = ConfigLoader::load_from_file("config.toml")?;
 ```
 
 </td>
@@ -629,35 +686,74 @@ enable_tracing = true
 <br>
 
 | 选项 | 类型 | 默认值 | 描述 |
-|--------|------|---------|-------------|
+|------|------|--------|------|
+| `version` | String | "0.1.0" | 配置版本 |
+| `global.storage` | String | "postgres" | 存储类型: postgres (通过 DBNexus) / redis / memory |
+| `global.cache` | String | "memory" | 缓存类型: memory/redis |
+| `global.metrics` | String | "prometheus" | 指标类型 |
+| `rules[].id` | String | - | 规则标识符 |
+| `rules[].name` | String | - | 规则名称 |
+| `rules[].priority` | u16 | 100 | 规则优先级 |
+| `rules[].limiters[].capacity` | u64 | - | 限流器容量 |
+| `rules[].limiters[].refill_rate` | u64 | - | 限流器补充速率 |
 | `rate_limit` | String | "100/s" | 速率限制 |
 | `quota_limit` | String | "10000/m" | 配额限制 |
 | `concurrency_limit` | Integer | 50 | 并发限制 |
-| `l2_capacity` | Integer | 10000 | L2缓存容量 |
-| `l3_capacity` | Integer | 100000 | L3缓存容量 |
-| `storage_type` | String | "memory" | 存储类型 |
+| `l2_capacity` | Integer | 10000 | L2 缓存容量 |
+| `l3_capacity` | Integer | 100000 | L3 缓存容量 |
 | `enable_metrics` | Boolean | false | 启用指标 |
 | `enable_tracing` | Boolean | false | 启用追踪 |
 
 </details>
 
+**ConfigBuilder（编程方式）**
+
+```rust
+use limiteron::ConfigBuilder;
+
+let config = ConfigBuilder::new()
+    .with_storage("memory")
+    .with_rule(|rule| {
+        rule.id("default")
+            .token_bucket(1000, 100)
+    })
+    .build()?;
+```
+
 ---
 
 ## <span id="🧪-测试">🧪 测试</span>
+
+**测试状态: 570 个测试全部通过 ✅**
+
+| 测试类型 | 测试数量 | 状态 |
+|---------|---------|------|
+| 单元测试 | 303 | ✅ 通过 |
+| 集成测试 | 161 | ✅ 通过 |
+| 文档测试 | 106 | ✅ 通过 |
 
 ```bash
 # 运行所有测试
 cargo test --all-features
 
+# 运行单元测试
+cargo test --lib
+
+# 运行集成测试（需要 Docker 服务）
+cargo test --test integration_tests -- --ignored
+
 # 运行特定测试
 cargo test test_name
 
-# 运行集成测试
-cargo test --test integration_tests
-
 # 运行基准测试
 cargo bench
+
+# 生成覆盖率报告
+cargo tarpaulin --out Html
 ```
+
+详细测试文档: [TESTING.md](./docs/TESTING.md)
+覆盖率报告: [COVERAGE_REPORT.md](./docs/COVERAGE_REPORT.md)
 
 ---
 
@@ -669,7 +765,7 @@ cargo bench
 
 </div>
 
-> **注意:** 以下数据为实际基准测试结果（2026-01-19）。
+> **注意:** 以下数据来自综合测试的实际基准测试结果 (2026-01-19)。
 
 <table>
 <tr>
@@ -678,10 +774,10 @@ cargo bench
 **吞吐量**
 
 | 限流器类型 | 实际 | 目标 | 达标率 |
-|-----------|------|------|--------|
-| TokenBucket | **1200万+ ops/s** | 50万 ops/s | ✅ 24倍 |
-| FixedWindow | **2000万+ ops/s** | 30万 ops/s | ✅ 66倍 |
-| ConcurrencyLimiter | **1200万+ ops/s** | 20万 ops/s | ✅ 60倍 |
+|------------|------|------|--------|
+| TokenBucket | **12M+ ops/s** | 500K ops/s | ✅ 24x |
+| FixedWindow | **20M+ ops/s** | 300K ops/s | ✅ 66x |
+| ConcurrencyLimiter | **12M+ ops/s** | 200K ops/s | ✅ 60x |
 
 </td>
 <td width="50%">
@@ -700,8 +796,8 @@ cargo bench
 
 #### 并发测试结果
 
-| 测试项目 | 结果 | 状态 |
-|---------|------|------|
+| 测试项 | 结果 | 状态 |
+|--------|------|------|
 | 数据一致性 | 100% | ✅ 通过 |
 | 高并发稳定性 | 50/100 并发 | ✅ 通过 |
 | 限流正确性 | 1000/1000 | ✅ 通过 |
@@ -732,7 +828,7 @@ ConcurrencyLimiter: 11,891,237 ops/s
 
 ---
 
-## <span id="🔒-安全性">🔒 安全性</span>
+## <span id="🔒-安全">🔒 安全</span>
 
 <div align="center">
 
@@ -745,7 +841,7 @@ ConcurrencyLimiter: 11,891,237 ops/s
 <td align="center" width="25%">
 <img src="https://img.icons8.com/fluency/96/000000/lock.png" width="64" height="64"><br>
 <b>内存安全</b><br>
-Rust保证内存安全
+Rust 保证内存安全
 </td>
 <td align="center" width="25%">
 <img src="https://img.icons8.com/fluency/96/000000/security-checked.png" width="64" height="64"><br>
@@ -754,13 +850,13 @@ Rust保证内存安全
 </td>
 <td align="center" width="25%">
 <img src="https://img.icons8.com/fluency/96/000000/privacy.png" width="64" height="64"><br>
-<b>SQL注入防护</b><br>
+<b>SQL 注入防护</b><br>
 参数化查询
 </td>
 <td align="center" width="25%">
 <img src="https://img.icons8.com/fluency/96/000000/shield.png" width="64" height="64"><br>
 <b>密码保护</b><br>
-安全密码存储
+安全的密码存储
 </td>
 </tr>
 </table>
@@ -772,15 +868,15 @@ Rust保证内存安全
 
 ### 安全措施
 
-- ✅ **内存保护** - Rust内存安全保证
-- ✅ **输入验证** - IP地址、用户ID、MAC地址验证
-- ✅ **SQL注入防护** - 使用参数化查询
-- ✅ **密码保护** - 使用secrecy库处理敏感数据
+- ✅ **内存保护** - Rust 内存安全保证
+- ✅ **输入验证** - IP 地址、用户 ID、MAC 地址验证
+- ✅ **SQL 注入防护** - 使用参数化查询
+- ✅ **密码保护** - 使用 secrecy 库处理敏感数据
 - ✅ **审计日志** - 完整的操作跟踪
 
 ### 报告安全问题
 
-请通过GitHub Issues报告安全漏洞。
+请通过 GitHub Issues 报告安全漏洞。
 
 </details>
 
@@ -798,13 +894,13 @@ Rust保证内存安全
 gantt
     title Limiteron 路线图
     dateFormat  YYYY-MM
-    section 阶段1
+    section 第一阶段
     核心功能           :done, 2026-01, 2026-03
-    section 阶段2
+    section 第二阶段
     功能扩展      :active, 2026-03, 2026-06
-    section 阶段3
+    section 第三阶段
     性能优化 :2026-06, 2026-09
-    section 阶段4
+    section 第四阶段
     生产就绪        :2026-09, 2026-12
 ```
 
@@ -814,13 +910,14 @@ gantt
 
 ### ✅ 已完成
 
-- [x] 核心限流功能
+- [x] 核心限流
 - [x] 封禁管理
 - [x] 配额控制
 - [x] 熔断器
 - [x] 单元和集成测试
 - [x] 宏支持
-- [x] PostgreSQL和Redis存储
+- [x] 通过 DBNexus 支持 PostgreSQL 存储
+- [x] Redis 存储
 
 </td>
 <td width="50%">
@@ -839,10 +936,12 @@ gantt
 
 ### 📋 计划中
 
-- [ ] Lua脚本增强
+- [ ] 通过 DBNexus 支持 MySQL 存储
+- [ ] 通过 DBNexus 支持 SQLite 存储
+- [ ] Lua 脚本增强
 - [ ] 自定义匹配器扩展
-- [ ] 额外的存储后端
-- [ ] Web UI管理界面
+- [ ] 更多存储后端
+- [ ] Web UI 管理界面
 
 </td>
 <td width="50%">
@@ -851,7 +950,7 @@ gantt
 
 - [ ] 分布式限流
 - [ ] 机器学习驱动的限流
-- [ ] 额外的限流算法
+- [ ] 更多限流算法
 - [ ] 社区插件系统
 
 </td>
@@ -864,7 +963,7 @@ gantt
 
 <div align="center">
 
-### 💖 欢迎贡献!
+### 💖 欢迎贡献！
 
 </div>
 
@@ -874,15 +973,15 @@ gantt
 
 ### 🐛 报告问题
 
-发现bug?<br>
-[创建Issue](../../issues)
+发现 Bug？<br>
+[创建 Issue](../../issues)
 
 </td>
 <td width="33%" align="center">
 
 ### 💡 功能建议
 
-有建议?<br>
+有建议？<br>
 [开始讨论](../../discussions)
 
 </td>
@@ -890,7 +989,7 @@ gantt
 
 ### 🔧 提交代码
 
-想贡献?<br>
+想贡献？<br>
 [Fork & PR](../../pulls)
 
 </td>
@@ -905,17 +1004,17 @@ gantt
 ### 如何贡献
 
 1. **Fork** 仓库
-2. **克隆** 你的fork: `git clone https://github.com/yourusername/limiteron.git`
-3. **创建** 分支: `git checkout -b feature/amazing-feature`
-4. **进行** 你的更改
-5. **测试** 你的更改: `cargo test --all-features`
-6. **提交** 你的更改: `git commit -m 'Add amazing feature'`
-7. **推送** 到分支: `git push origin feature/amazing-feature`
-8. **创建** Pull Request
+2. **Clone** 你的 fork: `git clone https://github.com/yourusername/limiteron.git`
+3. **Create** 分支: `git checkout -b feature/amazing-feature`
+4. **Make** 你的更改
+5. **Test** 你的更改: `cargo test --all-features`
+6. **Commit** 你的更改: `git commit -m 'Add amazing feature'`
+7. **Push** 到分支: `git push origin feature/amazing-feature`
+8. **Create** Pull Request
 
 ### 代码风格
 
-- 遵循Rust标准编码规范
+- 遵循 Rust 标准编码约定
 - 编写全面的测试
 - 更新文档
 - 为新功能添加示例
@@ -928,7 +1027,7 @@ gantt
 
 <div align="center">
 
-本项目采用Apache 2.0许可证:
+本项目采用 Apache 2.0 许可证:
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
@@ -940,7 +1039,7 @@ gantt
 
 <div align="center">
 
-### 基于优秀的工具构建
+### 使用优秀工具构建
 
 </div>
 
@@ -971,19 +1070,20 @@ gantt
 
 ### 特别感谢
 
-- 🌟 **依赖项** - 基于这些优秀的项目构建:
+- 🌟 **依赖** - 基于这些优秀项目构建:
   - [tokio](https://tokio.rs/) - 异步运行时
-  - [sqlx](https://github.com/launchbadge/sqlx) - 异步SQL工具包
-  - [redis](https://github.com/redis-rs/redis-rs) - Redis客户端
-  - [dashmap](https://github.com/xacrimon/dashmap) - 并发HashMap
-  - [lru](https://github.com/jeromefroe/lru-rs) - LRU缓存
+  - [sqlx](https://github.com/launchbadge/sqlx) - 异步 SQL 工具包
+  - [dbnexus](https://github.com/) - 数据库抽象层
+  - [redis](https://github.com/redis-rs/redis-rs) - Redis 客户端
+  - [dashmap](https://github.com/xacrimon/dashmap) - 并发 HashMap
+  - [lru](https://github.com/jeromefroe/lru-rs) - LRU 缓存
 
-- 👥 **贡献者** - 感谢所有贡献者!
+- 👥 **贡献者** - 感谢所有贡献者！
 - 💬 **社区** - 特别感谢社区成员
 
 ---
 
-## 📞 联系和支持
+## 📞 联系与支持
 
 <div align="center">
 
@@ -992,9 +1092,9 @@ gantt
 <td align="center" width="33%">
 <a href="../../issues">
 <img src="https://img.icons8.com/fluency/96/000000/bug.png" width="48" height="48"><br>
-<b>问题</b>
+<b>Issues</b>
 </a><br>
-报告bug和错误
+报告 Bug 和错误
 </td>
 <td align="center" width="33%">
 <a href="../../discussions">
@@ -1035,7 +1135,7 @@ gantt
 
 ### 💝 支持本项目
 
-如果你觉得这个项目有用,请考虑给它一个 ⭐️!
+如果你觉得这个项目有用，请考虑给它一个 ⭐️！
 
 **由 Kirky.X 用 ❤️ 构建**
 

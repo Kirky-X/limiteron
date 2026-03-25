@@ -7,11 +7,11 @@
 //! 实现实时监控、性能指标收集和智能告警功能。
 
 use super::Tracer;
+use log::{debug, error, info, warn};
 use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicBool};
 use std::time::{Duration, Instant};
-use log::{debug, info, warn, error};
 
 /// 告警级别
 #[derive(Debug, Clone, PartialEq)]
@@ -301,23 +301,45 @@ impl PerformanceMetrics {
 
     /// 获取指标快照
     pub fn snapshot(&self) -> MetricsSnapshot {
-        let total = self.total_requests.load(std::sync::atomic::Ordering::Relaxed);
-        let failed = self.failed_requests.load(std::sync::atomic::Ordering::Relaxed);
+        let total = self
+            .total_requests
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let failed = self
+            .failed_requests
+            .load(std::sync::atomic::Ordering::Relaxed);
         let cpu_usage = self.system_sampler.lock().read_cpu_usage();
         let memory_usage = read_memory_usage();
 
         MetricsSnapshot {
             total_requests: total,
-            successful_requests: self.successful_requests.load(std::sync::atomic::Ordering::Relaxed),
+            successful_requests: self
+                .successful_requests
+                .load(std::sync::atomic::Ordering::Relaxed),
             failed_requests: failed,
-            avg_latency_ms: self.avg_latency_ms.load(std::sync::atomic::Ordering::Relaxed),
-            p95_latency_ms: self.p95_latency_ms.load(std::sync::atomic::Ordering::Relaxed),
-            p99_latency_ms: self.p99_latency_ms.load(std::sync::atomic::Ordering::Relaxed),
-            concurrent_requests: self.concurrent_requests.load(std::sync::atomic::Ordering::Relaxed),
+            avg_latency_ms: self
+                .avg_latency_ms
+                .load(std::sync::atomic::Ordering::Relaxed),
+            p95_latency_ms: self
+                .p95_latency_ms
+                .load(std::sync::atomic::Ordering::Relaxed),
+            p99_latency_ms: self
+                .p99_latency_ms
+                .load(std::sync::atomic::Ordering::Relaxed),
+            concurrent_requests: self
+                .concurrent_requests
+                .load(std::sync::atomic::Ordering::Relaxed),
             cache_hit_rate: self.cache_hit_rate,
-            circuit_breaker_trips: self.circuit_breaker_trips.load(std::sync::atomic::Ordering::Relaxed),
-            active_connections: self.active_connections.load(std::sync::atomic::Ordering::Relaxed),
-            error_rate: if total > 0 { failed as f64 / total as f64 } else { 0.0 },
+            circuit_breaker_trips: self
+                .circuit_breaker_trips
+                .load(std::sync::atomic::Ordering::Relaxed),
+            active_connections: self
+                .active_connections
+                .load(std::sync::atomic::Ordering::Relaxed),
+            error_rate: if total > 0 {
+                failed as f64 / total as f64
+            } else {
+                0.0
+            },
             cpu_usage,
             memory_usage,
         }
@@ -375,8 +397,12 @@ impl MonitoringSystem {
     pub fn record_request_success(&self, timer: RequestTimer) -> Duration {
         let request_id = timer.request_id.clone();
         let latency = timer.finish();
-        self.metrics.successful_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.metrics.total_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.metrics
+            .successful_requests
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.metrics
+            .total_requests
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.update_latency_stats(latency.as_millis() as u64);
 
         debug!("请求成功: {}，延迟: {}ms", request_id, latency.as_millis());
@@ -385,17 +411,26 @@ impl MonitoringSystem {
 
     /// 记录请求失败
     pub fn record_request_failure(&self, timer: RequestTimer) {
-        self.metrics.failed_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.metrics.total_requests.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.metrics
+            .failed_requests
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.metrics
+            .total_requests
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         debug!("请求失败: {}", timer.request_id);
     }
 
     /// 更新延迟统计
     fn update_latency_stats(&self, latency_ms: u64) {
-        let current_avg = self.metrics.avg_latency_ms.load(std::sync::atomic::Ordering::Relaxed);
+        let current_avg = self
+            .metrics
+            .avg_latency_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
         let new_avg = ((current_avg * 9) + latency_ms) / 10;
-        self.metrics.avg_latency_ms.store(new_avg, std::sync::atomic::Ordering::Relaxed);
+        self.metrics
+            .avg_latency_ms
+            .store(new_avg, std::sync::atomic::Ordering::Relaxed);
 
         // 添加延迟样本
         {
@@ -406,13 +441,22 @@ impl MonitoringSystem {
             let p95 = samples.p95();
             let p99 = samples.p99();
 
-            self.metrics.p95_latency_ms.store(p95, std::sync::atomic::Ordering::Relaxed);
-            self.metrics.p99_latency_ms.store(p99, std::sync::atomic::Ordering::Relaxed);
+            self.metrics
+                .p95_latency_ms
+                .store(p95, std::sync::atomic::Ordering::Relaxed);
+            self.metrics
+                .p99_latency_ms
+                .store(p99, std::sync::atomic::Ordering::Relaxed);
         }
 
-        debug!("更新延迟统计: P95={}ms, P99={}ms",
-            self.metrics.p95_latency_ms.load(std::sync::atomic::Ordering::Relaxed),
-            self.metrics.p99_latency_ms.load(std::sync::atomic::Ordering::Relaxed)
+        debug!(
+            "更新延迟统计: P95={}ms, P99={}ms",
+            self.metrics
+                .p95_latency_ms
+                .load(std::sync::atomic::Ordering::Relaxed),
+            self.metrics
+                .p99_latency_ms
+                .load(std::sync::atomic::Ordering::Relaxed)
         );
     }
 
@@ -428,9 +472,7 @@ impl MonitoringSystem {
             &self.alert_config.cpu_thresholds,
             true,
         );
-        if let Some(level) =
-            Self::apply_jitter(cpu_level, &mut state.cpu, &self.alert_config)
-        {
+        if let Some(level) = Self::apply_jitter(cpu_level, &mut state.cpu, &self.alert_config) {
             alerts.push(level);
         }
 
@@ -439,14 +481,15 @@ impl MonitoringSystem {
             &self.alert_config.memory_thresholds,
             true,
         );
-        if let Some(level) =
-            Self::apply_jitter(memory_level, &mut state.memory, &self.alert_config)
+        if let Some(level) = Self::apply_jitter(memory_level, &mut state.memory, &self.alert_config)
         {
             alerts.push(level);
         }
 
-        let latency_level =
-            Self::evaluate_threshold_u64(metrics.avg_latency_ms, &self.alert_config.latency_thresholds_ms);
+        let latency_level = Self::evaluate_threshold_u64(
+            metrics.avg_latency_ms,
+            &self.alert_config.latency_thresholds_ms,
+        );
         if let Some(level) =
             Self::apply_jitter(latency_level, &mut state.latency, &self.alert_config)
         {
@@ -491,8 +534,9 @@ impl MonitoringSystem {
         let cooldown_elapsed = now.duration_since(last_alert);
 
         let should_alert = alerts.iter().any(|level| {
-            matches!(level, AlertLevel::Critical) ||
-                (matches!(level, AlertLevel::Warning) && cooldown_elapsed >= self.alert_config.alert_cooldown)
+            matches!(level, AlertLevel::Critical)
+                || (matches!(level, AlertLevel::Warning)
+                    && cooldown_elapsed >= self.alert_config.alert_cooldown)
         });
 
         if !should_alert {
@@ -623,11 +667,7 @@ pub struct RequestTimer {
 }
 
 impl RequestTimer {
-    pub fn new(
-        request_id: String,
-        metrics: Arc<PerformanceMetrics>,
-        tracer: Arc<Tracer>,
-    ) -> Self {
+    pub fn new(request_id: String, metrics: Arc<PerformanceMetrics>, tracer: Arc<Tracer>) -> Self {
         Self {
             request_id,
             start_time: Instant::now(),

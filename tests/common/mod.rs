@@ -6,15 +6,16 @@ use limiteron::config::{
     Action, ActionConfig, CacheBackend, FlowControlConfig as GovernorConfig, LimiterConfig,
     Matcher, MetricsBackend, Rule, StorageType,
 };
-use rand::Rng;
 use limiteron::error::{ConsumeResult, StorageError};
 use limiteron::limiters::{
-    ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter,
+    ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
+    TokenBucketLimiter,
 };
 use limiteron::storage::{
     BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage,
 };
 use limiteron::Governor;
+use rand::Rng;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -707,7 +708,10 @@ pub fn create_token_bucket_limiter(capacity: u64, refill_rate: u64) -> TokenBuck
     TokenBucketLimiter::new(capacity, refill_rate)
 }
 
-pub fn create_sliding_window_limiter(window: Duration, max_requests: u64) -> ShardedSlidingWindowLimiter {
+pub fn create_sliding_window_limiter(
+    window: Duration,
+    max_requests: u64,
+) -> ShardedSlidingWindowLimiter {
     ShardedSlidingWindowLimiter::new(window, max_requests)
 }
 

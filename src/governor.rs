@@ -36,12 +36,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 // Conditional imports for optional features
-#[cfg(feature = "audit-log")]
-use crate::logging::AuditLogger;
 #[cfg(feature = "ban-manager")]
 use crate::ban::BanManager;
 #[cfg(feature = "circuit-breaker")]
 use crate::circuit::CircuitBreaker;
+#[cfg(feature = "audit-log")]
+use crate::logging::AuditLogger;
 #[cfg(any(feature = "parallel-checker", feature = "ban-manager"))]
 use crate::matchers::Identifier;
 #[cfg(feature = "monitoring")]
@@ -314,9 +314,7 @@ impl GovernorBuilder {
         let parallel_ban_checker = self.parallel_ban_checker.unwrap_or_else(|| {
             #[cfg(feature = "ban-manager")]
             {
-                Arc::new(crate::storage::ParallelBanChecker::new(
-                    ban_manager.clone(),
-                ))
+                Arc::new(crate::storage::ParallelBanChecker::new(ban_manager.clone()))
             }
             #[cfg(not(feature = "ban-manager"))]
             {
@@ -396,9 +394,9 @@ impl GovernorBuilder {
             identifier_extractor,
             #[cfg(feature = "audit-log")]
             audit_logger,
-            config_history: Arc::new(tokio::sync::RwLock::new(crate::config::types::ConfigHistory::new(
-                100,
-            ))),
+            config_history: Arc::new(tokio::sync::RwLock::new(
+                crate::config::types::ConfigHistory::new(100),
+            )),
             stats: StatsManager::new(),
             l1_cache,
             l1_cache_enabled: std::sync::atomic::AtomicBool::new(l1_cache_enabled),
@@ -487,9 +485,8 @@ impl Governor {
 
         // 创建并行封禁检查器
         #[cfg(feature = "parallel-checker")]
-        let parallel_ban_checker: Arc<crate::storage::ParallelBanChecker> = Arc::new(
-            crate::storage::ParallelBanChecker::new(ban_manager.clone()),
-        );
+        let parallel_ban_checker: Arc<crate::storage::ParallelBanChecker> =
+            Arc::new(crate::storage::ParallelBanChecker::new(ban_manager.clone()));
 
         Self {
             config,
@@ -608,8 +605,12 @@ impl Governor {
         storage: Arc<dyn Storage>,
         ban_storage: Arc<dyn BanStorage>,
     ) -> Result<Self, FlowGuardError> {
-        // 使用 ConfigLoader 加载配置
-        let config = crate::ConfigLoader::load_from_file(config_path)?;
+        // 使用 confers ConfigBuilder 加载配置
+        use confers::ConfigBuilder as ConfersConfigBuilder;
+        let config: FlowControlConfig = ConfersConfigBuilder::new()
+            .file(config_path.as_ref().to_path_buf())
+            .build()
+            .map_err(|e| FlowGuardError::ConfigError(format!("配置加载失败: {}", e)))?;
         Self::create_with_config(config, storage, ban_storage).await
     }
 
@@ -655,8 +656,13 @@ impl Governor {
         storage: Arc<dyn Storage>,
         ban_storage: Arc<dyn BanStorage>,
     ) -> Result<Self, FlowGuardError> {
-        // 使用 ConfigLoader 加载配置，支持环境变量覆盖
-        let config = crate::ConfigLoader::load_from_file(config_path)?;
+        // 使用 confers ConfigBuilder 加载配置，支持环境变量覆盖
+        use confers::ConfigBuilder as ConfersConfigBuilder;
+        let config: FlowControlConfig = ConfersConfigBuilder::new()
+            .file(config_path.as_ref().to_path_buf())
+            .env_prefix("LIMITERON")
+            .build()
+            .map_err(|e| FlowGuardError::ConfigError(format!("配置加载失败: {}", e)))?;
         Self::create_with_config(config, storage, ban_storage).await
     }
 
@@ -1156,7 +1162,9 @@ impl Governor {
 #[cfg(test)]
 mod governor_construction_tests {
     use super::*;
-    use crate::config::types::{Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
+    use crate::config::types::{
+        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule,
+    };
     use crate::storage::{MemoryBanStorage, MemoryStorage};
 
     fn create_valid_test_config() -> FlowControlConfig {

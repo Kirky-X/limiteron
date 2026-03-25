@@ -739,7 +739,10 @@ mod tests {
     #[tokio::test]
     async fn test_decision_chain_multiple_nodes() {
         let limiter1 = Arc::new(TokenBucketLimiter::new(5, 1));
-        let limiter2 = Arc::new(ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 10));
+        let limiter2 = Arc::new(ShardedSlidingWindowLimiter::new(
+            Duration::from_secs(60),
+            10,
+        ));
 
         let node1 = DecisionNode::with_dependencies(
             "node1".to_string(),
@@ -1126,7 +1129,10 @@ mod tests {
     #[test]
     fn test_decision_chain_builder() {
         let limiter1 = Arc::new(TokenBucketLimiter::new(100, 10));
-        let limiter2 = Arc::new(ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 100));
+        let limiter2 = Arc::new(ShardedSlidingWindowLimiter::new(
+            Duration::from_secs(60),
+            100,
+        ));
 
         let node1 = DecisionNode::with_dependencies(
             "node1".to_string(),
@@ -1591,7 +1597,10 @@ mod tests {
     #[tokio::test]
     async fn test_multi_node_chain_concurrent_safety() {
         let limiter1 = Arc::new(TokenBucketLimiter::new(5000, 100));
-        let limiter2 = Arc::new(ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 5000));
+        let limiter2 = Arc::new(ShardedSlidingWindowLimiter::new(
+            Duration::from_secs(60),
+            5000,
+        ));
         let limiter3 = Arc::new(FixedWindowLimiter::new(Duration::from_secs(10), 5000));
 
         let node1 = DecisionNode::with_dependencies(

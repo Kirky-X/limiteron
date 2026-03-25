@@ -14,9 +14,6 @@ exclude = [
     "temp/comprehensive_test/Cargo.toml",
 ]
 
-[patch."https://github.com/Kirky-X/confers"]
-confers-macros = { path = "/home/dev/projects/confers/confers-macros" }
-
 [workspace.package]
 version = "0.1.1"
 edition = "2021"
@@ -125,7 +122,6 @@ oxcache = { path = "/home/dev/projects/oxcache" }
 
 # 配置加载 - 使用本地 confers (可选特性)
 confers = { path = "/home/dev/projects/confers", optional = true, default-features = false }
-confers-macros = { path = "/home/dev/projects/confers/confers-macros", optional = true }
 
 # 宏依赖（可选）
 proc-macro2 = { workspace = true, optional = true }
@@ -144,7 +140,6 @@ scopeguard = { workspace = true, optional = true }
 
 # 工具依赖（可选）
 reqwest = { version = "~0.13", features = ["json"], optional = true }
-notify = { version = "~8.2", optional = true }
 
 # 安全相关（可选和必需）
 regex = { workspace = true, optional = true }
@@ -187,7 +182,6 @@ full = [
     "fallback",
     "custom-limiter",
     "log-redaction",
-    "config-security",
     "parallel-checker",
     "geo-matching",
     "device-matching",
@@ -196,7 +190,6 @@ full = [
     "monitoring",
     "audit-log",
     "macros",
-    "config-watcher",
     "webhook",
     "code-review",
     "cache-service",
@@ -226,13 +219,12 @@ circuit-breaker = []
 fallback = []
 custom-limiter = []
 cache-service = []
-confers = ["dep:confers", "dep:confers-macros"]
+confers = ["dep:confers"]
 
 # ============================================
 # Security Features (安全功能)
 # ============================================
 log-redaction = ["dep:regex"]
-config-security = []
 validation = []
 
 # ============================================
@@ -267,7 +259,6 @@ audit-log = ["telemetry", "dep:hmac", "dep:sha2", "dep:hex"]
 # Tooling Features (工具)
 # ============================================
 macros = ["dep:limiteron-macros", "dep:proc-macro2", "dep:syn", "dep:quote"]
-config-watcher = ["dep:notify"]
 webhook = ["dep:reqwest"]
 code-review = []
 

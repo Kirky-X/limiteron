@@ -69,13 +69,6 @@ pub mod ban;
 #[cfg(feature = "circuit-breaker")]
 pub mod circuit;
 pub mod config;
-// Re-export all config submodules through config module
-#[cfg(feature = "config-security")]
-pub use config::security;
-#[cfg(feature = "config-watcher")]
-pub use config::watcher;
-#[cfg(feature = "confers")]
-pub use config::loader;
 
 #[cfg(feature = "postgres")]
 pub mod adapters;
@@ -96,11 +89,11 @@ pub mod dbnexus_entities;
 pub mod decision_chain;
 
 // Consolidated modules
-pub mod error;        // Contains error types and abstraction
-pub mod logging;      // Contains audit_log and log_redaction
-pub mod limiters;     // Contains limiters, factory, and manager
-pub mod rules;        // Contains rule_builder and stats_manager
-pub mod storage;      // Contains storage_trait and parallel_ban_checker
+pub mod error; // Contains error types and abstraction
+pub mod limiters; // Contains limiters, factory, and manager
+pub mod logging; // Contains audit_log and log_redaction
+pub mod rules; // Contains rule_builder and stats_manager
+pub mod storage; // Contains storage_trait and parallel_ban_checker
 
 #[cfg(feature = "fallback")]
 pub mod fallback;
@@ -118,8 +111,6 @@ pub mod telemetry;
 pub mod validation;
 
 // 重新导出常用类型
-#[cfg(feature = "audit-log")]
-pub use logging::audit::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
 #[cfg(feature = "ban-manager")]
 pub use authorization::OperationAuthorizationProvider;
 pub use authorization::{
@@ -132,17 +123,18 @@ pub use ban::{
 };
 #[cfg(feature = "circuit-breaker")]
 pub use circuit::{CircuitBreaker, CircuitBreakerConfig};
-// 导出配置相关类型和加载API
+#[cfg(feature = "audit-log")]
+pub use logging::audit::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
+// 导出配置相关类型
 #[cfg(feature = "cache-service")]
 pub use cache::{cache_service::CacheService, Cache, CacheKey, Cacheable};
 pub use config::{
-    ActionConfig, ChangeSource, ConfigBuilder, ConfigChangeRecord, ConfigHistory,
-    FlowControlConfig, LimiterConfig, ConfigMatcher, Rule as ConfigRule,
+    ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, ConfigMatcher,
+    FlowControlConfig, LimiterConfig, Rule as ConfigRule,
 };
+// 导出 confers ConfigBuilder（当启用 confers feature 时）
 #[cfg(feature = "confers")]
-pub use config::ConfigLoader;
-#[cfg(feature = "config-watcher")]
-pub use config::{ConfigChangeCallback, ConfigWatcher, WatchMode};
+pub use config::ConfigBuilder;
 pub use decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
 // AtomicChainStats 改为 pub(crate)，不再公开导出
 pub use error::{
@@ -154,13 +146,13 @@ pub use error::{
     BanSafeError, ConfigSafeError, ErrorMessageAbstraction, GeneralSafeError, LimitSafeError,
     SafeErrorMessage, StorageSafeError, ValidationSafeError,
 };
-pub use limiters::LimiterFactory;
 #[cfg(feature = "fallback")]
 pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
 pub use governor::{Governor, GovernorStats};
 pub use l1_cache::{
     CacheableBanInfo, CacheableDecision, L1Cache, L1CacheConfig, L1CacheStats, RateLimitCacheKey,
 };
+pub use limiters::LimiterFactory;
 // GLOBAL_LIMITER_MANAGER 改为 pub(crate)，不再公开导出
 #[cfg(feature = "quota-control")]
 pub use limiters::QuotaLimiter;

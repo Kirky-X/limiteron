@@ -14,14 +14,10 @@ pub mod redaction;
 
 // 重新导出 audit 模块的公共类型
 #[cfg(feature = "audit-log")]
-pub use audit::{
-    AuditEvent, AuditLogConfig, AuditLogEntry, AuditLogStats, AuditLogger,
-};
+pub use audit::{AuditEvent, AuditLogConfig, AuditLogEntry, AuditLogStats, AuditLogger};
 
 // 重新导出 redaction 模块的公共类型
-pub use redaction::{
-    redact_basic, redact_email, redact_ip, redact_user_id,
-};
+pub use redaction::{redact_basic, redact_email, redact_ip, redact_user_id};
 
 #[cfg(feature = "log-redaction")]
 pub use redaction::{

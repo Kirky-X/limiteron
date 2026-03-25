@@ -16,6 +16,4 @@
 
 pub mod types;
 
-pub use types::{
-    ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode,
-};
+pub use types::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};

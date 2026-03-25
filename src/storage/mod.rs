@@ -406,7 +406,13 @@ impl BanStorage for MemoryBanStorage {
         let now = Utc::now().timestamp();
         let mut removed = 0u64;
 
-        let targets: Vec<_> = self.expiration.read().await.keys().map(Clone::clone).collect();
+        let targets: Vec<_> = self
+            .expiration
+            .read()
+            .await
+            .keys()
+            .map(Clone::clone)
+            .collect();
         for target in targets {
             if let Some(exp) = self.expiration.read().await.get(&target) {
                 if *exp <= now {

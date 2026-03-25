@@ -33,10 +33,10 @@ pub mod device;
 pub mod custom;
 
 // 新拆分的子模块
-pub mod traits;
-pub mod extractors;
 pub mod composite;
 pub mod engine;
+pub mod extractors;
+pub mod traits;
 
 // Re-export traits
 pub use traits::{Identifier, IdentifierExtractor, RequestContext};
@@ -44,8 +44,8 @@ pub use traits::{Identifier, IdentifierExtractor, RequestContext};
 // Re-export extractors
 pub use extractors::{
     ApiKeyExtractor, ApiKeyExtractorBuilder, CustomExtractor, DeviceIdExtractor,
-    DeviceIdExtractorBuilder, IpExtractor, IpExtractorBuilder, MacExtractor,
-    MacExtractorBuilder, UserIdExtractor, UserIdExtractorBuilder,
+    DeviceIdExtractorBuilder, IpExtractor, IpExtractorBuilder, MacExtractor, MacExtractorBuilder,
+    UserIdExtractor, UserIdExtractorBuilder,
 };
 
 // Re-export composite
@@ -53,8 +53,8 @@ pub use composite::{CompositeExtractor, CompositeExtractorBuilder};
 
 // Re-export engine
 pub use engine::{
-    CompositeCondition, ConditionEvaluator, IpRange, LogicalOperator, MatchCondition,
-    MatcherStats, Rule, RuleMatcher, RuleMatcherBuilder,
+    CompositeCondition, ConditionEvaluator, IpRange, LogicalOperator, MatchCondition, MatcherStats,
+    Rule, RuleMatcher, RuleMatcherBuilder,
 };
 
 // ============================================================================

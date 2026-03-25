@@ -3,7 +3,7 @@
 //! 测试熔断器模块的基本功能
 
 #[cfg(feature = "circuit-breaker")]
-use limiteron::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig};
 #[cfg(feature = "circuit-breaker")]
 use limiteron::error::{CircuitState, FlowGuardError};
 use std::time::Duration;

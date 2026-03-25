@@ -3,7 +3,7 @@
 #[cfg(test)]
 #[cfg(feature = "postgres")]
 mod tests {
-    use limiteron::storage_trait::BanStorage;
+    use limiteron::storage::BanStorage;
 
     #[tokio::test]
     #[ignore]

@@ -1,7 +1,3 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
 //! 并发安全测试
 //!
 //! 测试覆盖：
@@ -9,8 +5,8 @@
 //! - 死锁测试（多锁场景死锁检测、超时恢复验证）
 
 use crate::common::{MockBanStorage, MockQuotaStorage};
-use limiteron::limiters::{FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter};
-use limiteron::storage_trait::{BanStorage, QuotaStorage};
+use limiteron::limiters::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter};
+use limiteron::storage::{BanStorage, QuotaStorage};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,8 +16,8 @@ use tokio::time::timeout;
 use limiteron::error::ConsumeResult;
 
 #[cfg(feature = "ban-manager")]
-use limiteron::ban_manager::BanManager;
-use limiteron::storage_trait::BanTarget;
+use limiteron::ban::BanManager;
+use limiteron::storage::BanTarget;
 
 // ============================================================================
 // 限流器竞争条件测试
@@ -71,7 +67,7 @@ async fn test_token_bucket_concurrent_safety() {
 /// 测试滑动窗口限流器的并发安全性
 #[tokio::test]
 async fn test_sliding_window_concurrent_safety() {
-    let limiter = Arc::new(SlidingWindowLimiter::new(Duration::from_secs(1), 100));
+    let limiter = Arc::new(ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 100));
     let success_count = Arc::new(AtomicU64::new(0));
     let fail_count = Arc::new(AtomicU64::new(0));
     let barrier = Arc::new(Barrier::new(150));

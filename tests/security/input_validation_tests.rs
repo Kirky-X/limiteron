@@ -1,7 +1,3 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
 //! 输入验证安全测试
 //!
 //! 测试覆盖：
@@ -9,16 +5,12 @@
 //! - 数值注入测试（负数消费拒绝、整数溢出保护）
 //! - 配置注入测试（恶意配置拒绝、配置验证覆盖）
 
-use limiteron::config::{
-    ActionConfig, FlowControlConfig, GlobalConfig, LimiterConfig, Matcher, Rule,
-};
 use limiteron::constants::MAX_COST;
 use limiteron::error::FlowGuardError;
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use limiteron::matchers::{Identifier, IdentifierExtractor, IpExtractor, RequestContext};
 #[cfg(feature = "config-security")]
-use limiteron::ConfigSecurityValidator;
-use std::time::Duration;
+use limiteron::config::ConfigSecurityValidator;
 
 // ============================================================================
 // IP 地址注入测试
@@ -623,6 +615,81 @@ async fn test_comprehensive_input_security() {
                 "Template injection not filtered: {}",
                 input
             );
+        }
+    }
+}
+
+// ============================================================================
+// SSRF 防护测试
+// ============================================================================
+
+/// 测试 Webhook URL SSRF 防护
+///
+/// 攻击场景：攻击者尝试通过 Webhook URL 访问内部服务
+/// 防御措施：系统应拒绝访问内部地址和私有 IP
+#[cfg(all(feature = "quota-control", feature = "webhook"))]
+#[tokio::test]
+async fn test_webhook_url_ssrf_protection() {
+    use limiteron::quota::validate_webhook_url;
+
+    // 测试有效的外部 HTTPS URL（应通过）
+    let valid_urls = vec![
+        "https://api.example.com/webhook",
+        "https://hooks.slack.com/services/xxx",
+        "https://discord.com/api/webhooks/xxx",
+    ];
+
+    for url in valid_urls {
+        let result = validate_webhook_url(url);
+        assert!(result.is_ok(), "Valid URL should pass: {}", url);
+    }
+
+    // 测试无效的内部 URL（应被拒绝）
+    let internal_urls = vec![
+        // localhost 和回环地址
+        ("https://localhost/webhook", "localhost should be blocked"),
+        ("https://127.0.0.1/webhook", "127.0.0.1 should be blocked"),
+        ("https://[::1]/webhook", "IPv6 loopback should be blocked"),
+        // 私有 IP 地址
+        ("https://10.0.0.1/webhook", "10.x.x.x private IP should be blocked"),
+        ("https://172.16.0.1/webhook", "172.16.x.x private IP should be blocked"),
+        ("https://192.168.1.1/webhook", "192.168.x.x private IP should be blocked"),
+        // 非 HTTPS 协议
+        ("http://api.example.com/webhook", "HTTP should be blocked"),
+    ];
+
+    for (url, description) in internal_urls {
+        let result = validate_webhook_url(url);
+        assert!(result.is_err(), "{}", description);
+    }
+}
+
+/// 测试 Webhook URL 恶意输入处理
+///
+/// 验证系统能安全处理各种恶意构造的 URL
+#[cfg(all(feature = "quota-control", feature = "webhook"))]
+#[test]
+fn test_webhook_url_malicious_input() {
+    use limiteron::quota::validate_webhook_url;
+
+    let malicious_urls = vec![
+        // 协议混淆
+        "https://example.com@127.0.0.1/",
+        "https://example.com#.evil.com/",
+        "https://example.com\\@127.0.0.1/",
+        // 特殊字符
+        "https://127.0.0.1; DROP TABLE users--",
+        "https://127.0.0.1\nHost: evil.com",
+        // IDN 同形异义攻击（简化测试）
+        "https://аррӏе.com/", // 可能的 Cyrillic 同形异义
+    ];
+
+    for url in malicious_urls {
+        let result = validate_webhook_url(url);
+        // 这些 URL 应该被拒绝或安全处理
+        // 如果解析失败也应该被拒绝
+        if url.contains("127.0.0.1") || url.contains("localhost") {
+            assert!(result.is_err(), "Internal address should be blocked: {}", url);
         }
     }
 }

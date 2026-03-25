@@ -3,12 +3,15 @@
 //! 测试控制器模块的基本功能
 
 use async_trait::async_trait;
-use limiteron::config::{Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
+use limiteron::config::{
+    Action, ActionConfig, CacheBackend, FlowControlConfig, LimiterConfig,
+    MetricsBackend, ConfigMatcher as Matcher, Rule, StorageType,
+};
 use limiteron::error::{ConsumeResult, Decision, FlowGuardError, StorageError};
 use limiteron::governor::GovernorStats;
 use limiteron::limiters::Limiter;
 use limiteron::matchers::RequestContext;
-use limiteron::storage_trait::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, Storage};
+use limiteron::storage::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, Storage};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -102,9 +105,9 @@ async fn create_governor() -> Arc<limiteron::Governor> {
     let config = FlowControlConfig {
         version: "1.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
@@ -129,17 +132,13 @@ async fn create_governor() -> Arc<limiteron::Governor> {
     let ban_storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
 
     Arc::new(
-        limiteron::Governor::new(
-            config,
-            storage,
-            ban_storage,
-            #[cfg(feature = "monitoring")]
-            None,
-            #[cfg(feature = "telemetry")]
-            None,
-        )
-        .await
-        .expect("Failed to create governor"),
+        limiteron::Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Failed to create governor"),
     )
 }
 

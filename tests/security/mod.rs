@@ -5,18 +5,21 @@
 //! 安全测试模块
 //!
 //! 包含所有安全相关的测试套件：
-//! - input_validation_tests: 输入验证测试
+//! - input_validation_tests: 输入验证测试（含 SSRF 防护）
 //! - concurrency_tests: 并发安全测试
 //! - resource_exhaustion_tests: 资源耗尽测试
 //! - privacy_tests: 数据隐私测试
+//! - visibility_tests: 模块可见性测试
 
 mod concurrency_tests;
 mod input_validation_tests;
 mod privacy_tests;
 mod resource_exhaustion_tests;
+mod visibility_tests;
 
 // 重新导出 common 模块中的测试工具
 mod common {
+    #[allow(unused_imports)]
     pub use crate::common::*;
 }
 
@@ -101,8 +104,6 @@ mod common {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     /// 验证所有测试模块可访问
     #[test]
     fn test_security_modules_accessible() {

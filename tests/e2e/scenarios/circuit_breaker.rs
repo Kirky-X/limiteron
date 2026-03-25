@@ -3,7 +3,7 @@
 //! 测试后端失败触发熔断，以及熔断恢复后正常访问的完整流程
 
 #[cfg(feature = "circuit-breaker")]
-use limiteron::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig};
 #[cfg(feature = "circuit-breaker")]
 use limiteron::error::{CircuitState, FlowGuardError};
 #[cfg(feature = "circuit-breaker")]

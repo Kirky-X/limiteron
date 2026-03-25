@@ -5,7 +5,7 @@
 
 use super::{MockBanStorage, MockQuotaBehavior, MockQuotaStorage, MockStorage};
 use limiteron::error::StorageError;
-use limiteron::storage_trait::{BanStorage, QuotaStorage, Storage};
+use limiteron::storage::{BanStorage, QuotaStorage, Storage};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -103,10 +103,10 @@ async fn test_mock_storage_concurrent_access() {
 #[tokio::test]
 async fn test_mock_ban_storage_basic() {
     let storage = MockBanStorage::new();
-    let target = limiteron::storage_trait::BanTarget::Ip("192.168.1.1".to_string());
+    let target = limiteron::storage::BanTarget::Ip("192.168.1.1".to_string());
 
     // 创建封禁记录
-    let record = limiteron::storage_trait::BanRecord {
+    let record = limiteron::storage::BanRecord {
         target: target.clone(),
         ban_times: 1,
         duration: Duration::from_secs(3600),
@@ -133,10 +133,10 @@ async fn test_mock_ban_storage_basic() {
 #[tokio::test]
 async fn test_mock_ban_storage_expiry() {
     let storage = MockBanStorage::new();
-    let target = limiteron::storage_trait::BanTarget::UserId("user2".to_string());
+    let target = limiteron::storage::BanTarget::UserId("user2".to_string());
 
     // 添加已过期的封禁
-    let record = limiteron::storage_trait::BanRecord {
+    let record = limiteron::storage::BanRecord {
         target: target.clone(),
         ban_times: 1,
         duration: Duration::from_secs(1),
@@ -159,8 +159,8 @@ async fn test_mock_ban_storage_cleanup_expired() {
     let storage = MockBanStorage::new();
 
     // 添加已过期的封禁
-    let expired_target = limiteron::storage_trait::BanTarget::Ip("10.0.0.1".to_string());
-    let expired_record = limiteron::storage_trait::BanRecord {
+    let expired_target = limiteron::storage::BanTarget::Ip("10.0.0.1".to_string());
+    let expired_record = limiteron::storage::BanRecord {
         target: expired_target.clone(),
         ban_times: 1,
         duration: Duration::from_secs(1),
@@ -172,8 +172,8 @@ async fn test_mock_ban_storage_cleanup_expired() {
     storage.save(&expired_record).await.unwrap();
 
     // 添加活跃封禁
-    let active_target = limiteron::storage_trait::BanTarget::Ip("10.0.0.2".to_string());
-    let active_record = limiteron::storage_trait::BanRecord {
+    let active_target = limiteron::storage::BanTarget::Ip("10.0.0.2".to_string());
+    let active_record = limiteron::storage::BanRecord {
         target: active_target.clone(),
         ban_times: 1,
         duration: Duration::from_secs(3600),
@@ -335,8 +335,8 @@ async fn test_mock_ban_storage_concurrent_bans() {
     for i in 0..50 {
         let s = Arc::clone(&storage);
         handles.push(tokio::spawn(async move {
-            let target = limiteron::storage_trait::BanTarget::Ip(format!("192.168.1.{}", i));
-            let record = limiteron::storage_trait::BanRecord {
+            let target = limiteron::storage::BanTarget::Ip(format!("192.168.1.{}", i));
+            let record = limiteron::storage::BanRecord {
                 target: target.clone(),
                 ban_times: 1,
                 duration: Duration::from_secs(3600),
@@ -353,7 +353,7 @@ async fn test_mock_ban_storage_concurrent_bans() {
 
     // 验证所有封禁都生效
     for i in 0..50 {
-        let target = limiteron::storage_trait::BanTarget::Ip(format!("192.168.1.{}", i));
+        let target = limiteron::storage::BanTarget::Ip(format!("192.168.1.{}", i));
         let is_banned = storage.is_banned(&target).await.unwrap();
         assert!(is_banned.is_some());
     }

@@ -2,6 +2,12 @@
 //!
 //! 测试授权模块的完整功能
 
+#[cfg(feature = "ban-manager")]
+use limiteron::authorization::{
+    AllowAllAuthorizationProvider, AuthorizationProvider, DenyAllAuthorizationProvider,
+    OperationAuthorizationProvider, SimpleAuthorizationProvider,
+};
+#[cfg(not(feature = "ban-manager"))]
 use limiteron::authorization::{
     AllowAllAuthorizationProvider, AuthorizationProvider, DenyAllAuthorizationProvider,
     SimpleAuthorizationProvider,

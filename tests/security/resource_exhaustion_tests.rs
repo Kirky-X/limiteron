@@ -1,7 +1,3 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
 //! 资源耗尽测试
 //!
 //! 测试覆盖：
@@ -9,9 +5,9 @@
 //! - CPU 耗尽测试（复杂模式处理测试、CPU 限制验证）
 //! - 连接耗尽测试（大量连接处理测试、优雅降级验证）
 
-use crate::common::{MockQuotaBehavior, MockQuotaStorage};
+use crate::common::MockQuotaStorage;
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
-use limiteron::storage_trait::{QuotaStorage, Storage};
+use limiteron::storage::Storage;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};

@@ -6,7 +6,7 @@
 
 use limiteron::limiters::{
     ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
-    SlidingWindowLimiter, TokenBucketLimiter,
+    TokenBucketLimiter,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -54,12 +54,12 @@ async fn token_bucket_allows_cost_under_limit() {
 }
 
 // ============================================================================
-// SlidingWindowLimiter Tests
+// ShardedSlidingWindowLimiter Tests
 // ============================================================================
 
 #[tokio::test]
 async fn sliding_window_allows_within_limit() {
-    let limiter = SlidingWindowLimiter::new(Duration::from_secs(60), 5);
+    let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 5);
     for _ in 0..5 {
         assert!(limiter.allow(1).await.is_ok_and(|b| b));
     }
@@ -67,7 +67,7 @@ async fn sliding_window_allows_within_limit() {
 
 #[tokio::test]
 async fn sliding_window_rejects_over_limit() {
-    let limiter = SlidingWindowLimiter::new(Duration::from_secs(60), 3);
+    let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 3);
     for _ in 0..3 {
         limiter.allow(1).await.unwrap();
     }
@@ -76,7 +76,7 @@ async fn sliding_window_rejects_over_limit() {
 
 #[tokio::test]
 async fn sliding_window_rejects_zero_cost() {
-    let limiter = SlidingWindowLimiter::new(Duration::from_secs(60), 10);
+    let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 10);
     assert!(limiter.allow(0).await.is_err());
 }
 

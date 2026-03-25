@@ -4,7 +4,7 @@
 
 #[cfg(feature = "circuit-breaker")]
 mod circuit_breaker_tests {
-    use limiteron::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+    use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig};
     use limiteron::error::CircuitState;
     use std::sync::Arc;
     use std::time::Duration;

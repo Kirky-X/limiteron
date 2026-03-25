@@ -7,11 +7,11 @@ use ahash::AHashMap;
 #[cfg(feature = "ban-manager")]
 use chrono::Utc;
 #[cfg(feature = "ban-manager")]
-use limiteron::ban_manager::{BanManager, BanManagerConfig, BanSource, BanTarget};
+use limiteron::ban::{BanManager, BanManagerConfig, BanSource, BanTarget};
 #[cfg(feature = "ban-manager")]
 use limiteron::error::StorageError;
 #[cfg(feature = "ban-manager")]
-use limiteron::storage_trait::{BanHistory, BanRecord, BanStorage};
+use limiteron::storage::{BanHistory, BanRecord, BanStorage};
 #[cfg(feature = "ban-manager")]
 use std::sync::Arc;
 #[cfg(feature = "ban-manager")]

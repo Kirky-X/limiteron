@@ -3,11 +3,14 @@
 //! 测试用户请求超过限流配置后被拒绝的完整流程
 
 use ahash::AHashMap;
-use limiteron::config::{Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
+use limiteron::config::{
+    Action, ActionConfig, CacheBackend, FlowControlConfig, LimiterConfig,
+    MetricsBackend, ConfigMatcher as Matcher, Rule, StorageType,
+};
 use limiteron::error::{Decision, StorageError};
 use limiteron::limiters::Limiter;
 use limiteron::matchers::RequestContext;
-use limiteron::storage_trait::{
+use limiteron::storage::{
     BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage,
 };
 use limiteron::Governor;
@@ -146,9 +149,9 @@ async fn create_governor_with_low_limit() -> Arc<Governor> {
     let config = FlowControlConfig {
         version: "1.0".to_string(),
         global: limiteron::config::GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: Default::default(),
         },
         rules: vec![Rule {
@@ -173,17 +176,13 @@ async fn create_governor_with_low_limit() -> Arc<Governor> {
     let ban_storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
 
     Arc::new(
-        Governor::new(
-            config,
-            storage,
-            ban_storage,
-            #[cfg(feature = "monitoring")]
-            None,
-            #[cfg(feature = "telemetry")]
-            None,
-        )
-        .await
-        .expect("Failed to create governor"),
+        Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Failed to create governor"),
     )
 }
 
@@ -309,7 +308,9 @@ async fn e2e_rate_limiting_independent_per_user() {
 ///
 /// 使用滑动窗口限流器，验证窗口内请求计数正确。
 #[tokio::test]
+#[allow(deprecated)]
 async fn e2e_rate_limiting_sliding_window() {
+    // 注意：SlidingWindowLimiter 已弃用，但此测试验证基本限流逻辑
     use limiteron::limiters::SlidingWindowLimiter;
 
     let limiter = SlidingWindowLimiter::new(Duration::from_millis(200), 3);

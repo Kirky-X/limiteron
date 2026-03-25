@@ -325,17 +325,6 @@ fn convert_lua_error(e: impl std::fmt::Display) -> StorageError {
     StorageError::QueryError(format!("Lua script execution failed: {}", e))
 }
 
-/// Convert redis::Value to String for Lua script results
-fn value_to_string(value: redis::Value) -> String {
-    // Lua scripts typically return integers (0/1 for bool, numbers for counts)
-    match value {
-        redis::Value::Int(n) => n.to_string(),
-        redis::Value::Nil => "NIL".to_string(),
-        // For other types, use debug formatting
-        _ => format!("{:?}", value),
-    }
-}
-
 /// Execute Lua script using oxcache Cache
 ///
 /// This function provides a compatibility layer that allows the existing
@@ -362,7 +351,7 @@ pub async fn execute_lua_script(
         .eval_lua(script, keys, args)
         .await
         .map_err(convert_lua_error)
-        .map(value_to_string)
+        .map(|v| format!("{:?}", v))
 }
 
 /// Load script and get SHA using oxcache Cache
@@ -406,7 +395,7 @@ pub async fn execute_cached_script(
         .eval_sha(sha, keys, args)
         .await
         .map_err(convert_lua_error)
-        .map(value_to_string)
+        .map(|v| format!("{:?}", v))
 }
 
 #[cfg(test)]

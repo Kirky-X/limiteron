@@ -462,15 +462,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 **可以！** 使用决策链组合多个限流器:
 
 ```rust
-use limiteron::{Governor, FlowControlConfig};
-use limiteron::limiters::{TokenBucketLimiter, FixedWindowLimiter};
+use limiteron::Governor;
+use limiteron::adapters::StorageFactory;
 
-let governor = Governor::new(FlowControlConfig::default()).await?;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 创建存储
+    let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+    factory.initialize(None).await?;
+    let storage = factory.create_storage().await?;
+    let ban_storage = factory.create_ban_storage().await?;
 
-// 决策链会依次检查所有限流器
-let decision = governor.check_request("user123", "/api/v1/users").await?;
-if decision.is_allowed() {
-    // 处理请求
+    // 创建 Governor
+    let governor = Governor::builder()
+        .with_storage(storage)
+        .with_ban_storage(ban_storage)
+        .build()
+        .await?;
+
+    // 决策链会依次检查所有限流器
+    let context = limiteron::matchers::RequestContext::builder()
+        .identifier("user123")
+        .path("/api/v1/users")
+        .method("GET")
+        .build();
+
+    let decision = governor.check(&context).await?;
+    if decision.is_allowed() {
+        // 处理请求
+    }
+
+    Ok(())
 }
 ```
 
@@ -590,21 +612,21 @@ async fn api_handler() -> Result<String, Box<dyn std::error::Error>> {
 </tr>
 <tr>
 <td>令牌桶检查</td>
-<td>500,000 ops/s</td>
-<td>0.1 ms</td>
-<td>< 0.2 ms</td>
+<td>12M+ ops/s</td>
+<td>< 100ns</td>
+<td>< 1µs</td>
 </tr>
 <tr>
 <td>固定窗口检查</td>
-<td>300,000 ops/s</td>
-<td>0.15 ms</td>
-<td>< 0.2 ms</td>
+<td>20M+ ops/s</td>
+<td>< 100ns</td>
+<td>< 500ns</td>
 </tr>
 <tr>
 <td>并发检查</td>
-<td>200,000 ops/s</td>
-<td>0.2 ms</td>
-<td>< 0.2 ms</td>
+<td>12M+ ops/s</td>
+<td>< 100ns</td>
+<td>< 1µs</td>
 </tr>
 </table>
 
@@ -630,11 +652,13 @@ cargo bench
    cargo build --release
    ```
 
-2. **使用缓存:**
+2. **使用 L1 缓存:**
    ```rust
-   use limiteron::L2Cache;
-   
-   let cache = L2Cache::new(10000, 3600)?;
+   // Governor 默认启用 L1 缓存
+   let governor = Governor::builder()
+       .with_l1_cache_enabled(true)
+       .build()
+       .await?;
    ```
 
 3. **使用全局实例:**
@@ -692,7 +716,11 @@ cargo bench
 **减少内存使用:**
 
 ```rust
-let cache = L2Cache::new(1000, 3600)?;
+// 通过限制 L1 缓存大小来减少内存使用
+let governor = Governor::builder()
+    .with_l1_cache_config(L1CacheConfig::new(Duration::from_secs(60), 1000))
+    .build()
+    .await?;
 ```
 
 **内存安全:**
@@ -867,15 +895,22 @@ let redis_url = env::var("REDIS_URL")?;
 **解决方案:**
 
 ```rust
-// 使用全局共享的 limiter 实例
-lazy_static! {
-    static ref LIMITER: TokenBucketLimiter = TokenBucketLimiter::new(10, 1);
-}
+use limiteron::limiters::{TokenBucketLimiter, Limiter};
+use std::sync::Arc;
 
-// 或使用宏
-#[flow_control(rate = "10/s")]
-async fn handler() -> Result<(), FlowGuardError> {
-    Ok(())
+// 使用 Arc 共享 limiter 实例
+let limiter = Arc::new(TokenBucketLimiter::new(10, 1));
+
+// 在多个请求中使用同一个实例
+for i in 0..100 {
+    let limiter_clone = Arc::clone(&limiter);
+    tokio::spawn(async move {
+        match limiter_clone.allow(1).await {
+            Ok(true) => println!("请求 {} 允许", i),
+            Ok(false) => println!("请求 {} 被限流", i),
+            Err(e) => println!("请求 {} 错误: {:?}", i, e),
+        }
+    });
 }
 ```
 
@@ -893,16 +928,17 @@ async fn handler() -> Result<(), FlowGuardError> {
   cargo run --release
   ```
 
-- [ ] 是否使用了缓存?
+- [ ] 是否启用了 L1 缓存?
   ```rust
-  let cache = L2Cache::new(10000, 3600)?;
+  let governor = Governor::builder()
+      .with_l1_cache_enabled(true)
+      .build()
+      .await?;
   ```
 
-- [ ] 是否使用全局实例?
+- [ ] 是否使用 Arc 共享实例?
   ```rust
-  lazy_static! {
-      static ref LIMITER: TokenBucketLimiter = TokenBucketLimiter::new(10, 1);
-  }
+  let limiter = Arc::new(TokenBucketLimiter::new(10, 1));
   ```
 
 **更多帮助:** [性能指南](../README.md#性能)
@@ -917,8 +953,11 @@ async fn handler() -> Result<(), FlowGuardError> {
 **解决方案:**
 
 ```rust
-// 减少缓存大小
-let cache = L2Cache::new(1000, 3600)?;
+// 减少 L1 缓存大小
+let governor = Governor::builder()
+    .with_l1_cache_config(L1CacheConfig::new(Duration::from_secs(60), 1000))
+    .build()
+    .await?;
 ```
 
 </details>

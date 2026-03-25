@@ -219,9 +219,9 @@ pub struct BanManager {
 
 ---
 
-#### `BanManager::new()`
+#### `BanManager::with_dependencies()`
 
-创建新的封禁管理器。
+使用依赖注入创建新的封禁管理器。
 
 <table>
 <tr>
@@ -229,9 +229,9 @@ pub struct BanManager {
 <td width="70%">
 
 ```rust
-pub async fn new(
+pub async fn with_dependencies(
     storage: Arc<dyn BanStorage>,
-    config: Option<BanManagerConfig>
+    config: BanManagerConfig
 ) -> Result<Self, FlowGuardError>
 ```
 
@@ -242,7 +242,7 @@ pub async fn new(
 <td>
 
 - `storage: Arc<dyn BanStorage>` - 封禁存储后端
-- `config: Option<BanManagerConfig>` - 可选配置
+- `config: BanManagerConfig` - 封禁管理器配置
 
 </td>
 </tr>
@@ -256,11 +256,11 @@ pub async fn new(
 
 ```rust
 use limiteron::ban_manager::{BanManager, BanManagerConfig};
-use limiteron::storage::MockBanStorage;
+use limiteron::storage_trait::BanStorage;
 use std::sync::Arc;
 
-let storage = Arc::new(MockBanStorage::default());
-let ban_manager = BanManager::new(storage, None).await?;
+let storage: Arc<dyn BanStorage> = Arc::new(my_storage);
+let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default()).await?;
 ```
 
 ---
@@ -279,8 +279,9 @@ pub async fn create_ban(
     &self,
     target: BanTarget,
     reason: String,
-    duration_secs: Option<u64>,
-    source: Option<BanSource>
+    source: BanSource,
+    metadata: serde_json::Value,
+    duration: Option<StdDuration>,
 ) -> Result<BanDetail, FlowGuardError>
 ```
 
@@ -292,8 +293,9 @@ pub async fn create_ban(
 
 - `target: BanTarget` - 封禁目标（IP、用户ID等）
 - `reason: String` - 封禁原因
-- `duration_secs: Option<u64>` - 封禁时长（秒），None表示永久
-- `source: Option<BanSource>` - 封禁来源
+- `source: BanSource` - 封禁来源（`BanSource::Auto` 或 `BanSource::Manual { operator }`）
+- `metadata: serde_json::Value` - 附加元数据
+- `duration: Option<StdDuration>` - 封禁时长，None表示使用指数退避算法自动计算
 
 </td>
 </tr>
@@ -307,13 +309,15 @@ pub async fn create_ban(
 
 ```rust
 use limiteron::ban_manager::{BanTarget, BanSource};
+use std::time::Duration;
 
 let target = BanTarget::Ip("192.168.1.100".to_string());
 let ban_detail = ban_manager.create_ban(
     target,
     "恶意请求".to_string(),
-    Some(3600),
-    Some(BanSource::Manual)
+    BanSource::Manual { operator: "admin".to_string() },
+    serde_json::json!({}),
+    Some(Duration::from_secs(3600)),
 ).await?;
 ```
 
@@ -329,7 +333,7 @@ let ban_detail = ban_manager.create_ban(
 <td width="70%">
 
 ```rust
-pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, FlowGuardError>
+pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanDetail>, FlowGuardError>
 ```
 
 </td>
@@ -344,7 +348,7 @@ pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, F
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;Option&lt;BanRecord&gt;, FlowGuardError&gt;</code> - Some表示被封禁，None表示未封禁</td>
+<td><code>Result&lt;Option&lt;BanDetail&gt;, FlowGuardError&gt;</code> - Some表示被封禁，None表示未封禁</td>
 </tr>
 </table>
 
@@ -354,8 +358,10 @@ pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, F
 use limiteron::ban_manager::BanTarget;
 
 let user_target = BanTarget::UserId("user123".to_string());
-if let Some(ban_record) = ban_manager.is_banned(&user_target).await? {
-    println!("User is banned: {:?}", ban_record);
+if let Some(ban_detail) = ban_manager.is_banned(&user_target).await? {
+    println!("User is banned: {:?}", ban_detail);
+    println!("Reason: {}", ban_detail.reason);
+    println!("Expires at: {}", ban_detail.expires_at);
     return Err("User is banned".into());
 }
 ```
@@ -540,9 +546,55 @@ pub struct Governor {
 
 ---
 
+#### `Governor::builder()`
+
+创建 GovernorBuilder 用于链式配置。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn builder() -> GovernorBuilder
+```
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>GovernorBuilder</code> - 用于链式配置的构建器</td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+use limiteron::Governor;
+use limiteron::adapters::StorageFactory;
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+    factory.initialize(None).await?;
+    let storage = factory.create_storage().await?;
+    let ban_storage = factory.create_ban_storage().await?;
+
+    let governor = Governor::builder()
+        .with_storage(storage)
+        .with_ban_storage(ban_storage)
+        .build()
+        .await?;
+    Ok(())
+}
+```
+
+---
+
 #### `Governor::new()`
 
-创建新的 Governor。
+创建新的 Governor（推荐使用 `builder()` 方法）。
 
 <table>
 <tr>
@@ -553,7 +605,9 @@ pub struct Governor {
 pub async fn new(
     config: FlowControlConfig,
     storage: Arc<dyn Storage>,
-    ban_storage: Arc<dyn BanStorage>
+    ban_storage: Arc<dyn BanStorage>,
+    #[cfg(feature = "monitoring")] metrics: Option<Arc<Metrics>>,
+    #[cfg(feature = "telemetry")] tracer: Option<Arc<Tracer>>,
 ) -> Result<Self, FlowGuardError>
 ```
 
@@ -566,6 +620,8 @@ pub async fn new(
 - `config: FlowControlConfig` - 流量控制配置
 - `storage: Arc<dyn Storage>` - 存储后端
 - `ban_storage: Arc<dyn BanStorage>` - 封禁存储后端
+- `metrics: Option<Arc<Metrics>>` - 指标收集器（需要 `monitoring` 特性）
+- `tracer: Option<Arc<Tracer>>` - 追踪器（需要 `telemetry` 特性）
 
 </td>
 </tr>
@@ -579,12 +635,26 @@ pub async fn new(
 
 ```rust
 use limiteron::{Governor, FlowControlConfig};
-use limiteron::storage::{MemoryStorage, MockBanStorage};
+use limiteron::adapters::StorageFactory;
+use limiteron::storage_trait::{Storage, BanStorage};
 use std::sync::Arc;
 
-let storage = Arc::new(MemoryStorage::new());
-let ban_storage = Arc::new(MockBanStorage::default());
-let governor = Governor::new(FlowControlConfig::default(), storage, ban_storage).await?;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+    factory.initialize(None).await?;
+    let storage = factory.create_storage().await?;
+    let ban_storage = factory.create_ban_storage().await?;
+
+    let governor = Governor::new(
+        FlowControlConfig::default(),
+        storage,
+        ban_storage,
+        None,  // metrics
+        None,  // tracer
+    ).await?;
+    Ok(())
+}
 ```
 
 ---
@@ -608,7 +678,7 @@ pub async fn check(&self, context: &RequestContext) -> Result<Decision, FlowGuar
 <td><b>参数</b></td>
 <td>
 
-- `context: &RequestContext` - 请求上下文
+- `context: &RequestContext` - 请求上下文（位于 `limiteron::matchers` 模块）
 
 </td>
 </tr>
@@ -621,7 +691,7 @@ pub async fn check(&self, context: &RequestContext) -> Result<Decision, FlowGuar
 **示例:**
 
 ```rust
-use limiteron::governor::RequestContext;
+use limiteron::matchers::RequestContext;
 
 let context = RequestContext::builder()
     .identifier("user123")
@@ -630,8 +700,10 @@ let context = RequestContext::builder()
     .build();
 
 let decision = governor.check(&context).await?;
-if decision.is_allowed() {
-    // 处理请求
+match decision {
+    Decision::Allowed(_) => println!("请求允许"),
+    Decision::Rejected(reason) => println!("请求拒绝: {}", reason),
+    Decision::Banned(info) => println!("请求被封禁: {}", info.reason()),
 }
 ```
 
@@ -713,7 +785,7 @@ pub fn new(header_names: Vec<String>, validate: bool) -> Self
 <td><b>参数</b></td>
 <td>
 
-- `header_names: Vec<String>` - HTTP 头名称列表
+- `header_names: Vec<String>` - HTTP 头名称列表（按优先级顺序）
 - `validate: bool` - 是否验证 IP 格式
 
 </td>
@@ -729,10 +801,18 @@ pub fn new(header_names: Vec<String>, validate: bool) -> Self
 ```rust
 use limiteron::matchers::IpExtractor;
 
+// 使用 new 方法创建
 let extractor = IpExtractor::new(
     vec!["X-Forwarded-For".to_string(), "X-Real-IP".to_string()],
     true,
 );
+
+// 或使用 builder 模式
+let extractor = IpExtractor::builder()
+    .header_name("X-Forwarded-For")
+    .header_name("X-Real-IP")
+    .validate(true)
+    .build();
 ```
 
 ---
@@ -852,10 +932,25 @@ pub type Result<T> =
 
 **配置类型**
 ```rust
+/// 流量控制配置
 pub struct FlowControlConfig {
-    pub rate_limit: Option<String>,
-    pub quota_limit: Option<String>,
-    pub concurrency_limit: Option<u64>,
+    pub version: String,
+    pub global: GlobalConfig,
+    pub rules: Vec<Rule>,
+}
+
+/// 全局配置
+pub struct GlobalConfig {
+    pub storage: StorageType,        // 存储后端类型
+    pub cache: CacheBackend,        // 缓存后端类型
+    pub metrics: MetricsBackend,     // 指标后端类型
+    pub trusted_proxies: TrustedProxyConfig,  // 可信代理配置
+}
+
+/// 可信代理配置（用于安全提取客户端 IP）
+pub struct TrustedProxyConfig {
+    pub enabled: bool,              // 是否启用可信代理模式
+    pub proxies: Vec<String>,        // 可信代理 IP 列表（支持 CIDR）
 }
 ```
 
@@ -897,27 +992,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### 示例 2: 封禁管理
 
 ```rust
-use limiteron::ban_manager::{BanManager, BanTarget, BanSource};
-use limiteron::storage::MockBanStorage;
+use limiteron::ban_manager::{BanManager, BanManagerConfig, BanTarget, BanSource};
+use limiteron::adapters::StorageFactory;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let storage = Arc::new(MockBanStorage::default());
-    let ban_manager = BanManager::new(storage, None).await?;
+    let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+    factory.initialize(None).await?;
+    let ban_storage = factory.create_ban_storage().await?;
+    let ban_manager = BanManager::with_dependencies(ban_storage, BanManagerConfig::default()).await?;
 
     // 封禁 IP
     let ip_target = BanTarget::Ip("192.168.1.100".to_string());
     ban_manager.create_ban(
-        ip_target,
+        ip_target.clone(),
         "恶意请求".to_string(),
-        Some(3600),
-        Some(BanSource::Manual)
+        BanSource::Manual { operator: "admin".to_string() },
+        serde_json::json!({"severity": "high"}),
+        Some(Duration::from_secs(3600)),
     ).await?;
 
     // 检查是否被封禁
-    if let Some(ban_record) = ban_manager.is_banned(&ip_target).await? {
-        println!("❌ IP 已被封禁: {:?}", ban_record);
+    if let Some(ban_detail) = ban_manager.is_banned(&ip_target).await? {
+        println!("❌ IP 已被封禁: {}", ban_detail.reason);
+        println!("到期时间: {}", ban_detail.expires_at);
     }
 
     Ok(())
@@ -927,16 +1027,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### 示例 3: 使用 Governor
 
 ```rust
-use limiteron::{Governor, FlowControlConfig};
-use limiteron::governor::RequestContext;
-use limiteron::storage::{MemoryStorage, MockBanStorage};
+use limiteron::{Governor, FlowControlConfig, Decision};
+use limiteron::matchers::RequestContext;
+use limiteron::adapters::StorageFactory;
 use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let storage = Arc::new(MemoryStorage::new());
-    let ban_storage = Arc::new(MockBanStorage::default());
-    let governor = Governor::new(FlowControlConfig::default(), storage, ban_storage).await?;
+    let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+    factory.initialize(None).await?;
+    let storage = factory.create_storage().await?;
+    let ban_storage = factory.create_ban_storage().await?;
+
+    let governor = Governor::builder()
+        .with_storage(storage)
+        .with_ban_storage(ban_storage)
+        .build()
+        .await?;
 
     let context = RequestContext::builder()
         .identifier("user123")
@@ -945,11 +1052,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build();
 
     let decision = governor.check(&context).await?;
-    if decision.is_allowed() {
-        println!("✅ 请求允许");
-        // 处理请求
-    } else {
-        println!("❌ 请求被拒绝");
+    match decision {
+        Decision::Allowed(_) => {
+            println!("✅ 请求允许");
+            // 处理请求
+        }
+        Decision::Rejected(reason) => {
+            println!("❌ 请求被拒绝: {}", reason);
+        }
+        Decision::Banned(info) => {
+            println!("❌ 请求被封禁: {}", info.reason());
+        }
     }
 
     Ok(())

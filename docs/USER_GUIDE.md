@@ -299,19 +299,23 @@ limiter.check("user123").await?;
 
 **示例:**
 ```rust
-use limiteron::ban_manager::{BanManager, BanTarget, BanSource};
-use limiteron::storage::MockBanStorage;
+use limiteron::ban_manager::{BanManager, BanManagerConfig, BanTarget, BanSource};
+use limiteron::adapters::StorageFactory;
 use std::sync::Arc;
+use std::time::Duration;
 
-let storage = Arc::new(MockBanStorage);
-let ban_manager = BanManager::new(storage, None).await?;
+let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+factory.initialize(None).await?;
+let ban_storage = factory.create_ban_storage().await?;
+let ban_manager = BanManager::with_dependencies(ban_storage, BanManagerConfig::default()).await?;
 
 let ip_target = BanTarget::Ip("192.168.1.100".to_string());
 ban_manager.create_ban(
     ip_target,
     "恶意请求".to_string(),
-    Some(3600),
-    Some(BanSource::Manual)
+    BanSource::Manual { operator: "admin".to_string() },
+    serde_json::json!({}),
+    Some(Duration::from_secs(3600)),
 ).await?;
 ```
 
@@ -339,8 +343,18 @@ if count > limit {
 **我们的方法**
 ```rust
 // 自动管理
-let quota = QuotaController::new(10000, 60);
-quota.consume("user123").await?;
+use limiteron::quota_controller::{QuotaController, QuotaConfig};
+
+let config = QuotaConfig {
+    limit: 10000,
+    window_secs: 60,
+    ..Default::default()
+};
+let quota = QuotaController::with_config(config)?;
+let result = quota.consume("user123", 1).await?;
+if result.allowed {
+    println!("剩余配额: {}", result.remaining);
+}
 ```
 
 </td>
@@ -363,14 +377,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 简单初始化
     let limiter = TokenBucketLimiter::new(10, 1);
 
-    // 或使用 Governor
+    // 或使用 Governor（推荐使用 builder 模式）
     use limiteron::{Governor, FlowControlConfig};
-    use limiteron::storage::{MemoryStorage, MockBanStorage};
+    use limiteron::adapters::StorageFactory;
     use std::sync::Arc;
     
-    let storage = Arc::new(MemoryStorage::new());
-    let ban_storage = Arc::new(MockBanStorage::default());
-    let governor = Governor::new(FlowControlConfig::default(), storage, ban_storage).await?;
+    let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+    factory.initialize(None).await?;
+    let storage = factory.create_storage().await?;
+    let ban_storage = factory.create_ban_storage().await?;
+    
+    let governor = Governor::builder()
+        .with_storage(storage)
+        .with_ban_storage(ban_storage)
+        .build()
+        .await?;
 
     Ok(())
 }
@@ -391,16 +412,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 <summary><b>⚙️ 配置选项</b></summary>
 
 ```rust
-use limiteron::{Governor, FlowControlConfig};
+use limiteron::{Governor, FlowControlConfig, ConfigBuilder};
 
-let config = FlowControlConfig {
-    rate_limit: Some("100/s".to_string()),
-    quota_limit: Some("10000/m".to_string()),
-    concurrency_limit: Some(50),
-    ..Default::default()
-};
+// 使用 ConfigBuilder 创建配置
+let config = ConfigBuilder::new()
+    .with_storage("memory")
+    .with_rule(|rule| {
+        rule.id("default")
+            .token_bucket(100, 10)
+})
+    .build()?;
 
-let governor = Governor::new(config).await?;
+// 创建存储
+let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+factory.initialize(None).await?;
+let storage = factory.create_storage().await?;
+let ban_storage = factory.create_ban_storage().await?;
+
+// 创建 Governor
+let governor = Governor::builder()
+    .with_config(config)
+    .with_storage(storage)
+    .with_ban_storage(ban_storage)
+    .build()
+    .await?;
 ```
 
 </details>
@@ -413,22 +448,28 @@ let governor = Governor::new(config).await?;
 <th>描述</th>
 </tr>
 <tr>
-<td><code>rate_limit</code></td>
-<td>Option&lt;String&gt;</td>
-<td>None</td>
-<td>速率限制（如 "100/s"）</td>
+<td><code>version</code></td>
+<td>String</td>
+<td>"0.1.0"</td>
+<td>配置版本号</td>
 </tr>
 <tr>
-<td><code>quota_limit</code></td>
-<td>Option&lt;String&gt;</td>
-<td>None</td>
-<td>配额限制（如 "10000/m"）</td>
+<td><code>global.storage</code></td>
+<td>String</td>
+<td>"memory"</td>
+<td>存储类型 (memory/postgres)</td>
 </tr>
 <tr>
-<td><code>concurrency_limit</code></td>
-<td>Option&lt;u64&gt;</td>
-<td>None</td>
-<td>并发限制</td>
+<td><code>global.cache</code></td>
+<td>String</td>
+<td>"memory"</td>
+<td>缓存类型 (memory/redis/none)</td>
+</tr>
+<tr>
+<td><code>rules</code></td>
+<td>Vec&lt;Rule&gt;</td>
+<td>[]</td>
+<td>限流规则列表</td>
 </tr>
 </table>
 
@@ -456,14 +497,23 @@ match limiter.allow(1).await {
 
 **封禁用户**
 ```rust
-use limiteron::ban_manager::{BanManager, BanTarget};
-use limiteron::storage::MockBanStorage;
+use limiteron::ban_manager::{BanManager, BanManagerConfig, BanTarget, BanSource};
+use limiteron::adapters::StorageFactory;
 use std::sync::Arc;
+use std::time::Duration;
 
-let storage = Arc::new(MockBanStorage::default());
-let ban_manager = BanManager::new(storage, None).await?;
+let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+factory.initialize(None).await?;
+let ban_storage = factory.create_ban_storage().await?;
+let ban_manager = BanManager::with_dependencies(ban_storage, BanManagerConfig::default()).await?;
 let target = BanTarget::UserId("user123".to_string());
-ban_manager.create_ban(target, "恶意".to_string(), Some(3600), None).await?;
+ban_manager.create_ban(
+    target,
+    "恶意".to_string(),
+    BanSource::Manual { operator: "admin".to_string() },
+    serde_json::json!({}),
+    Some(Duration::from_secs(3600)),
+).await?;
 ```
 
 </td>
@@ -471,14 +521,19 @@ ban_manager.create_ban(target, "恶意".to_string(), Some(3600), None).await?;
 
 **配额消费**
 ```rust
-let quota = QuotaController::new(10000, 60);
-quota.consume("user123").await?;
+use limiteron::quota_controller::{QuotaController, QuotaConfig};
+
+let config = QuotaConfig::default();
+let quota = QuotaController::with_config(config)?;
+let result = quota.consume("user123", 1).await?;
 ```
 
 **熔断检查**
 ```rust
-let breaker = CircuitBreaker::new(5, 30);
-breaker.check().await?;
+use limiteron::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+
+let breaker = CircuitBreaker::with_config(CircuitBreakerConfig::default());
+let state = breaker.get_state().await;
 ```
 
 </td>
@@ -489,19 +544,44 @@ breaker.check().await?;
 <summary><b>🎯 完整示例</b></summary>
 
 ```rust
-use limiteron::{Governor, FlowControlConfig};
+use limiteron::{Governor, FlowControlConfig, Decision};
+use limiteron::adapters::StorageFactory;
+use limiteron::matchers::RequestContext;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let governor = Governor::new(FlowControlConfig::default()).await?;
+    // 创建存储
+    let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+    factory.initialize(None).await?;
+    let storage = factory.create_storage().await?;
+    let ban_storage = factory.create_ban_storage().await?;
+
+    // 创建 Governor
+    let governor = Governor::builder()
+        .with_storage(storage)
+        .with_ban_storage(ban_storage)
+        .build()
+        .await?;
 
     // 检查请求
-    let decision = governor.check_request("user123", "/api/v1/users").await?;
-    if decision.is_allowed() {
-        println!("✅ 请求允许");
-        // 处理请求
-    } else {
-        println!("❌ 请求被拒绝: {:?}", decision);
+    let context = RequestContext::builder()
+        .identifier("user123")
+        .path("/api/v1/users")
+        .method("GET")
+        .build();
+
+    let decision = governor.check(&context).await?;
+    match decision {
+        Decision::Allowed(_) => {
+            println!("✅ 请求允许");
+            // 处理请求
+        }
+        Decision::Rejected(reason) => {
+            println!("❌ 请求被拒绝: {}", reason);
+        }
+        Decision::Banned(info) => {
+            println!("❌ 请求被封禁: {}", info.reason());
+        }
     }
 
     Ok(())
@@ -519,22 +599,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 对于生产环境，你需要细粒度的控制：
 
 ```rust
-use limiteron::{Governor, FlowControlConfig};
-use limiteron::storage::{MemoryStorage, MockBanStorage};
+use limiteron::{Governor, FlowControlConfig, ConfigBuilder};
+use limiteron::adapters::StorageFactory;
 use std::sync::Arc;
 
-let config = FlowControlConfig {
-    rate_limit: Some("100/s".to_string()),
-    quota_limit: Some("10000/m".to_string()),
-    concurrency_limit: Some(50),
-    enable_metrics: true,
-    enable_tracing: true,
-    ..Default::default()
-};
+// 使用 ConfigBuilder 创建配置
+let config = ConfigBuilder::new()
+    .with_storage("memory")
+    .with_rule(|rule| {
+        rule.id("api_rate_limit")
+            .name("API Rate Limit")
+            .priority(100)
+            .token_bucket(100, 10)
+    })
+    .build()?;
 
-let storage = Arc::new(MemoryStorage::new());
-let ban_storage = Arc::new(MockBanStorage);
-let governor = Governor::new(config, storage, ban_storage).await?;
+// 创建存储
+let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+factory.initialize(None).await?;
+let storage = factory.create_storage().await?;
+let ban_storage = factory.create_ban_storage().await?;
+
+// 创建 Governor
+let governor = Governor::builder()
+    .with_config(config)
+    .with_storage(storage)
+    .with_ban_storage(ban_storage)
+    .build()
+    .await?;
 ```
 
 <details>
@@ -771,13 +863,27 @@ async fn handle_request() -> Result<(), FlowGuardError> {
 
 **尽早初始化**
 ```rust
+use limiteron::Governor;
+use limiteron::adapters::StorageFactory;
+
 #[tokio::main]
 async fn main() {
-    // 在开始时初始化
-    let governor = Governor::new(FlowControlConfig::default()).await.unwrap();
+    // 在开始时初始化存储
+    let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+    factory.initialize(None).await.unwrap();
+    let storage = factory.create_storage().await.unwrap();
+    let ban_storage = factory.create_ban_storage().await.unwrap();
+
+    // 创建 Governor
+    let governor = Governor::builder()
+        .with_storage(storage)
+        .with_ban_storage(ban_storage)
+        .build()
+        .await
+        .unwrap();
 
     // 然后使用
-    do_work().await;
+    do_work(governor).await;
 }
 ```
 

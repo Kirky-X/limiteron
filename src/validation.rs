@@ -28,7 +28,7 @@ use crate::constants::{
 };
 use crate::error::FlowGuardError;
 #[cfg(feature = "ban-manager")]
-use crate::storage_trait::BanTarget;
+use crate::storage::BanTarget;
 
 /// Validates an IP address (IPv4 or IPv6).
 ///
@@ -487,7 +487,7 @@ mod tests {
     #[test]
     #[cfg(feature = "ban-manager")]
     fn test_validate_ban_target_ip() {
-        use crate::storage_trait::BanTarget;
+        use crate::storage::BanTarget;
 
         // 有效的 IP 地址
         let ip_target = BanTarget::Ip("192.168.1.1".to_string());
@@ -504,7 +504,7 @@ mod tests {
     #[test]
     #[cfg(feature = "ban-manager")]
     fn test_validate_ban_target_user_id() {
-        use crate::storage_trait::BanTarget;
+        use crate::storage::BanTarget;
 
         // 有效的用户 ID
         let user_target = BanTarget::UserId("user123".to_string());
@@ -518,7 +518,7 @@ mod tests {
     #[test]
     #[cfg(feature = "ban-manager")]
     fn test_validate_ban_target_mac() {
-        use crate::storage_trait::BanTarget;
+        use crate::storage::BanTarget;
 
         // 有效的 MAC 地址
         let mac_target = BanTarget::Mac("00:1A:2B:3C:4D:5E".to_string());

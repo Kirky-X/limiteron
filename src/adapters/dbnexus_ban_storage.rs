@@ -13,10 +13,10 @@ use crate::dbnexus_entities::ban_record::{
     Entity as BanRecordEntity, Model as BanRecordModel,
 };
 use crate::error::StorageError;
-use crate::storage_trait::{BanHistory, BanRecord, BanStorage, BanTarget};
+use crate::storage::{BanHistory, BanRecord, BanStorage, BanTarget};
 use async_trait::async_trait;
 use chrono::Utc;
-use dbnexus::{entity::Condition, DbPool, Session};
+use dbnexus::{Condition, DbPool, Session};
 use sea_orm::entity::prelude::*;
 use sea_orm::{Order, QueryOrder, QuerySelect, Set};
 use std::sync::Arc;

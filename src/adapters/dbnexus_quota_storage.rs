@@ -13,10 +13,10 @@ use crate::dbnexus_entities::quota_record::{
     Model as QuotaRecordModel,
 };
 use crate::error::{ConsumeResult, StorageError};
-use crate::storage_trait::{QuotaInfo, QuotaStorage};
+use crate::storage::{QuotaInfo, QuotaStorage};
 use async_trait::async_trait;
 use chrono::{Duration as ChronoDuration, Utc};
-use dbnexus::{entity::Condition, DbPool, Session};
+use dbnexus::{Condition, DbPool, Session};
 use sea_orm::entity::prelude::*;
 use sea_orm::Set;
 use std::sync::Arc;

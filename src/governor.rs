@@ -17,18 +17,17 @@ use crate::decision_chain::DecisionChain;
 use crate::error::Decision;
 use crate::error::FlowGuardError;
 use crate::l1_cache::{CacheableDecision, L1Cache, L1CacheConfig, RateLimitCacheKey};
-use crate::log_redaction::{redact_ip, redact_user_id};
+use crate::logging::{redact_ip, redact_user_id};
 use crate::matchers::{IdentifierExtractor, RequestContext, RuleMatcher};
-use crate::rule_builder::RuleBuilder;
-use crate::stats_manager::{StatsManager, StatsSnapshot};
+use crate::rules::{RuleBuilder, StatsManager, StatsSnapshot};
 // storage module removed as part of direct-inheritance refactoring
 // Use dbnexus traits directly instead
-// Re-exported from storage_trait module for compatibility
+// Re-exported from storage module for compatibility
 #[cfg(all(feature = "ban-manager", not(feature = "parallel-checker")))]
 use crate::error::BanInfo;
 #[cfg(all(feature = "ban-manager", not(feature = "parallel-checker")))]
-use crate::storage_trait::BanTarget;
-use crate::storage_trait::{BanStorage, Storage};
+use crate::storage::BanTarget;
+use crate::storage::{BanStorage, Storage};
 use dashmap::DashMap;
 #[cfg(feature = "parallel-checker")]
 use log::warn;
@@ -38,9 +37,9 @@ use tokio::sync::RwLock;
 
 // Conditional imports for optional features
 #[cfg(feature = "audit-log")]
-use crate::audit_log::AuditLogger;
+use crate::logging::AuditLogger;
 #[cfg(feature = "ban-manager")]
-use crate::ban_manager::BanManager;
+use crate::ban::BanManager;
 #[cfg(feature = "circuit-breaker")]
 use crate::circuit::CircuitBreaker;
 #[cfg(any(feature = "parallel-checker", feature = "ban-manager"))]
@@ -103,7 +102,7 @@ pub struct Governor {
 
     /// 并行封禁检查器（新增）
     #[cfg(feature = "parallel-checker")]
-    parallel_ban_checker: Arc<crate::parallel_ban_checker::ParallelBanChecker>,
+    parallel_ban_checker: Arc<crate::storage::ParallelBanChecker>,
 
     /// 决策链
     decision_chain: Arc<RwLock<DecisionChain>>,
@@ -176,13 +175,13 @@ pub struct GovernorBuilder {
     #[cfg(feature = "circuit-breaker")]
     circuit_breaker: Option<Arc<CircuitBreaker>>,
     #[cfg(feature = "audit-log")]
-    audit_logger: Option<Arc<crate::audit_log::AuditLogger>>,
+    audit_logger: Option<Arc<crate::logging::AuditLogger>>,
     #[cfg(feature = "monitoring")]
     metrics: Option<Arc<Metrics>>,
     #[cfg(feature = "telemetry")]
     tracer: Option<Arc<Tracer>>,
     #[cfg(feature = "parallel-checker")]
-    parallel_ban_checker: Option<Arc<crate::parallel_ban_checker::ParallelBanChecker>>,
+    parallel_ban_checker: Option<Arc<crate::storage::ParallelBanChecker>>,
     /// L1 缓存配置
     l1_cache_config: Option<L1CacheConfig>,
     /// 是否启用 L1 缓存
@@ -248,7 +247,7 @@ impl GovernorBuilder {
 
     /// 设置审计日志记录器
     #[cfg(feature = "audit-log")]
-    pub fn with_audit_logger(mut self, audit_logger: Arc<crate::audit_log::AuditLogger>) -> Self {
+    pub fn with_audit_logger(mut self, audit_logger: Arc<crate::logging::AuditLogger>) -> Self {
         self.audit_logger = Some(audit_logger);
         self
     }
@@ -303,7 +302,7 @@ impl GovernorBuilder {
         // 创建封禁管理器
         #[cfg(feature = "ban-manager")]
         let ban_manager = {
-            use crate::ban_manager::{BanManager, BanManagerConfig};
+            use crate::ban::{BanManager, BanManagerConfig};
             let config = BanManagerConfig::default();
             BanManager::with_dependencies(ban_storage.clone(), config)
                 .await
@@ -315,7 +314,7 @@ impl GovernorBuilder {
         let parallel_ban_checker = self.parallel_ban_checker.unwrap_or_else(|| {
             #[cfg(feature = "ban-manager")]
             {
-                Arc::new(crate::parallel_ban_checker::ParallelBanChecker::new(
+                Arc::new(crate::storage::ParallelBanChecker::new(
                     ban_manager.clone(),
                 ))
             }
@@ -434,7 +433,7 @@ impl Governor {
     /// }
     /// ```
     pub async fn new() -> Self {
-        use crate::storage_trait::{MemoryBanStorage, MemoryStorage};
+        use crate::storage::{MemoryBanStorage, MemoryStorage};
 
         let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
         let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
@@ -467,7 +466,7 @@ impl Governor {
     ) -> Self {
         // 创建封禁管理器
         #[cfg(feature = "ban-manager")]
-        use crate::ban_manager::{BanManager, BanManagerConfig};
+        use crate::ban::{BanManager, BanManagerConfig};
 
         #[cfg(feature = "ban-manager")]
         let ban_manager: Arc<BanManager> = {
@@ -488,8 +487,8 @@ impl Governor {
 
         // 创建并行封禁检查器
         #[cfg(feature = "parallel-checker")]
-        let parallel_ban_checker: Arc<crate::parallel_ban_checker::ParallelBanChecker> = Arc::new(
-            crate::parallel_ban_checker::ParallelBanChecker::new(ban_manager.clone()),
+        let parallel_ban_checker: Arc<crate::storage::ParallelBanChecker> = Arc::new(
+            crate::storage::ParallelBanChecker::new(ban_manager.clone()),
         );
 
         Self {
@@ -610,7 +609,7 @@ impl Governor {
         ban_storage: Arc<dyn BanStorage>,
     ) -> Result<Self, FlowGuardError> {
         // 使用 ConfigLoader 加载配置
-        let config = crate::config_loader::ConfigLoader::load_from_file(config_path)?;
+        let config = crate::ConfigLoader::load_from_file(config_path)?;
         Self::create_with_config(config, storage, ban_storage).await
     }
 
@@ -657,7 +656,7 @@ impl Governor {
         ban_storage: Arc<dyn BanStorage>,
     ) -> Result<Self, FlowGuardError> {
         // 使用 ConfigLoader 加载配置，支持环境变量覆盖
-        let config = crate::config_loader::ConfigLoader::load_from_file(config_path)?;
+        let config = crate::ConfigLoader::load_from_file(config_path)?;
         Self::create_with_config(config, storage, ban_storage).await
     }
 
@@ -750,7 +749,7 @@ impl Governor {
                 if let Some(info) = ban_info {
                     warn!(
                         "Request banned: 用户={}, 原因={}",
-                        crate::log_redaction::redact_user_id(Some(identifier.key().as_str())),
+                        crate::logging::redact_user_id(Some(identifier.key().as_str())),
                         info.reason()
                     );
                     self.stats.increment_banned();
@@ -922,7 +921,7 @@ impl Governor {
                 .await?;
             info!(
                 "用户 {} 已被封禁",
-                crate::log_redaction::redact_user_id(Some(identifier.key().as_ref()))
+                crate::logging::redact_user_id(Some(identifier.key().as_ref()))
             );
         } else {
             return Err(FlowGuardError::ValidationError(
@@ -949,7 +948,7 @@ impl Governor {
             if unbanned {
                 info!(
                     "用户 {} 已解封",
-                    crate::log_redaction::redact_user_id(Some(identifier.key().as_ref()))
+                    crate::logging::redact_user_id(Some(identifier.key().as_ref()))
                 );
             }
             Ok(())
@@ -1157,10 +1156,8 @@ impl Governor {
 #[cfg(test)]
 mod governor_construction_tests {
     use super::*;
-    use crate::config::types::{
-        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule, Rule as RuleTrait,
-    };
-    use crate::storage_trait::{MemoryBanStorage, MemoryStorage};
+    use crate::config::types::{Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
+    use crate::storage::{MemoryBanStorage, MemoryStorage};
 
     fn create_valid_test_config() -> FlowControlConfig {
         FlowControlConfig {
@@ -1235,9 +1232,22 @@ mod governor_construction_tests {
 
         let config = create_valid_test_config();
 
-        let governor = Governor::with_storage(config, storage, ban_storage)
-            .await
-            .expect("Governor creation should succeed");
+        #[cfg(feature = "monitoring")]
+        let metrics: Option<Arc<Metrics>> = None;
+        #[cfg(feature = "telemetry")]
+        let tracer: Option<Arc<Tracer>> = None;
+
+        let governor = Governor::with_storage(
+            config,
+            storage,
+            ban_storage,
+            #[cfg(feature = "monitoring")]
+            metrics,
+            #[cfg(feature = "telemetry")]
+            tracer,
+        )
+        .await
+        .expect("Governor creation should succeed");
 
         let stats = governor.stats().await;
         assert_eq!(stats.total_requests, 0);

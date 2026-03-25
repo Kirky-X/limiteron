@@ -25,20 +25,60 @@ license = "Apache-2.0"
 repository = "https://github.com/Kirky-X/limiteron"
 
 [workspace.dependencies]
-tokio = { version = "1.49", features = ["rt-multi-thread", "macros", "time", "net", "signal", "sync", "io-util"] }
-async-trait = "0.1"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.20", features = ["v4", "serde"] }
-anyhow = "1.0"
-thiserror = "2.0"
-parking_lot = "0.12"
-tracing = "0.1"
-log = "0.4"
-futures = "0.3"
-scopeguard = "1.2"
-tracing-opentelemetry = "0.32"
+# 异步运行时
+tokio = { version = "~1.50", features = ["rt-multi-thread", "macros", "time", "net", "signal", "sync", "io-util"] }
+tokio-util = { version = "~0.7", features = ["rt"] }
+async-trait = "~0.1"
+
+# 序列化
+serde = { version = "~1.0", features = ["derive"] }
+serde_json = "~1.0"
+serde_yaml = "~0.9"
+toml = "~1.1"
+
+# 时间和UUID
+chrono = { version = "~0.4", features = ["serde"] }
+uuid = { version = "~1.22", features = ["v4", "serde"] }
+
+# 错误处理
+anyhow = "~1.0"
+thiserror = "~2.0"
+
+# 并发和同步
+parking_lot = "~0.12"
+futures = "~0.3"
+
+# 日志和追踪
+tracing = "~0.1"
+log = "~0.4"
+scopeguard = "~1.2"
+tracing-opentelemetry = "~0.32"
+
+# 验证和工具
+validator = "~0.20"
+lazy_static = "~1.5"
+
+# 数据结构
+dashmap = "~6.1"
+ahash = { version = "~0.8", features = ["serde"] }
+regex = "~1.12"
+ipnet = "~2.10"
+
+# 安全
+secrecy = "~0.10"
+
+# 宏相关
+proc-macro2 = "~1.0"
+syn = { version = "~2.0", features = ["full", "extra-traits"] }
+quote = "~1.0"
+darling = "~0.23"
+
+# 开发依赖
+tokio-test = "~0.4"
+tempfile = "~3.27"
+rand = { version = "~0.10", default-features = false, features = ["std_rng"] }
+criterion = { version = "~0.5", features = ["async_tokio"] }
+trybuild = "~1.0"
 
 [package]
 name = "limiteron"
@@ -53,13 +93,13 @@ categories = ["web-programming", "concurrency"]
 
 [dependencies]
 tokio.workspace = true
-tokio-util = { version = "0.7", features = ["rt"] }
+tokio-util.workspace = true
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-futures = { version = "0.3", optional = true }
-serde_yaml = "0.9"
-toml = "0.9"
+futures = { workspace = true, optional = true }
+serde_yaml.workspace = true
+toml.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 anyhow.workspace = true
@@ -67,20 +107,18 @@ thiserror.workspace = true
 parking_lot.workspace = true
 tracing.workspace = true
 log.workspace = true
-lazy_static = "1.5"
-validator = "0.19"
+lazy_static.workspace = true
+validator.workspace = true
 
-# dashmap: 并发哈希表 (核心依赖)
-dashmap = "6.1"
+# 并发和数据结构（核心依赖）
+dashmap.workspace = true
+ahash.workspace = true
 
 # 数据库操作 - 使用本地 dbnexus (启用 macros 特性以支持 Entity 定义)
 # 注意：dbnexus 默认启用 sqlite，与 postgres 特性互斥，需要禁用 sqlite
 dbnexus = { path = "/home/dev/projects/dbnexus", optional = true, default-features = false, features = ["postgres", "macros", "sql-parser"] }
 sea-orm = { version = "2.0.0-rc.37", optional = true, default-features = false, features = ["macros", "with-chrono"] }
-sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls"], optional = true }
-
-# ahash: 高性能哈希算法 (核心依赖)
-ahash = { version = "0.8.12", features = ["serde"] }
+sqlx = { version = "~0.8", features = ["postgres", "runtime-tokio-rustls"], optional = true }
 
 # 缓存库 - 使用本地 oxcache (必需依赖)
 oxcache = { path = "/home/dev/projects/oxcache" }
@@ -89,46 +127,46 @@ oxcache = { path = "/home/dev/projects/oxcache" }
 confers = { path = "/home/dev/projects/confers", optional = true, default-features = false }
 confers-macros = { path = "/home/dev/projects/confers/confers-macros", optional = true }
 
-# 宏依赖
-proc-macro2 = { version = "1.0", optional = true }
-syn = { version = "2.0", features = ["full"], optional = true }
-quote = { version = "1.0", optional = true }
+# 宏依赖（可选）
+proc-macro2 = { workspace = true, optional = true }
+syn = { workspace = true, optional = true }
+quote = { workspace = true, optional = true }
 limiteron-macros = { path = "macros", optional = true }
 
-# 监控依赖
-tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
-prometheus = { version = "0.14", optional = true }
-opentelemetry = { version = "0.31", optional = true }
-opentelemetry-jaeger = { version = "0.22", features = ["rt-tokio"], optional = true }
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"], optional = true }
-tracing-opentelemetry = { version = "0.32", optional = true }
-scopeguard = { version = "1.2", optional = true }
+# 监控依赖（可选）
+tracing-subscriber = { version = "~0.3", features = ["env-filter"], optional = true }
+prometheus = { version = "~0.14", optional = true }
+opentelemetry = { version = "~0.31", optional = true }
+opentelemetry-jaeger = { version = "~0.22", features = ["rt-tokio"], optional = true }
+opentelemetry_sdk = { version = "~0.31", features = ["rt-tokio"], optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+scopeguard = { workspace = true, optional = true }
 
-# 工具依赖
-reqwest = { version = "0.13", features = ["json"], optional = true }
-notify = { version = "8.2", optional = true }
+# 工具依赖（可选）
+reqwest = { version = "~0.13", features = ["json"], optional = true }
+notify = { version = "~8.2", optional = true }
 
-# 安全相关
-regex = { version = "1.12", optional = true }
-secrecy = { version = "0.10.3" }
-ipnet = "2.10"
-hmac = { version = "0.12", optional = true }
-sha2 = { version = "0.10", optional = true }
-hex = { version = "0.4", optional = true }
+# 安全相关（可选和必需）
+regex = { workspace = true, optional = true }
+secrecy.workspace = true
+ipnet.workspace = true
+hmac = { version = "~0.12", optional = true }
+sha2 = { version = "~0.10", optional = true }
+hex = { version = "~0.4", optional = true }
 
-# 高级匹配
-maxminddb = { version = "0.27", optional = true }
-woothee = { version = "0.13", optional = true }
+# 高级匹配（可选）
+maxminddb = { version = "~0.27", optional = true }
+woothee = { version = "~0.13", optional = true }
 
-# Redis 客户端
-redis = { version = "1.0", optional = true, default-features = false, features = ["tokio-comp"] }
+# Redis 客户端（可选）- 使用 0.27 版本与 oxcache 保持一致
+redis = { version = "=0.27.6", default-features = false, features = ["tokio-comp"] }
 
 [dev-dependencies]
-tokio-test = "0.4"
-tempfile = "3.24"
-futures = "0.3"
-rand = "0.8"
-criterion = { version = "0.5", features = ["async_tokio"] }
+tokio-test.workspace = true
+tempfile.workspace = true
+futures.workspace = true
+rand.workspace = true
+criterion.workspace = true
 
 [features]
 # ============================================
@@ -173,12 +211,9 @@ default = ["postgres", "confers"]
 # PostgreSQL 存储 - 使用 dbnexus
 postgres = ["dep:dbnexus", "dep:sqlx", "dep:sea-orm"]
 
-# Redis 存储 - 用于 Lua 脚本管理
-redis = ["dep:redis"]
-
 # Lua 脚本支持 - 使用 oxcache 的 lua-script 特性
 # 需要 redis 特性来提供 Redis 后端
-lua-script = ["oxcache/lua-script", "redis"]
+lua-script = ["oxcache/lua-script"]
 
 # ahash 不再作为特性，直接在依赖中定义
 

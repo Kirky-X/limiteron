@@ -6,7 +6,7 @@ use ahash::AHashMap as HashMap;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use limiteron::error::{ConsumeResult, StorageError};
-use limiteron::storage_trait::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage};
+use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage};
 use std::time::Duration;
 use tokio::sync::RwLock;
 

@@ -7,8 +7,8 @@
 //!
 //! Run: cargo run --bin ban_manager --features ban-manager
 
-use limiteron::ban_manager::{BanManager, BanManagerConfig, BanSource};
-use limiteron::storage_trait::{BanStorage, BanTarget};
+use limiteron::ban::{BanManager, BanManagerConfig, BanSource};
+use limiteron::{BanStorage, BanTarget};
 use limiteron::error::FlowGuardError;
 use limiteron_examples::MemoryBanStorage;
 use std::sync::Arc;

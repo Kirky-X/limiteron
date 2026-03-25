@@ -10,7 +10,7 @@
 
 use limiteron::error::FlowGuardError;
 use limiteron::limiters::{
-    ConcurrencyLimiter, FixedWindowLimiter, Limiter, SlidingWindowLimiter, TokenBucketLimiter,
+    ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter,
 };
 use std::time::Duration;
 
@@ -60,10 +60,10 @@ async fn demo_token_bucket() -> Result<(), FlowGuardError> {
 }
 
 async fn demo_sliding_window() -> Result<(), FlowGuardError> {
-    println!("--- Sliding Window Limiter ---");
+    println!("--- Sharded Sliding Window Limiter ---");
     println!("Window: 200ms, Max requests: 2\n");
 
-    let limiter = SlidingWindowLimiter::new(Duration::from_millis(200), 2);
+    let limiter = ShardedSlidingWindowLimiter::new(Duration::from_millis(200), 2);
 
     let first = limiter.allow(1).await?;
     let second = limiter.allow(1).await?;

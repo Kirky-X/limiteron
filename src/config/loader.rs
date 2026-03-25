@@ -198,7 +198,7 @@ on_exceed = "reject"
     #[test]
     fn test_load_toml_config() {
         let temp_file = create_test_config_toml();
-        let result = ConfigLoader::load_from_file(temp_file.path());
+        let _result = ConfigLoader::load_from_file(temp_file.path());
         // Full config parsing tests should use programmatic ConfigBuilder
     }
 

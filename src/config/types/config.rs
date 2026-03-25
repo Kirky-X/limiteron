@@ -5,26 +5,68 @@
 
 //! 配置相关类型
 
-use crate::constants::{VALID_CACHE_TYPES, VALID_METRICS_TYPES, VALID_STORAGE_TYPES};
+use super::actions::{CacheBackend, MetricsBackend};
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
 /// 全局配置
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GlobalConfig {
-    pub storage: String,
-    pub cache: String,
-    pub metrics: String,
+    pub storage: StorageType,
+    pub cache: CacheBackend,
+    pub metrics: MetricsBackend,
     /// 可信代理配置（用于安全提取客户端 IP）
     #[serde(default)]
     pub trusted_proxies: TrustedProxyConfig,
+}
+
+/// 存储类型枚举
+/// 兼容字符串和枚举类型的配置方式
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StorageType {
+    /// 内存存储
+    #[default]
+    Memory,
+    /// PostgreSQL 存储
+    PostgreSQL,
+    /// Redis 存储
+    Redis,
+}
+
+impl StorageType {
+    /// 从字符串解析
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "memory" => Some(Self::Memory),
+            "postgresql" | "postgres" => Some(Self::PostgreSQL),
+            "redis" => Some(Self::Redis),
+            _ => None,
+        }
+    }
+}
+
+impl From<&str> for StorageType {
+    fn from(s: &str) -> Self {
+        Self::parse(s).unwrap_or_default()
+    }
+}
+
+impl std::fmt::Display for StorageType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Memory => write!(f, "memory"),
+            Self::PostgreSQL => write!(f, "postgresql"),
+            Self::Redis => write!(f, "redis"),
+        }
+    }
 }
 
 /// 可信代理配置
 ///
 /// 用于从 X-Forwarded-For 头中安全提取真实客户端 IP 地址。
 /// 配置可信代理列表后，系统会从右向左查找第一个非可信代理的 IP 作为客户端 IP。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct TrustedProxyConfig {
     /// 是否启用可信代理模式
     #[serde(default)]
@@ -37,19 +79,10 @@ pub struct TrustedProxyConfig {
 impl Default for GlobalConfig {
     fn default() -> Self {
         Self {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::default(),
+            metrics: MetricsBackend::default(),
             trusted_proxies: TrustedProxyConfig::default(),
-        }
-    }
-}
-
-impl Default for TrustedProxyConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            proxies: Vec::new(),
         }
     }
 }
@@ -105,30 +138,8 @@ impl TrustedProxyConfig {
 impl GlobalConfig {
     /// 校验全局配置
     pub fn validate(&self) -> Result<(), String> {
-        if !VALID_STORAGE_TYPES.contains(&self.storage.as_str()) {
-            return Err(format!(
-                "无效的存储类型: {}, 有效值: {:?}",
-                self.storage, VALID_STORAGE_TYPES
-            ));
-        }
-
-        if !VALID_CACHE_TYPES.contains(&self.cache.as_str()) {
-            return Err(format!(
-                "无效的缓存类型: {}, 有效值: {:?}",
-                self.cache, VALID_CACHE_TYPES
-            ));
-        }
-
-        if !VALID_METRICS_TYPES.contains(&self.metrics.as_str()) {
-            return Err(format!(
-                "无效的指标类型: {}, 有效值: {:?}",
-                self.metrics, VALID_METRICS_TYPES
-            ));
-        }
-
-        // 校验可信代理配置
+        // 枚举类型在编译时就保证类型安全，这里只校验可信代理配置
         self.trusted_proxies.validate()?;
-
         Ok(())
     }
 }

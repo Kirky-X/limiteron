@@ -97,7 +97,8 @@ impl ConfigSecurityValidator {
     /// 验证全局配置
     fn validate_global_config(global: &GlobalConfig, report: &mut ConfigSecurityReport) {
         // 验证存储类型
-        if !VALID_STORAGE_TYPES.contains(&global.storage.as_str()) {
+        let storage_str = global.storage.to_string();
+        if !VALID_STORAGE_TYPES.contains(&storage_str.as_str()) {
             report.add_warning(format!(
                 "无效的存储类型: {}，仅支持 {:?}",
                 global.storage, VALID_STORAGE_TYPES
@@ -105,7 +106,8 @@ impl ConfigSecurityValidator {
         }
 
         // 验证缓存类型
-        if !VALID_CACHE_TYPES.contains(&global.cache.as_str()) {
+        let cache_str = global.cache.to_string();
+        if !VALID_CACHE_TYPES.contains(&cache_str.as_str()) {
             report.add_warning(format!(
                 "无效的缓存类型: {}，仅支持 {:?}",
                 global.cache, VALID_CACHE_TYPES

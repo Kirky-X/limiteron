@@ -41,6 +41,18 @@ impl Action {
     }
 }
 
+impl From<&str> for Action {
+    fn from(s: &str) -> Self {
+        Self::parse(s).unwrap_or_default()
+    }
+}
+
+impl std::fmt::Display for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 /// 封禁范围
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -72,6 +84,18 @@ impl BanScope {
             Self::User => "user",
             Self::Mac => "mac",
         }
+    }
+}
+
+impl From<&str> for BanScope {
+    fn from(s: &str) -> Self {
+        Self::parse(s).unwrap_or_default()
+    }
+}
+
+impl std::fmt::Display for BanScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
     }
 }
 
@@ -109,6 +133,18 @@ impl CacheBackend {
     }
 }
 
+impl From<&str> for CacheBackend {
+    fn from(s: &str) -> Self {
+        Self::parse(s).unwrap_or_default()
+    }
+}
+
+impl std::fmt::Display for CacheBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 /// 指标后端类型
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -143,20 +179,23 @@ impl MetricsBackend {
     }
 }
 
+impl From<&str> for MetricsBackend {
+    fn from(s: &str) -> Self {
+        Self::parse(s).unwrap_or_default()
+    }
+}
+
+impl std::fmt::Display for MetricsBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
 /// 动作配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ActionConfig {
     pub on_exceed: Action,
     pub ban: Option<BanConfig>,
-}
-
-impl Default for ActionConfig {
-    fn default() -> Self {
-        Self {
-            on_exceed: Action::default(),
-            ban: None,
-        }
-    }
 }
 
 impl ActionConfig {

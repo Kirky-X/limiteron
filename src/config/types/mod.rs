@@ -19,7 +19,7 @@ mod limiter;
 mod rule;
 
 pub use actions::{Action, ActionConfig, BanConfig, BanScope, CacheBackend, MetricsBackend};
-pub use config::{GlobalConfig, TrustedProxyConfig};
+pub use config::{GlobalConfig, StorageType, TrustedProxyConfig};
 pub use history::{ChangeSource, ConfigChangeRecord, ConfigHistory};
 pub use limiter::{parse_window_size, LimiterConfig, OverdraftConfig};
 pub use rule::Matcher;
@@ -173,9 +173,9 @@ mod tests {
         let config = FlowControlConfig {
             version: "1.0".to_string(),
             global: GlobalConfig {
-                storage: "memory".to_string(),
-                cache: "memory".to_string(),
-                metrics: "prometheus".to_string(),
+                storage: StorageType::Memory,
+                cache: CacheBackend::Memory,
+                metrics: MetricsBackend::Prometheus,
                 trusted_proxies: TrustedProxyConfig::default(),
             },
             rules: vec![],
@@ -190,9 +190,9 @@ mod tests {
         let config = FlowControlConfig {
             version: "1.0".to_string(),
             global: GlobalConfig {
-                storage: "memory".to_string(),
-                cache: "memory".to_string(),
-                metrics: "prometheus".to_string(),
+                storage: StorageType::Memory,
+                cache: CacheBackend::Memory,
+                metrics: MetricsBackend::Prometheus,
                 trusted_proxies: TrustedProxyConfig::default(),
             },
             rules: vec![Rule {
@@ -217,22 +217,6 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_storage() {
-        let config = FlowControlConfig {
-            version: "1.0".to_string(),
-            global: GlobalConfig {
-                storage: "invalid".to_string(),
-                cache: "memory".to_string(),
-                metrics: "prometheus".to_string(),
-                trusted_proxies: TrustedProxyConfig::default(),
-            },
-            rules: vec![],
-        };
-
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
     fn test_duplicate_rule_ids() {
         let rule = Rule {
             id: "duplicate".to_string(),
@@ -254,9 +238,9 @@ mod tests {
         let config = FlowControlConfig {
             version: "1.0".to_string(),
             global: GlobalConfig {
-                storage: "memory".to_string(),
-                cache: "memory".to_string(),
-                metrics: "prometheus".to_string(),
+                storage: StorageType::Memory,
+                cache: CacheBackend::Memory,
+                metrics: MetricsBackend::Prometheus,
                 trusted_proxies: TrustedProxyConfig::default(),
             },
             rules: vec![rule.clone(), rule],
@@ -332,68 +316,29 @@ on_exceed = "reject"
     fn test_flow_control_config_default() {
         let config = FlowControlConfig::default();
         assert_eq!(config.version, "0.1.0");
-        assert_eq!(config.global.storage, "memory");
-        assert_eq!(config.global.cache, "memory");
-        assert_eq!(config.global.metrics, "prometheus");
+        assert_eq!(config.global.storage, StorageType::Memory);
+        assert_eq!(config.global.cache, CacheBackend::Memory);
+        assert_eq!(config.global.metrics, MetricsBackend::Prometheus);
         assert!(config.rules.is_empty());
     }
 
     #[test]
     fn test_global_config_default() {
         let global = GlobalConfig::default();
-        assert_eq!(global.storage, "memory");
-        assert_eq!(global.cache, "memory");
-        assert_eq!(global.metrics, "prometheus");
+        assert_eq!(global.storage, StorageType::Memory);
+        assert_eq!(global.cache, CacheBackend::Memory);
+        assert_eq!(global.metrics, MetricsBackend::Prometheus);
     }
 
     #[test]
     fn test_global_config_validate_success() {
         let global = GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: TrustedProxyConfig::default(),
         };
         assert!(global.validate().is_ok());
-    }
-
-    #[test]
-    fn test_global_config_validate_invalid_storage() {
-        let global = GlobalConfig {
-            storage: "invalid".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
-            trusted_proxies: TrustedProxyConfig::default(),
-        };
-        let result = global.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("无效的存储类型"));
-    }
-
-    #[test]
-    fn test_global_config_validate_invalid_cache() {
-        let global = GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "invalid".to_string(),
-            metrics: "prometheus".to_string(),
-            trusted_proxies: TrustedProxyConfig::default(),
-        };
-        let result = global.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("无效的缓存类型"));
-    }
-
-    #[test]
-    fn test_global_config_validate_invalid_metrics() {
-        let global = GlobalConfig {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "invalid".to_string(),
-            trusted_proxies: TrustedProxyConfig::default(),
-        };
-        let result = global.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("无效的指标类型"));
     }
 
     #[test]
@@ -863,34 +808,34 @@ on_exceed = "reject"
     #[test]
     fn test_config_builder_new() {
         let builder = ConfigBuilder::new();
-        assert_eq!(builder.storage, "memory");
-        assert_eq!(builder.cache, "memory");
-        assert_eq!(builder.metrics, "prometheus");
+        assert_eq!(builder.storage, StorageType::Memory);
+        assert_eq!(builder.cache, CacheBackend::Memory);
+        assert_eq!(builder.metrics, MetricsBackend::Prometheus);
         assert!(builder.rules.is_empty());
     }
 
     #[test]
     fn test_config_builder_default() {
         let builder = ConfigBuilder::default();
-        assert_eq!(builder.storage, "memory");
+        assert_eq!(builder.storage, StorageType::Memory);
     }
 
     #[test]
     fn test_config_builder_with_storage() {
-        let builder = ConfigBuilder::new().with_storage("postgres");
-        assert_eq!(builder.storage, "postgres");
+        let builder = ConfigBuilder::new().with_storage(StorageType::PostgreSQL);
+        assert_eq!(builder.storage, StorageType::PostgreSQL);
     }
 
     #[test]
     fn test_config_builder_with_cache() {
-        let builder = ConfigBuilder::new().with_cache("redis");
-        assert_eq!(builder.cache, "redis");
+        let builder = ConfigBuilder::new().with_cache(CacheBackend::Redis);
+        assert_eq!(builder.cache, CacheBackend::Redis);
     }
 
     #[test]
     fn test_config_builder_with_metrics() {
-        let builder = ConfigBuilder::new().with_metrics("none");
-        assert_eq!(builder.metrics, "none");
+        let builder = ConfigBuilder::new().with_metrics(MetricsBackend::None);
+        assert_eq!(builder.metrics, MetricsBackend::None);
     }
 
     #[test]
@@ -1181,9 +1126,9 @@ on_exceed = "reject"
 #[derive(Clone, Debug)]
 pub struct ConfigBuilder {
     /// 全局配置
-    storage: String,
-    cache: String,
-    metrics: String,
+    storage: StorageType,
+    cache: CacheBackend,
+    metrics: MetricsBackend,
     /// 可信代理配置
     trusted_proxies: TrustedProxyConfig,
     /// 规则列表
@@ -1193,9 +1138,9 @@ pub struct ConfigBuilder {
 impl Default for ConfigBuilder {
     fn default() -> Self {
         Self {
-            storage: "memory".to_string(),
-            cache: "memory".to_string(),
-            metrics: "prometheus".to_string(),
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
             trusted_proxies: TrustedProxyConfig::default(),
             rules: Vec::new(),
         }
@@ -1209,14 +1154,14 @@ impl ConfigBuilder {
     }
 
     /// 设置存储类型
-    pub fn with_storage(mut self, storage: impl Into<String>) -> Self {
-        self.storage = storage.into();
+    pub fn with_storage(mut self, storage: StorageType) -> Self {
+        self.storage = storage;
         self
     }
 
     /// 设置缓存类型
-    pub fn with_cache(mut self, cache: impl Into<String>) -> Self {
-        self.cache = cache.into();
+    pub fn with_cache(mut self, cache: CacheBackend) -> Self {
+        self.cache = cache;
         self
     }
 
@@ -1227,8 +1172,8 @@ impl ConfigBuilder {
     }
 
     /// 设置指标类型
-    pub fn with_metrics(mut self, metrics: impl Into<String>) -> Self {
-        self.metrics = metrics.into();
+    pub fn with_metrics(mut self, metrics: MetricsBackend) -> Self {
+        self.metrics = metrics;
         self
     }
 

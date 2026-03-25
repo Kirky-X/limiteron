@@ -10,7 +10,7 @@
 use crate::config::types::{ChangeSource, ConfigChangeRecord, ConfigHistory, FlowControlConfig};
 use crate::config::loader::ConfigLoader;
 use crate::error::FlowGuardError;
-use crate::storage_trait::Storage;
+use crate::storage::Storage;
 use log::{debug, error, info};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
@@ -412,7 +412,7 @@ mod tests {
     use super::*;
     use crate::config::types::{GlobalConfig, Matcher, Rule};
     use crate::error::StorageError;
-    use crate::storage_trait::Storage;
+    use crate::storage::Storage;
     use async_trait::async_trait;
     use chrono::Utc;
     use parking_lot::Mutex;

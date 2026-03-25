@@ -19,9 +19,12 @@ pub mod security;
 pub use crate::config::types::{
     Action, ActionConfig, BanConfig, BanScope, CacheBackend, ChangeSource,
     ConfigBuilder, ConfigChangeRecord, ConfigHistory, FlowControlConfig, GlobalConfig,
-    LimiterConfig, Matcher as ConfigMatcher, MetricsBackend, OverdraftConfig,
-    Rule, RuleBuilder, TrustedProxyConfig,
+    LimiterConfig, Matcher, MetricsBackend, OverdraftConfig,
+    Rule, RuleBuilder, StorageType, TrustedProxyConfig,
 };
+// Backward compatibility alias
+#[allow(unused_imports)]
+pub use Matcher as ConfigMatcher;
 
 // Re-export config loader (requires confers feature)
 #[cfg(feature = "confers")]

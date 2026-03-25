@@ -63,11 +63,11 @@ impl Identifier {
     /// - `Some(BanTarget)`: 如果标识符类型支持封禁
     /// - `None`: 如果标识符类型不支持封禁（如 ApiKey, DeviceId）
     #[cfg(feature = "ban-manager")]
-    pub fn to_ban_target(&self) -> Option<crate::storage_trait::BanTarget> {
+    pub fn to_ban_target(&self) -> Option<crate::storage::BanTarget> {
         match self {
-            Identifier::UserId(id) => Some(crate::storage_trait::BanTarget::UserId(id.clone())),
-            Identifier::Ip(ip) => Some(crate::storage_trait::BanTarget::Ip(ip.clone())),
-            Identifier::Mac(mac) => Some(crate::storage_trait::BanTarget::Mac(mac.clone())),
+            Identifier::UserId(id) => Some(crate::storage::BanTarget::UserId(id.clone())),
+            Identifier::Ip(ip) => Some(crate::storage::BanTarget::Ip(ip.clone())),
+            Identifier::Mac(mac) => Some(crate::storage::BanTarget::Mac(mac.clone())),
             // ApiKey 和 DeviceId 不支持封禁
             Identifier::ApiKey(_) | Identifier::DeviceId(_) => None,
         }

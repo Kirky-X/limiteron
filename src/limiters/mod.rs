@@ -14,6 +14,8 @@
 //! - `sharded_sliding_window`: 分片滑动窗口限流器（推荐）
 //! - `fixed_window`: 固定窗口限流器
 //! - `concurrency`: 并发控制器
+//! - `factory`: 限流器工厂
+//! - `manager`: 限流器管理器
 
 // 子模块
 pub mod traits;
@@ -23,6 +25,8 @@ pub mod sliding_window;
 pub mod sharded_sliding_window;
 pub mod fixed_window;
 pub mod concurrency;
+pub mod factory;
+pub mod manager;
 
 // Quota limiter (feature-gated)
 #[cfg(feature = "quota-control")]
@@ -36,6 +40,8 @@ pub use sliding_window::SlidingWindowLimiter;
 pub use sharded_sliding_window::ShardedSlidingWindowLimiter;
 pub use fixed_window::FixedWindowLimiter;
 pub use concurrency::{ConcurrencyLimiter, ConcurrencyLimiterBuilder};
+pub use factory::LimiterFactory;
+pub use manager::LimiterManager;
 
 #[cfg(feature = "quota-control")]
 pub use quota_limiter::QuotaLimiter;

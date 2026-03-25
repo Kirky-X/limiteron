@@ -266,8 +266,15 @@ mod tests {
     async fn test_concurrency_try_acquire() {
         let limiter = ConcurrencyLimiter::new(2);
 
-        assert!(limiter.try_acquire(1).is_ok());
-        assert!(limiter.try_acquire(1).is_ok());
-        assert!(limiter.try_acquire(1).is_err());
+        // 保存 permit 以保持许可占用
+        let permit1 = limiter.try_acquire(1);
+        let permit2 = limiter.try_acquire(1);
+        let permit3 = limiter.try_acquire(1);
+
+        assert!(permit1.is_ok(), "第一次获取应该成功");
+        assert!(permit2.is_ok(), "第二次获取应该成功");
+        assert!(permit3.is_err(), "第三次获取应该失败，因为已达上限");
+
+        // permit1 和 permit2 在此处 drop，释放许可
     }
 }

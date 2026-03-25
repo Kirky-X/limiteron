@@ -19,7 +19,8 @@ pub use crate::matchers::{
 };
 
 // Common limiters
-pub use crate::limiters::{FixedWindowLimiter, SlidingWindowLimiter, TokenBucketLimiter};
+#[allow(deprecated)]
+pub use crate::limiters::{FixedWindowLimiter, ShardedSlidingWindowLimiter, TokenBucketLimiter};
 
 // Feature-gated exports
 #[cfg(feature = "ban-manager")]
@@ -29,7 +30,7 @@ pub use crate::ban::BanManager;
 pub use crate::circuit::CircuitBreaker;
 
 #[cfg(feature = "quota-control")]
-pub use crate::quota_controller::QuotaController;
+pub use crate::quota::QuotaController;
 
 #[cfg(feature = "macros")]
 pub use crate::macros::flow_control;

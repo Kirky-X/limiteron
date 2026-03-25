@@ -537,7 +537,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use std::time::Duration;
 
     #[tokio::test]

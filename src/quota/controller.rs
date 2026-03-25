@@ -23,7 +23,7 @@ pub const DEFAULT_OVERDRAFT_LIMIT_PERCENT: u8 = 20;
 pub const DEFAULT_DEDUP_CLEANUP_INTERVAL_SECS: u64 = 300;
 
 use crate::error::{ConsumeResult, FlowGuardError};
-use crate::storage_trait::QuotaStorage;
+use crate::storage::QuotaStorage;
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
 use log::debug;
@@ -851,7 +851,7 @@ async fn send_webhook_alert(
 mod tests {
     use super::*;
     use crate::error::StorageError;
-    use crate::storage_trait::{QuotaInfo, QuotaStorage};
+    use crate::storage::{QuotaInfo, QuotaStorage};
     use ahash::AHashMap as HashMap;
     use async_trait::async_trait;
     use parking_lot::Mutex;

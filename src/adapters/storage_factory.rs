@@ -43,12 +43,14 @@ use crate::adapters::DBNexusBanStorageAdapter;
 use crate::adapters::DBNexusQuotaStorageAdapter;
 use crate::adapters::DBNexusStorageAdapter;
 use crate::error::StorageError;
-use crate::storage_trait::{BanStorage, QuotaStorage, Storage};
+use crate::storage::{BanStorage, QuotaStorage, Storage};
 use dbnexus::DbPool;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// 存储类型枚举
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum StorageType {
     /// DBNexus PostgreSQL 存储
     #[default]
@@ -71,6 +73,37 @@ impl std::fmt::Display for StorageType {
             #[cfg(test)]
             StorageType::Memory => write!(f, "Memory"),
         }
+    }
+}
+
+impl StorageType {
+    /// 从字符串解析
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "dbnexus_postgres" | "postgresql" | "postgres" => Some(Self::DBNexusPostgres),
+            "dbnexus_mysql" | "mysql" => Some(Self::DBNexusMySQL),
+            "dbnexus_sqlite" | "sqlite" => Some(Self::DBNexusSQLite),
+            #[cfg(test)]
+            "memory" => Some(Self::Memory),
+            _ => None,
+        }
+    }
+
+    /// 转换为字符串
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::DBNexusPostgres => "dbnexus_postgres",
+            Self::DBNexusMySQL => "dbnexus_mysql",
+            Self::DBNexusSQLite => "dbnexus_sqlite",
+            #[cfg(test)]
+            Self::Memory => "memory",
+        }
+    }
+}
+
+impl From<&str> for StorageType {
+    fn from(s: &str) -> Self {
+        Self::parse(s).unwrap_or_default()
     }
 }
 

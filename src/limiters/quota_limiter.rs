@@ -9,7 +9,7 @@
 
 use crate::error::FlowGuardError;
 #[cfg(feature = "quota-control")]
-use crate::quota_controller::QuotaConfig;
+use crate::quota::QuotaConfig;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use std::sync::Arc;
@@ -131,7 +131,7 @@ impl crate::limiters::Limiter for QuotaLimiter {
 mod tests {
     use super::*;
     use crate::limiters::Limiter;
-    use crate::quota_controller::QuotaType;
+    use crate::quota::QuotaType;
 
     fn create_test_config() -> QuotaConfig {
         QuotaConfig {

@@ -63,7 +63,6 @@
 
 pub mod prelude;
 
-pub mod audit_log;
 pub mod authorization;
 #[cfg(feature = "ban-manager")]
 pub mod ban;
@@ -72,11 +71,11 @@ pub mod circuit;
 pub mod config;
 // Re-export all config submodules through config module
 #[cfg(feature = "config-security")]
-pub use config::config_security;
+pub use config::security;
 #[cfg(feature = "config-watcher")]
-pub use config::config_watcher;
+pub use config::watcher;
 #[cfg(feature = "confers")]
-pub use config::config_loader;
+pub use config::loader;
 
 #[cfg(feature = "postgres")]
 pub mod adapters;
@@ -95,35 +94,32 @@ pub mod constants;
 #[cfg(feature = "postgres")]
 pub mod dbnexus_entities;
 pub mod decision_chain;
-pub mod error;
-pub mod error_abstraction;
-pub mod factory;
+
+// Consolidated modules
+pub mod error;        // Contains error types and abstraction
+pub mod logging;      // Contains audit_log and log_redaction
+pub mod limiters;     // Contains limiters, factory, and manager
+pub mod rules;        // Contains rule_builder and stats_manager
+pub mod storage;      // Contains storage_trait and parallel_ban_checker
+
 #[cfg(feature = "fallback")]
 pub mod fallback;
 pub mod governor;
 pub mod l1_cache;
-pub mod limiter_manager;
-pub mod limiters;
-pub mod log_redaction;
 #[cfg(feature = "macros")]
 pub mod macros;
 pub mod matchers;
 #[cfg(feature = "lua-script")]
 pub mod oxcache_lua;
-#[cfg(feature = "parallel-checker")]
-pub mod parallel_ban_checker;
 #[cfg(feature = "quota-control")]
 pub mod quota;
-pub mod rule_builder;
-pub mod stats_manager;
-pub mod storage_trait;
 #[cfg(any(feature = "telemetry", feature = "monitoring"))]
 pub mod telemetry;
 pub mod validation;
 
 // 重新导出常用类型
 #[cfg(feature = "audit-log")]
-pub use audit_log::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
+pub use logging::audit::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
 #[cfg(feature = "ban-manager")]
 pub use authorization::OperationAuthorizationProvider;
 pub use authorization::{
@@ -153,7 +149,12 @@ pub use error::{
     BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, FlowGuardError,
     StorageError,
 };
-pub use factory::LimiterFactory;
+// Error abstraction types
+pub use error::{
+    BanSafeError, ConfigSafeError, ErrorMessageAbstraction, GeneralSafeError, LimitSafeError,
+    SafeErrorMessage, StorageSafeError, ValidationSafeError,
+};
+pub use limiters::LimiterFactory;
 #[cfg(feature = "fallback")]
 pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
 pub use governor::{Governor, GovernorStats};
@@ -204,13 +205,22 @@ pub use oxcache_lua::{
 };
 
 // Re-export storage traits for compatibility
-pub use storage_trait::{
+pub use storage::{
     BanHistory, BanRecord, BanStorage, BanStorageCreate, BanTarget, MemoryBanStorage,
     MemoryStorage, QuotaInfo, QuotaStorage, Storage, StorageCreate,
 };
 
+#[cfg(feature = "parallel-checker")]
+pub use storage::ParallelBanChecker;
+
+// Re-export logging types for compatibility
+pub use logging::{redact_basic, redact_email, redact_ip, redact_user_id};
+
+#[cfg(feature = "log-redaction")]
+pub use logging::{contains_sensitive_info, redact_advanced, redact_http_content, RedactionConfig};
+
 // Re-export rule builder
-pub use rule_builder::RuleBuilder;
+pub use rules::RuleBuilder;
 
 // Re-export stats manager
-pub use stats_manager::{StatsManager, StatsSnapshot};
+pub use rules::{StatsManager, StatsSnapshot};

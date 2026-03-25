@@ -15,7 +15,6 @@
 #[cfg(test)]
 mod storage_adapter_tests {
     use crate::error::StorageError;
-    use crate::storage_trait::Storage;
 
     #[test]
     fn test_storage_error_types() {
@@ -96,7 +95,7 @@ mod storage_adapter_tests {
 
 #[cfg(test)]
 mod ban_storage_adapter_tests {
-    use crate::storage_trait::{BanHistory, BanRecord, BanTarget};
+    use crate::storage::{BanHistory, BanRecord, BanTarget};
 
     #[test]
     fn test_ban_target_types() {
@@ -147,7 +146,7 @@ mod ban_storage_adapter_tests {
 
     #[test]
     fn test_ban_record_structure() {
-        use chrono::{DateTime, Utc};
+        use chrono::Utc;
 
         let now = Utc::now();
         let record = BanRecord {
@@ -168,7 +167,7 @@ mod ban_storage_adapter_tests {
 
     #[test]
     fn test_ban_history_structure() {
-        use chrono::{DateTime, Utc};
+        use chrono::Utc;
 
         let now = Utc::now();
         let history = BanHistory {
@@ -182,7 +181,7 @@ mod ban_storage_adapter_tests {
 
     #[test]
     fn test_ban_record_with_user_target() {
-        use chrono::{DateTime, Utc};
+        use chrono::Utc;
 
         let now = Utc::now();
         let record = BanRecord {
@@ -205,7 +204,7 @@ mod ban_storage_adapter_tests {
 
     #[test]
     fn test_ban_record_with_mac_target() {
-        use chrono::{DateTime, Utc};
+        use chrono::Utc;
 
         let now = Utc::now();
         let record = BanRecord {
@@ -230,12 +229,12 @@ mod ban_storage_adapter_tests {
 #[cfg(test)]
 mod quota_storage_adapter_tests {
     use crate::error::ConsumeResult;
-    use crate::storage_trait::QuotaInfo;
+    use crate::storage::QuotaInfo;
     use chrono::Duration;
 
     #[test]
     fn test_quota_info_structure() {
-        use chrono::{DateTime, Utc};
+        use chrono::Utc;
 
         let now = Utc::now();
         let info = QuotaInfo {
@@ -536,30 +535,28 @@ mod table_ddl_tests {
 
 #[cfg(test)]
 mod adapter_trait_signature_tests {
-    use crate::adapters::DBNexusBanStorageAdapter;
-    use crate::adapters::DBNexusQuotaStorageAdapter;
-    use crate::adapters::DBNexusStorageAdapter;
-    use crate::storage_trait::{BanStorage, QuotaStorage, Storage};
+    // 这些测试验证适配器的 trait 签名
+    // 适配器类型本身在编译时检查，无需实际使用
 
     #[tokio::test]
     #[ignore = "requires a real database connection"]
     async fn test_storage_adapter_trait_signature() {
         // DBNexusStorageAdapter needs Arc<DbPool> which requires a real DB
-        let _ = std::any::type_name::<DBNexusStorageAdapter>();
+        let _ = std::any::type_name::<crate::adapters::DBNexusStorageAdapter>();
     }
 
     #[tokio::test]
     #[ignore = "requires a real database connection"]
     async fn test_ban_storage_adapter_trait_signature() {
         // DBNexusBanStorageAdapter needs Arc<DbPool> which requires a real DB
-        let _ = std::any::type_name::<DBNexusBanStorageAdapter>();
+        let _ = std::any::type_name::<crate::adapters::DBNexusBanStorageAdapter>();
     }
 
     #[tokio::test]
     #[ignore = "requires a real database connection"]
     async fn test_quota_storage_adapter_trait_signature() {
         // DBNexusQuotaStorageAdapter needs Arc<DbPool> which requires a real DB
-        let _ = std::any::type_name::<DBNexusQuotaStorageAdapter>();
+        let _ = std::any::type_name::<crate::adapters::DBNexusQuotaStorageAdapter>();
     }
 }
 

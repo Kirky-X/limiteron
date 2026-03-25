@@ -12,7 +12,7 @@ use crate::dbnexus_entities::key_value::{
     ActiveModel as KeyValueActiveModel, Entity as KeyValueEntity,
 };
 use crate::error::StorageError;
-use crate::storage_trait::Storage;
+use crate::storage::Storage;
 use async_trait::async_trait;
 use chrono::Utc;
 use dbnexus::{DbPool, Session};

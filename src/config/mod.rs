@@ -5,35 +5,40 @@
 //! 配置模块
 //!
 //! 整合所有配置相关的子模块，提供统一的配置管理接口。
+//!
+//! # 使用 confers 库进行配置加载
+//!
+//! 本模块的类型定义支持通过 confers 库进行配置加载和验证：
+//!
+//! ```rust,ignore
+//! use confers::ConfigBuilder;
+//! use limiteron::config::FlowControlConfig;
+//!
+//! // 从文件加载配置
+//! let config: FlowControlConfig = ConfigBuilder::new()
+//!     .file("config.toml")
+//!     .env_prefix("LIMITERON")
+//!     .build()?;
+//!
+//! // 使用 garde 进行验证
+//! use garde::Validate;
+//! config.validate()?;
+//! ```
 
 // 子模块声明
 pub mod types;
-#[cfg(feature = "confers")]
-pub mod loader;
-#[cfg(feature = "config-watcher")]
-pub mod watcher;
-#[cfg(feature = "config-security")]
-pub mod security;
 
 // Re-export all config types from types module
 pub use crate::config::types::{
-    Action, ActionConfig, BanConfig, BanScope, CacheBackend, ChangeSource,
-    ConfigBuilder, ConfigChangeRecord, ConfigHistory, FlowControlConfig, GlobalConfig,
-    LimiterConfig, Matcher, MetricsBackend, OverdraftConfig,
-    Rule, RuleBuilder, StorageType, TrustedProxyConfig,
+    Action, ActionConfig, BanConfig, BanScope, CacheBackend, ChangeSource, ConfigChangeRecord,
+    ConfigHistory, FlowControlConfig, GlobalConfig, LimiterConfig, Matcher, MetricsBackend,
+    OverdraftConfig, Rule, StorageType, TrustedProxyConfig,
 };
+
 // Backward compatibility alias
 #[allow(unused_imports)]
 pub use Matcher as ConfigMatcher;
 
-// Re-export config loader (requires confers feature)
+// Re-export confers types for convenience (when confers feature is enabled)
 #[cfg(feature = "confers")]
-pub use crate::config::loader::ConfigLoader;
-
-// Re-export config watcher (requires config-watcher feature)
-#[cfg(feature = "config-watcher")]
-pub use crate::config::watcher::{ConfigChangeCallback, ConfigWatcher, WatchMode};
-
-// Re-export config security (requires config-security feature)
-#[cfg(feature = "config-security")]
-pub use crate::config::security::{ConfigSecurityReport, ConfigSecurityValidator};
+pub use confers::ConfigBuilder;

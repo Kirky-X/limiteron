@@ -5,12 +5,12 @@
 //! - 数值注入测试（负数消费拒绝、整数溢出保护）
 //! - 配置注入测试（恶意配置拒绝、配置验证覆盖）
 
+#[cfg(feature = "config-security")]
+use limiteron::config::ConfigSecurityValidator;
 use limiteron::constants::MAX_COST;
 use limiteron::error::FlowGuardError;
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use limiteron::matchers::{Identifier, IdentifierExtractor, IpExtractor, RequestContext};
-#[cfg(feature = "config-security")]
-use limiteron::config::ConfigSecurityValidator;
 
 // ============================================================================
 // IP 地址注入测试
@@ -651,9 +651,18 @@ async fn test_webhook_url_ssrf_protection() {
         ("https://127.0.0.1/webhook", "127.0.0.1 should be blocked"),
         ("https://[::1]/webhook", "IPv6 loopback should be blocked"),
         // 私有 IP 地址
-        ("https://10.0.0.1/webhook", "10.x.x.x private IP should be blocked"),
-        ("https://172.16.0.1/webhook", "172.16.x.x private IP should be blocked"),
-        ("https://192.168.1.1/webhook", "192.168.x.x private IP should be blocked"),
+        (
+            "https://10.0.0.1/webhook",
+            "10.x.x.x private IP should be blocked",
+        ),
+        (
+            "https://172.16.0.1/webhook",
+            "172.16.x.x private IP should be blocked",
+        ),
+        (
+            "https://192.168.1.1/webhook",
+            "192.168.x.x private IP should be blocked",
+        ),
         // 非 HTTPS 协议
         ("http://api.example.com/webhook", "HTTP should be blocked"),
     ];
@@ -689,7 +698,11 @@ fn test_webhook_url_malicious_input() {
         // 这些 URL 应该被拒绝或安全处理
         // 如果解析失败也应该被拒绝
         if url.contains("127.0.0.1") || url.contains("localhost") {
-            assert!(result.is_err(), "Internal address should be blocked: {}", url);
+            assert!(
+                result.is_err(),
+                "Internal address should be blocked: {}",
+                url
+            );
         }
     }
 }

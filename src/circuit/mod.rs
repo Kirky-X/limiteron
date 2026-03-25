@@ -34,4 +34,4 @@
 
 pub mod types;
 
-pub use types::{CircuitBreaker, CircuitBreakerConfig, CircuitBreakerBuilder};
+pub use types::{CircuitBreaker, CircuitBreakerBuilder, CircuitBreakerConfig};

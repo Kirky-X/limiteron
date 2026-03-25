@@ -4,8 +4,8 @@
 
 use crate::common::{create_governor, MockBanStorage, MockQuotaStorage, RequestContextBuilder};
 use limiteron::config::{
-    Action, ActionConfig, CacheBackend, FlowControlConfig, LimiterConfig,
-    MetricsBackend, ConfigMatcher as Matcher, Rule, StorageType,
+    Action, ActionConfig, CacheBackend, ConfigMatcher as Matcher, FlowControlConfig, LimiterConfig,
+    MetricsBackend, Rule, StorageType,
 };
 use limiteron::error::Decision;
 use limiteron::limiters::Limiter;

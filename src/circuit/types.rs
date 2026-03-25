@@ -889,7 +889,10 @@ mod tests {
             .execute(|| async { Ok::<(), FlowGuardError>(()) })
             .await;
         assert!(result.is_ok());
-        assert!(breaker.is_closed().await, "成功次数达到阈值后应恢复到 Closed 状态");
+        assert!(
+            breaker.is_closed().await,
+            "成功次数达到阈值后应恢复到 Closed 状态"
+        );
     }
 
     /// 测试完整的状态转换循环: Closed → Open → HalfOpen → Closed

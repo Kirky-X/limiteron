@@ -9,9 +9,7 @@ use chrono::{DateTime, Duration, Utc};
 #[cfg(feature = "quota-control")]
 use limiteron::error::StorageError;
 #[cfg(feature = "quota-control")]
-use limiteron::quota::{
-    AlertChannel, AlertConfig, QuotaConfig, QuotaController, QuotaType,
-};
+use limiteron::quota::{AlertChannel, AlertConfig, QuotaConfig, QuotaController, QuotaType};
 #[cfg(feature = "quota-control")]
 use limiteron::storage::{QuotaInfo, QuotaStorage};
 #[cfg(feature = "quota-control")]

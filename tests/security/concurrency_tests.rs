@@ -5,7 +5,9 @@
 //! - 死锁测试（多锁场景死锁检测、超时恢复验证）
 
 use crate::common::{MockBanStorage, MockQuotaStorage};
-use limiteron::limiters::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter};
+use limiteron::limiters::{
+    FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter,
+};
 use limiteron::storage::{BanStorage, QuotaStorage};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -67,7 +69,10 @@ async fn test_token_bucket_concurrent_safety() {
 /// 测试滑动窗口限流器的并发安全性
 #[tokio::test]
 async fn test_sliding_window_concurrent_safety() {
-    let limiter = Arc::new(ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 100));
+    let limiter = Arc::new(ShardedSlidingWindowLimiter::new(
+        Duration::from_secs(60),
+        100,
+    ));
     let success_count = Arc::new(AtomicU64::new(0));
     let fail_count = Arc::new(AtomicU64::new(0));
     let barrier = Arc::new(Barrier::new(150));

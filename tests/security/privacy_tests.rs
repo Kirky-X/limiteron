@@ -357,8 +357,8 @@ fn test_validation_error_no_sensitive_leak() {
 #[cfg(feature = "config-security")]
 #[test]
 fn test_config_error_no_sensitive_config_leak() {
-    use limiteron::config::{FlowControlConfig, GlobalConfig, Rule};
     use limiteron::config::ConfigSecurityValidator;
+    use limiteron::config::{FlowControlConfig, GlobalConfig, Rule};
 
     let config = FlowControlConfig {
         version: "1.0.0".to_string(),

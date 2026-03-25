@@ -3,8 +3,8 @@
 //! 测试配置解析、环境变量覆盖和配置验证。
 
 use limiteron::config::{
-    Action, ActionConfig, BanConfig, BanScope, CacheBackend, FlowControlConfig, LimiterConfig,
-    MetricsBackend, ConfigMatcher as Matcher, Rule, StorageType,
+    Action, ActionConfig, BanConfig, BanScope, CacheBackend, ConfigMatcher as Matcher,
+    FlowControlConfig, LimiterConfig, MetricsBackend, Rule, StorageType,
 };
 
 // ==================== YAML 配置解析测试 ====================

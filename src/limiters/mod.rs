@@ -18,30 +18,30 @@
 //! - `manager`: 限流器管理器
 
 // 子模块
-pub mod traits;
-pub mod token_bucket;
-#[allow(deprecated)]
-pub mod sliding_window;
-pub mod sharded_sliding_window;
-pub mod fixed_window;
 pub mod concurrency;
 pub mod factory;
+pub mod fixed_window;
 pub mod manager;
+pub mod sharded_sliding_window;
+#[allow(deprecated)]
+pub mod sliding_window;
+pub mod token_bucket;
+pub mod traits;
 
 // Quota limiter (feature-gated)
 #[cfg(feature = "quota-control")]
 pub mod quota_limiter;
 
 // Re-export all public types
-pub use traits::Limiter;
-pub use token_bucket::TokenBucketLimiter;
-#[allow(deprecated)]
-pub use sliding_window::SlidingWindowLimiter;
-pub use sharded_sliding_window::ShardedSlidingWindowLimiter;
-pub use fixed_window::FixedWindowLimiter;
 pub use concurrency::{ConcurrencyLimiter, ConcurrencyLimiterBuilder};
 pub use factory::LimiterFactory;
+pub use fixed_window::FixedWindowLimiter;
 pub use manager::LimiterManager;
+pub use sharded_sliding_window::ShardedSlidingWindowLimiter;
+#[allow(deprecated)]
+pub use sliding_window::SlidingWindowLimiter;
+pub use token_bucket::TokenBucketLimiter;
+pub use traits::Limiter;
 
 #[cfg(feature = "quota-control")]
 pub use quota_limiter::QuotaLimiter;

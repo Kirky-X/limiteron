@@ -4,8 +4,8 @@
 
 use ahash::AHashMap;
 use limiteron::config::{
-    Action, ActionConfig, CacheBackend, FlowControlConfig, LimiterConfig,
-    MetricsBackend, ConfigMatcher as Matcher, Rule, StorageType,
+    Action, ActionConfig, CacheBackend, ConfigMatcher as Matcher, FlowControlConfig, LimiterConfig,
+    MetricsBackend, Rule, StorageType,
 };
 use limiteron::error::{Decision, StorageError};
 use limiteron::limiters::Limiter;

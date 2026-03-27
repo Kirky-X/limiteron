@@ -14,6 +14,9 @@ exclude = [
     "temp/comprehensive_test/Cargo.toml",
 ]
 
+[patch."https://github.com/Kirky-X/confers"]
+confers = { path = "/home/dev/projects/confers" }
+
 [workspace.package]
 version = "0.1.1"
 edition = "2021"
@@ -140,6 +143,7 @@ scopeguard = { workspace = true, optional = true }
 
 # 工具依赖（可选）
 reqwest = { version = "~0.13", features = ["json"], optional = true }
+notify = { version = "~8.2", optional = true }
 
 # 安全相关（可选和必需）
 regex = { workspace = true, optional = true }
@@ -182,6 +186,7 @@ full = [
     "fallback",
     "custom-limiter",
     "log-redaction",
+    "config-security",
     "parallel-checker",
     "geo-matching",
     "device-matching",
@@ -190,6 +195,7 @@ full = [
     "monitoring",
     "audit-log",
     "macros",
+    "config-watcher",
     "webhook",
     "code-review",
     "cache-service",
@@ -225,6 +231,7 @@ confers = ["dep:confers"]
 # Security Features (安全功能)
 # ============================================
 log-redaction = ["dep:regex"]
+config-security = []
 validation = []
 
 # ============================================
@@ -259,6 +266,7 @@ audit-log = ["telemetry", "dep:hmac", "dep:sha2", "dep:hex"]
 # Tooling Features (工具)
 # ============================================
 macros = ["dep:limiteron-macros", "dep:proc-macro2", "dep:syn", "dep:quote"]
+config-watcher = ["dep:notify"]
 webhook = ["dep:reqwest"]
 code-review = []
 

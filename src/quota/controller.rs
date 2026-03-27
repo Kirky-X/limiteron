@@ -260,6 +260,28 @@ impl Default for QuotaControllerBuilder {
 }
 
 impl QuotaController {
+    /// 创建新的配额控制器（开箱即用模式）
+    ///
+    /// 使用默认的 MemoryQuotaStorage 和默认配置创建配额控制器实例。
+    /// 适用于快速原型开发和测试场景。
+    ///
+    /// # 示例
+    /// ```rust, ignore
+    /// use limiteron::quota_controller::QuotaController;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let controller = QuotaController::new().await.unwrap();
+    /// }
+    /// ```
+    pub async fn new() -> Result<Self, FlowGuardError> {
+        use crate::storage::{MemoryQuotaStorage, QuotaStorageCreate};
+
+        let storage: Arc<dyn QuotaStorage> = MemoryQuotaStorage::create_quota_storage();
+        let config = QuotaConfig::default();
+        Ok(Self::with_dependencies(storage, config))
+    }
+
     /// 创建新的配额控制器
     ///
     /// # 参数

@@ -8,6 +8,8 @@
 
 use crate::events::emitter::EventEmitter;
 use crate::events::types::{Event, EventHandler};
+#[cfg(feature = "webhook")]
+use crate::webhook_validator::validate_webhook_url;
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -200,8 +202,8 @@ async fn send_webhook(
     url: &str,
     event: &Event,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // 安全验证：检查 URL 是否安全
-    validate_webhook_url(url)?;
+    // 安全验证：检查 URL 是否安全（生产环境要求 HTTPS）
+    validate_webhook_url(url, !cfg!(debug_assertions)).map_err(|e| e.into())?;
 
     let client = reqwest::Client::new();
     let response = client
@@ -217,54 +219,6 @@ async fn send_webhook(
     } else {
         Err(format!("Webhook returned error status: {}", response.status()).into())
     }
-}
-
-/// 验证 Webhook URL 安全性
-#[cfg(feature = "webhook")]
-fn validate_webhook_url(url: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let parsed = url
-        .parse::<reqwest::Url>()
-        .map_err(|e| format!("Invalid URL: {}", e))?;
-
-    // 生产环境要求 HTTPS，开发环境允许 HTTP
-    #[cfg(not(debug_assertions))]
-    {
-        if parsed.scheme() != "https" {
-            return Err("Webhook URL must use HTTPS in production".into());
-        }
-    }
-
-    let host = parsed.host_str().ok_or("URL missing hostname")?;
-    let lower_host = host.to_lowercase();
-
-    // 禁止 localhost 和回环地址
-    if lower_host == "localhost" || lower_host == "127.0.0.1" || lower_host == "::1" {
-        return Err("localhost and loopback addresses are not allowed".into());
-    }
-
-    // 禁止私有 IP 地址
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        if ip.is_loopback() {
-            return Err("Loopback IP addresses are not allowed".into());
-        }
-        match ip {
-            std::net::IpAddr::V4(v4) => {
-                if v4.is_private() {
-                    return Err("Private IP addresses are not allowed".into());
-                }
-                if v4.is_link_local() {
-                    return Err("Link-local IP addresses are not allowed".into());
-                }
-            }
-            std::net::IpAddr::V6(v6) => {
-                if v6.is_unique_local() {
-                    return Err("Unique-local IPv6 addresses are not allowed".into());
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 /// Webhook 未启用时的存根实现

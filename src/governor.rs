@@ -1244,7 +1244,7 @@ impl Governor {
     // ==================== L1 缓存相关方法 ====================
 
     /// 获取 L1 缓存统计信息
-    pub async fn l1_cache_stats(&self) -> crate::l1_cache::L1CacheStats {
+    pub(crate) async fn l1_cache_stats(&self) -> crate::l1_cache::L1CacheStats {
         self.l1_cache.stats().await
     }
 

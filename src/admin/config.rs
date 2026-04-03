@@ -1,19 +1,29 @@
-//! 管理API配置
+//! Admin API configuration
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-/// 管理API配置
+/// Admin API configuration validation error
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("API key is required when admin API is enabled")]
+    ApiKeyRequired,
+    #[error("API key must be at least 16 characters, got {0}")]
+    ApiKeyTooShort(usize),
+}
+
+/// Admin API configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminApiConfig {
-    /// 监听地址
+    /// Listening host
     #[serde(default = "default_host")]
     pub host: String,
-    /// 监听端口
+    /// Listening port
     #[serde(default = "default_port")]
     pub port: u16,
-    /// API Key认证(可选)
-    pub api_key: Option<String>,
-    /// 是否启用
+    /// API Key for authentication (required when enabled)
+    pub api_key: String,
+    /// Whether to enable the admin API
     #[serde(default = "default_enabled")]
     pub enabled: bool,
 }
@@ -27,7 +37,7 @@ fn default_port() -> u16 {
 }
 
 fn default_enabled() -> bool {
-    true
+    false
 }
 
 impl Default for AdminApiConfig {
@@ -35,44 +45,53 @@ impl Default for AdminApiConfig {
         Self {
             host: default_host(),
             port: default_port(),
-            api_key: None,
+            api_key: String::new(),
             enabled: default_enabled(),
         }
     }
 }
 
 impl AdminApiConfig {
-    /// 创建新配置
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(api_key: impl Into<String>) -> Self {
+        Self {
+            host: default_host(),
+            port: default_port(),
+            api_key: api_key.into(),
+            enabled: true,
+        }
     }
 
-    /// 设置监听地址
     pub fn with_host(mut self, host: impl Into<String>) -> Self {
         self.host = host.into();
         self
     }
 
-    /// 设置监听端口
     pub fn with_port(mut self, port: u16) -> Self {
         self.port = port;
         self
     }
 
-    /// 设置API Key
     pub fn with_api_key(mut self, api_key: impl Into<String>) -> Self {
-        self.api_key = Some(api_key.into());
+        self.api_key = api_key.into();
         self
     }
 
-    /// 设置是否启用
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
     }
 
-    /// 获取完整地址
     pub fn address(&self) -> String {
         format!("{}:{}", self.host, self.port)
+    }
+
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.enabled && self.api_key.is_empty() {
+            return Err(ConfigError::ApiKeyRequired);
+        }
+        if !self.api_key.is_empty() && self.api_key.len() < 16 {
+            return Err(ConfigError::ApiKeyTooShort(self.api_key.len()));
+        }
+        Ok(())
     }
 }

@@ -63,6 +63,9 @@
 
 pub mod prelude;
 
+#[cfg(feature = "admin-api")]
+pub mod admin;
+
 pub mod authorization;
 #[cfg(feature = "ban-manager")]
 pub mod ban;

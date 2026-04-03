@@ -15,7 +15,6 @@
 use crate::config::types::{
     FlowControlConfig, LimiterConfig, LimiterTypeName, Matcher as ConfigMatcher,
 };
-use crate::constants::{SECONDS_PER_HOUR, SECONDS_PER_MINUTE};
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::FlowGuardError;
 use crate::limiters::{

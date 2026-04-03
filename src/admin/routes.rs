@@ -1,6 +1,9 @@
-//! 路由定义
+//! Route definitions
 
 use axum::{
+    body::Body,
+    http::{header::AUTHORIZATION, Request, StatusCode},
+    middleware::from_fn,
     response::IntoResponse,
     routing::{delete, get, put},
     Router,
@@ -8,7 +11,17 @@ use axum::{
 
 use super::{config::AdminApiConfig, handlers, server::AppState};
 
-/// 创建路由
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut result = 0u8;
+    for (x, y) in a.bytes().zip(b.bytes()) {
+        result |= x ^ y;
+    }
+    result == 0
+}
+
 pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
     let mut router = Router::new()
         // 系统状态
@@ -29,39 +42,28 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
         )
         .with_state(state);
 
-    // 如果配置了API Key,添加认证中间件
-    if config.api_key.is_some() {
-        use axum::{
-            body::Body,
-            http::{header::AUTHORIZATION, Request, StatusCode},
-            middleware::from_fn,
-        };
+    let api_key = config.api_key.clone();
+    router = router.layer(from_fn(
+        move |req: Request<Body>, next: axum::middleware::Next| {
+            let api_key = api_key.clone();
+            async move {
+                let auth_header = req
+                    .headers()
+                    .get(AUTHORIZATION)
+                    .and_then(|v| v.to_str().ok());
 
-        let api_key = config.api_key.clone().unwrap();
-        router = router.layer(from_fn(
-            move |req: Request<Body>, next: axum::middleware::Next| {
-                let api_key = api_key.clone();
-                async move {
-                    let auth_header = req
-                        .headers()
-                        .get(AUTHORIZATION)
-                        .and_then(|v| v.to_str().ok());
-
-                    match auth_header {
-                        Some(token) if token == format!("Bearer {}", api_key) => {
-                            next.run(req).await
-                        }
-                        _ => {
-                            let mut resp =
-                                axum::response::Response::new(Body::from("Invalid API key"));
-                            *resp.status_mut() = StatusCode::UNAUTHORIZED;
-                            resp
-                        }
+                let expected = format!("Bearer {}", api_key);
+                match auth_header {
+                    Some(token) if constant_time_eq(token, &expected) => next.run(req).await,
+                    _ => {
+                        let mut resp = axum::response::Response::new(Body::from("Invalid API key"));
+                        *resp.status_mut() = StatusCode::UNAUTHORIZED;
+                        resp
                     }
                 }
-            },
-        ));
-    }
+            }
+        },
+    ));
 
     router
 }

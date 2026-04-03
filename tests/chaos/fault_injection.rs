@@ -10,16 +10,17 @@
 
 use async_trait::async_trait;
 use limiteron::error::StorageError;
-use limiteron::storage::Storage;
+use limiteron::storage::{Storage, StorageCreate};
 use parking_lot::Mutex;
 use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 
 /// 故障模式
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum FaultPattern {
     /// 随机故障 - 每次操作有固定概率失败
+    #[default]
     Random,
     /// 间歇性故障 - 周期性失败和恢复
     Intermittent {
@@ -207,7 +208,7 @@ impl Storage for FaultInjectionStorage {
 
         // 注入故障
         if self.should_fail() {
-            return Err(StorageError::Transient(
+            return Err(StorageError::TimeoutError(
                 "Injected fault: storage get operation failed".into(),
             ));
         }
@@ -223,7 +224,7 @@ impl Storage for FaultInjectionStorage {
 
         // 注入故障
         if self.should_fail() {
-            return Err(StorageError::Transient(
+            return Err(StorageError::TimeoutError(
                 "Injected fault: storage set operation failed".into(),
             ));
         }
@@ -239,7 +240,7 @@ impl Storage for FaultInjectionStorage {
 
         // 注入故障
         if self.should_fail() {
-            return Err(StorageError::Transient(
+            return Err(StorageError::TimeoutError(
                 "Injected fault: storage delete operation failed".into(),
             ));
         }

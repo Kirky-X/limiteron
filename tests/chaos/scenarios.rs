@@ -15,7 +15,7 @@ use super::ChaosTestResult;
 use limiteron::clock::MockClock;
 use limiteron::error::StorageError;
 use limiteron::limiters::{FixedWindowLimiter, Limiter, TokenBucketLimiter};
-use limiteron::storage::{MemoryStorage, Storage};
+use limiteron::storage::{MemoryStorage, Storage, StorageCreate};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -101,7 +101,7 @@ impl ChaosScenario for StorageIntermittentFailure {
             result.total_requests += 1;
             match storage_result {
                 Ok(()) => result.successful_requests += 1,
-                Err(StorageError::Transient(_)) => result.failed_requests += 1,
+                Err(StorageError::TimeoutError(_)) => result.failed_requests += 1,
                 Err(_) => result.failed_requests += 1,
             }
         }

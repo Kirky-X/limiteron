@@ -232,8 +232,11 @@ async fn e2e_rate_limiting_request_exceeds_limit() {
     let result = governor.check(&ctx).await;
 
     match result {
-        Ok(Decision::Rejected(reason)) => {
-            assert!(!reason.is_empty(), "Rejection reason should not be empty");
+        Ok(Decision::Rejected(metadata)) => {
+            assert!(
+                !metadata.reason.is_empty(),
+                "Rejection reason should not be empty"
+            );
         }
         Ok(Decision::Allowed(_)) => {
             // 可能由于令牌桶算法的特性，请求仍被允许

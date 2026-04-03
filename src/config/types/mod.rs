@@ -16,6 +16,7 @@ mod actions;
 mod config;
 mod history;
 mod limiter;
+mod limiter_type;
 mod rule;
 
 pub use actions::{Action, ActionConfig, BanConfig, BanScope, CacheBackend, MetricsBackend};
@@ -23,6 +24,7 @@ pub use config::{GlobalConfig, StorageType, TrustedProxyConfig};
 pub use history::{ChangeSource, ConfigChangeRecord, ConfigHistory};
 pub(crate) use limiter::parse_window_size;
 pub use limiter::{LimiterConfig, OverdraftConfig};
+pub use limiter_type::LimiterTypeName;
 pub use rule::Matcher;
 pub use rule::Rule;
 

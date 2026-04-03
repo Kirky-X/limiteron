@@ -12,7 +12,9 @@
 //! - 从 FlowControlConfig 构建决策链映射
 //! - 时长字符串解析
 
-use crate::config::types::{FlowControlConfig, LimiterConfig, Matcher as ConfigMatcher};
+use crate::config::types::{
+    FlowControlConfig, LimiterConfig, LimiterTypeName, Matcher as ConfigMatcher,
+};
 use crate::constants::{SECONDS_PER_HOUR, SECONDS_PER_MINUTE};
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::FlowGuardError;
@@ -136,13 +138,14 @@ impl RuleBuilder {
             let mut nodes: Vec<DecisionNode> = Vec::new();
 
             for (index, limiter_config) in rule.limiters.iter().enumerate() {
-                let (limiter, type_name): (Arc<dyn Limiter>, &str) = match limiter_config {
+                let (limiter, type_name): (Arc<dyn Limiter>, LimiterTypeName) = match limiter_config
+                {
                     LimiterConfig::TokenBucket {
                         capacity,
                         refill_rate,
                     } => (
                         Arc::new(TokenBucketLimiter::new(*capacity, *refill_rate)),
-                        "TokenBucket",
+                        LimiterTypeName::TokenBucket,
                     ),
                     LimiterConfig::SlidingWindow {
                         window_size,
@@ -151,7 +154,7 @@ impl RuleBuilder {
                         let duration = Self::parse_duration(window_size)?;
                         (
                             Arc::new(ShardedSlidingWindowLimiter::new(duration, *max_requests)),
-                            "SlidingWindow",
+                            LimiterTypeName::SlidingWindow,
                         )
                     }
                     LimiterConfig::FixedWindow {
@@ -161,7 +164,7 @@ impl RuleBuilder {
                         let duration = Self::parse_duration(window_size)?;
                         (
                             Arc::new(FixedWindowLimiter::new(duration, *max_requests)),
-                            "FixedWindow",
+                            LimiterTypeName::FixedWindow,
                         )
                     }
                     LimiterConfig::Quota {
@@ -180,7 +183,7 @@ impl RuleBuilder {
                     }
                     LimiterConfig::Concurrency { max_concurrent } => (
                         Arc::new(ConcurrencyLimiter::new(*max_concurrent)),
-                        "Concurrency",
+                        LimiterTypeName::Concurrency,
                     ),
                     LimiterConfig::Custom { name, config: _ } => {
                         // CustomLimiter integration requires custom-limiter feature and

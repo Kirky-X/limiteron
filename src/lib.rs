@@ -122,6 +122,8 @@ pub mod telemetry;
 #[cfg(feature = "multi-tenant")]
 pub mod tenant;
 pub mod validation;
+#[cfg(feature = "webhook")]
+pub(crate) mod webhook_validator;
 
 // Tower 中间件层 (feature-gated)
 #[cfg(feature = "tower-middleware")]

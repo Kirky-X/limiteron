@@ -19,7 +19,6 @@ mod visibility_tests;
 
 // 重新导出 common 模块中的测试工具
 mod common {
-    #[allow(unused_imports)]
     pub use crate::common::*;
 }
 
@@ -104,6 +103,8 @@ mod common {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     /// 验证所有测试模块可访问
     #[test]
     fn test_security_modules_accessible() {

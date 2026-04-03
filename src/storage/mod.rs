@@ -212,20 +212,6 @@ pub trait BanStorageCreate: Send + Sync {
 impl StorageCreate for MemoryStorage {}
 impl BanStorageCreate for MemoryBanStorage {}
 
-/// Trait for creating QuotaStorage instances with default configuration
-///
-/// This trait enables the "out-of-the-box" pattern where components
-/// can create default quota storage dependencies without external configuration.
-pub trait QuotaStorageCreate: Send + Sync {
-    /// Creates a new QuotaStorage instance with default configuration
-    fn create_quota_storage() -> Arc<dyn QuotaStorage>
-    where
-        Self: Sized,
-    {
-        Arc::new(MemoryQuotaStorage::new())
-    }
-}
-
 use ahash::AHashMap as HashMap;
 use tokio::sync::RwLock;
 
@@ -420,13 +406,7 @@ impl BanStorage for MemoryBanStorage {
         let now = Utc::now().timestamp();
         let mut removed = 0u64;
 
-        let targets: Vec<_> = self
-            .expiration
-            .read()
-            .await
-            .keys()
-            .map(Clone::clone)
-            .collect();
+        let targets: Vec<_> = self.expiration.read().await.keys().cloned().collect();
         for target in targets {
             if let Some(exp) = self.expiration.read().await.get(&target) {
                 if *exp <= now {
@@ -453,7 +433,7 @@ impl BanStorage for MemoryBanStorage {
             let _ = self.cleanup_expired_bans().await;
         }
 
-        let bans: Vec<_> = self.bans.read().await.values().map(Clone::clone).collect();
+        let bans: Vec<_> = self.bans.read().await.values().cloned().collect();
 
         let filtered: Vec<_> = if active_only {
             bans.into_iter()
@@ -476,134 +456,6 @@ impl BanStorage for MemoryBanStorage {
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
-    }
-}
-
-/// In-memory quota storage implementation for QuotaStorage trait
-///
-/// This is a simple in-memory quota store with window-based tracking.
-/// It is suitable for testing, development, or single-instance deployments.
-///
-/// **Note**: This implementation is not suitable for production use with
-/// multiple instances as data is not shared across processes.
-pub struct MemoryQuotaStorage {
-    /// Quota records storage
-    quotas: RwLock<HashMap<String, QuotaInfo>>,
-}
-
-impl MemoryQuotaStorage {
-    /// Creates a new MemoryQuotaStorage instance
-    pub fn new() -> Self {
-        Self {
-            quotas: RwLock::new(HashMap::new()),
-        }
-    }
-
-    /// Creates a new MemoryQuotaStorage instance with pre-allocated capacity
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            quotas: RwLock::new(HashMap::with_capacity(capacity)),
-        }
-    }
-
-    /// Calculate window end time based on window duration
-    fn now_window_end(now: DateTime<Utc>, window: Duration) -> DateTime<Utc> {
-        now + chrono::Duration::seconds(window.as_secs() as i64)
-    }
-}
-
-impl Default for MemoryQuotaStorage {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl QuotaStorageCreate for MemoryQuotaStorage {}
-
-#[async_trait]
-impl QuotaStorage for MemoryQuotaStorage {
-    async fn get_quota(
-        &self,
-        user_id: &str,
-        resource: &str,
-    ) -> Result<Option<QuotaInfo>, StorageError> {
-        let key = format!("{}:{}", user_id, resource);
-        Ok(self.quotas.read().await.get(&key).cloned())
-    }
-
-    async fn consume(
-        &self,
-        user_id: &str,
-        resource: &str,
-        cost: u64,
-        limit: u64,
-        window: Duration,
-    ) -> Result<ConsumeResult, StorageError> {
-        let key = format!("{}:{}", user_id, resource);
-        let now = Utc::now();
-        let mut quotas = self.quotas.write().await;
-
-        // Get or create quota entry
-        let entry = quotas.entry(key).or_insert_with(|| QuotaInfo {
-            consumed: 0,
-            limit,
-            window_start: now,
-            window_end: Self::now_window_end(now, window),
-        });
-
-        // Check if window has expired and reset if needed
-        if now > entry.window_end {
-            entry.consumed = 0;
-            entry.limit = limit;
-            entry.window_start = now;
-            entry.window_end = Self::now_window_end(now, window);
-        }
-
-        // Calculate next consumed amount
-        let next_consumed = entry.consumed.saturating_add(cost);
-        let allowed = next_consumed <= limit;
-
-        if allowed {
-            entry.consumed = next_consumed;
-        }
-
-        let remaining = limit.saturating_sub(entry.consumed);
-        let usage_percent = if limit == 0 {
-            0.0
-        } else {
-            (entry.consumed as f64 / limit as f64) * 100.0
-        };
-
-        Ok(ConsumeResult {
-            allowed,
-            remaining,
-            alert_triggered: false,
-            usage_percent,
-        })
-    }
-
-    async fn reset(
-        &self,
-        user_id: &str,
-        resource: &str,
-        limit: u64,
-        window: Duration,
-    ) -> Result<(), StorageError> {
-        let key = format!("{}:{}", user_id, resource);
-        let now = Utc::now();
-        let mut quotas = self.quotas.write().await;
-
-        quotas.insert(
-            key,
-            QuotaInfo {
-                consumed: 0,
-                limit,
-                window_start: now,
-                window_end: Self::now_window_end(now, window),
-            },
-        );
-
-        Ok(())
     }
 }
 
@@ -868,7 +720,7 @@ mod tests {
             offset: u64,
             limit: u64,
         ) -> Result<Vec<BanRecord>, StorageError> {
-            let bans: Vec<_> = self.bans.read().await.values().map(Clone::clone).collect();
+            let bans: Vec<_> = self.bans.read().await.values().cloned().collect();
             let total = bans.len() as u64;
             let start = offset as usize;
             let end = (offset + limit) as usize;

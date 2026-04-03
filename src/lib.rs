@@ -134,7 +134,7 @@ pub use config::{
 };
 // 导出 confers ConfigBuilder（当启用 confers feature 时）
 #[cfg(feature = "confers")]
-pub use config::ConfigBuilder;
+pub use config::{ConfigBuilder, ConfigLoader};
 pub use decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
 // AtomicChainStats 改为 pub(crate)，不再公开导出
 pub use error::{

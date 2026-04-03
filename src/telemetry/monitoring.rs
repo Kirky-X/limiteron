@@ -347,7 +347,6 @@ impl PerformanceMetrics {
 }
 
 /// 监控系统
-#[allow(dead_code)]
 pub struct MonitoringSystem {
     /// 性能指标
     metrics: Arc<PerformanceMetrics>,
@@ -564,7 +563,7 @@ impl MonitoringSystem {
             }
         }
 
-        self.send_alert_notifications(alerts).await;
+        self.send_alert_notifications(&alerts).await;
     }
 
     /// 格式化告警级别
@@ -658,7 +657,6 @@ impl MonitoringSystem {
 }
 
 /// 请求计时器
-#[allow(dead_code)]
 pub struct RequestTimer {
     request_id: String,
     start_time: Instant,

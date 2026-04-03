@@ -193,13 +193,13 @@ impl ShardedSlidingWindowLimiter {
         for i in 0..DEFAULT_SHARD_COUNT {
             let shard_timestamp = self.shard_timestamps[i].load(Ordering::Acquire);
 
-            if shard_timestamp <= window_start
-                && shard_timestamp != 0
-                && self.shard_timestamps[i]
+            if shard_timestamp <= window_start && shard_timestamp != 0 {
+                if self.shard_timestamps[i]
                     .compare_exchange(shard_timestamp, 0, Ordering::Release, Ordering::Relaxed)
                     .is_ok()
-            {
-                self.shards[i].store(0, Ordering::Release);
+                {
+                    self.shards[i].store(0, Ordering::Release);
+                }
             }
         }
     }
@@ -209,13 +209,14 @@ impl ShardedSlidingWindowLimiter {
         let cleanup_interval = (self.shard_duration_secs / 10).max(1);
         let last = self.last_cleanup.load(Ordering::Acquire);
 
-        if now_secs.saturating_sub(last) >= cleanup_interval
-            && self
+        if now_secs.saturating_sub(last) >= cleanup_interval {
+            if self
                 .last_cleanup
                 .compare_exchange(last, now_secs, Ordering::Release, Ordering::Relaxed)
                 .is_ok()
-        {
-            self.cleanup_expired_shards(now_secs);
+            {
+                self.cleanup_expired_shards(now_secs);
+            }
         }
     }
 

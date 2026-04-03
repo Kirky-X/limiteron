@@ -58,7 +58,7 @@ impl ParallelBanChecker {
             let target_clone = target.clone();
             check_futures.push(async move {
                 match ban_manager
-                    .check_ban_priority(std::slice::from_ref(&target_clone))
+                    .check_ban_priority(&[target_clone.clone()])
                     .await
                 {
                     Ok(Some(detail)) if detail.expires_at > chrono::Utc::now() => {

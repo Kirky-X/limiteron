@@ -605,12 +605,8 @@ impl Governor {
         storage: Arc<dyn Storage>,
         ban_storage: Arc<dyn BanStorage>,
     ) -> Result<Self, FlowGuardError> {
-        // 使用 confers ConfigBuilder 加载配置
-        use confers::ConfigBuilder as ConfersConfigBuilder;
-        let config: FlowControlConfig = ConfersConfigBuilder::new()
-            .file(config_path.as_ref().to_path_buf())
-            .build()
-            .map_err(|e| FlowGuardError::ConfigError(format!("配置加载失败: {}", e)))?;
+        // 使用 ConfigLoader 加载配置
+        let config = crate::config::ConfigLoader::load_from_file(config_path)?;
         Self::create_with_config(config, storage, ban_storage).await
     }
 
@@ -656,13 +652,8 @@ impl Governor {
         storage: Arc<dyn Storage>,
         ban_storage: Arc<dyn BanStorage>,
     ) -> Result<Self, FlowGuardError> {
-        // 使用 confers ConfigBuilder 加载配置，支持环境变量覆盖
-        use confers::ConfigBuilder as ConfersConfigBuilder;
-        let config: FlowControlConfig = ConfersConfigBuilder::new()
-            .file(config_path.as_ref().to_path_buf())
-            .env_prefix("LIMITERON")
-            .build()
-            .map_err(|e| FlowGuardError::ConfigError(format!("配置加载失败: {}", e)))?;
+        // 使用 ConfigLoader 加载配置，支持环境变量覆盖
+        let config = crate::ConfigLoader::load_from_file(config_path)?;
         Self::create_with_config(config, storage, ban_storage).await
     }
 
@@ -1163,7 +1154,7 @@ impl Governor {
 mod governor_construction_tests {
     use super::*;
     use crate::config::types::{
-        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule,
+        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule, Rule as RuleTrait,
     };
     use crate::storage::{MemoryBanStorage, MemoryStorage};
 

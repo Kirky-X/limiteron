@@ -430,6 +430,8 @@ impl DecisionChain {
     pub async fn check(&self) -> Result<Decision, FlowGuardError> {
         let enabled_nodes: Vec<&DecisionNode> = self.nodes.iter().filter(|n| n.enabled).collect();
 
+        let mut last_rejection: Option<RejectionMetadata> = None;
+
         for node in enabled_nodes {
             match node.limiter.allow(node.cost).await {
                 Ok(false) => {
@@ -438,7 +440,22 @@ impl DecisionChain {
                     self.stats.increment_rejected();
                     self.stats.increment_node_rejection(&node.id);
 
-                    return Ok(Decision::Rejected(RejectionMetadata {
+                    // 检查短路标志
+                    if node.short_circuit {
+                        // 短路：立即返回拒绝，不执行后续节点
+                        return Ok(Decision::Rejected(RejectionMetadata {
+                            reason: format!("Rejected by {}: rate limit exceeded", node.name),
+                            retry_after: 60,
+                            limit: 0,
+                            reset_at: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0)
+                                + 60,
+                        }));
+                    }
+                    // 非短路：记录拒绝但继续执行后续节点
+                    last_rejection = Some(RejectionMetadata {
                         reason: format!("Rejected by {}: rate limit exceeded", node.name),
                         retry_after: 60,
                         limit: 0,
@@ -447,7 +464,7 @@ impl DecisionChain {
                             .map(|d| d.as_secs())
                             .unwrap_or(0)
                             + 60,
-                    }));
+                    });
                 }
                 Err(e) => {
                     // 节点错误 - 使用原子操作更新统计
@@ -461,8 +478,14 @@ impl DecisionChain {
 
         // 所有节点都允许 - 使用原子操作更新统计
         self.stats.increment_total();
-        self.stats.increment_allowed();
 
+        // 如果有任何非短路拒绝，返回最后的拒绝结果
+        if let Some(rejection) = last_rejection {
+            self.stats.increment_allowed();
+            return Ok(Decision::Rejected(rejection));
+        }
+
+        self.stats.increment_allowed();
         Ok(Decision::allowed_default())
     }
 

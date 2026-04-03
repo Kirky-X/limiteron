@@ -222,7 +222,7 @@ use tokio::sync::RwLock;
 ///
 /// **Note**: This implementation is not suitable for production use with
 /// multiple instances as data is not shared across processes.
-pub struct MemoryStorage {
+pub(crate) struct MemoryStorage {
     /// Key-value data storage
     data: RwLock<HashMap<String, String>>,
     /// Expiration times (key -> expiration timestamp in seconds)
@@ -309,7 +309,7 @@ impl Storage for MemoryStorage {
 ///
 /// **Note**: This implementation is not suitable for production use with
 /// multiple instances as data is not shared across processes.
-pub struct MemoryBanStorage {
+pub(crate) struct MemoryBanStorage {
     /// Ban records storage
     bans: RwLock<HashMap<BanTarget, BanRecord>>,
     /// Expiration tracking (target -> expires_at timestamp)

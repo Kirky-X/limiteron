@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// 全局限流器管理器
-pub struct LimiterManager {
+pub(crate) struct LimiterManager {
     rate_limiters: Mutex<HashMap<String, Arc<TokenBucketLimiter>>>,
     quota_limiters: Mutex<HashMap<String, Arc<FixedWindowLimiter>>>,
     concurrency_limiters: Mutex<HashMap<String, Arc<ConcurrencyLimiter>>>,

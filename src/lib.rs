@@ -87,7 +87,7 @@ pub use adapters::{
 
 #[cfg(feature = "cache-service")]
 pub mod cache;
-pub mod constants;
+pub(crate) mod constants;
 #[cfg(feature = "postgres")]
 pub mod dbnexus_entities;
 pub mod decision_chain;
@@ -98,10 +98,10 @@ pub mod events;
 
 // Consolidated modules
 pub mod error; // Contains error types and abstraction
-pub mod limiters; // Contains limiters, factory, and manager
+pub(crate) mod limiters; // Contains limiters, factory, and manager
 pub mod logging; // Contains audit_log and log_redaction
 pub mod rules; // Contains rule_builder and stats_manager
-pub mod storage; // Contains storage_trait and parallel_ban_checker
+pub(crate) mod storage; // Contains storage_trait and parallel_ban_checker
 
 #[cfg(feature = "redis-storage")]
 pub mod redis;
@@ -109,7 +109,7 @@ pub mod redis;
 #[cfg(feature = "fallback")]
 pub mod fallback;
 pub mod governor;
-pub mod l1_cache;
+pub(crate) mod l1_cache;
 #[cfg(feature = "macros")]
 pub mod macros;
 pub mod matchers;
@@ -168,10 +168,8 @@ pub use error::{
 #[cfg(feature = "fallback")]
 pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
 pub use governor::{Governor, GovernorStats};
-pub use l1_cache::{
-    CacheableBanInfo, CacheableDecision, L1Cache, L1CacheConfig, L1CacheStats, RateLimitCacheKey,
-};
-pub use limiters::LimiterFactory;
+pub use l1_cache::{L1Cache, L1CacheConfig, RateLimitCacheKey};
+pub use limiters::Limiter;
 // GLOBAL_LIMITER_MANAGER 改为 pub(crate)，不再公开导出
 #[cfg(feature = "quota-control")]
 pub use limiters::QuotaLimiter;
@@ -215,10 +213,10 @@ pub use oxcache_lua::{
     SLIDING_WINDOW_SCRIPT, TOKEN_BUCKET_SCRIPT,
 };
 
-// Re-export storage traits for compatibility
+// Re-export storage traits for compatibility (internal implementations are pub(crate))
 pub use storage::{
-    BanHistory, BanRecord, BanStorage, BanStorageCreate, BanTarget, MemoryBanStorage,
-    MemoryStorage, QuotaInfo, QuotaStorage, Storage, StorageCreate,
+    BanHistory, BanRecord, BanStorage, BanStorageCreate, BanTarget, QuotaInfo, QuotaStorage,
+    Storage, StorageCreate,
 };
 
 #[cfg(feature = "parallel-checker")]

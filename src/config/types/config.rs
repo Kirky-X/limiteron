@@ -74,6 +74,15 @@ pub struct TrustedProxyConfig {
     /// 可信代理 IP 列表（支持 CIDR 表示法）
     #[serde(default)]
     pub proxies: Vec<String>,
+    /// X-Forwarded-For 中允许的最大 IP 跳数（防止 IP 列表过长攻击）
+    /// 默认值: 10
+    #[serde(default = "default_max_hops")]
+    pub max_hops: usize,
+}
+
+/// 默认的 max_hops 值
+fn default_max_hops() -> usize {
+    10
 }
 
 impl Default for GlobalConfig {
@@ -92,6 +101,7 @@ impl Default for TrustedProxyConfig {
         Self {
             enabled: false,
             proxies: Vec::new(),
+            max_hops: default_max_hops(),
         }
     }
 }

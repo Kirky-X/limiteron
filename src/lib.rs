@@ -68,6 +68,7 @@ pub mod authorization;
 pub mod ban;
 #[cfg(feature = "circuit-breaker")]
 pub mod circuit;
+pub mod clock;
 pub mod config;
 
 #[cfg(feature = "postgres")]
@@ -88,12 +89,19 @@ pub mod constants;
 pub mod dbnexus_entities;
 pub mod decision_chain;
 
+// Event system (feature-gated)
+#[cfg(feature = "event-system")]
+pub mod events;
+
 // Consolidated modules
 pub mod error; // Contains error types and abstraction
 pub mod limiters; // Contains limiters, factory, and manager
 pub mod logging; // Contains audit_log and log_redaction
 pub mod rules; // Contains rule_builder and stats_manager
 pub mod storage; // Contains storage_trait and parallel_ban_checker
+
+#[cfg(feature = "redis-storage")]
+pub mod redis;
 
 #[cfg(feature = "fallback")]
 pub mod fallback;
@@ -108,7 +116,13 @@ pub mod oxcache_lua;
 pub mod quota;
 #[cfg(any(feature = "telemetry", feature = "monitoring"))]
 pub mod telemetry;
+#[cfg(feature = "multi-tenant")]
+pub mod tenant;
 pub mod validation;
+
+// Tower 中间件层 (feature-gated)
+#[cfg(feature = "tower-middleware")]
+pub mod middleware;
 
 // 重新导出常用类型
 #[cfg(feature = "ban-manager")]
@@ -141,6 +155,9 @@ pub use error::{
     BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, FlowGuardError,
     StorageError,
 };
+// Event system types (feature-gated)
+#[cfg(feature = "event-system")]
+pub use events::{Event, EventConfig, EventDispatcher, EventEmitter, EventHandler, EventType};
 // Error abstraction types
 pub use error::{
     BanSafeError, ConfigSafeError, ErrorMessageAbstraction, GeneralSafeError, LimitSafeError,
@@ -205,6 +222,17 @@ pub use storage::{
 #[cfg(feature = "parallel-checker")]
 pub use storage::ParallelBanChecker;
 
+// Re-export Redis types (feature-gated)
+#[cfg(feature = "redis-storage")]
+pub use redis::{
+    execute_gcra, execute_gcra_with_sha, load_gcra_script, GcraResult, RedisStorage, ScriptManager,
+    ScriptType,
+};
+
+// Re-export GCRA limiter (feature-gated)
+#[cfg(feature = "gcra")]
+pub use limiters::GcraLimiter;
+
 // Re-export logging types for compatibility
 pub use logging::{redact_basic, redact_email, redact_ip, redact_user_id};
 
@@ -216,3 +244,17 @@ pub use rules::RuleBuilder;
 
 // Re-export stats manager
 pub use rules::{StatsManager, StatsSnapshot};
+
+// Re-export clock types
+pub use clock::{Clock, MockClock, SystemClock};
+
+// Re-export tenant types (feature-gated)
+#[cfg(feature = "multi-tenant")]
+pub use tenant::{Namespace, TenantResolver};
+
+// Re-export middleware types (feature-gated)
+#[cfg(feature = "tower-middleware")]
+pub use middleware::{
+    inject_rate_limit_headers, IntoRequestContext, RateLimitConfig, RateLimitHeaderValues,
+    RateLimitLayer, RateLimitService,
+};

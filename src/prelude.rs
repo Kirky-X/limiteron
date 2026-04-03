@@ -35,5 +35,11 @@ pub use crate::quota::QuotaController;
 #[cfg(feature = "macros")]
 pub use crate::macros::flow_control;
 
+// Tower middleware (feature-gated)
+#[cfg(feature = "tower-middleware")]
+pub use crate::middleware::{
+    IntoRequestContext, RateLimitConfig, RateLimitHeaderValues, RateLimitLayer, RateLimitService,
+};
+
 // DbStorage removed as part of direct-inheritance refactoring
 // Use dbnexus::DbStorage directly instead

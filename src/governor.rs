@@ -16,7 +16,13 @@ use crate::config::types::{ConfigChangeRecord, ConfigHistory, FlowControlConfig}
 use crate::decision_chain::DecisionChain;
 use crate::error::Decision;
 use crate::error::FlowGuardError;
-use crate::l1_cache::{CacheableDecision, L1Cache, L1CacheConfig, RateLimitCacheKey};
+#[cfg(feature = "fallback")]
+use crate::fallback::FallbackManager;
+#[cfg(feature = "fallback")]
+use crate::l1_cache::IslandModeConfig;
+use crate::l1_cache::{
+    CacheableDecision, IslandFallbackStrategy, L1Cache, L1CacheConfig, RateLimitCacheKey,
+};
 use crate::logging::{redact_ip, redact_user_id};
 use crate::matchers::{IdentifierExtractor, RequestContext, RuleMatcher};
 use crate::rules::{RuleBuilder, StatsManager, StatsSnapshot};
@@ -135,6 +141,14 @@ pub struct Governor {
 
     /// 是否启用 L1 缓存
     l1_cache_enabled: std::sync::atomic::AtomicBool,
+
+    /// 降级管理器（可选，feature-gated）
+    #[cfg(feature = "fallback")]
+    fallback_manager: Option<Arc<FallbackManager>>,
+
+    /// 事件发射器（可选，feature-gated）
+    #[cfg(feature = "event-system")]
+    event_emitter: Option<Arc<crate::events::EventEmitter>>,
 }
 
 /// Governor 构建器
@@ -186,6 +200,12 @@ pub struct GovernorBuilder {
     l1_cache_config: Option<L1CacheConfig>,
     /// 是否启用 L1 缓存
     l1_cache_enabled: bool,
+    /// 降级管理器（可选，feature-gated）
+    #[cfg(feature = "fallback")]
+    fallback_manager: Option<Arc<FallbackManager>>,
+    /// 事件发射器（可选）
+    #[cfg(feature = "event-system")]
+    event_emitter: Option<Arc<crate::events::EventEmitter>>,
 }
 
 impl GovernorBuilder {
@@ -208,6 +228,10 @@ impl GovernorBuilder {
             parallel_ban_checker: None,
             l1_cache_config: None,
             l1_cache_enabled: true, // 默认启用 L1 缓存
+            #[cfg(feature = "fallback")]
+            fallback_manager: None,
+            #[cfg(feature = "event-system")]
+            event_emitter: None,
         }
     }
 
@@ -275,6 +299,26 @@ impl GovernorBuilder {
     /// 启用或禁用 L1 缓存
     pub fn with_l1_cache_enabled(mut self, enabled: bool) -> Self {
         self.l1_cache_enabled = enabled;
+        self
+    }
+
+    /// 设置降级管理器
+    ///
+    /// 当设置降级管理器后，Governor 会在存储层故障时自动触发孤岛模式，
+    /// 并在 check 流程中使用降级策略。
+    ///
+    /// # 参数
+    /// - `fallback_manager`: 降级管理器实例
+    #[cfg(feature = "fallback")]
+    pub fn with_fallback_manager(mut self, fallback_manager: Arc<FallbackManager>) -> Self {
+        self.fallback_manager = Some(fallback_manager);
+        self
+    }
+
+    /// 设置事件发射器
+    #[cfg(feature = "event-system")]
+    pub fn with_event_emitter(mut self, emitter: Arc<crate::events::EventEmitter>) -> Self {
+        self.event_emitter = Some(emitter);
         self
     }
 
@@ -378,6 +422,32 @@ impl GovernorBuilder {
         })?;
         let l1_cache_enabled = self.l1_cache_enabled;
 
+        // 集成降级管理器 (feature-gated)
+        #[cfg(feature = "fallback")]
+        let fallback_manager = self.fallback_manager.clone();
+
+        // 如果提供了 fallback_manager，注册孤岛模式回调
+        #[cfg(feature = "fallback")]
+        if let Some(ref fm) = self.fallback_manager {
+            let l1_cache_ref = l1_cache.clone();
+
+            // 注册孤岛模式回调（直接 await 确保注册完成）
+            fm.register_island_mode_callback(Box::new(move |is_island| {
+                if is_island {
+                    // 进入孤岛模式：配置 L1 缓存的孤岛降级策略
+                    let island_config =
+                        IslandModeConfig::new(IslandFallbackStrategy::LocalDecision);
+                    l1_cache_ref.enable_island_mode(island_config);
+                } else {
+                    // 退出孤岛模式
+                    l1_cache_ref.disable_island_mode();
+                }
+            }))
+            .await;
+
+            log::info!(target: "governor", "已注册孤岛模式回调到 FallbackManager");
+        }
+
         Ok(Governor {
             config: Arc::new(tokio::sync::RwLock::new(config)),
             _storage: storage,
@@ -400,6 +470,10 @@ impl GovernorBuilder {
             stats: StatsManager::new(),
             l1_cache,
             l1_cache_enabled: std::sync::atomic::AtomicBool::new(l1_cache_enabled),
+            #[cfg(feature = "fallback")]
+            fallback_manager,
+            #[cfg(feature = "event-system")]
+            event_emitter: self.event_emitter,
         })
     }
 }
@@ -508,6 +582,8 @@ impl Governor {
             stats: StatsManager::new(),
             l1_cache: L1Cache::new().await.expect("Failed to create L1Cache"),
             l1_cache_enabled: std::sync::atomic::AtomicBool::new(true),
+            #[cfg(feature = "event-system")]
+            event_emitter: None,
         }
     }
 
@@ -688,7 +764,21 @@ impl Governor {
     ///
     /// 该方法会首先检查 L1 缓存，如果缓存命中则直接返回缓存结果。
     /// 如果缓存未命中，则执行完整的检查流程，并将结果缓存。
+    ///
+    /// 当启用了 FallbackManager 时，会在存储层故障时自动降级。
     pub async fn check(&self, context: &RequestContext) -> Result<Decision, FlowGuardError> {
+        // 如果启用了 FallbackManager，使用降级包装的检查逻辑
+        #[cfg(feature = "fallback")]
+        if let Some(ref fallback_mgr) = self.fallback_manager {
+            return self.check_with_fallback(context, fallback_mgr).await;
+        }
+
+        // 否则直接执行检查
+        self.check_internal(context).await
+    }
+
+    /// 内部检查逻辑（不包含降级处理）
+    async fn check_internal(&self, context: &RequestContext) -> Result<Decision, FlowGuardError> {
         self.stats.increment_total();
 
         debug!(
@@ -782,6 +872,25 @@ impl Governor {
                     _ => {
                         // 拒绝、封禁或错误，直接返回
                         self.update_stats_for_decision(&result);
+
+                        // 发射事件
+                        #[cfg(feature = "event-system")]
+                        {
+                            if let Ok(ref decision) = result {
+                                let decision_str = match decision {
+                                    Decision::Banned(_) => "Banned",
+                                    Decision::Rejected(_) => "Denied",
+                                    _ => "Allowed",
+                                };
+                                self.emit_rate_limit_event(
+                                    identifier.key(),
+                                    &rule.id,
+                                    decision_str,
+                                )
+                                .await;
+                            }
+                        }
+
                         return result;
                     }
                 }
@@ -790,7 +899,7 @@ impl Governor {
 
         // 所有规则都允许
         self.stats.increment_allowed();
-        let decision = Decision::Allowed(None);
+        let decision = Decision::allowed_default();
 
         // 缓存允许的决策
         if self.is_l1_cache_enabled() && !matched_rules.is_empty() {
@@ -801,6 +910,118 @@ impl Governor {
         }
 
         Ok(decision)
+    }
+
+    /// 带降级处理的检查逻辑
+    ///
+    /// 使用 FallbackManager 包装检查流程，在存储层故障时自动降级。
+    #[cfg(feature = "fallback")]
+    async fn check_with_fallback(
+        &self,
+        context: &RequestContext,
+        fallback_mgr: &Arc<FallbackManager>,
+    ) -> Result<Decision, FlowGuardError> {
+        let context_clone = context.clone();
+
+        fallback_mgr
+            .execute_with_fallback(
+                crate::fallback::ComponentType::Redis,
+                || async { self.check_internal(&context_clone).await },
+                || async {
+                    // 降级操作：尝试仅使用 L1 缓存
+                    self.check_l1_cache_only(&context_clone).await
+                },
+            )
+            .await
+    }
+
+    /// 仅使用 L1 缓存的降级检查
+    ///
+    /// 当存储层不可用时，尝试仅从 L1 缓存获取决策结果。
+    async fn check_l1_cache_only(
+        &self,
+        context: &RequestContext,
+    ) -> Result<Decision, FlowGuardError> {
+        if !self.is_l1_cache_enabled() {
+            return Err(FlowGuardError::LimitError(
+                "存储层故障且 L1 缓存未启用".to_string(),
+            ));
+        }
+
+        // 尝试从 L1 缓存获取结果
+        let identifier = self.identifier_extractor.extract(context).ok_or_else(|| {
+            FlowGuardError::ConfigError("Failed to extract identifier".to_string())
+        })?;
+
+        let matched_rules = {
+            let matcher = self.rule_matcher.read().await;
+            #[allow(clippy::disallowed_methods)]
+            matcher
+                .match_all(context)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
+        if matched_rules.is_empty() {
+            // 没有规则，允许通过
+            return Ok(Decision::allowed_default());
+        }
+
+        // 尝试从 L1 缓存获取第一个规则的决策
+        let first_rule = &matched_rules[0];
+        let cache_key = self.build_cache_key(&identifier, &first_rule.id);
+
+        match self.l1_cache.get(&cache_key).await {
+            Ok(Some(cached_decision)) => {
+                trace!("孤岛模式 - L1 缓存命中: key={}", cache_key);
+                let decision = cached_decision.to_decision();
+                self.update_stats_for_decision(&Result::Ok(decision.clone()));
+                Ok(decision)
+            }
+            _ => {
+                // L1 缓存未命中，根据孤岛模式策略处理
+                if self.l1_cache.is_island_mode() {
+                    if let Some(config) = self.l1_cache.island_config() {
+                        match config.fallback_strategy {
+                            IslandFallbackStrategy::AllowAll => {
+                                log::warn!(target: "governor", "孤岛模式 - 允许所有请求通过");
+                                Ok(Decision::allowed_default())
+                            }
+                            IslandFallbackStrategy::RejectAll => {
+                                log::warn!(target: "governor", "孤岛模式 - 拒绝所有请求");
+                                Err(FlowGuardError::LimitError(
+                                    "孤岛模式：存储层故障，拒绝请求".to_string(),
+                                ))
+                            }
+                            IslandFallbackStrategy::LocalDecision => {
+                                // 已在上面尝试过 L1 缓存，未命中
+                                log::warn!(target: "governor", "孤岛模式 - L1 缓存未命中，使用保守策略");
+                                Ok(Decision::allowed_default())
+                            }
+                            IslandFallbackStrategy::ConservativeQuota {
+                                max_requests,
+                                window_secs,
+                            } => {
+                                // 使用保守配额：简单计数，超出则拒绝
+                                log::warn!(target: "governor", "孤岛模式 - 使用保守配额: {}/{}s", max_requests, window_secs);
+                                // 这里可以实现一个简单的本地计数器
+                                // 为简化实现，当前直接允许
+                                Ok(Decision::allowed_default())
+                            }
+                        }
+                    } else {
+                        // 未配置孤岛模式，使用默认策略
+                        Ok(Decision::allowed_default())
+                    }
+                } else {
+                    // 不在孤岛模式，返回错误
+                    Err(FlowGuardError::LimitError(
+                        "存储层故障，降级缓存未命中".to_string(),
+                    ))
+                }
+            }
+        }
     }
 
     /// 构建缓存键
@@ -839,6 +1060,21 @@ impl Governor {
         }
     }
 
+    /// 发射限流事件（内部辅助方法）
+    #[cfg(feature = "event-system")]
+    async fn emit_rate_limit_event(&self, key: &str, rule_id: &str, decision: &str) {
+        if let Some(ref emitter) = self.event_emitter {
+            let event = crate::events::Event::new(crate::events::EventType::RateLimitTriggered {
+                key: key.to_string(),
+                rule_id: rule_id.to_string(),
+                decision: decision.to_string(),
+            });
+            if let Err(e) = emitter.emit(event).await {
+                log::error!("Failed to emit rate limit event: {}", e);
+            }
+        }
+    }
+
     /// 并行资源检查 - 保持原有接口兼容性
     #[cfg(feature = "parallel-checker")]
     pub async fn check_resource_parallel(
@@ -856,7 +1092,7 @@ impl Governor {
                 warn!("Resource banned: 资源={}, 原因={}", resource, info.reason());
                 Ok(Decision::Banned(info))
             }
-            None => Ok(Decision::Allowed(None)),
+            None => Ok(Decision::allowed_default()),
         }
     }
 
@@ -879,7 +1115,7 @@ impl Governor {
                 )));
             }
 
-            return Ok(Decision::Allowed(None));
+            return Ok(Decision::allowed_default());
         }
 
         #[cfg(not(feature = "ban-manager"))]

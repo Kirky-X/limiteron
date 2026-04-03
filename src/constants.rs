@@ -98,6 +98,16 @@ pub const DEFAULT_CIRCUIT_BREAKER_TIMEOUT_SECS: u64 = 30;
 /// Limits the number of trial requests when probing if the service has recovered.
 pub const DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS: u64 = 3;
 
+/// Default slow call duration threshold for circuit breaker (500 milliseconds).
+///
+/// Calls exceeding this duration are considered slow calls.
+pub const DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_DURATION_MILLIS: u64 = 500;
+
+/// Default slow call rate threshold for circuit breaker (50%).
+///
+/// The circuit breaker transitions to open state when the slow call rate exceeds this value.
+pub const DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_RATE_THRESHOLD: f64 = 0.5;
+
 // ============================================================================
 // Ban Manager Constants
 // ============================================================================

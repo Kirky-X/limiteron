@@ -109,12 +109,12 @@ proptest! {
     #[test]
     fn test_fixed_window_boundary_behavior(
         max_requests in 1u64..50,
-        window_ms in 1000u64..10000
+        window_seconds in 1u64..10
     ) {
         let mock_clock = Arc::new(MockClock::new());
         let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
         let limiter = FixedWindowLimiter::with_clock(
-            Duration::from_millis(window_ms),
+            Duration::from_secs(window_seconds),
             max_requests,
             clock,
         );
@@ -129,8 +129,8 @@ proptest! {
         // 此时应该被限制
         prop_assert!(!rt.block_on(limiter.allow(1)).unwrap());
 
-        // 前进刚好一个窗口
-        mock_clock.advance(Duration::from_millis(window_ms + 1));
+        // 前进刚好一个窗口（使用秒级，因为MockClock.advance使用as_secs）
+        mock_clock.advance(Duration::from_secs(window_seconds + 1));
 
         // 新窗口应该允许请求
         prop_assert!(rt.block_on(limiter.allow(1)).unwrap());

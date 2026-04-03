@@ -161,13 +161,13 @@ proptest! {
             capacity
         );
 
-        // 属性: 第二轮有补充后,允许数与补充相关
-        let expected_refill = (refill_rate as usize).min(capacity as usize);
+        // 属性: 第二轮不超过 capacity（不能超过桶容量）
+        // 注意：第二轮允许的数量取决于第一轮消耗后的剩余令牌 + 补充的令牌
         prop_assert!(
-            allowed_second <= (expected_refill as u64).min(capacity),
-            "Second round: {} exceeded expected refill {}",
+            allowed_second <= capacity,
+            "Second round: {} exceeded capacity {}",
             allowed_second,
-            expected_refill
+            capacity
         );
     }
 }

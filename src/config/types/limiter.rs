@@ -141,7 +141,7 @@ impl LimiterConfig {
 }
 
 /// 解析窗口大小字符串
-pub fn parse_window_size(window_size: &str) -> Result<std::time::Duration, String> {
+pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration, String> {
     let trimmed = window_size.trim();
     if trimmed.is_empty() {
         return Err("窗口大小不能为空".to_string());

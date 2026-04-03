@@ -160,7 +160,7 @@ impl Clock for MockClock {
 }
 
 /// 创建系统时钟的 Arc 包装
-pub fn system_clock() -> Arc<dyn Clock> {
+pub(crate) fn system_clock() -> Arc<dyn Clock> {
     Arc::new(SystemClock)
 }
 

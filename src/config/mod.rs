@@ -8,8 +8,8 @@
 
 // 子模块声明
 #[cfg(feature = "confers")]
-pub mod loader;
-pub mod types;
+pub(crate) mod loader;
+pub(crate) mod types;
 // TODO: watcher and security modules need to be implemented
 // #[cfg(feature = "config-watcher")]
 // pub mod watcher;

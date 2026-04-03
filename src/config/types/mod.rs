@@ -21,7 +21,8 @@ mod rule;
 pub use actions::{Action, ActionConfig, BanConfig, BanScope, CacheBackend, MetricsBackend};
 pub use config::{GlobalConfig, StorageType, TrustedProxyConfig};
 pub use history::{ChangeSource, ConfigChangeRecord, ConfigHistory};
-pub use limiter::{parse_window_size, LimiterConfig, OverdraftConfig};
+pub(crate) use limiter::parse_window_size;
+pub use limiter::{LimiterConfig, OverdraftConfig};
 pub use rule::Matcher;
 pub use rule::Rule;
 

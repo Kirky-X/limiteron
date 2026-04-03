@@ -192,10 +192,19 @@ impl std::fmt::Display for MetricsBackend {
 }
 
 /// 动作配置
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ActionConfig {
     pub on_exceed: Action,
     pub ban: Option<BanConfig>,
+}
+
+impl Default for ActionConfig {
+    fn default() -> Self {
+        Self {
+            on_exceed: Action::default(),
+            ban: None,
+        }
+    }
 }
 
 impl ActionConfig {

@@ -66,7 +66,7 @@ impl std::fmt::Display for StorageType {
 ///
 /// 用于从 X-Forwarded-For 头中安全提取真实客户端 IP 地址。
 /// 配置可信代理列表后，系统会从右向左查找第一个非可信代理的 IP 作为客户端 IP。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrustedProxyConfig {
     /// 是否启用可信代理模式
     #[serde(default)]
@@ -83,6 +83,15 @@ impl Default for GlobalConfig {
             cache: CacheBackend::default(),
             metrics: MetricsBackend::default(),
             trusted_proxies: TrustedProxyConfig::default(),
+        }
+    }
+}
+
+impl Default for TrustedProxyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            proxies: Vec::new(),
         }
     }
 }

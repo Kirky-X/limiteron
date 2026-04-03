@@ -15,6 +15,7 @@
 #[cfg(test)]
 mod storage_adapter_tests {
     use crate::error::StorageError;
+    use crate::storage::Storage;
 
     #[test]
     fn test_storage_error_types() {
@@ -146,7 +147,7 @@ mod ban_storage_adapter_tests {
 
     #[test]
     fn test_ban_record_structure() {
-        use chrono::Utc;
+        use chrono::{DateTime, Utc};
 
         let now = Utc::now();
         let record = BanRecord {
@@ -167,7 +168,7 @@ mod ban_storage_adapter_tests {
 
     #[test]
     fn test_ban_history_structure() {
-        use chrono::Utc;
+        use chrono::{DateTime, Utc};
 
         let now = Utc::now();
         let history = BanHistory {
@@ -181,7 +182,7 @@ mod ban_storage_adapter_tests {
 
     #[test]
     fn test_ban_record_with_user_target() {
-        use chrono::Utc;
+        use chrono::{DateTime, Utc};
 
         let now = Utc::now();
         let record = BanRecord {
@@ -204,7 +205,7 @@ mod ban_storage_adapter_tests {
 
     #[test]
     fn test_ban_record_with_mac_target() {
-        use chrono::Utc;
+        use chrono::{DateTime, Utc};
 
         let now = Utc::now();
         let record = BanRecord {
@@ -234,7 +235,7 @@ mod quota_storage_adapter_tests {
 
     #[test]
     fn test_quota_info_structure() {
-        use chrono::Utc;
+        use chrono::{DateTime, Utc};
 
         let now = Utc::now();
         let info = QuotaInfo {
@@ -535,28 +536,30 @@ mod table_ddl_tests {
 
 #[cfg(test)]
 mod adapter_trait_signature_tests {
-    // 这些测试验证适配器的 trait 签名
-    // 适配器类型本身在编译时检查，无需实际使用
+    use crate::adapters::DBNexusBanStorageAdapter;
+    use crate::adapters::DBNexusQuotaStorageAdapter;
+    use crate::adapters::DBNexusStorageAdapter;
+    use crate::storage::{BanStorage, QuotaStorage, Storage};
 
     #[tokio::test]
     #[ignore = "requires a real database connection"]
     async fn test_storage_adapter_trait_signature() {
         // DBNexusStorageAdapter needs Arc<DbPool> which requires a real DB
-        let _ = std::any::type_name::<crate::adapters::DBNexusStorageAdapter>();
+        let _ = std::any::type_name::<DBNexusStorageAdapter>();
     }
 
     #[tokio::test]
     #[ignore = "requires a real database connection"]
     async fn test_ban_storage_adapter_trait_signature() {
         // DBNexusBanStorageAdapter needs Arc<DbPool> which requires a real DB
-        let _ = std::any::type_name::<crate::adapters::DBNexusBanStorageAdapter>();
+        let _ = std::any::type_name::<DBNexusBanStorageAdapter>();
     }
 
     #[tokio::test]
     #[ignore = "requires a real database connection"]
     async fn test_quota_storage_adapter_trait_signature() {
         // DBNexusQuotaStorageAdapter needs Arc<DbPool> which requires a real DB
-        let _ = std::any::type_name::<crate::adapters::DBNexusQuotaStorageAdapter>();
+        let _ = std::any::type_name::<DBNexusQuotaStorageAdapter>();
     }
 }
 

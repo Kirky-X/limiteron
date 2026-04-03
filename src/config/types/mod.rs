@@ -17,6 +17,7 @@ mod config;
 mod history;
 mod limiter;
 mod limiter_type;
+mod quota_type;
 mod rule;
 
 pub use actions::{Action, ActionConfig, BanConfig, BanScope, CacheBackend, MetricsBackend};
@@ -25,6 +26,7 @@ pub use history::{ChangeSource, ConfigChangeRecord, ConfigHistory};
 pub(crate) use limiter::parse_window_size;
 pub use limiter::{LimiterConfig, OverdraftConfig};
 pub use limiter_type::LimiterTypeName;
+pub use quota_type::QuotaType;
 pub use rule::Matcher;
 pub use rule::Rule;
 
@@ -615,23 +617,22 @@ on_exceed = "reject"
     }
 
     #[test]
-    fn test_limiter_config_validate_quota_empty_type() {
+    fn test_limiter_config_validate_quota_valid() {
+        // QuotaType is an enum, so it's always valid at compile time
         let config = LimiterConfig::Quota {
-            quota_type: "".to_string(),
+            quota_type: QuotaType::Count,
             limit: 1000,
             window: "1h".to_string(),
             alert_threshold: None,
             overdraft: None,
         };
-        let result = config.validate();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("配额类型不能为空"));
+        assert!(config.validate().is_ok());
     }
 
     #[test]
     fn test_limiter_config_validate_quota_zero_limit() {
         let config = LimiterConfig::Quota {
-            quota_type: "token".to_string(),
+            quota_type: QuotaType::Token,
             limit: 0,
             window: "1h".to_string(),
             alert_threshold: None,
@@ -645,7 +646,7 @@ on_exceed = "reject"
     #[test]
     fn test_limiter_config_validate_quota_threshold_over_100() {
         let config = LimiterConfig::Quota {
-            quota_type: "token".to_string(),
+            quota_type: QuotaType::Token,
             limit: 1000,
             window: "1h".to_string(),
             alert_threshold: Some(101),

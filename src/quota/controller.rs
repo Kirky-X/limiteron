@@ -22,6 +22,7 @@ pub const DEFAULT_OVERDRAFT_LIMIT_PERCENT: u8 = 20;
 /// 默认告警去重缓存清理间隔（5分钟）
 pub const DEFAULT_DEDUP_CLEANUP_INTERVAL_SECS: u64 = 300;
 
+use crate::config::types::QuotaType;
 use crate::error::{ConsumeResult, FlowGuardError};
 use crate::storage::QuotaStorage;
 use chrono::{DateTime, Duration, Utc};
@@ -31,39 +32,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio_util::sync::CancellationToken;
-
-/// 配额类型
-#[cfg(feature = "quota-control")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum QuotaType {
-    /// 令牌配额
-    Token,
-    /// 金额配额
-    Money,
-    /// 计数配额
-    Count,
-}
-
-impl QuotaType {
-    /// 从字符串解析配额类型
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "token" => Some(QuotaType::Token),
-            "money" => Some(QuotaType::Money),
-            "count" => Some(QuotaType::Count),
-            _ => None,
-        }
-    }
-
-    /// 转换为字符串
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            QuotaType::Token => "token",
-            QuotaType::Money => "money",
-            QuotaType::Count => "count",
-        }
-    }
-}
 
 /// 配额配置
 #[derive(Debug, Clone, Serialize, Deserialize)]

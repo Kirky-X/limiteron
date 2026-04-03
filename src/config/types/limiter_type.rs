@@ -32,6 +32,7 @@ pub enum LimiterTypeName {
 
 impl LimiterTypeName {
     /// 从字符串解析
+    #[cfg(test)]
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "TokenBucket" => Some(Self::TokenBucket),

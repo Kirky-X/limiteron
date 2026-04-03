@@ -35,7 +35,7 @@ pub mod traits;
 pub mod quota_limiter;
 
 // Re-export all public types
-pub use concurrency::{ConcurrencyLimiter, ConcurrencyLimiterBuilder};
+pub use concurrency::ConcurrencyLimiter;
 pub use fixed_window::FixedWindowLimiter;
 pub use sharded_sliding_window::ShardedSlidingWindowLimiter;
 #[allow(deprecated)]

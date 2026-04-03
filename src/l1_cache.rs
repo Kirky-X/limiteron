@@ -661,7 +661,7 @@ where
     }
 
     /// 获取缓存统计信息
-    pub async fn stats(&self) -> L1CacheStats {
+    pub(crate) async fn stats(&self) -> L1CacheStats {
         let current_size = self.len().await.unwrap_or(0);
         L1CacheStats {
             total_lookups: self.total_lookups.load(Ordering::Relaxed),
@@ -746,7 +746,7 @@ where
     /// 获取孤岛模式统计信息
     ///
     /// 扩展标准统计信息，包含孤岛模式状态。
-    pub async fn island_stats(&self) -> L1CacheStats {
+    pub(crate) async fn island_stats(&self) -> L1CacheStats {
         let mut stats = self.stats().await;
         if self.is_island_mode() {
             stats.current_size += 1; // 标记位：使用 current_size+1 表示孤岛模式

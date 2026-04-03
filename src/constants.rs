@@ -7,6 +7,8 @@
 //! This module provides well-documented constants used throughout the library.
 //! All magic numbers are defined here with their purpose and usage context.
 
+#![allow(dead_code)]
+
 /// Maximum cost value for rate limiting operations.
 ///
 /// This limit prevents excessive resource consumption from a single request.

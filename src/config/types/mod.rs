@@ -30,9 +30,6 @@ pub use quota_type::QuotaType;
 pub use rule::Matcher;
 pub use rule::Rule;
 
-// Re-export ConfigMatcher for backward compatibility
-pub use Matcher as ConfigMatcher;
-
 /// 流量控制配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlowControlConfig {

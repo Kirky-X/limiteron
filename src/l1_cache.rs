@@ -20,7 +20,7 @@ use std::time::Duration;
 /// 用于 L1 缓存的决策结果类型，支持序列化和反序列化。
 /// 与 Decision 类型不同，该类型专门用于缓存场景。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CacheableDecision {
+pub(crate) struct CacheableDecision {
     /// 决策类型：allowed, rejected, banned
     pub decision_type: String,
     /// 决策原因（可选）
@@ -31,7 +31,7 @@ pub struct CacheableDecision {
 
 /// 可缓存的封禁信息
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CacheableBanInfo {
+pub(crate) struct CacheableBanInfo {
     /// 封禁原因
     pub reason: String,
     /// 封禁到期时间（ISO 8601 格式）
@@ -241,7 +241,7 @@ impl RateLimitCacheKey {
 ///
 /// 记录缓存的命中、未命中、驱逐等统计信息。
 #[derive(Debug, Clone, Default)]
-pub struct L1CacheStats {
+pub(crate) struct L1CacheStats {
     /// 总查询次数
     pub total_lookups: u64,
     /// 命中次数

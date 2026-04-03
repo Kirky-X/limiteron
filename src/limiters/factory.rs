@@ -51,7 +51,7 @@ const MAX_CONCURRENT_REQUESTS: u64 = 100_000;
 /// };
 /// let limiter = LimiterFactory::create(&config).unwrap();
 /// ```
-pub struct LimiterFactory;
+pub(crate) struct LimiterFactory;
 
 impl LimiterFactory {
     /// 从配置创建限流器

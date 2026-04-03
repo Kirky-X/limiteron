@@ -21,6 +21,8 @@
 pub mod concurrency;
 pub mod factory;
 pub mod fixed_window;
+#[cfg(feature = "gcra")]
+pub mod gcra;
 pub mod manager;
 pub mod sharded_sliding_window;
 #[allow(deprecated)]
@@ -45,3 +47,6 @@ pub use traits::Limiter;
 
 #[cfg(feature = "quota-control")]
 pub use quota_limiter::QuotaLimiter;
+
+#[cfg(feature = "gcra")]
+pub use gcra::GcraLimiter;

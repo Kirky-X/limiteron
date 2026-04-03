@@ -5,6 +5,7 @@
 
 //! 限流器相关类型
 
+use super::QuotaType;
 use serde::{Deserialize, Serialize};
 
 /// 透支配置
@@ -41,7 +42,7 @@ pub enum LimiterConfig {
         max_requests: u64,
     },
     Quota {
-        quota_type: String,
+        quota_type: QuotaType,
         limit: u64,
         window: String,
         /// 告警触发阈值（使用百分比 0-100），超过此比例时触发告警
@@ -95,15 +96,13 @@ impl LimiterConfig {
                 Self::validate_window_size(window_size)?;
             }
             LimiterConfig::Quota {
-                quota_type,
+                quota_type: _,
                 limit,
                 window,
                 alert_threshold,
                 overdraft,
             } => {
-                if quota_type.is_empty() {
-                    return Err("配额类型不能为空".to_string());
-                }
+                // QuotaType 是枚举，编译时保证类型安全
                 if *limit == 0 {
                     return Err("配额限制不能为0".to_string());
                 }

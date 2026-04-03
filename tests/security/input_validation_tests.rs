@@ -139,13 +139,24 @@ async fn test_ip_list_parsing_security() {
     assert_eq!(result.unwrap(), Identifier::Ip("192.168.1.1".to_string()));
 
     // 测试超大 IP 列表（DoS 防护）
-    let many_ips: String = (0..100)
+    // max_hops 默认是 10，超过应该返回 None（安全行为）
+    let many_ips: String = (0..20)
         .map(|i| format!("192.168.{}.{}", i / 256, i % 256))
         .collect::<Vec<_>>()
         .join(", ");
     let ctx = RequestContext::new().with_header("x-forwarded-for", &many_ips);
     let result = extractor.extract(&ctx);
-    // 系统应能处理大列表，返回第一个 IP
+    // 超过 max_hops 限制，应该返回 None（DoS 防护）
+    assert!(result.is_none(), "超过 max_hops 限制应该被拒绝");
+
+    // 测试在限制内的 IP 列表
+    let few_ips: String = (0..5)
+        .map(|i| format!("192.168.{}.{}", i / 256, i % 256))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let ctx = RequestContext::new().with_header("x-forwarded-for", &few_ips);
+    let result = extractor.extract(&ctx);
+    // 在限制内，应该成功
     assert!(result.is_some());
 }
 

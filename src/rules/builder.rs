@@ -77,36 +77,7 @@ impl RuleBuilder {
     /// assert_eq!(RuleBuilder::parse_duration("2h").unwrap(), Duration::from_secs(7200));
     /// ```
     pub fn parse_duration(s: &str) -> Result<Duration, FlowGuardError> {
-        let s = s.trim();
-        let (num, unit) = if s.ends_with("ms") {
-            (s.trim_end_matches("ms"), "ms")
-        } else if s.ends_with('s') {
-            (s.trim_end_matches('s'), "s")
-        } else if s.ends_with('m') {
-            (s.trim_end_matches('m'), "m")
-        } else if s.ends_with('h') {
-            (s.trim_end_matches('h'), "h")
-        } else {
-            return Err(FlowGuardError::ConfigError(format!(
-                "Invalid duration format: {}",
-                s
-            )));
-        };
-
-        let val: u64 = num.parse().map_err(|_| {
-            FlowGuardError::ConfigError(format!("Invalid duration number: {}", num))
-        })?;
-
-        match unit {
-            "ms" => Ok(Duration::from_millis(val)),
-            "s" => Ok(Duration::from_secs(val)),
-            "m" => Ok(Duration::from_secs(val * SECONDS_PER_MINUTE)),
-            "h" => Ok(Duration::from_secs(val * SECONDS_PER_HOUR)),
-            _ => Err(FlowGuardError::ConfigError(format!(
-                "Invalid duration unit '{}'. Valid units: ms, s, m, h",
-                unit
-            ))),
-        }
+        crate::config::types::parse_window_size(s).map_err(|e| FlowGuardError::ConfigError(e))
     }
 
     /// 从配置构建规则对应的决策链

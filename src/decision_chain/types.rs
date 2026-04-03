@@ -799,8 +799,8 @@ mod tests {
         assert!(matches!(decision, Decision::Rejected(_)));
 
         // 验证拒绝原因来自node2
-        if let Decision::Rejected(reason) = decision {
-            assert!(reason.contains("High Priority"));
+        if let Decision::Rejected(metadata) = decision {
+            assert!(metadata.reason.contains("High Priority"));
         }
     }
 
@@ -925,9 +925,9 @@ mod tests {
 
         // 第4个请求应该检查所有节点
         let decision = chain.check().await.unwrap();
-        if let Decision::Rejected(reason) = decision {
+        if let Decision::Rejected(metadata) = decision {
             // 应该包含两个节点的拒绝原因
-            assert!(reason.contains("First Node"));
+            assert!(metadata.reason.contains("First Node"));
         }
     }
 

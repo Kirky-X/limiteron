@@ -147,6 +147,10 @@ reqwest = { version = "~0.13", features = ["json"], optional = true }
 notify = { version = "~8.2", optional = true }
 tokio-stream = { workspace = true, optional = true }
 
+# HTTP框架 - 管理API
+axum = { version = "0.8", features = ["json"], optional = true }
+tower-http = { version = "0.6", features = ["cors", "auth"], optional = true }
+
 # 安全相关（可选和必需）
 regex = { workspace = true, optional = true }
 secrecy.workspace = true
@@ -174,6 +178,7 @@ tempfile.workspace = true
 futures.workspace = true
 rand.workspace = true
 criterion.workspace = true
+proptest = "1.4"
 
 [features]
 # ============================================
@@ -264,6 +269,11 @@ device-matching = ["dep:woothee", "dep:regex"]
 advanced-matchers = []
 
 # ============================================
+# Admin API (管理控制面)
+# ============================================
+admin-api = ["dep:axum", "dep:tower-http", "dep:tower", "dep:http"]
+
+# ============================================
 # Observability Features (可观测性)
 # ============================================
 telemetry = [
@@ -307,6 +317,9 @@ tower-middleware = ["dep:tower", "dep:tower-layer", "dep:http"]
 # ============================================
 # 遗留测试 - 用于标记尚未实现的功能测试
 legacy_tests = []
+
+# 混沌测试特性 - 启用故障注入和延迟注入测试
+chaos-testing = []
 
 [[bench]]
 name = "throughput"

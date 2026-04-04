@@ -242,3 +242,176 @@ impl BanConfig {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_action_parse() {
+        assert_eq!(Action::parse("reject"), Some(Action::Reject));
+        assert_eq!(Action::parse("REJECT"), Some(Action::Reject));
+        assert_eq!(Action::parse("allow"), Some(Action::Allow));
+        assert_eq!(Action::parse("degrade"), Some(Action::Degrade));
+        assert_eq!(Action::parse("invalid"), None);
+        assert_eq!(Action::parse(""), None);
+    }
+
+    #[test]
+    fn test_action_as_str() {
+        assert_eq!(Action::Reject.as_str(), "reject");
+        assert_eq!(Action::Allow.as_str(), "allow");
+        assert_eq!(Action::Degrade.as_str(), "degrade");
+    }
+
+    #[test]
+    fn test_action_display() {
+        assert_eq!(format!("{}", Action::Reject), "reject");
+        assert_eq!(format!("{}", Action::Allow), "allow");
+        assert_eq!(format!("{}", Action::Degrade), "degrade");
+    }
+
+    #[test]
+    fn test_action_from_str() {
+        assert_eq!(Action::from("reject"), Action::Reject);
+        assert_eq!(Action::from("invalid"), Action::Reject);
+    }
+
+    #[test]
+    fn test_action_default() {
+        assert_eq!(Action::default(), Action::Reject);
+    }
+
+    #[test]
+    fn test_ban_scope_parse() {
+        assert_eq!(BanScope::parse("ip"), Some(BanScope::Ip));
+        assert_eq!(BanScope::parse("IP"), Some(BanScope::Ip));
+        assert_eq!(BanScope::parse("user"), Some(BanScope::User));
+        assert_eq!(BanScope::parse("mac"), Some(BanScope::Mac));
+        assert_eq!(BanScope::parse("invalid"), None);
+    }
+
+    #[test]
+    fn test_ban_scope_as_str() {
+        assert_eq!(BanScope::Ip.as_str(), "ip");
+        assert_eq!(BanScope::User.as_str(), "user");
+        assert_eq!(BanScope::Mac.as_str(), "mac");
+    }
+
+    #[test]
+    fn test_ban_scope_default() {
+        assert_eq!(BanScope::default(), BanScope::Ip);
+    }
+
+    #[test]
+    fn test_cache_backend_parse() {
+        assert_eq!(CacheBackend::parse("memory"), Some(CacheBackend::Memory));
+        assert_eq!(CacheBackend::parse("redis"), Some(CacheBackend::Redis));
+        assert_eq!(CacheBackend::parse("none"), Some(CacheBackend::None));
+        assert_eq!(CacheBackend::parse("invalid"), None);
+    }
+
+    #[test]
+    fn test_cache_backend_as_str() {
+        assert_eq!(CacheBackend::Memory.as_str(), "memory");
+        assert_eq!(CacheBackend::Redis.as_str(), "redis");
+        assert_eq!(CacheBackend::None.as_str(), "none");
+    }
+
+    #[test]
+    fn test_metrics_backend_parse() {
+        assert_eq!(
+            MetricsBackend::parse("prometheus"),
+            Some(MetricsBackend::Prometheus)
+        );
+        assert_eq!(
+            MetricsBackend::parse("statsd"),
+            Some(MetricsBackend::Statsd)
+        );
+        assert_eq!(MetricsBackend::parse("none"), Some(MetricsBackend::None));
+        assert_eq!(MetricsBackend::parse("invalid"), None);
+    }
+
+    #[test]
+    fn test_metrics_backend_as_str() {
+        assert_eq!(MetricsBackend::Prometheus.as_str(), "prometheus");
+        assert_eq!(MetricsBackend::Statsd.as_str(), "statsd");
+        assert_eq!(MetricsBackend::None.as_str(), "none");
+    }
+
+    #[test]
+    fn test_action_config_default() {
+        let config = ActionConfig::default();
+        assert_eq!(config.on_exceed, Action::Reject);
+        assert!(config.ban.is_none());
+    }
+
+    #[test]
+    fn test_action_config_validate_no_ban() {
+        let config = ActionConfig {
+            on_exceed: Action::Reject,
+            ban: None,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_action_config_validate_with_valid_ban() {
+        let config = ActionConfig {
+            on_exceed: Action::Reject,
+            ban: Some(BanConfig {
+                threshold: 5,
+                initial_duration: "1h".to_string(),
+                backoff_multiplier: 2.0,
+                max_duration: "24h".to_string(),
+                scope: BanScope::Ip,
+            }),
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_action_config_validate_with_invalid_ban() {
+        let config = ActionConfig {
+            on_exceed: Action::Reject,
+            ban: Some(BanConfig {
+                threshold: 0,
+                initial_duration: "1h".to_string(),
+                backoff_multiplier: 2.0,
+                max_duration: "24h".to_string(),
+                scope: BanScope::Ip,
+            }),
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_ban_config_validate() {
+        let valid = BanConfig {
+            threshold: 5,
+            initial_duration: "1h".to_string(),
+            backoff_multiplier: 2.0,
+            max_duration: "24h".to_string(),
+            scope: BanScope::Ip,
+        };
+        assert!(valid.validate().is_ok());
+
+        let invalid_threshold = BanConfig {
+            threshold: 0,
+            initial_duration: "1h".to_string(),
+            backoff_multiplier: 2.0,
+            max_duration: "24h".to_string(),
+            scope: BanScope::Ip,
+        };
+        assert!(invalid_threshold.validate().is_err());
+
+        let invalid_backoff = BanConfig {
+            threshold: 5,
+            initial_duration: "1h".to_string(),
+            backoff_multiplier: 0.0,
+            max_duration: "24h".to_string(),
+            scope: BanScope::Ip,
+        };
+        assert!(invalid_backoff.validate().is_err());
+    }
+}

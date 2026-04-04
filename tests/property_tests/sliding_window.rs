@@ -7,7 +7,7 @@
 
 #![allow(deprecated)]
 
-use limiteron::limiters::{Limiter, SlidingWindowLimiter};
+use limiteron::{Limiter, SlidingWindowLimiter};
 use proptest::prelude::*;
 use std::time::Duration;
 

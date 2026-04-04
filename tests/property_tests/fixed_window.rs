@@ -6,7 +6,7 @@
 //! 3. 跨窗口请求的正确性
 
 use limiteron::clock::MockClock;
-use limiteron::limiters::{FixedWindowLimiter, Limiter};
+use limiteron::{FixedWindowLimiter, Limiter};
 use proptest::prelude::*;
 use std::sync::Arc;
 use std::time::Duration;

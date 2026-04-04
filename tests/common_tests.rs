@@ -11,7 +11,7 @@ mod tests {
     use super::common::*;
     #[allow(unused_imports)]
     use super::modules::*;
-    use limiteron::storage::{BanStorage, QuotaStorage};
+    use limiteron::{BanStorage, QuotaStorage};
 
     #[tokio::test]
     async fn test_mock_quota_storage() {
@@ -61,7 +61,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_ban_storage() {
-        use limiteron::storage::{BanRecord, BanTarget};
+        use limiteron::{BanRecord, BanTarget};
         use std::time::Duration;
 
         let storage = MockBanStorage::new();

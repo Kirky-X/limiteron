@@ -10,7 +10,7 @@
 
 use async_trait::async_trait;
 use limiteron::error::StorageError;
-use limiteron::storage::{Storage, StorageCreate};
+use limiteron::{Storage, StorageCreate};
 use parking_lot::Mutex;
 use std::ops::Range;
 use std::sync::Arc;
@@ -308,7 +308,7 @@ impl FaultInjectionBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use limiteron::storage::MemoryStorage;
+    use limiteron::MemoryStorage;
 
     #[tokio::test]
     async fn test_fault_injection_random_failures() {

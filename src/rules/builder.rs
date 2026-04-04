@@ -274,6 +274,7 @@ impl RuleBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::types::{ActionConfig, Matcher, Rule};
 
     #[test]
     fn test_parse_duration_milliseconds() {
@@ -354,6 +355,110 @@ mod tests {
     #[test]
     fn test_build_rule_chains_empty_config() {
         let config = FlowControlConfig::default();
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert!(chains.is_empty());
+    }
+
+    #[test]
+    fn test_parse_duration_valid() {
+        use std::time::Duration;
+        assert_eq!(
+            RuleBuilder::parse_duration("100ms").unwrap(),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            RuleBuilder::parse_duration("10s").unwrap(),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            RuleBuilder::parse_duration("5m").unwrap(),
+            Duration::from_secs(300)
+        );
+        assert_eq!(
+            RuleBuilder::parse_duration("2h").unwrap(),
+            Duration::from_secs(7200)
+        );
+        assert_eq!(
+            RuleBuilder::parse_duration("1d").unwrap(),
+            Duration::from_secs(86400)
+        );
+    }
+
+    #[test]
+    fn test_parse_duration_invalid() {
+        assert!(RuleBuilder::parse_duration("").is_err());
+        assert!(RuleBuilder::parse_duration("abc").is_err());
+        assert!(RuleBuilder::parse_duration("10x").is_err());
+    }
+
+    #[test]
+    fn test_build_rule_chains_with_single_rule() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "test-rule".to_string(),
+                name: "Test Rule".to_string(),
+                priority: 1,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["user1".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert_eq!(chains.len(), 1);
+        assert!(chains.contains_key("test-rule"));
+    }
+
+    #[test]
+    fn test_build_rule_chains_with_multiple_rules() {
+        let config = FlowControlConfig {
+            rules: vec![
+                Rule {
+                    id: "rule1".to_string(),
+                    name: "Rule 1".to_string(),
+                    priority: 1,
+                    matchers: vec![Matcher::User {
+                        user_ids: vec!["user1".to_string()],
+                    }],
+                    limiters: vec![LimiterConfig::TokenBucket {
+                        capacity: 100,
+                        refill_rate: 10,
+                    }],
+                    action: ActionConfig::default(),
+                },
+                Rule {
+                    id: "rule2".to_string(),
+                    name: "Rule 2".to_string(),
+                    priority: 2,
+                    matchers: vec![Matcher::Ip {
+                        ip_ranges: vec!["192.168.1.0/24".to_string()],
+                    }],
+                    limiters: vec![LimiterConfig::FixedWindow {
+                        window_size: "1m".to_string(),
+                        max_requests: 100,
+                    }],
+                    action: ActionConfig::default(),
+                },
+            ],
+            ..Default::default()
+        };
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert_eq!(chains.len(), 2);
+        assert!(chains.contains_key("rule1"));
+        assert!(chains.contains_key("rule2"));
+    }
+
+    #[test]
+    fn test_build_rule_chains_empty_rules() {
+        let config = FlowControlConfig {
+            rules: vec![],
+            ..Default::default()
+        };
         let chains = RuleBuilder::build_rule_chains(&config).unwrap();
         assert!(chains.is_empty());
     }

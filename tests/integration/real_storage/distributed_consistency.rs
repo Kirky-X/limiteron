@@ -12,7 +12,7 @@
 mod tests {
     use limiteron::error::StorageError;
     use limiteron::redis::RedisStorage;
-    use limiteron::storage::Storage;
+    use limiteron::Storage;
     use std::sync::Arc;
     use std::time::Duration;
 

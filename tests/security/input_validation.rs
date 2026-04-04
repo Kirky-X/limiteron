@@ -5,7 +5,7 @@
 //! - 数值注入测试（负数消费拒绝、整数溢出保护）
 //! - 配置注入测试
 
-use limiteron::limiters::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter};
+use limiteron::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter};
 use limiteron::matchers::{IpExtractor, RequestContext};
 use limiteron::validation::{validate_ip_address, validate_user_id, validate_mac_address, validate_api_key};
 use limiteron::error::FlowGuardError;

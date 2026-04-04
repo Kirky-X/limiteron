@@ -7,7 +7,7 @@ mod quota_control_tests {
     use crate::common::{MockQuotaBehavior, MockQuotaStorage};
     use limiteron::error::ConsumeResult;
     use limiteron::quota::{AlertChannel, AlertConfig, QuotaConfig, QuotaController, QuotaType};
-    use limiteron::storage::QuotaStorage;
+    use limiteron::QuotaStorage;
     use std::sync::Arc;
     use std::time::Duration;
 

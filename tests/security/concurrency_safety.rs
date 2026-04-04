@@ -5,7 +5,7 @@
 //! - 死锁测试
 //! - 并发状态一致性测试
 
-use limiteron::limiters::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter, ConcurrencyLimiter};
+use limiteron::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter, ConcurrencyLimiter};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;

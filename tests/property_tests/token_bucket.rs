@@ -6,7 +6,7 @@
 //! 3. 并发安全:多线程竞争下不超限
 
 use limiteron::clock::MockClock;
-use limiteron::limiters::{Limiter, TokenBucketLimiter};
+use limiteron::{Limiter, TokenBucketLimiter};
 use proptest::prelude::*;
 use std::sync::Arc;
 use std::time::Duration;

@@ -6,7 +6,7 @@
 //! 3. 各种限流器在并发下的行为一致性
 
 use limiteron::clock::MockClock;
-use limiteron::limiters::{FixedWindowLimiter, Limiter, TokenBucketLimiter};
+use limiteron::{FixedWindowLimiter, Limiter, TokenBucketLimiter};
 use proptest::prelude::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

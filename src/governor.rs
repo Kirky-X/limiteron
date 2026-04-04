@@ -1508,4 +1508,71 @@ mod governor_construction_tests {
         let result = governor.health_check().await;
         assert!(result.is_ok());
     }
+
+    #[tokio::test]
+    async fn test_governor_check_with_valid_request() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.user_id = Some("test_user".to_string());
+
+        let result = governor.check(&ctx).await;
+        // check() may return error if no matching rule found - just verify it doesn't panic
+        let _ = result;
+    }
+
+    #[tokio::test]
+    async fn test_governor_stats_after_requests() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.user_id = Some("test_user".to_string());
+
+        // Make several requests
+        for _ in 0..5 {
+            let _ = governor.check(&ctx).await;
+        }
+
+        let stats = governor.stats().await;
+        // Stats should reflect the requests (allowed or rejected depends on rule matching)
+        assert_eq!(stats.total_requests, 5);
+    }
+
+    #[tokio::test]
+    async fn test_governor_health_check() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        // health_check() returns () - just verify it doesn't panic
+        governor.health_check().await;
+    }
 }

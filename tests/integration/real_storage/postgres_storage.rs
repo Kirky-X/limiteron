@@ -10,7 +10,7 @@
 mod tests {
     use limiteron::adapters::StorageFactory;
     use limiteron::error::StorageError;
-    use limiteron::storage::{BanRecord, BanStorage, BanTarget, QuotaStorage, Storage};
+    use limiteron::{BanRecord, BanStorage, BanTarget, QuotaStorage, Storage};
     use std::sync::Arc;
     use std::time::Duration;
 

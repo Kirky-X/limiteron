@@ -14,8 +14,8 @@ use super::latency::{LatencyDistribution, LatencyInjector};
 use super::ChaosTestResult;
 use limiteron::clock::MockClock;
 use limiteron::error::StorageError;
-use limiteron::limiters::{FixedWindowLimiter, Limiter, TokenBucketLimiter};
-use limiteron::storage::{MemoryStorage, Storage, StorageCreate};
+use limiteron::{FixedWindowLimiter, Limiter, TokenBucketLimiter};
+use limiteron::{MemoryStorage, Storage, StorageCreate};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

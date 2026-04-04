@@ -41,3 +41,46 @@ impl std::fmt::Display for QuotaType {
         write!(f, "{}", self.as_str())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_quota_type_parse() {
+        assert_eq!(QuotaType::parse("token"), Some(QuotaType::Token));
+        assert_eq!(QuotaType::parse("TOKEN"), Some(QuotaType::Token));
+        assert_eq!(QuotaType::parse("money"), Some(QuotaType::Money));
+        assert_eq!(QuotaType::parse("count"), Some(QuotaType::Count));
+        assert_eq!(QuotaType::parse("invalid"), None);
+        assert_eq!(QuotaType::parse(""), None);
+    }
+
+    #[test]
+    fn test_quota_type_as_str() {
+        assert_eq!(QuotaType::Token.as_str(), "token");
+        assert_eq!(QuotaType::Money.as_str(), "money");
+        assert_eq!(QuotaType::Count.as_str(), "count");
+    }
+
+    #[test]
+    fn test_quota_type_display() {
+        assert_eq!(format!("{}", QuotaType::Token), "token");
+        assert_eq!(format!("{}", QuotaType::Money), "money");
+        assert_eq!(format!("{}", QuotaType::Count), "count");
+    }
+
+    #[test]
+    fn test_quota_type_default() {
+        assert_eq!(QuotaType::default(), QuotaType::Count);
+    }
+
+    #[test]
+    fn test_quota_type_serde() {
+        let token = QuotaType::Token;
+        let json = serde_json::to_string(&token).unwrap();
+        assert_eq!(json, "\"token\"");
+        let parsed: QuotaType = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, QuotaType::Token);
+    }
+}

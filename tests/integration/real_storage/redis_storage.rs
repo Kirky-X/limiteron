@@ -10,7 +10,7 @@
 mod tests {
     use limiteron::error::StorageError;
     use limiteron::redis::RedisStorage;
-    use limiteron::storage::Storage;
+    use limiteron::Storage;
     use std::time::Duration;
 
     const REDIS_URL: &str = "redis://127.0.0.1:6379/";

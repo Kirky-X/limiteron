@@ -8,8 +8,8 @@ use limiteron::config::{
     MetricsBackend, Rule, StorageType,
 };
 use limiteron::error::Decision;
-use limiteron::limiters::Limiter;
-use limiteron::storage::{BanStorage, Storage};
+use limiteron::Limiter;
+use limiteron::{BanStorage, Storage};
 use std::sync::Arc;
 use std::time::Duration;
 

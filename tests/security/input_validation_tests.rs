@@ -9,7 +9,7 @@
 use limiteron::config::ConfigSecurityValidator;
 use limiteron::constants::MAX_COST;
 use limiteron::error::FlowGuardError;
-use limiteron::limiters::{Limiter, TokenBucketLimiter};
+use limiteron::{Limiter, TokenBucketLimiter};
 use limiteron::matchers::{Identifier, IdentifierExtractor, IpExtractor, RequestContext};
 
 // ============================================================================

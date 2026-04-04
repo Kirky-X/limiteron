@@ -424,7 +424,7 @@ mod validate_length_tests {
 #[cfg(feature = "ban-manager")]
 mod ban_target_tests {
     use limiteron::error::FlowGuardError;
-    use limiteron::storage::BanTarget;
+    use limiteron::BanTarget;
     use limiteron::validation::validate_ban_target;
 
     #[test]

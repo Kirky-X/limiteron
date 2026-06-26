@@ -7,11 +7,11 @@ use limiteron::config::{
     Matcher, MetricsBackend, Rule, StorageType,
 };
 use limiteron::error::{ConsumeResult, StorageError};
-use limiteron::limiters::{
+use limiteron::{
     ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
     TokenBucketLimiter,
 };
-use limiteron::storage::{
+use limiteron::{
     BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage,
 };
 use limiteron::Governor;

@@ -20,6 +20,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 
+/// 孤岛模式通知回调类型
+pub type IslandModeCallback = Box<dyn Fn(bool) + Send + Sync>;
+
 /// 降级策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FallbackStrategy {
@@ -138,6 +141,8 @@ pub struct FallbackManager {
     failure_states: Arc<RwLock<HashMap<ComponentType, bool>>>,
     /// L2 缓存实例
     l2_cache: Arc<Cache<String, String>>,
+    /// 孤岛模式通知回调
+    island_mode_callbacks: Arc<RwLock<Vec<IslandModeCallback>>>,
 }
 
 impl FallbackManager {
@@ -194,6 +199,7 @@ impl FallbackManager {
             strategies: Arc::new(RwLock::new(strategies)),
             failure_states: Arc::new(RwLock::new(HashMap::new())),
             l2_cache,
+            island_mode_callbacks: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -293,7 +299,7 @@ impl FallbackManager {
         match result {
             Ok(value) => {
                 // 操作成功，清除故障状态
-                self.clear_failure(component).await;
+                self.clear_failure_internal(component).await;
                 Ok(value)
             }
             Err(e) => {
@@ -301,7 +307,7 @@ impl FallbackManager {
                 log::warn!(target: "fallback", "组件操作失败: component={:?}, error={}", component, e);
 
                 // 标记为故障状态
-                self.set_failure(component.clone()).await;
+                self.set_failure_internal(component.clone()).await;
 
                 // 执行降级策略
                 self.execute_fallback(component, config, fallback_operation)
@@ -350,15 +356,15 @@ impl FallbackManager {
         }
     }
 
-    /// 标记组件为故障状态
-    async fn set_failure(&self, component: ComponentType) {
+    /// 标记组件为故障状态（内部使用）
+    async fn set_failure_internal(&self, component: ComponentType) {
         log::warn!(target: "fallback", "组件故障: {:?}", component);
         let mut states = self.failure_states.write().await;
         states.insert(component, true);
     }
 
-    /// 清除组件故障状态
-    async fn clear_failure(&self, component: ComponentType) {
+    /// 清除组件故障状态（内部使用）
+    async fn clear_failure_internal(&self, component: ComponentType) {
         let mut states = self.failure_states.write().await;
         states.remove(&component);
         log::info!(target: "fallback", "组件恢复: {:?}", component);
@@ -367,7 +373,7 @@ impl FallbackManager {
     /// 记录组件故障
     pub async fn record_failure(&self, component: ComponentType, _error: &str) {
         log::warn!(target: "fallback", "组件故障记录: {:?}", component);
-        self.set_failure(component).await;
+        self.set_failure_internal(component).await;
     }
 
     /// 获取组件故障计数
@@ -389,13 +395,13 @@ impl FallbackManager {
     /// 手动触发故障（用于测试）
     pub async fn inject_failure(&self, component: ComponentType) {
         log::warn!(target: "fallback", "注入故障: {:?}", component);
-        self.set_failure(component).await;
+        self.set_failure_internal(component).await;
     }
 
     /// 手动恢复故障（用于测试）
     pub async fn recover_failure(&self, component: ComponentType) {
         log::info!(target: "fallback", "恢复故障: {:?}", component);
-        self.clear_failure(component).await;
+        self.clear_failure_internal(component).await;
     }
 
     /// 获取所有故障状态
@@ -406,6 +412,66 @@ impl FallbackManager {
             .filter(|(_, &failed)| failed)
             .map(|(component, _)| component.clone())
             .collect()
+    }
+
+    // ==================== 孤岛模式通知 ====================
+
+    /// 注册孤岛模式状态变更回调
+    ///
+    /// 当存储层故障/恢复时，会自动通知所有注册的回调。
+    ///
+    /// # 参数
+    /// - `callback`: 回调函数，参数为 `true` 表示进入孤岛模式，`false` 表示退出
+    pub async fn register_island_mode_callback(&self, callback: IslandModeCallback) {
+        let mut callbacks = self.island_mode_callbacks.write().await;
+        callbacks.push(callback);
+        log::info!(target: "fallback", "注册孤岛模式通知回调");
+    }
+
+    /// 通知所有回调孤岛模式状态变更
+    async fn notify_island_mode_change(&self, is_island: bool) {
+        let callbacks = self.island_mode_callbacks.read().await;
+        for callback in callbacks.iter() {
+            callback(is_island);
+        }
+        if is_island {
+            log::warn!(target: "fallback", "已通知所有回调：进入孤岛模式");
+        } else {
+            log::info!(target: "fallback", "已通知所有回调：退出孤岛模式");
+        }
+    }
+
+    /// 标记组件为故障状态（公开版本）
+    ///
+    /// 与内部 `set_failure` 不同，此方法会触发孤岛模式通知。
+    pub async fn set_failure(&self, component: ComponentType) {
+        log::warn!(target: "fallback", "组件故障: {:?}", component);
+        let mut states = self.failure_states.write().await;
+        let was_failed = states.values().any(|&f| f);
+        states.insert(component.clone(), true);
+
+        // 如果这是第一个故障，触发孤岛模式
+        if !was_failed {
+            log::error!(target: "fallback", "存储层首次故障，触发孤岛模式");
+            self.notify_island_mode_change(true).await;
+        }
+    }
+
+    /// 清除组件故障状态（公开版本）
+    ///
+    /// 与内部 `clear_failure` 不同，此方法会检查是否所有故障都已恢复。
+    pub async fn clear_failure(&self, component: ComponentType) {
+        let mut states = self.failure_states.write().await;
+        states.remove(&component);
+        log::info!(target: "fallback", "组件恢复: {:?}", component);
+
+        // 检查是否所有故障都已恢复
+        let still_failed = states.values().any(|&f| f);
+        if !still_failed {
+            log::info!(target: "fallback", "所有存储层恢复，退出孤岛模式");
+            drop(states);
+            self.notify_island_mode_change(false).await;
+        }
     }
 }
 

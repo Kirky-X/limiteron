@@ -277,4 +277,87 @@ mod tests {
 
         // permit1 和 permit2 在此处 drop，释放许可
     }
+
+    #[tokio::test]
+    async fn test_concurrency_builder() {
+        let limiter = ConcurrencyLimiter::builder()
+            .max_concurrent(5)
+            .timeout(Duration::from_secs(1))
+            .build()
+            .unwrap();
+        assert_eq!(limiter.max_concurrent(), 5);
+        assert_eq!(limiter.timeout(), Some(Duration::from_secs(1)));
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_builder_missing_max_concurrent() {
+        let result = ConcurrencyLimiter::builder().build();
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_builder_zero_max_concurrent() {
+        let result = ConcurrencyLimiter::builder().max_concurrent(0).build();
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_builder_with_semaphore() {
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(20));
+        let limiter = ConcurrencyLimiter::builder()
+            .with_semaphore(semaphore)
+            .build()
+            .unwrap();
+        assert_eq!(limiter.available_permits(), 20);
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_with_timeout() {
+        let limiter = ConcurrencyLimiter::with_timeout(2, Duration::from_millis(100));
+        assert_eq!(limiter.max_concurrent(), 2);
+        assert_eq!(limiter.timeout(), Some(Duration::from_millis(100)));
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_with_dependencies() {
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(15));
+        let limiter =
+            ConcurrencyLimiter::with_dependencies(semaphore, Some(Duration::from_secs(2)));
+        assert_eq!(limiter.available_permits(), 15);
+        assert_eq!(limiter.timeout(), Some(Duration::from_secs(2)));
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_multiple_acquire() {
+        let limiter = ConcurrencyLimiter::new(3);
+        let p1 = limiter.acquire(1).await.unwrap();
+        let p2 = limiter.acquire(1).await.unwrap();
+        let p3 = limiter.acquire(1).await.unwrap();
+        assert_eq!(limiter.available_permits(), 0);
+        drop(p1);
+        assert_eq!(limiter.available_permits(), 1);
+        drop(p2);
+        drop(p3);
+        assert_eq!(limiter.available_permits(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_acquire_cost() {
+        let limiter = ConcurrencyLimiter::new(10);
+        let p = limiter.acquire(5).await.unwrap();
+        assert_eq!(limiter.available_permits(), 5);
+        drop(p);
+        assert_eq!(limiter.available_permits(), 10);
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_limiter_trait() {
+        use super::super::traits::Limiter;
+        let limiter = ConcurrencyLimiter::new(2);
+        // allow() uses try_acquire_many which immediately releases the permit,
+        // so each call should succeed independently
+        assert!(limiter.allow(1).await.unwrap());
+        assert!(limiter.allow(1).await.unwrap());
+        assert!(limiter.allow(1).await.unwrap());
+    }
 }

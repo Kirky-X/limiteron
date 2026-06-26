@@ -190,15 +190,106 @@ pub struct CircuitBreakerStats {
     pub last_state_change: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// 限流元数据信息
+///
+/// 用于标准限流响应头，包含当前限流状态信息。
+#[derive(Debug, Clone, PartialEq)]
+pub struct RateLimitMetadata {
+    /// 限流上限
+    pub limit: u64,
+    /// 剩余可用次数
+    pub remaining: u64,
+    /// 重置时间戳（Unix 秒）
+    pub reset_at: u64,
+    /// 重试等待时间（秒，仅在超限时）
+    pub retry_after: Option<u64>,
+    /// 限流策略名称
+    pub policy: String,
+}
+
+impl Default for RateLimitMetadata {
+    fn default() -> Self {
+        Self {
+            limit: 0,
+            remaining: 0,
+            reset_at: 0,
+            retry_after: None,
+            policy: String::new(),
+        }
+    }
+}
+
+/// 拒绝元数据信息
+///
+/// 包含请求被拒绝的详细信息。
+#[derive(Debug, Clone, PartialEq)]
+pub struct RejectionMetadata {
+    /// 拒绝原因
+    pub reason: String,
+    /// 重试等待时间（秒）
+    pub retry_after: u64,
+    /// 限流上限
+    pub limit: u64,
+    /// 重置时间戳（Unix 秒）
+    pub reset_at: u64,
+}
+
+impl RejectionMetadata {
+    /// 创建新的拒绝元数据
+    pub fn new(reason: String, retry_after: u64, limit: u64, reset_at: u64) -> Self {
+        Self {
+            reason,
+            retry_after,
+            limit,
+            reset_at,
+        }
+    }
+}
+
 /// 决策结果
 #[derive(Debug, Clone, PartialEq)]
 pub enum Decision {
-    /// 允许
-    Allowed(Option<String>),
-    /// 拒绝
-    Rejected(String),
+    /// 允许（携带限流元数据）
+    Allowed(RateLimitMetadata),
+    /// 拒绝（携带拒绝元数据）
+    Rejected(RejectionMetadata),
     /// 封禁
     Banned(BanInfo),
+}
+
+impl Decision {
+    /// 创建默认的允许决策（向后兼容）
+    pub fn allowed_default() -> Self {
+        Decision::Allowed(RateLimitMetadata::default())
+    }
+
+    /// 创建允许决策
+    pub fn allowed(metadata: RateLimitMetadata) -> Self {
+        Decision::Allowed(metadata)
+    }
+
+    /// 创建拒绝决策
+    pub fn rejected(metadata: RejectionMetadata) -> Self {
+        Decision::Rejected(metadata)
+    }
+
+    /// 获取限流元数据（如果有）
+    pub fn rate_limit_metadata(&self) -> Option<RateLimitMetadata> {
+        match self {
+            Decision::Allowed(metadata) => Some(metadata.clone()),
+            Decision::Rejected(metadata) => {
+                // 对于拒绝情况，我们也返回元数据信息
+                Some(RateLimitMetadata {
+                    limit: metadata.limit,
+                    remaining: 0,
+                    reset_at: metadata.reset_at,
+                    retry_after: Some(metadata.retry_after),
+                    policy: String::new(),
+                })
+            }
+            Decision::Banned(_) => None,
+        }
+    }
 }
 
 /// 封禁信息
@@ -281,15 +372,25 @@ mod tests {
 
     #[test]
     fn test_decision_allowed() {
-        let decision = Decision::Allowed(None);
-        assert_eq!(decision, Decision::Allowed(None));
+        let metadata = RateLimitMetadata {
+            limit: 100,
+            remaining: 99,
+            reset_at: 1234567890,
+            retry_after: None,
+            policy: "token_bucket".to_string(),
+        };
+        let decision = Decision::Allowed(metadata.clone());
+        assert_eq!(decision, Decision::Allowed(metadata));
         assert!(matches!(decision, Decision::Allowed(_)));
     }
 
     #[test]
     fn test_decision_rejected() {
-        let decision = Decision::Rejected("rate limit exceeded".to_string());
+        let metadata =
+            RejectionMetadata::new("rate limit exceeded".to_string(), 60, 100, 1234567890);
+        let decision = Decision::Rejected(metadata.clone());
         assert!(matches!(decision, Decision::Rejected(_)));
+        assert_eq!(decision.rate_limit_metadata().unwrap().remaining, 0);
     }
 
     #[test]
@@ -297,6 +398,32 @@ mod tests {
         let info = BanInfo::new("spam".to_string(), chrono::Utc::now(), 3);
         let decision = Decision::Banned(info);
         assert!(matches!(decision, Decision::Banned(_)));
+        assert!(decision.rate_limit_metadata().is_none());
+    }
+
+    #[test]
+    fn test_decision_allowed_default() {
+        let decision = Decision::allowed_default();
+        assert!(matches!(decision, Decision::Allowed(_)));
+    }
+
+    #[test]
+    fn test_rate_limit_metadata_default() {
+        let metadata = RateLimitMetadata::default();
+        assert_eq!(metadata.limit, 0);
+        assert_eq!(metadata.remaining, 0);
+        assert_eq!(metadata.reset_at, 0);
+        assert!(metadata.retry_after.is_none());
+        assert!(metadata.policy.is_empty());
+    }
+
+    #[test]
+    fn test_rejection_metadata() {
+        let metadata = RejectionMetadata::new("test".to_string(), 30, 50, 1234567890);
+        assert_eq!(metadata.reason, "test");
+        assert_eq!(metadata.retry_after, 30);
+        assert_eq!(metadata.limit, 50);
+        assert_eq!(metadata.reset_at, 1234567890);
     }
 
     #[test]

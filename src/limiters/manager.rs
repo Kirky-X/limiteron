@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// 全局限流器管理器
-pub struct LimiterManager {
+pub(crate) struct LimiterManager {
     rate_limiters: Mutex<HashMap<String, Arc<TokenBucketLimiter>>>,
     quota_limiters: Mutex<HashMap<String, Arc<FixedWindowLimiter>>>,
     concurrency_limiters: Mutex<HashMap<String, Arc<ConcurrencyLimiter>>>,
@@ -112,6 +112,56 @@ mod tests {
         let first = manager.get_rate_limiter("user:1", 10, 1);
         let second = manager.get_rate_limiter("user:2", 10, 1);
         assert!(!Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn test_get_quota_limiter_same_key_returns_same_instance() {
+        let manager = LimiterManager::new();
+        let first = manager.get_quota_limiter("api:1", Duration::from_secs(3600), 1000);
+        let second = manager.get_quota_limiter("api:1", Duration::from_secs(7200), 2000);
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn test_get_quota_limiter_different_keys() {
+        let manager = LimiterManager::new();
+        let first = manager.get_quota_limiter("api:1", Duration::from_secs(3600), 1000);
+        let second = manager.get_quota_limiter("api:2", Duration::from_secs(3600), 1000);
+        assert!(!Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn test_get_concurrency_limiter_same_key_returns_same_instance() {
+        let manager = LimiterManager::new();
+        let first = manager.get_concurrency_limiter("svc:1", 50);
+        let second = manager.get_concurrency_limiter("svc:1", 100);
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn test_get_concurrency_limiter_different_keys() {
+        let manager = LimiterManager::new();
+        let first = manager.get_concurrency_limiter("svc:1", 50);
+        let second = manager.get_concurrency_limiter("svc:2", 50);
+        assert!(!Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn test_clear_removes_all_limiters() {
+        let manager = LimiterManager::new();
+        manager.get_rate_limiter("user:1", 10, 1);
+        manager.get_quota_limiter("api:1", Duration::from_secs(3600), 1000);
+        manager.get_concurrency_limiter("svc:1", 50);
+        manager.clear();
+        assert!(manager.rate_limiters.lock().is_empty());
+        assert!(manager.quota_limiters.lock().is_empty());
+        assert!(manager.concurrency_limiters.lock().is_empty());
+    }
+
+    #[test]
+    fn test_default() {
+        let manager = LimiterManager::default();
+        assert!(manager.rate_limiters.lock().is_empty());
     }
 }
 

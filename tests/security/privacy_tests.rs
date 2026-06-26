@@ -265,7 +265,7 @@ fn test_redaction_config() {
 /// 验证错误消息不包含敏感的内部实现细节
 #[tokio::test]
 async fn test_error_message_no_internal_leak() {
-    use limiteron::limiters::{Limiter, TokenBucketLimiter};
+    use limiteron::{Limiter, TokenBucketLimiter};
 
     let limiter = TokenBucketLimiter::new(100, 10);
 
@@ -385,7 +385,7 @@ fn test_config_error_no_sensitive_config_leak() {
 /// 测试限流错误不泄露限流配置
 #[tokio::test]
 async fn test_rate_limit_error_no_config_leak() {
-    use limiteron::limiters::{Limiter, TokenBucketLimiter};
+    use limiteron::{Limiter, TokenBucketLimiter};
 
     let limiter = TokenBucketLimiter::new(10, 1);
 

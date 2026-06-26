@@ -8,7 +8,7 @@ use limiteron::config::{
     MetricsBackend, Rule, StorageType,
 };
 use limiteron::error::Decision;
-use limiteron::storage::{BanStorage, Storage};
+use limiteron::{BanStorage, Storage};
 use std::sync::Arc;
 
 // ==================== 辅助函数 ====================

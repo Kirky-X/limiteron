@@ -7,9 +7,11 @@
 //! 使用分片计数实现 O(1) 时间复杂度的限流检查。
 
 use super::traits::{validate_cost, Limiter};
+use crate::clock::{Clock, SystemClock};
 use crate::error::FlowGuardError;
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// 默认分片数量（每秒一个分片，支持60秒窗口）
@@ -75,6 +77,9 @@ pub struct ShardedSlidingWindowLimiter {
     ///
     /// 用于定期触发分片清理，避免每次请求都清理。
     last_cleanup: AtomicU64,
+
+    /// 时钟实例
+    clock: Arc<dyn Clock>,
 }
 
 impl ShardedSlidingWindowLimiter {
@@ -92,16 +97,23 @@ impl ShardedSlidingWindowLimiter {
     /// let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 1000);
     /// ```
     pub fn new(window_size: Duration, max_requests: u64) -> Self {
+        Self::with_clock(window_size, max_requests, Arc::new(SystemClock))
+    }
+
+    /// 创建新的分片滑动窗口限流器,使用自定义时钟
+    ///
+    /// # 参数
+    /// - `window_size`: 滑动窗口大小
+    /// - `max_requests`: 窗口内最大请求数
+    /// - `clock`: 时钟实现,用于时间注入(测试用)
+    pub fn with_clock(window_size: Duration, max_requests: u64, clock: Arc<dyn Clock>) -> Self {
         let window_size_secs = window_size.as_secs().max(1);
 
         // 计算每个分片代表的时间长度
         let shard_duration_secs = (window_size_secs / DEFAULT_SHARD_COUNT as u64).max(1);
 
         // 获取当前时间戳（秒）
-        let now_secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now_secs = clock.unix_timestamp();
 
         // 初始化分片计数器和时间戳
         let shards = Box::new([(); DEFAULT_SHARD_COUNT].map(|_| AtomicU64::new(0)));
@@ -114,15 +126,13 @@ impl ShardedSlidingWindowLimiter {
             shard_duration_secs,
             max_requests,
             last_cleanup: AtomicU64::new(now_secs),
+            clock,
         }
     }
 
     /// 获取当前时间戳（秒）
-    fn current_timestamp_secs() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
+    fn current_timestamp_secs(&self) -> u64 {
+        self.clock.unix_timestamp()
     }
 
     /// 计算时间戳对应的分片索引
@@ -134,7 +144,7 @@ impl ShardedSlidingWindowLimiter {
     /// 获取当前分片索引并返回当前时间戳
     #[inline]
     fn get_current_shard(&self) -> (usize, u64) {
-        let now_secs = Self::current_timestamp_secs();
+        let now_secs = self.current_timestamp_secs();
         let shard_index = self.get_shard_index(now_secs);
         (shard_index, now_secs)
     }
@@ -239,7 +249,7 @@ impl ShardedSlidingWindowLimiter {
     /// 获取当前窗口内的请求数（仅用于测试和监控）
     #[cfg(test)]
     pub fn get_window_count(&self) -> u64 {
-        let now_secs = Self::current_timestamp_secs();
+        let now_secs = self.current_timestamp_secs();
         self.calculate_window_count(now_secs)
     }
 
@@ -265,6 +275,7 @@ impl Limiter for ShardedSlidingWindowLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::clock::MockClock;
 
     #[tokio::test]
     async fn test_sharded_basic() {
@@ -285,5 +296,26 @@ mod tests {
         }
 
         assert!(!limiter.allow(1).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_sharded_with_mock_clock() {
+        let mock_clock = Arc::new(MockClock::new());
+        let clock: Arc<dyn Clock> = mock_clock.clone();
+        let limiter = ShardedSlidingWindowLimiter::with_clock(Duration::from_secs(60), 5, clock);
+
+        // 消费 5 个请求
+        for _ in 0..5 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+
+        // 第 6 个应该失败
+        assert!(!limiter.allow(1).await.unwrap());
+
+        // 前进时间使窗口过期
+        mock_clock.advance(Duration::from_secs(61));
+
+        // 新的请求应该成功
+        assert!(limiter.allow(1).await.unwrap());
     }
 }

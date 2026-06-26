@@ -2348,6 +2348,7 @@ mod tests {
         let config = TrustedProxyConfig {
             enabled: true,
             proxies: vec!["10.0.0.1".to_string(), "192.168.1.0/24".to_string()],
+            max_hops: 10,
         };
 
         // 单个 IP 匹配
@@ -2365,6 +2366,7 @@ mod tests {
         let config = TrustedProxyConfig {
             enabled: true,
             proxies: vec!["2001:db8::/32".to_string()],
+            max_hops: 10,
         };
 
         assert!(config.is_trusted("2001:db8::1"));
@@ -2377,6 +2379,7 @@ mod tests {
         let config = crate::config::TrustedProxyConfig {
             enabled: true,
             proxies: vec!["10.0.0.1".to_string(), "172.16.0.1".to_string()],
+            max_hops: 10,
         };
         let extractor =
             IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
@@ -2396,6 +2399,7 @@ mod tests {
         let config = crate::config::TrustedProxyConfig {
             enabled: true,
             proxies: vec!["10.0.0.1".to_string()],
+            max_hops: 10,
         };
         let extractor =
             IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
@@ -2411,6 +2415,7 @@ mod tests {
         let config = crate::config::TrustedProxyConfig {
             enabled: false,
             proxies: vec!["10.0.0.1".to_string()],
+            max_hops: 10,
         };
         let extractor =
             IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
@@ -2426,6 +2431,7 @@ mod tests {
         let config = crate::config::TrustedProxyConfig {
             enabled: true,
             proxies: vec!["10.0.0.1".to_string()],
+            max_hops: 10,
         };
         let extractor = IpExtractor::builder()
             .header_name("X-Forwarded-For")
@@ -2436,6 +2442,55 @@ mod tests {
         let context = RequestContext::new().with_header("X-Forwarded-For", "192.168.1.1, 10.0.0.1");
         let result = extractor.extract(&context);
         assert_eq!(result, Some(Identifier::Ip("192.168.1.1".to_string())));
+    }
+
+    #[test]
+    fn test_ip_extractor_max_hops_exceeded() {
+        use crate::config::TrustedProxyConfig;
+        // 设置 max_hops = 3
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".to_string()],
+            max_hops: 3,
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
+
+        // X-Forwarded-For 包含 5 个 IP,超过 max_hops = 3
+        let context = RequestContext::new().with_header(
+            "X-Forwarded-For",
+            "192.168.1.1, 192.168.1.2, 192.168.1.3, 10.0.0.1, 10.0.0.2",
+        );
+        let result = extractor.extract(&context);
+        // 应该返回 None,因为超过了 max_hops 限制
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_ip_extractor_max_hops_within_limit() {
+        use crate::config::TrustedProxyConfig;
+        // 设置 max_hops = 5
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".to_string()],
+            max_hops: 5,
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
+
+        // X-Forwarded-For 包含 3 个 IP,在 max_hops = 5 限制内
+        let context = RequestContext::new()
+            .with_header("X-Forwarded-For", "192.168.1.1, 192.168.1.2, 10.0.0.1");
+        let result = extractor.extract(&context);
+        // 应该正常返回客户端 IP
+        assert_eq!(result, Some(Identifier::Ip("192.168.1.2".to_string())));
+    }
+
+    #[test]
+    fn test_trusted_proxy_config_default_max_hops() {
+        use crate::config::TrustedProxyConfig;
+        let config = TrustedProxyConfig::default();
+        assert_eq!(config.max_hops, 10);
     }
 }
 

@@ -12,8 +12,9 @@
 //! - 从 FlowControlConfig 构建决策链映射
 //! - 时长字符串解析
 
-use crate::config::types::{FlowControlConfig, LimiterConfig, Matcher as ConfigMatcher};
-use crate::constants::{SECONDS_PER_HOUR, SECONDS_PER_MINUTE};
+use crate::config::types::{
+    FlowControlConfig, LimiterConfig, LimiterTypeName, Matcher as ConfigMatcher,
+};
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::FlowGuardError;
 use crate::limiters::{
@@ -75,36 +76,7 @@ impl RuleBuilder {
     /// assert_eq!(RuleBuilder::parse_duration("2h").unwrap(), Duration::from_secs(7200));
     /// ```
     pub fn parse_duration(s: &str) -> Result<Duration, FlowGuardError> {
-        let s = s.trim();
-        let (num, unit) = if s.ends_with("ms") {
-            (s.trim_end_matches("ms"), "ms")
-        } else if s.ends_with('s') {
-            (s.trim_end_matches('s'), "s")
-        } else if s.ends_with('m') {
-            (s.trim_end_matches('m'), "m")
-        } else if s.ends_with('h') {
-            (s.trim_end_matches('h'), "h")
-        } else {
-            return Err(FlowGuardError::ConfigError(format!(
-                "Invalid duration format: {}",
-                s
-            )));
-        };
-
-        let val: u64 = num.parse().map_err(|_| {
-            FlowGuardError::ConfigError(format!("Invalid duration number: {}", num))
-        })?;
-
-        match unit {
-            "ms" => Ok(Duration::from_millis(val)),
-            "s" => Ok(Duration::from_secs(val)),
-            "m" => Ok(Duration::from_secs(val * SECONDS_PER_MINUTE)),
-            "h" => Ok(Duration::from_secs(val * SECONDS_PER_HOUR)),
-            _ => Err(FlowGuardError::ConfigError(format!(
-                "Invalid duration unit '{}'. Valid units: ms, s, m, h",
-                unit
-            ))),
-        }
+        crate::config::types::parse_window_size(s).map_err(|e| FlowGuardError::ConfigError(e))
     }
 
     /// 从配置构建规则对应的决策链
@@ -136,13 +108,14 @@ impl RuleBuilder {
             let mut nodes: Vec<DecisionNode> = Vec::new();
 
             for (index, limiter_config) in rule.limiters.iter().enumerate() {
-                let (limiter, type_name): (Arc<dyn Limiter>, &str) = match limiter_config {
+                let (limiter, type_name): (Arc<dyn Limiter>, LimiterTypeName) = match limiter_config
+                {
                     LimiterConfig::TokenBucket {
                         capacity,
                         refill_rate,
                     } => (
                         Arc::new(TokenBucketLimiter::new(*capacity, *refill_rate)),
-                        "TokenBucket",
+                        LimiterTypeName::TokenBucket,
                     ),
                     LimiterConfig::SlidingWindow {
                         window_size,
@@ -151,7 +124,7 @@ impl RuleBuilder {
                         let duration = Self::parse_duration(window_size)?;
                         (
                             Arc::new(ShardedSlidingWindowLimiter::new(duration, *max_requests)),
-                            "SlidingWindow",
+                            LimiterTypeName::SlidingWindow,
                         )
                     }
                     LimiterConfig::FixedWindow {
@@ -161,7 +134,7 @@ impl RuleBuilder {
                         let duration = Self::parse_duration(window_size)?;
                         (
                             Arc::new(FixedWindowLimiter::new(duration, *max_requests)),
-                            "FixedWindow",
+                            LimiterTypeName::FixedWindow,
                         )
                     }
                     LimiterConfig::Quota {
@@ -180,7 +153,7 @@ impl RuleBuilder {
                     }
                     LimiterConfig::Concurrency { max_concurrent } => (
                         Arc::new(ConcurrencyLimiter::new(*max_concurrent)),
-                        "Concurrency",
+                        LimiterTypeName::Concurrency,
                     ),
                     LimiterConfig::Custom { name, config: _ } => {
                         // CustomLimiter integration requires custom-limiter feature and
@@ -301,6 +274,7 @@ impl RuleBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::types::{ActionConfig, Matcher, Rule};
 
     #[test]
     fn test_parse_duration_milliseconds() {
@@ -381,6 +355,110 @@ mod tests {
     #[test]
     fn test_build_rule_chains_empty_config() {
         let config = FlowControlConfig::default();
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert!(chains.is_empty());
+    }
+
+    #[test]
+    fn test_parse_duration_valid() {
+        use std::time::Duration;
+        assert_eq!(
+            RuleBuilder::parse_duration("100ms").unwrap(),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            RuleBuilder::parse_duration("10s").unwrap(),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            RuleBuilder::parse_duration("5m").unwrap(),
+            Duration::from_secs(300)
+        );
+        assert_eq!(
+            RuleBuilder::parse_duration("2h").unwrap(),
+            Duration::from_secs(7200)
+        );
+        assert_eq!(
+            RuleBuilder::parse_duration("1d").unwrap(),
+            Duration::from_secs(86400)
+        );
+    }
+
+    #[test]
+    fn test_parse_duration_invalid() {
+        assert!(RuleBuilder::parse_duration("").is_err());
+        assert!(RuleBuilder::parse_duration("abc").is_err());
+        assert!(RuleBuilder::parse_duration("10x").is_err());
+    }
+
+    #[test]
+    fn test_build_rule_chains_with_single_rule() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "test-rule".to_string(),
+                name: "Test Rule".to_string(),
+                priority: 1,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["user1".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert_eq!(chains.len(), 1);
+        assert!(chains.contains_key("test-rule"));
+    }
+
+    #[test]
+    fn test_build_rule_chains_with_multiple_rules() {
+        let config = FlowControlConfig {
+            rules: vec![
+                Rule {
+                    id: "rule1".to_string(),
+                    name: "Rule 1".to_string(),
+                    priority: 1,
+                    matchers: vec![Matcher::User {
+                        user_ids: vec!["user1".to_string()],
+                    }],
+                    limiters: vec![LimiterConfig::TokenBucket {
+                        capacity: 100,
+                        refill_rate: 10,
+                    }],
+                    action: ActionConfig::default(),
+                },
+                Rule {
+                    id: "rule2".to_string(),
+                    name: "Rule 2".to_string(),
+                    priority: 2,
+                    matchers: vec![Matcher::Ip {
+                        ip_ranges: vec!["192.168.1.0/24".to_string()],
+                    }],
+                    limiters: vec![LimiterConfig::FixedWindow {
+                        window_size: "1m".to_string(),
+                        max_requests: 100,
+                    }],
+                    action: ActionConfig::default(),
+                },
+            ],
+            ..Default::default()
+        };
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert_eq!(chains.len(), 2);
+        assert!(chains.contains_key("rule1"));
+        assert!(chains.contains_key("rule2"));
+    }
+
+    #[test]
+    fn test_build_rule_chains_empty_rules() {
+        let config = FlowControlConfig {
+            rules: vec![],
+            ..Default::default()
+        };
         let chains = RuleBuilder::build_rule_chains(&config).unwrap();
         assert!(chains.is_empty());
     }

@@ -4,7 +4,7 @@
 
 #[cfg(feature = "quota-control")]
 use limiteron::quota::{QuotaConfig, QuotaController, QuotaType};
-use limiteron::storage::QuotaStorage;
+use limiteron::QuotaStorage;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -127,14 +127,14 @@ async fn test_quota_recovers_after_restart() {
     assert!(result1.unwrap().allowed);
 
     // 保存状态快照（模拟重启前）
-    let state_before: Option<limiteron::storage::QuotaInfo> =
+    let state_before: Option<limiteron::QuotaInfo> =
         storage.get_quota(user_id, resource).await.unwrap();
     assert!(state_before.is_some());
     let consumed_before = state_before.unwrap().consumed;
 
     // 模拟重启后（在实际场景中，这会是一个新的存储实例）
     // 这里我们使用相同的存储实例，但通过 get_quota 验证状态持久化
-    let state_after: Option<limiteron::storage::QuotaInfo> =
+    let state_after: Option<limiteron::QuotaInfo> =
         storage.get_quota(user_id, resource).await.unwrap();
     assert!(state_after.is_some());
 

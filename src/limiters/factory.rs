@@ -51,7 +51,7 @@ const MAX_CONCURRENT_REQUESTS: u64 = 100_000;
 /// };
 /// let limiter = LimiterFactory::create(&config).unwrap();
 /// ```
-pub struct LimiterFactory;
+pub(crate) struct LimiterFactory;
 
 impl LimiterFactory {
     /// 从配置创建限流器
@@ -457,5 +457,21 @@ mod tests {
 
         let result = LimiterFactory::validate_config(&config);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_window_config_valid() {
+        assert!(LimiterFactory::validate_window_config("1m", 100, "test").is_ok());
+        assert!(LimiterFactory::validate_window_config("1h", 1000, "test").is_ok());
+    }
+
+    #[test]
+    fn test_validate_window_config_invalid_size() {
+        assert!(LimiterFactory::validate_window_config("", 100, "test").is_err());
+    }
+
+    #[test]
+    fn test_validate_window_config_invalid_requests() {
+        assert!(LimiterFactory::validate_window_config("1m", 0, "test").is_err());
     }
 }

@@ -7,9 +7,11 @@
 //! 使用令牌桶算法实现速率限制。
 
 use super::traits::{validate_cost, Limiter};
+use crate::clock::{Clock, SystemClock};
 use crate::error::FlowGuardError;
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 /// 令牌桶限流器
 ///
@@ -46,6 +48,8 @@ pub struct TokenBucketLimiter {
     refill_rate: u64,
     /// 最后补充时间（纳秒时间戳）
     last_refill: AtomicU64,
+    /// 时钟实例
+    clock: Arc<dyn Clock>,
 }
 
 impl TokenBucketLimiter {
@@ -62,16 +66,24 @@ impl TokenBucketLimiter {
     /// let limiter = TokenBucketLimiter::new(100, 10);
     /// ```
     pub fn new(capacity: u64, refill_rate: u64) -> Self {
-        let now_nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        Self::with_clock(capacity, refill_rate, Arc::new(SystemClock))
+    }
+
+    /// Creates a new token bucket limiter with a custom clock.
+    ///
+    /// # Arguments
+    /// * `capacity` - Maximum tokens in the bucket
+    /// * `refill_rate` - Tokens added per second
+    /// * `clock` - Clock implementation for time injection (useful for testing)
+    pub fn with_clock(capacity: u64, refill_rate: u64, clock: Arc<dyn Clock>) -> Self {
+        let now_nanos = clock.unix_timestamp_nanos();
 
         Self {
             capacity,
             tokens: AtomicU64::new(capacity),
             refill_rate,
             last_refill: AtomicU64::new(now_nanos),
+            clock,
         }
     }
 
@@ -92,10 +104,7 @@ impl TokenBucketLimiter {
 
     /// 补充令牌
     fn refill_tokens(&self) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
+        let now = self.clock.unix_timestamp_nanos();
 
         loop {
             let last = self.last_refill.load(Ordering::SeqCst);
@@ -169,6 +178,8 @@ impl Limiter for TokenBucketLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::clock::MockClock;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_token_bucket_basic() {
@@ -226,5 +237,28 @@ mod tests {
         let limiter = TokenBucketLimiter::new(100, 10);
         let result = limiter.allow(1_000_001).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_token_bucket_with_mock_clock() {
+        let mock_clock = Arc::new(MockClock::new());
+        let clock: Arc<dyn Clock> = mock_clock.clone();
+        let limiter = TokenBucketLimiter::with_clock(10, 100, clock);
+
+        // 消费所有令牌
+        assert!(limiter.allow(10).await.unwrap());
+        assert_eq!(limiter.tokens(), 0);
+
+        // 时间前进 1 秒
+        mock_clock.advance(Duration::from_secs(1));
+
+        // 触发补充,应该补充 100 个令牌(但受容量限制为 10)
+        let _ = limiter.allow(1).await;
+        let tokens = limiter.tokens();
+        assert!(
+            tokens > 0,
+            "Expected tokens > 0 after time advance, got {}",
+            tokens
+        );
     }
 }

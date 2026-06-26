@@ -7,10 +7,12 @@
 //! 用于缓存热点限流结果，减少存储层访问。
 //! 使用 oxcache 作为底层缓存引擎，支持 TTL 过期策略。
 
-use crate::error::{BanInfo, Decision};
+use crate::error::{BanInfo, Decision, RateLimitMetadata, RejectionMetadata};
 use oxcache::{Cache, CacheError};
+use parking_lot::RwLock;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// 可缓存的决策结果
@@ -18,7 +20,7 @@ use std::time::Duration;
 /// 用于 L1 缓存的决策结果类型，支持序列化和反序列化。
 /// 与 Decision 类型不同，该类型专门用于缓存场景。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CacheableDecision {
+pub(crate) struct CacheableDecision {
     /// 决策类型：allowed, rejected, banned
     pub decision_type: String,
     /// 决策原因（可选）
@@ -29,7 +31,7 @@ pub struct CacheableDecision {
 
 /// 可缓存的封禁信息
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CacheableBanInfo {
+pub(crate) struct CacheableBanInfo {
     /// 封禁原因
     pub reason: String,
     /// 封禁到期时间（ISO 8601 格式）
@@ -73,14 +75,18 @@ impl CacheableDecision {
     /// 从 Decision 转换
     pub fn from_decision(decision: &Decision) -> Self {
         match decision {
-            Decision::Allowed(reason) => Self {
+            Decision::Allowed(metadata) => Self {
                 decision_type: "allowed".to_string(),
-                reason: reason.clone(),
+                reason: if metadata.policy.is_empty() {
+                    None
+                } else {
+                    Some(metadata.policy.clone())
+                },
                 ban_info: None,
             },
-            Decision::Rejected(reason) => Self {
+            Decision::Rejected(metadata) => Self {
                 decision_type: "rejected".to_string(),
-                reason: Some(reason.clone()),
+                reason: Some(metadata.reason.clone()),
                 ban_info: None,
             },
             Decision::Banned(info) => Self::banned(info),
@@ -90,8 +96,19 @@ impl CacheableDecision {
     /// 转换为 Decision
     pub fn to_decision(&self) -> Decision {
         match self.decision_type.as_str() {
-            "allowed" => Decision::Allowed(self.reason.clone()),
-            "rejected" => Decision::Rejected(self.reason.clone().unwrap_or_default()),
+            "allowed" => Decision::Allowed(RateLimitMetadata {
+                limit: 0,
+                remaining: 0,
+                reset_at: 0,
+                retry_after: None,
+                policy: self.reason.clone().unwrap_or_default(),
+            }),
+            "rejected" => Decision::Rejected(RejectionMetadata {
+                reason: self.reason.clone().unwrap_or_default(),
+                retry_after: 0,
+                limit: 0,
+                reset_at: 0,
+            }),
             "banned" => {
                 if let Some(info) = &self.ban_info {
                     Decision::Banned(BanInfo::new(
@@ -105,7 +122,7 @@ impl CacheableDecision {
                     Decision::Banned(BanInfo::new("unknown".to_string(), chrono::Utc::now(), 0))
                 }
             }
-            _ => Decision::Allowed(None),
+            _ => Decision::allowed_default(),
         }
     }
 
@@ -155,13 +172,76 @@ impl RateLimitCacheKey {
     pub fn ban_check(identifier: &str) -> String {
         format!("ban:{}", identifier)
     }
+
+    /// 生成用户限流缓存键（带命名空间）
+    ///
+    /// # 参数
+    ///
+    /// - `namespace`: 租户命名空间前缀
+    /// - `user_id`: 用户 ID
+    /// - `rule_id`: 规则 ID
+    ///
+    /// # 示例
+    ///
+    /// ```rust
+    /// use limiteron::l1_cache::RateLimitCacheKey;
+    ///
+    /// let key = RateLimitCacheKey::user_rate_limit_with_ns("tenant:acme:env:prod", "user123", "rule1");
+    /// assert_eq!(key, "tenant:acme:env:prod:rl:user:user123:rule1");
+    /// ```
+    pub fn user_rate_limit_with_ns(namespace: &str, user_id: &str, rule_id: &str) -> String {
+        format!("{}:rl:user:{}:{}", namespace, user_id, rule_id)
+    }
+
+    /// 生成 IP 限流缓存键（带命名空间）
+    ///
+    /// # 参数
+    ///
+    /// - `namespace`: 租户命名空间前缀
+    /// - `ip`: IP 地址
+    /// - `rule_id`: 规则 ID
+    pub fn ip_rate_limit_with_ns(namespace: &str, ip: &str, rule_id: &str) -> String {
+        format!("{}:rl:ip:{}:{}", namespace, ip, rule_id)
+    }
+
+    /// 生成 API Key 限流缓存键（带命名空间）
+    ///
+    /// # 参数
+    ///
+    /// - `namespace`: 租户命名空间前缀
+    /// - `api_key`: API Key
+    /// - `rule_id`: 规则 ID
+    pub fn api_key_rate_limit_with_ns(namespace: &str, api_key: &str, rule_id: &str) -> String {
+        format!("{}:rl:apikey:{}:{}", namespace, api_key, rule_id)
+    }
+
+    /// 生成通用限流缓存键（带命名空间）
+    ///
+    /// # 参数
+    ///
+    /// - `namespace`: 租户命名空间前缀
+    /// - `identifier`: 标识符
+    /// - `rule_id`: 规则 ID
+    pub fn generic_with_ns(namespace: &str, identifier: &str, rule_id: &str) -> String {
+        format!("{}:rl:generic:{}:{}", namespace, identifier, rule_id)
+    }
+
+    /// 生成封禁检查缓存键（带命名空间）
+    ///
+    /// # 参数
+    ///
+    /// - `namespace`: 租户命名空间前缀
+    /// - `identifier`: 标识符
+    pub fn ban_check_with_ns(namespace: &str, identifier: &str) -> String {
+        format!("{}:ban:{}", namespace, identifier)
+    }
 }
 
 /// L1 缓存统计信息
 ///
 /// 记录缓存的命中、未命中、驱逐等统计信息。
 #[derive(Debug, Clone, Default)]
-pub struct L1CacheStats {
+pub(crate) struct L1CacheStats {
     /// 总查询次数
     pub total_lookups: u64,
     /// 命中次数
@@ -253,6 +333,87 @@ impl L1CacheConfig {
     }
 }
 
+/// 孤岛模式降级策略
+///
+/// 当存储层（L2/L3）不可用时，L1 缓存进入孤岛模式，使用此策略决定如何处理请求。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IslandFallbackStrategy {
+    /// 保守策略：拒绝所有请求，避免过载
+    RejectAll,
+    /// 宽松策略：允许所有请求通过，可能超限
+    AllowAll,
+    /// 本地降级：使用 L1 缓存中的历史决策（如果存在）
+    LocalDecision,
+    /// 配额限制：使用预设的保守配额继续限流
+    ConservativeQuota {
+        /// 保守配额的请求限制
+        max_requests: u32,
+        /// 时间窗口（秒）
+        window_secs: u64,
+    },
+}
+
+impl Default for IslandFallbackStrategy {
+    fn default() -> Self {
+        Self::LocalDecision
+    }
+}
+
+/// 孤岛模式配置
+///
+/// 配置 L1 缓存在存储层故障时的行为。
+#[derive(Debug, Clone)]
+pub struct IslandModeConfig {
+    /// 是否启用孤岛模式
+    pub enabled: bool,
+    /// 降级策略
+    pub fallback_strategy: IslandFallbackStrategy,
+    /// 孤岛模式下的 TTL（通常更长，因为无法从存储层刷新）
+    pub island_ttl: Duration,
+    /// 是否在存储层恢复后自动退出孤岛模式
+    pub auto_exit_on_recovery: bool,
+}
+
+impl Default for IslandModeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            fallback_strategy: IslandFallbackStrategy::default(),
+            island_ttl: Duration::from_secs(300), // 5 分钟
+            auto_exit_on_recovery: true,
+        }
+    }
+}
+
+impl IslandModeConfig {
+    /// 创建新的孤岛模式配置
+    pub fn new(fallback_strategy: IslandFallbackStrategy) -> Self {
+        Self {
+            enabled: true,
+            fallback_strategy,
+            ..Default::default()
+        }
+    }
+
+    /// 设置降级策略
+    pub fn with_fallback_strategy(mut self, strategy: IslandFallbackStrategy) -> Self {
+        self.fallback_strategy = strategy;
+        self
+    }
+
+    /// 设置孤岛模式下的 TTL
+    pub fn with_island_ttl(mut self, ttl: Duration) -> Self {
+        self.island_ttl = ttl;
+        self
+    }
+
+    /// 设置是否在存储层恢复后自动退出孤岛模式
+    pub fn with_auto_exit_on_recovery(mut self, auto_exit: bool) -> Self {
+        self.auto_exit_on_recovery = auto_exit;
+        self
+    }
+}
+
 /// L1 本地缓存
 ///
 /// 使用 oxcache 实现的高性能异步缓存，用于缓存热点限流结果。
@@ -309,6 +470,10 @@ where
     expired_evictions: AtomicU64,
     /// 统计：容量驱逐次数
     capacity_evictions: AtomicU64,
+    /// 孤岛模式配置
+    island_config: Arc<RwLock<Option<IslandModeConfig>>>,
+    /// 是否处于孤岛模式 (0 = false, 1 = true)
+    is_island_mode: AtomicU64,
 }
 
 impl<T> L1Cache<T>
@@ -347,6 +512,8 @@ where
             hits: AtomicU64::new(0),
             expired_evictions: AtomicU64::new(0),
             capacity_evictions: AtomicU64::new(0),
+            island_config: Arc::new(RwLock::new(None)),
+            is_island_mode: AtomicU64::new(0),
         })
     }
 
@@ -494,7 +661,7 @@ where
     }
 
     /// 获取缓存统计信息
-    pub async fn stats(&self) -> L1CacheStats {
+    pub(crate) async fn stats(&self) -> L1CacheStats {
         let current_size = self.len().await.unwrap_or(0);
         L1CacheStats {
             total_lookups: self.total_lookups.load(Ordering::Relaxed),
@@ -531,6 +698,60 @@ where
     pub async fn ttl(&self, _key: &str) -> Result<Option<Duration>, CacheError> {
         // oxcache 不支持获取单个键的 TTL
         Ok(None)
+    }
+
+    // ==================== 孤岛模式方法 ====================
+
+    /// 启用孤岛模式
+    ///
+    /// 当存储层（L2/L3）故障时调用，L1 缓存进入独立运行模式。
+    ///
+    /// # 参数
+    /// - `config`: 孤岛模式配置
+    pub fn enable_island_mode(&self, config: IslandModeConfig) {
+        let was_island = self.is_island_mode.swap(1, Ordering::AcqRel);
+        if was_island == 0 {
+            log::warn!(
+                target: "l1_cache",
+                "L1 缓存进入孤岛模式: strategy={:?}",
+                config.fallback_strategy
+            );
+        }
+        let mut island_config = self.island_config.write();
+        *island_config = Some(config);
+    }
+
+    /// 禁用孤岛模式
+    ///
+    /// 当存储层恢复后调用，L1 缓存恢复正常模式。
+    pub fn disable_island_mode(&self) {
+        let was_island = self.is_island_mode.swap(0, Ordering::AcqRel);
+        if was_island == 1 {
+            log::info!(target: "l1_cache", "L1 缓存退出孤岛模式");
+        }
+        let mut island_config = self.island_config.write();
+        *island_config = None;
+    }
+
+    /// 检查是否处于孤岛模式
+    pub fn is_island_mode(&self) -> bool {
+        self.is_island_mode.load(Ordering::Acquire) == 1
+    }
+
+    /// 获取孤岛模式配置
+    pub fn island_config(&self) -> Option<IslandModeConfig> {
+        self.island_config.read().clone()
+    }
+
+    /// 获取孤岛模式统计信息
+    ///
+    /// 扩展标准统计信息，包含孤岛模式状态。
+    pub(crate) async fn island_stats(&self) -> L1CacheStats {
+        let mut stats = self.stats().await;
+        if self.is_island_mode() {
+            stats.current_size += 1; // 标记位：使用 current_size+1 表示孤岛模式
+        }
+        stats
     }
 }
 
@@ -645,20 +866,23 @@ mod tests {
     /// 测试 CacheableDecision 的转换
     #[test]
     fn test_cacheable_decision_conversion() {
-        use crate::error::{BanInfo, Decision};
+        use crate::error::{BanInfo, Decision, RateLimitMetadata};
 
         // 测试允许决策
         let allowed = CacheableDecision::allowed();
         assert!(allowed.is_allowed());
-        assert_eq!(allowed.to_decision(), Decision::Allowed(None));
+        let decision = allowed.to_decision();
+        assert!(matches!(decision, Decision::Allowed(_)));
 
         // 测试拒绝决策
         let rejected = CacheableDecision::rejected("rate limit exceeded");
         assert!(rejected.is_rejected());
-        assert_eq!(
-            rejected.to_decision(),
-            Decision::Rejected("rate limit exceeded".to_string())
-        );
+        let decision = rejected.to_decision();
+        if let Decision::Rejected(metadata) = decision {
+            assert_eq!(metadata.reason, "rate limit exceeded");
+        } else {
+            panic!("Expected Rejected decision");
+        }
 
         // 测试封禁决策
         let ban_info = BanInfo::new("spam".to_string(), chrono::Utc::now(), 3);
@@ -666,7 +890,14 @@ mod tests {
         assert!(banned.is_banned());
 
         // 测试从 Decision 转换
-        let decision = Decision::Allowed(Some("test".to_string()));
+        let metadata = RateLimitMetadata {
+            limit: 100,
+            remaining: 50,
+            reset_at: 1234567890,
+            retry_after: None,
+            policy: "test".to_string(),
+        };
+        let decision = Decision::Allowed(metadata);
         let cacheable = CacheableDecision::from_decision(&decision);
         assert!(cacheable.is_allowed());
         assert_eq!(cacheable.reason, Some("test".to_string()));

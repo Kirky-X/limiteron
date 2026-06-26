@@ -28,6 +28,7 @@ repository = "https://github.com/Kirky-X/limiteron"
 # 异步运行时
 tokio = { version = "~1.50", features = ["rt-multi-thread", "macros", "time", "net", "signal", "sync", "io-util"] }
 tokio-util = { version = "~0.7", features = ["rt"] }
+tokio-stream = { version = "~0.1", features = ["sync"] }
 async-trait = "~0.1"
 
 # 序列化
@@ -121,7 +122,7 @@ sea-orm = { version = "2.0.0-rc.37", optional = true, default-features = false, 
 sqlx = { version = "~0.8", features = ["postgres", "runtime-tokio-rustls"], optional = true }
 
 # 缓存库 - 使用本地 oxcache (必需依赖)
-oxcache = { path = "/home/dev/projects/oxcache" }
+oxcache = { path = "/home/dev/projects/oxcache", features = ["wal-recovery"] }
 
 # 配置加载 - 使用本地 confers (可选特性)
 confers = { path = "/home/dev/projects/confers", optional = true, default-features = false }
@@ -144,6 +145,11 @@ scopeguard = { workspace = true, optional = true }
 # 工具依赖（可选）
 reqwest = { version = "~0.13", features = ["json"], optional = true }
 notify = { version = "~8.2", optional = true }
+tokio-stream = { workspace = true, optional = true }
+
+# HTTP框架 - 管理API
+axum = { version = "0.8", features = ["json"], optional = true }
+tower-http = { version = "0.6", features = ["cors", "auth"], optional = true }
 
 # 安全相关（可选和必需）
 regex = { workspace = true, optional = true }
@@ -160,12 +166,19 @@ woothee = { version = "~0.13", optional = true }
 # Redis 客户端（可选）- 使用 0.27 版本与 oxcache 保持一致
 redis = { version = "=0.27.6", default-features = false, features = ["tokio-comp"] }
 
+# Tower 中间件支持（可选）
+tower = { version = "~0.5", optional = true }
+tower-layer = { version = "~0.3", optional = true }
+http = { version = "~1.4", optional = true }
+crc32fast = "1.4"
+
 [dev-dependencies]
 tokio-test.workspace = true
 tempfile.workspace = true
 futures.workspace = true
 rand.workspace = true
 criterion.workspace = true
+proptest = "1.4"
 
 [features]
 # ============================================
@@ -180,11 +193,13 @@ standard = ["postgres", "ban-manager", "quota-control", "circuit-breaker"]
 # Full: 所有功能
 full = [
     "postgres",
+    "redis-storage",
     "ban-manager",
     "quota-control",
     "circuit-breaker",
     "fallback",
     "custom-limiter",
+    "gcra",
     "log-redaction",
     "config-security",
     "parallel-checker",
@@ -200,6 +215,7 @@ full = [
     "code-review",
     "cache-service",
     "confers",
+    "tower-middleware",
 ]
 
 default = ["postgres", "confers"]
@@ -209,6 +225,9 @@ default = ["postgres", "confers"]
 # ============================================
 # PostgreSQL 存储 - 使用 dbnexus
 postgres = ["dep:dbnexus", "dep:sqlx", "dep:sea-orm"]
+
+# Redis 存储 - 分布式一致性存储
+redis-storage = []
 
 # Lua 脚本支持 - 使用 oxcache 的 lua-script 特性
 # 需要 redis 特性来提供 Redis 后端
@@ -226,6 +245,9 @@ fallback = []
 custom-limiter = []
 cache-service = []
 confers = ["dep:confers"]
+
+# GCRA 限流算法
+gcra = []
 
 # ============================================
 # Security Features (安全功能)
@@ -245,6 +267,11 @@ parallel-checker = ["ban-manager", "dep:futures"]
 geo-matching = ["dep:maxminddb"]
 device-matching = ["dep:woothee", "dep:regex"]
 advanced-matchers = []
+
+# ============================================
+# Admin API (管理控制面)
+# ============================================
+admin-api = ["dep:axum", "dep:tower-http", "dep:tower", "dep:http"]
 
 # ============================================
 # Observability Features (可观测性)
@@ -271,10 +298,28 @@ webhook = ["dep:reqwest"]
 code-review = []
 
 # ============================================
+# Event System (事件系统)
+# ============================================
+event-system = ["dep:tokio-stream"]
+
+# ============================================
+# Multi-Tenant Features (多租户)
+# ============================================
+multi-tenant = []
+
+# ============================================
+# Tower Middleware (HTTP 中间件)
+# ============================================
+tower-middleware = ["dep:tower", "dep:tower-layer", "dep:http"]
+
+# ============================================
 # Development Features (开发/测试)
 # ============================================
 # 遗留测试 - 用于标记尚未实现的功能测试
 legacy_tests = []
+
+# 混沌测试特性 - 启用故障注入和延迟注入测试
+chaos-testing = []
 
 [[bench]]
 name = "throughput"

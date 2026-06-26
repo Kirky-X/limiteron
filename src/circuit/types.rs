@@ -4,9 +4,12 @@
 //!
 //! 熔断器类型定义
 
+use crate::clock::{Clock, SystemClock};
 use crate::constants::{
     DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD, DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS,
-    DEFAULT_CIRCUIT_BREAKER_SUCCESS_THRESHOLD, DEFAULT_CIRCUIT_BREAKER_TIMEOUT_SECS,
+    DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_DURATION_MILLIS,
+    DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_RATE_THRESHOLD, DEFAULT_CIRCUIT_BREAKER_SUCCESS_THRESHOLD,
+    DEFAULT_CIRCUIT_BREAKER_TIMEOUT_SECS,
 };
 use crate::error::{CircuitBreakerStats, CircuitState, FlowGuardError};
 use log::{info, trace, warn};
@@ -14,6 +17,60 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+
+/// 错误分类器 trait
+///
+/// 用于判断错误是否应该计入失败计数。
+/// 允许用户自定义哪些错误应该被视为失败。
+///
+/// # 示例
+///
+/// ```rust
+/// use limiteron::circuit::ErrorClassifier;
+/// use limiteron::error::FlowGuardError;
+///
+/// struct CustomErrorClassifier;
+/// impl ErrorClassifier for CustomErrorClassifier {
+///     fn is_counted_as_failure(&self, error: &FlowGuardError) -> bool {
+///         // 自定义逻辑：只有特定的错误才算失败
+///         !matches!(error, FlowGuardError::ValidationError(_))
+///     }
+/// }
+/// ```
+pub trait ErrorClassifier: Send + Sync {
+    /// 判断错误是否应该计入失败计数
+    ///
+    /// # 参数
+    /// - `error`: 要判断的错误
+    ///
+    /// # 返回
+    /// - `true`: 错误应计入失败计数
+    /// - `false`: 错误不应计入失败计数
+    fn is_counted_as_failure(&self, error: &FlowGuardError) -> bool;
+}
+
+/// 默认错误分类器
+///
+/// 默认行为：
+/// - 5xx 错误（StorageError::ConnectionError, StorageError::TimeoutError）算失败
+/// - 超时错误算失败
+/// - 4xx 错误（ValidationError, NotFound）不算失败
+pub struct DefaultErrorClassifier;
+
+impl ErrorClassifier for DefaultErrorClassifier {
+    fn is_counted_as_failure(&self, error: &FlowGuardError) -> bool {
+        match error {
+            // 存储相关的临时错误算失败
+            FlowGuardError::StorageError(storage_err) => storage_err.is_transient(),
+            // 限流、熔断器错误不算失败（这些是预期的保护机制）
+            FlowGuardError::LimitError(_) | FlowGuardError::CircuitBreakerError(_) => false,
+            // 验证错误不算失败（客户端问题）
+            FlowGuardError::ValidationError(_) => false,
+            // 其他错误算失败
+            _ => true,
+        }
+    }
+}
 
 /// 熔断器配置
 #[derive(Debug, Clone)]
@@ -26,6 +83,12 @@ pub struct CircuitBreakerConfig {
     pub timeout: Duration,
     /// 半开状态的最大调用次数
     pub half_open_max_calls: u64,
+    /// 慢调用时长阈值（超过此时长视为慢调用）
+    pub slow_call_duration_threshold: Duration,
+    /// 慢调用率阈值（慢调用占比超过此值时熔断）
+    pub slow_call_rate_threshold: f64,
+    /// 错误分类器
+    pub error_classifier: Arc<dyn ErrorClassifier>,
 }
 
 impl Default for CircuitBreakerConfig {
@@ -35,6 +98,11 @@ impl Default for CircuitBreakerConfig {
             success_threshold: DEFAULT_CIRCUIT_BREAKER_SUCCESS_THRESHOLD,
             timeout: Duration::from_secs(DEFAULT_CIRCUIT_BREAKER_TIMEOUT_SECS),
             half_open_max_calls: DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS,
+            slow_call_duration_threshold: Duration::from_millis(
+                DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_DURATION_MILLIS,
+            ),
+            slow_call_rate_threshold: DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_RATE_THRESHOLD,
+            error_classifier: Arc::new(DefaultErrorClassifier),
         }
     }
 }
@@ -47,12 +115,35 @@ impl CircuitBreakerConfig {
             success_threshold,
             timeout,
             half_open_max_calls: DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS,
+            slow_call_duration_threshold: Duration::from_millis(
+                DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_DURATION_MILLIS,
+            ),
+            slow_call_rate_threshold: DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_RATE_THRESHOLD,
+            error_classifier: Arc::new(DefaultErrorClassifier),
         }
     }
 
     /// 设置半开状态的最大调用次数
     pub fn half_open_max_calls(mut self, max_calls: u64) -> Self {
         self.half_open_max_calls = max_calls;
+        self
+    }
+
+    /// 设置慢调用时长阈值
+    pub fn slow_call_duration_threshold(mut self, threshold: Duration) -> Self {
+        self.slow_call_duration_threshold = threshold;
+        self
+    }
+
+    /// 设置慢调用率阈值
+    pub fn slow_call_rate_threshold(mut self, threshold: f64) -> Self {
+        self.slow_call_rate_threshold = threshold;
+        self
+    }
+
+    /// 设置错误分类器
+    pub fn error_classifier(mut self, classifier: Arc<dyn ErrorClassifier>) -> Self {
+        self.error_classifier = classifier;
         self
     }
 }
@@ -67,6 +158,8 @@ pub struct CircuitBreaker {
     success_count: Arc<AtomicU64>,
     /// 总调用次数
     total_calls: Arc<AtomicU64>,
+    /// 慢调用计数
+    slow_call_count: Arc<AtomicU64>,
     /// 最后失败时间
     last_failure_time: Arc<RwLock<Option<Instant>>>,
     /// 最后状态变更时间
@@ -75,6 +168,11 @@ pub struct CircuitBreaker {
     half_open_calls: Arc<AtomicU64>,
     /// 配置
     config: CircuitBreakerConfig,
+    /// 时钟实例
+    clock: Arc<dyn Clock>,
+    /// 事件发射器（可选，feature-gated）
+    #[cfg(feature = "event-system")]
+    event_emitter: Option<Arc<crate::events::EventEmitter>>,
 }
 
 /// 熔断器构建器
@@ -115,6 +213,24 @@ impl CircuitBreakerBuilder {
         self
     }
 
+    /// 设置慢调用时长阈值
+    pub fn slow_call_duration_threshold(mut self, threshold: Duration) -> Self {
+        self.config.slow_call_duration_threshold = threshold;
+        self
+    }
+
+    /// 设置慢调用率阈值
+    pub fn slow_call_rate_threshold(mut self, threshold: f64) -> Self {
+        self.config.slow_call_rate_threshold = threshold;
+        self
+    }
+
+    /// 设置错误分类器
+    pub fn error_classifier(mut self, classifier: Arc<dyn ErrorClassifier>) -> Self {
+        self.config.error_classifier = classifier;
+        self
+    }
+
     /// 构建熔断器
     pub fn build(&self) -> CircuitBreaker {
         CircuitBreaker::with_dependencies(self.config.clone())
@@ -145,6 +261,15 @@ impl CircuitBreaker {
     /// let breaker = CircuitBreaker::with_dependencies(config);
     /// ```
     pub fn with_dependencies(config: CircuitBreakerConfig) -> Self {
+        Self::with_clock(config, Arc::new(SystemClock))
+    }
+
+    /// 使用依赖注入模式和自定义时钟创建熔断器
+    ///
+    /// # 参数
+    /// - `config`: 熔断器配置
+    /// - `clock`: 时钟实现,用于时间注入(测试用)
+    pub fn with_clock(config: CircuitBreakerConfig, clock: Arc<dyn Clock>) -> Self {
         info!(
             "创建熔断器: failure_threshold={}, success_threshold={}, timeout={:?}",
             config.failure_threshold, config.success_threshold, config.timeout
@@ -155,10 +280,14 @@ impl CircuitBreaker {
             failure_count: Arc::new(AtomicU64::new(0)),
             success_count: Arc::new(AtomicU64::new(0)),
             total_calls: Arc::new(AtomicU64::new(0)),
+            slow_call_count: Arc::new(AtomicU64::new(0)),
             last_failure_time: Arc::new(RwLock::new(None)),
-            last_state_change: Arc::new(RwLock::new(Some(Instant::now()))),
+            last_state_change: Arc::new(RwLock::new(Some(clock.now()))),
             half_open_calls: Arc::new(AtomicU64::new(0)),
             config,
+            clock,
+            #[cfg(feature = "event-system")]
+            event_emitter: None,
         }
     }
 
@@ -243,7 +372,7 @@ impl CircuitBreaker {
                 // 检查是否可以尝试恢复
                 let last_failure = self.last_failure_time.read().await;
                 if let Some(last_failure) = *last_failure {
-                    if last_failure.elapsed() >= self.config.timeout {
+                    if self.clock.now().duration_since(last_failure) >= self.config.timeout {
                         // 超时，切换到半开状态
                         drop(state);
                         self.transition_to_half_open().await;
@@ -277,7 +406,12 @@ impl CircuitBreaker {
         }
 
         // 执行操作
+        let start_time = self.clock.now();
         let result = operation().await;
+        let elapsed = start_time.elapsed();
+
+        // 记录调用时长并检查是否为慢调用
+        self.record_call_duration(elapsed).await;
 
         // 根据操作结果更新状态
         match result {
@@ -286,7 +420,7 @@ impl CircuitBreaker {
                 Ok(value)
             }
             Err(e) => {
-                self.on_failure().await;
+                self.on_failure(&e).await;
                 Err(e)
             }
         }
@@ -327,7 +461,13 @@ impl CircuitBreaker {
     }
 
     /// 操作失败时的处理
-    async fn on_failure(&self) {
+    async fn on_failure(&self, error: &FlowGuardError) {
+        // 使用错误分类器判断是否应该计入失败计数
+        if !self.config.error_classifier.is_counted_as_failure(error) {
+            trace!("错误不计入失败计数: {:?}", error);
+            return;
+        }
+
         let state = self.state.read().await;
 
         match *state {
@@ -336,7 +476,7 @@ impl CircuitBreaker {
                 let failure_count = self.failure_count.fetch_add(1, Ordering::Relaxed) + 1;
 
                 // 记录失败时间
-                *self.last_failure_time.write().await = Some(Instant::now());
+                *self.last_failure_time.write().await = Some(self.clock.now());
 
                 if failure_count >= self.config.failure_threshold {
                     // 达到失败阈值，切换到打开状态
@@ -362,6 +502,50 @@ impl CircuitBreaker {
         }
     }
 
+    /// 记录调用时长并检查是否为慢调用
+    ///
+    /// 如果调用时长超过慢调用阈值，则增加慢调用计数。
+    /// 如果慢调用率超过阈值，则触发熔断。
+    async fn record_call_duration(&self, elapsed: Duration) {
+        if elapsed >= self.config.slow_call_duration_threshold {
+            let slow_calls = self.slow_call_count.fetch_add(1, Ordering::Relaxed) + 1;
+            let total_calls = self.total_calls.load(Ordering::Relaxed);
+
+            trace!(
+                "慢调用检测: elapsed={:?}, threshold={:?}, slow_calls={}/{}",
+                elapsed,
+                self.config.slow_call_duration_threshold,
+                slow_calls,
+                total_calls
+            );
+
+            // 检查慢调用率是否超过阈值
+            self.check_slow_call_rate(slow_calls, total_calls).await;
+        }
+    }
+
+    /// 检查慢调用率是否超过阈值
+    async fn check_slow_call_rate(&self, slow_calls: u64, total_calls: u64) {
+        if total_calls == 0 {
+            return;
+        }
+
+        let slow_call_rate = slow_calls as f64 / total_calls as f64;
+
+        if slow_call_rate >= self.config.slow_call_rate_threshold {
+            let state = self.state.read().await;
+            if *state == CircuitState::Closed {
+                drop(state);
+                warn!(
+                    "慢调用率超过阈值: {:.2}% >= {:.2}%，触发熔断",
+                    slow_call_rate * 100.0,
+                    self.config.slow_call_rate_threshold * 100.0
+                );
+                self.transition_to_open().await;
+            }
+        }
+    }
+
     /// 统一的状态转换方法
     ///
     /// 统一处理状态转换逻辑，避免重复的状态检查和日志记录代码。
@@ -371,9 +555,12 @@ impl CircuitBreaker {
             return; // 状态未改变，无需处理
         }
 
+        let old_state_str = format!("{:?}", old_state);
+        let new_state_str = format!("{:?}", new_state);
+
         // 更新状态和时间戳
         *self.state.write().await = new_state;
-        *self.last_state_change.write().await = Some(Instant::now());
+        *self.last_state_change.write().await = Some(self.clock.now());
 
         // 根据新状态重置相关计数器
         match new_state {
@@ -397,7 +584,23 @@ impl CircuitBreaker {
                 self.failure_count.store(0, Ordering::Relaxed);
                 self.success_count.store(0, Ordering::Relaxed);
                 self.half_open_calls.store(0, Ordering::Relaxed);
+                self.slow_call_count.store(0, Ordering::Relaxed);
                 info!("熔断器状态变更: {:?} -> Closed", old_state);
+            }
+        }
+
+        // 发射熔断器状态变更事件
+        #[cfg(feature = "event-system")]
+        {
+            if let Some(ref emitter) = self.event_emitter {
+                let event =
+                    crate::events::Event::new(crate::events::EventType::CircuitStateChanged {
+                        from: old_state_str,
+                        to: new_state_str,
+                    });
+                if let Err(e) = emitter.emit(event).await {
+                    log::error!("Failed to emit circuit state change event: {}", e);
+                }
             }
         }
     }
@@ -452,8 +655,9 @@ impl CircuitBreaker {
         self.failure_count.store(0, Ordering::Relaxed);
         self.success_count.store(0, Ordering::Relaxed);
         self.total_calls.store(0, Ordering::Relaxed);
+        self.slow_call_count.store(0, Ordering::Relaxed);
         *self.last_failure_time.write().await = None;
-        *self.last_state_change.write().await = Some(Instant::now());
+        *self.last_state_change.write().await = Some(self.clock.now());
         self.half_open_calls.store(0, Ordering::Relaxed);
     }
 
@@ -469,12 +673,12 @@ impl CircuitBreaker {
             success_count: self.success_count.load(Ordering::Relaxed),
             total_calls: self.total_calls.load(Ordering::Relaxed),
             last_failure_time: last_failure.and_then(|t| {
-                let elapsed = t.elapsed();
+                let elapsed = self.clock.now().duration_since(t);
                 let duration = chrono::Duration::from_std(elapsed).ok()?;
                 Some(chrono::Utc::now() - duration)
             }),
             last_state_change: last_state_change.and_then(|t| {
-                let elapsed = t.elapsed();
+                let elapsed = self.clock.now().duration_since(t);
                 let duration = chrono::Duration::from_std(elapsed).ok()?;
                 Some(chrono::Utc::now() - duration)
             }),
@@ -945,5 +1149,133 @@ mod tests {
 
         // 验证初始状态
         assert!(breaker.is_closed().await);
+    }
+
+    // ==================== 慢调用检测测试 ====================
+
+    /// 测试慢调用时长阈值配置
+    #[tokio::test]
+    async fn test_slow_call_duration_threshold_config() {
+        let config = CircuitBreakerConfig::default()
+            .slow_call_duration_threshold(Duration::from_millis(100));
+        assert_eq!(
+            config.slow_call_duration_threshold,
+            Duration::from_millis(100)
+        );
+    }
+
+    /// 测试慢调用率阈值配置
+    #[tokio::test]
+    async fn test_slow_call_rate_threshold_config() {
+        let config = CircuitBreakerConfig::default().slow_call_rate_threshold(0.8);
+        assert_eq!(config.slow_call_rate_threshold, 0.8);
+    }
+
+    /// 测试默认错误分类器 - StorageError 超时算失败
+    #[test]
+    fn test_default_error_classifier_storage_timeout() {
+        let classifier = DefaultErrorClassifier;
+        let error = FlowGuardError::StorageError(crate::error::StorageError::TimeoutError(
+            "timeout".into(),
+        ));
+        assert!(classifier.is_counted_as_failure(&error));
+    }
+
+    /// 测试默认错误分类器 - StorageError 连接错误算失败
+    #[test]
+    fn test_default_error_classifier_connection_error() {
+        let classifier = DefaultErrorClassifier;
+        let error = FlowGuardError::StorageError(crate::error::StorageError::ConnectionError(
+            "connection".into(),
+        ));
+        assert!(classifier.is_counted_as_failure(&error));
+    }
+
+    /// 测试默认错误分类器 - LimitError 不算失败
+    #[test]
+    fn test_default_error_classifier_limit_error() {
+        let classifier = DefaultErrorClassifier;
+        let error = FlowGuardError::LimitError("rate limited".into());
+        assert!(!classifier.is_counted_as_failure(&error));
+    }
+
+    /// 测试默认错误分类器 - ValidationError 不算失败
+    #[test]
+    fn test_default_error_classifier_validation_error() {
+        let classifier = DefaultErrorClassifier;
+        let error = FlowGuardError::ValidationError("invalid input".into());
+        assert!(!classifier.is_counted_as_failure(&error));
+    }
+
+    /// 测试默认错误分类器 - CircuitBreakerError 不算失败
+    #[test]
+    fn test_default_error_classifier_circuit_breaker_error() {
+        let classifier = DefaultErrorClassifier;
+        let error = FlowGuardError::CircuitBreakerError("circuit open".into());
+        assert!(!classifier.is_counted_as_failure(&error));
+    }
+
+    /// 测试默认错误分类器 - 其他错误算失败
+    #[test]
+    fn test_default_error_classifier_other_errors() {
+        let classifier = DefaultErrorClassifier;
+        let error = FlowGuardError::Other("unknown error".into());
+        assert!(classifier.is_counted_as_failure(&error));
+    }
+
+    /// 测试自定义错误分类器
+    #[tokio::test]
+    async fn test_custom_error_classifier() {
+        struct CustomClassifier;
+        impl ErrorClassifier for CustomClassifier {
+            fn is_counted_as_failure(&self, error: &FlowGuardError) -> bool {
+                // 只有 StorageError 算失败
+                matches!(error, FlowGuardError::StorageError(_))
+            }
+        }
+
+        let config = CircuitBreakerConfig::default()
+            .error_classifier(Arc::new(CustomClassifier))
+            .failure_threshold(2);
+
+        let breaker = CircuitBreaker::new(config);
+
+        // ValidationError 不应触发失败计数
+        let _ = breaker
+            .execute(|| async {
+                Err::<(), FlowGuardError>(FlowGuardError::ValidationError("test".into()))
+            })
+            .await;
+
+        let stats = breaker.get_stats().await;
+        assert_eq!(stats.failure_count, 0);
+
+        // StorageError 应该触发失败计数
+        let _ = breaker
+            .execute(|| async {
+                Err::<(), FlowGuardError>(FlowGuardError::StorageError(
+                    crate::error::StorageError::TimeoutError("timeout".into()),
+                ))
+            })
+            .await;
+
+        let stats = breaker.get_stats().await;
+        assert_eq!(stats.failure_count, 1);
+    }
+
+    /// 测试 Builder 模式设置慢调用配置
+    #[tokio::test]
+    async fn test_builder_with_slow_call_config() {
+        let breaker = CircuitBreaker::builder()
+            .slow_call_duration_threshold(Duration::from_millis(200))
+            .slow_call_rate_threshold(0.6)
+            .build();
+
+        let config = breaker.config();
+        assert_eq!(
+            config.slow_call_duration_threshold,
+            Duration::from_millis(200)
+        );
+        assert_eq!(config.slow_call_rate_threshold, 0.6);
     }
 }

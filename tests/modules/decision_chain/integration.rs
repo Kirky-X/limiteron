@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 use limiteron::decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
 use limiteron::error::{Decision, FlowGuardError};
-use limiteron::limiters::{Limiter, TokenBucketLimiter};
+use limiteron::{Limiter, TokenBucketLimiter};
 use std::sync::Arc;
 
 // ==================== Mock Limiters ====================

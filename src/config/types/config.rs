@@ -74,6 +74,15 @@ pub struct TrustedProxyConfig {
     /// 可信代理 IP 列表（支持 CIDR 表示法）
     #[serde(default)]
     pub proxies: Vec<String>,
+    /// X-Forwarded-For 中允许的最大 IP 跳数（防止 IP 列表过长攻击）
+    /// 默认值: 10
+    #[serde(default = "default_max_hops")]
+    pub max_hops: usize,
+}
+
+/// 默认的 max_hops 值
+fn default_max_hops() -> usize {
+    10
 }
 
 impl Default for GlobalConfig {
@@ -92,6 +101,7 @@ impl Default for TrustedProxyConfig {
         Self {
             enabled: false,
             proxies: Vec::new(),
+            max_hops: default_max_hops(),
         }
     }
 }
@@ -150,5 +160,111 @@ impl GlobalConfig {
         // 枚举类型在编译时就保证类型安全，这里只校验可信代理配置
         self.trusted_proxies.validate()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_storage_type_parse() {
+        assert_eq!(StorageType::parse("memory"), Some(StorageType::Memory));
+        assert_eq!(
+            StorageType::parse("postgresql"),
+            Some(StorageType::PostgreSQL)
+        );
+        assert_eq!(
+            StorageType::parse("postgres"),
+            Some(StorageType::PostgreSQL)
+        );
+        assert_eq!(StorageType::parse("redis"), Some(StorageType::Redis));
+        assert_eq!(StorageType::parse("invalid"), None);
+    }
+
+    #[test]
+    fn test_storage_type_from_str() {
+        assert_eq!(StorageType::from("memory"), StorageType::Memory);
+        assert_eq!(StorageType::from("invalid"), StorageType::Memory);
+    }
+
+    #[test]
+    fn test_storage_type_display() {
+        assert_eq!(format!("{}", StorageType::Memory), "memory");
+        assert_eq!(format!("{}", StorageType::PostgreSQL), "postgresql");
+        assert_eq!(format!("{}", StorageType::Redis), "redis");
+    }
+
+    #[test]
+    fn test_storage_type_default() {
+        assert_eq!(StorageType::default(), StorageType::Memory);
+    }
+
+    #[test]
+    fn test_trusted_proxy_config_default() {
+        let config = TrustedProxyConfig::default();
+        assert!(!config.enabled);
+        assert!(config.proxies.is_empty());
+        assert_eq!(config.max_hops, 10);
+    }
+
+    #[test]
+    fn test_trusted_proxy_config_validate_disabled() {
+        let config = TrustedProxyConfig::default();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_trusted_proxy_config_validate_valid() {
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["192.168.1.1".to_string(), "10.0.0.0/8".to_string()],
+            max_hops: 10,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_trusted_proxy_config_validate_invalid() {
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["not-an-ip".to_string()],
+            max_hops: 10,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_trusted_proxy_is_trusted() {
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["192.168.1.1".to_string(), "10.0.0.0/8".to_string()],
+            max_hops: 10,
+        };
+        assert!(config.is_trusted("192.168.1.1"));
+        assert!(config.is_trusted("10.0.0.1"));
+        assert!(!config.is_trusted("1.2.3.4"));
+        assert!(!config.is_trusted("not-an-ip"));
+    }
+
+    #[test]
+    fn test_trusted_proxy_is_trusted_disabled() {
+        let config = TrustedProxyConfig::default();
+        assert!(!config.is_trusted("192.168.1.1"));
+    }
+
+    #[test]
+    fn test_global_config_default() {
+        let config = GlobalConfig::default();
+        assert_eq!(config.storage, StorageType::Memory);
+        assert_eq!(config.cache, CacheBackend::default());
+        assert_eq!(config.metrics, MetricsBackend::default());
+        assert!(!config.trusted_proxies.enabled);
+    }
+
+    #[test]
+    fn test_global_config_validate() {
+        let config = GlobalConfig::default();
+        assert!(config.validate().is_ok());
     }
 }

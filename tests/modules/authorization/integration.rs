@@ -4,14 +4,10 @@
 
 #[cfg(feature = "ban-manager")]
 use limiteron::authorization::{
-    AllowAllAuthorizationProvider, AuthorizationProvider, DenyAllAuthorizationProvider,
-    OperationAuthorizationProvider, SimpleAuthorizationProvider,
+    AuthorizationProvider, OperationAuthorizationProvider, SimpleAuthorizationProvider,
 };
 #[cfg(not(feature = "ban-manager"))]
-use limiteron::authorization::{
-    AllowAllAuthorizationProvider, AuthorizationProvider, DenyAllAuthorizationProvider,
-    SimpleAuthorizationProvider,
-};
+use limiteron::authorization::{AuthorizationProvider, SimpleAuthorizationProvider};
 use limiteron::error::FlowGuardError;
 use std::collections::HashMap;
 
@@ -107,42 +103,6 @@ async fn test_simple_provider_ignores_operation_and_target() {
 }
 
 // ============================================================================
-// AllowAllAuthorizationProvider Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_allow_all_always_passes() {
-    let provider = AllowAllAuthorizationProvider;
-    assert!(provider
-        .check_authorization("any_op", "anyone", "any_target")
-        .await
-        .is_ok());
-    assert!(provider
-        .check_authorization("create_ban", "guest", "192.168.1.1")
-        .await
-        .is_ok());
-}
-
-// ============================================================================
-// DenyAllAuthorizationProvider Tests
-// ============================================================================
-
-#[tokio::test]
-async fn test_deny_all_always_denies() {
-    let provider = DenyAllAuthorizationProvider;
-    let result = provider
-        .check_authorization("any_op", "admin", "any_target")
-        .await;
-    assert!(result.is_err());
-    match result {
-        Err(FlowGuardError::AuthorizationError(msg)) => {
-            assert!(msg.contains("拒绝"));
-        }
-        _ => panic!("expected AuthorizationError"),
-    }
-}
-
-// ============================================================================
 // OperationAuthorizationProvider Tests (requires ban-manager feature)
 // ============================================================================
 
@@ -227,7 +187,10 @@ fn test_operation_provider_builder() {
 async fn test_trait_object_dynamic_dispatch() {
     let providers: Vec<Box<dyn AuthorizationProvider>> = vec![
         Box::new(SimpleAuthorizationProvider::new(vec!["admin".to_string()])),
-        Box::new(AllowAllAuthorizationProvider),
+        Box::new(SimpleAuthorizationProvider::new(vec![
+            "guest".to_string(),
+            "admin".to_string(),
+        ])),
     ];
 
     assert!(providers[0]
@@ -235,7 +198,7 @@ async fn test_trait_object_dynamic_dispatch() {
         .await
         .is_ok());
     assert!(providers[1]
-        .check_authorization("op", "anyone", "target")
+        .check_authorization("op", "guest", "target")
         .await
         .is_ok());
 }

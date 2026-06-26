@@ -760,7 +760,7 @@ async fn test_deep_clone_nested_structures() {
         device_types: vec!["mobile".to_string()],
     });
     cloned_rule.limiters.push(LimiterConfig::Quota {
-        quota_type: "user".to_string(),
+        quota_type: limiteron::QuotaType::Count,
         limit: 1000,
         window: "1h".to_string(),
         alert_threshold: Some(80),

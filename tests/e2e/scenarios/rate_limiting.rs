@@ -8,9 +8,9 @@ use limiteron::config::{
     MetricsBackend, Rule, StorageType,
 };
 use limiteron::error::{Decision, StorageError};
-use limiteron::limiters::Limiter;
+use limiteron::Limiter;
 use limiteron::matchers::RequestContext;
-use limiteron::storage::{
+use limiteron::{
     BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage,
 };
 use limiteron::Governor;
@@ -232,8 +232,11 @@ async fn e2e_rate_limiting_request_exceeds_limit() {
     let result = governor.check(&ctx).await;
 
     match result {
-        Ok(Decision::Rejected(reason)) => {
-            assert!(!reason.is_empty(), "Rejection reason should not be empty");
+        Ok(Decision::Rejected(metadata)) => {
+            assert!(
+                !metadata.reason.is_empty(),
+                "Rejection reason should not be empty"
+            );
         }
         Ok(Decision::Allowed(_)) => {
             // 可能由于令牌桶算法的特性，请求仍被允许
@@ -311,7 +314,7 @@ async fn e2e_rate_limiting_independent_per_user() {
 #[allow(deprecated)]
 async fn e2e_rate_limiting_sliding_window() {
     // 注意：SlidingWindowLimiter 已弃用，但此测试验证基本限流逻辑
-    use limiteron::limiters::SlidingWindowLimiter;
+    use limiteron::SlidingWindowLimiter;
 
     let limiter = SlidingWindowLimiter::new(Duration::from_millis(200), 3);
 

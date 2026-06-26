@@ -270,30 +270,18 @@ impl AuthorizationProvider for SimpleAuthorizationProvider {
     }
 }
 
-/// 允许所有操作的授权提供者（用于测试）
+/// 允许所有操作的授权提供者（仅用于测试）
 ///
 /// 此提供者允许所有操作，不进行任何授权检查。
-/// 主要用于测试环境或开发环境。
+/// 主要用于测试环境。
 ///
 /// # 安全警告
 ///
-/// **不要在生产环境中使用此提供者！**
-///
-/// # 示例
-///
-/// ```rust
-/// use limiteron::authorization::{AllowAllAuthorizationProvider, AuthorizationProvider};
-///
-/// #[tokio::main]
-/// async fn main() {
-///     let provider = AllowAllAuthorizationProvider;
-///
-///     // 所有操作都会被允许
-///     assert!(provider.check_authorization("create_ban", "anyone", "anything").await.is_ok());
-/// }
-/// ```
+/// **此提供者在非测试构建中不可用**
+#[cfg(test)]
 pub struct AllowAllAuthorizationProvider;
 
+#[cfg(test)]
 #[async_trait]
 impl AuthorizationProvider for AllowAllAuthorizationProvider {
     async fn check_authorization(
@@ -306,25 +294,13 @@ impl AuthorizationProvider for AllowAllAuthorizationProvider {
     }
 }
 
-/// 拒绝所有操作的授权提供者（用于测试）
+/// 拒绝所有操作的授权提供者（仅用于测试）
 ///
 /// 此提供者拒绝所有操作，用于测试授权失败的场景。
-///
-/// # 示例
-///
-/// ```rust
-/// use limiteron::authorization::{DenyAllAuthorizationProvider, AuthorizationProvider};
-///
-/// #[tokio::main]
-/// async fn main() {
-///     let provider = DenyAllAuthorizationProvider;
-///
-///     // 所有操作都会被拒绝
-///     assert!(provider.check_authorization("create_ban", "admin", "anything").await.is_err());
-/// }
-/// ```
+#[cfg(test)]
 pub struct DenyAllAuthorizationProvider;
 
+#[cfg(test)]
 #[async_trait]
 impl AuthorizationProvider for DenyAllAuthorizationProvider {
     async fn check_authorization(

@@ -22,8 +22,11 @@ pub const DEFAULT_OVERDRAFT_LIMIT_PERCENT: u8 = 20;
 /// 默认告警去重缓存清理间隔（5分钟）
 pub const DEFAULT_DEDUP_CLEANUP_INTERVAL_SECS: u64 = 300;
 
+use crate::config::types::QuotaType;
 use crate::error::{ConsumeResult, FlowGuardError};
 use crate::storage::QuotaStorage;
+#[cfg(feature = "webhook")]
+use crate::webhook_validator::validate_webhook_url;
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
 use log::debug;
@@ -31,39 +34,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio_util::sync::CancellationToken;
-
-/// 配额类型
-#[cfg(feature = "quota-control")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum QuotaType {
-    /// 令牌配额
-    Token,
-    /// 金额配额
-    Money,
-    /// 计数配额
-    Count,
-}
-
-impl QuotaType {
-    /// 从字符串解析配额类型
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "token" => Some(QuotaType::Token),
-            "money" => Some(QuotaType::Money),
-            "count" => Some(QuotaType::Count),
-            _ => None,
-        }
-    }
-
-    /// 转换为字符串
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            QuotaType::Token => "token",
-            QuotaType::Money => "money",
-            QuotaType::Count => "count",
-        }
-    }
-}
 
 /// 配额配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -763,7 +733,7 @@ async fn send_webhook_alert(
     alert_info: &AlertInfo,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 安全验证：检查 URL 是否安全
-    validate_webhook_url(url)?;
+    validate_webhook_url(url, true).map_err(|e| e.into())?;
 
     let client = reqwest::Client::new();
     let response = client
@@ -778,60 +748,6 @@ async fn send_webhook_alert(
     } else {
         Err(format!("Webhook 返回错误状态码: {}", response.status()).into())
     }
-}
-
-/// 验证 Webhook URL 安全性
-///
-/// 安全规则：
-/// - 必须使用 HTTPS 协议
-/// - 禁止内网地址（私有 IP 段）
-/// - 禁止 localhost 和回环地址
-#[cfg(feature = "webhook")]
-fn validate_webhook_url(url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    // 解析 URL
-    let parsed = url
-        .parse::<reqwest::Url>()
-        .map_err(|e| format!("无效的 URL: {}", e))?;
-
-    // 检查协议：必须使用 HTTPS
-    if parsed.scheme() != "https" {
-        return Err("Webhook URL 必须使用 HTTPS 协议".into());
-    }
-
-    // 检查主机名
-    let host = parsed.host_str().ok_or("URL 缺少主机名")?;
-
-    // 禁止 localhost 和回环地址
-    let lower_host = host.to_lowercase();
-    if lower_host == "localhost" || lower_host == "127.0.0.1" || lower_host == "::1" {
-        return Err("禁止使用 localhost 或回环地址".into());
-    }
-
-    // 禁止私有 IP 地址段
-    // IPv4 私有地址：10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        if ip.is_loopback() {
-            return Err("禁止使用回环 IP 地址".into());
-        }
-        match ip {
-            std::net::IpAddr::V4(v4) => {
-                if v4.is_private() {
-                    return Err("禁止使用私有 IP 地址".into());
-                }
-                if v4.is_link_local() {
-                    return Err("禁止使用链路本地地址".into());
-                }
-            }
-            std::net::IpAddr::V6(v6) => {
-                // IPv6 没有直接的 is_private 方法，检查唯一本地地址 fc00::/7
-                if v6.is_unique_local() {
-                    return Err("禁止使用唯一本地 IPv6 地址".into());
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 /// 发送 Webhook 告警（未启用 webhook feature 时的存根实现）

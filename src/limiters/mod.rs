@@ -19,9 +19,11 @@
 
 // 子模块
 pub mod concurrency;
-pub mod factory;
+pub(crate) mod factory;
 pub mod fixed_window;
-pub mod manager;
+#[cfg(feature = "gcra")]
+pub mod gcra;
+pub(crate) mod manager;
 pub mod sharded_sliding_window;
 #[allow(deprecated)]
 pub mod sliding_window;
@@ -33,10 +35,8 @@ pub mod traits;
 pub mod quota_limiter;
 
 // Re-export all public types
-pub use concurrency::{ConcurrencyLimiter, ConcurrencyLimiterBuilder};
-pub use factory::LimiterFactory;
+pub use concurrency::ConcurrencyLimiter;
 pub use fixed_window::FixedWindowLimiter;
-pub use manager::LimiterManager;
 pub use sharded_sliding_window::ShardedSlidingWindowLimiter;
 #[allow(deprecated)]
 pub use sliding_window::SlidingWindowLimiter;
@@ -45,3 +45,6 @@ pub use traits::Limiter;
 
 #[cfg(feature = "quota-control")]
 pub use quota_limiter::QuotaLimiter;
+
+#[cfg(feature = "gcra")]
+pub use gcra::GcraLimiter;

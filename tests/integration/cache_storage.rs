@@ -3,7 +3,7 @@
 //! 测试缓存与存储的集成，验证缓存一致性。
 
 use crate::common::{create_test_cache, MockStorage};
-use limiteron::storage::Storage;
+use limiteron::Storage;
 use oxcache::Cache;
 use std::sync::Arc;
 use std::time::Duration;

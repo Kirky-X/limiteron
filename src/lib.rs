@@ -63,11 +63,15 @@
 
 pub mod prelude;
 
+#[cfg(feature = "admin-api")]
+pub mod admin;
+
 pub mod authorization;
 #[cfg(feature = "ban-manager")]
 pub mod ban;
 #[cfg(feature = "circuit-breaker")]
 pub mod circuit;
+pub mod clock;
 pub mod config;
 
 #[cfg(feature = "postgres")]
@@ -83,22 +87,29 @@ pub use adapters::{
 
 #[cfg(feature = "cache-service")]
 pub mod cache;
-pub mod constants;
+pub(crate) mod constants;
 #[cfg(feature = "postgres")]
 pub mod dbnexus_entities;
 pub mod decision_chain;
 
+// Event system (feature-gated)
+#[cfg(feature = "event-system")]
+pub mod events;
+
 // Consolidated modules
 pub mod error; // Contains error types and abstraction
-pub mod limiters; // Contains limiters, factory, and manager
+pub(crate) mod limiters; // Contains limiters, factory, and manager
 pub mod logging; // Contains audit_log and log_redaction
 pub mod rules; // Contains rule_builder and stats_manager
-pub mod storage; // Contains storage_trait and parallel_ban_checker
+pub(crate) mod storage; // Contains storage_trait and parallel_ban_checker
+
+#[cfg(feature = "redis-storage")]
+pub mod redis;
 
 #[cfg(feature = "fallback")]
 pub mod fallback;
 pub mod governor;
-pub mod l1_cache;
+pub(crate) mod l1_cache;
 #[cfg(feature = "macros")]
 pub mod macros;
 pub mod matchers;
@@ -108,15 +119,22 @@ pub mod oxcache_lua;
 pub mod quota;
 #[cfg(any(feature = "telemetry", feature = "monitoring"))]
 pub mod telemetry;
+#[cfg(feature = "multi-tenant")]
+pub mod tenant;
 pub mod validation;
+#[cfg(feature = "webhook")]
+pub(crate) mod webhook_validator;
+
+// Tower 中间件层 (feature-gated)
+#[cfg(feature = "tower-middleware")]
+pub mod middleware;
 
 // 重新导出常用类型
 #[cfg(feature = "ban-manager")]
 pub use authorization::OperationAuthorizationProvider;
-pub use authorization::{
-    AllowAllAuthorizationProvider, AuthorizationProvider, DenyAllAuthorizationProvider,
-    SimpleAuthorizationProvider,
-};
+#[cfg(test)]
+pub use authorization::{AllowAllAuthorizationProvider, DenyAllAuthorizationProvider};
+pub use authorization::{AuthorizationProvider, SimpleAuthorizationProvider};
 #[cfg(feature = "ban-manager")]
 pub use ban::{
     BackoffConfig, BanDetail, BanFilter, BanManager, BanManagerConfig, BanPriority, BanSource,
@@ -141,6 +159,9 @@ pub use error::{
     BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, FlowGuardError,
     StorageError,
 };
+// Event system types (feature-gated)
+#[cfg(feature = "event-system")]
+pub use events::{Event, EventConfig, EventDispatcher, EventEmitter, EventHandler, EventType};
 // Error abstraction types
 pub use error::{
     BanSafeError, ConfigSafeError, ErrorMessageAbstraction, GeneralSafeError, LimitSafeError,
@@ -149,10 +170,8 @@ pub use error::{
 #[cfg(feature = "fallback")]
 pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
 pub use governor::{Governor, GovernorStats};
-pub use l1_cache::{
-    CacheableBanInfo, CacheableDecision, L1Cache, L1CacheConfig, L1CacheStats, RateLimitCacheKey,
-};
-pub use limiters::LimiterFactory;
+pub use l1_cache::{L1Cache, L1CacheConfig, RateLimitCacheKey};
+pub use limiters::Limiter;
 // GLOBAL_LIMITER_MANAGER 改为 pub(crate)，不再公开导出
 #[cfg(feature = "quota-control")]
 pub use limiters::QuotaLimiter;
@@ -196,14 +215,25 @@ pub use oxcache_lua::{
     SLIDING_WINDOW_SCRIPT, TOKEN_BUCKET_SCRIPT,
 };
 
-// Re-export storage traits for compatibility
+// Re-export storage traits for compatibility (internal implementations are pub(crate))
 pub use storage::{
-    BanHistory, BanRecord, BanStorage, BanStorageCreate, BanTarget, MemoryBanStorage,
-    MemoryStorage, QuotaInfo, QuotaStorage, Storage, StorageCreate,
+    BanHistory, BanRecord, BanStorage, BanStorageCreate, BanTarget, QuotaInfo, QuotaStorage,
+    Storage, StorageCreate,
 };
 
 #[cfg(feature = "parallel-checker")]
 pub use storage::ParallelBanChecker;
+
+// Re-export Redis types (feature-gated)
+#[cfg(feature = "redis-storage")]
+pub use redis::{
+    execute_gcra, execute_gcra_with_sha, load_gcra_script, GcraResult, RedisStorage, ScriptManager,
+    ScriptType,
+};
+
+// Re-export GCRA limiter (feature-gated)
+#[cfg(feature = "gcra")]
+pub use limiters::GcraLimiter;
 
 // Re-export logging types for compatibility
 pub use logging::{redact_basic, redact_email, redact_ip, redact_user_id};
@@ -216,3 +246,17 @@ pub use rules::RuleBuilder;
 
 // Re-export stats manager
 pub use rules::{StatsManager, StatsSnapshot};
+
+// Re-export clock types
+pub use clock::{Clock, MockClock, SystemClock};
+
+// Re-export tenant types (feature-gated)
+#[cfg(feature = "multi-tenant")]
+pub use tenant::{Namespace, TenantResolver};
+
+// Re-export middleware types (feature-gated)
+#[cfg(feature = "tower-middleware")]
+pub use middleware::{
+    inject_rate_limit_headers, IntoRequestContext, RateLimitConfig, RateLimitHeaderValues,
+    RateLimitLayer, RateLimitService,
+};

@@ -5,7 +5,7 @@
 #[cfg(feature = "ban-manager")]
 use limiteron::ban::{BackoffConfig, BanManager, BanManagerConfig, BanSource, BanTarget};
 #[cfg(feature = "ban-manager")]
-use limiteron::storage::BanStorage;
+use limiteron::BanStorage;
 #[cfg(feature = "ban-manager")]
 use std::sync::Arc;
 #[cfg(feature = "ban-manager")]

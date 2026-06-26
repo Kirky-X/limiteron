@@ -338,6 +338,16 @@ impl IpExtractor {
             return None;
         }
 
+        // 安全验证: 检查 IP 数量是否超过最大跳数限制
+        if ips.len() > self.trusted_proxy_config.max_hops {
+            log::warn!(
+                "X-Forwarded-For 包含 {} 个 IP,超过最大限制 {}",
+                ips.len(),
+                self.trusted_proxy_config.max_hops
+            );
+            return None;
+        }
+
         // 如果只有一个 IP，直接使用
         if ips.len() == 1 {
             let ip = ips[0];

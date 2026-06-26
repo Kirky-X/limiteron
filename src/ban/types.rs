@@ -219,6 +219,9 @@ pub struct BanManager {
     auto_unban_handle: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
     /// 授权提供者（可选）
     authorization_provider: Option<Arc<dyn AuthorizationProvider>>,
+    /// 事件发射器（可选，feature-gated）
+    #[cfg(feature = "event-system")]
+    event_emitter: Option<Arc<crate::events::EventEmitter>>,
 }
 
 /// BanManager 构建器
@@ -243,6 +246,8 @@ pub struct BanManagerBuilder {
     storage: Option<Arc<dyn BanStorage>>,
     config: Option<BanManagerConfig>,
     authorization_provider: Option<Arc<dyn AuthorizationProvider>>,
+    #[cfg(feature = "event-system")]
+    event_emitter: Option<Arc<crate::events::EventEmitter>>,
 }
 
 impl BanManagerBuilder {
@@ -252,6 +257,8 @@ impl BanManagerBuilder {
             storage: None,
             config: None,
             authorization_provider: None,
+            #[cfg(feature = "event-system")]
+            event_emitter: None,
         }
     }
 
@@ -299,6 +306,13 @@ impl BanManagerBuilder {
         self
     }
 
+    /// 设置事件发射器
+    #[cfg(feature = "event-system")]
+    pub fn with_event_emitter(mut self, emitter: Arc<crate::events::EventEmitter>) -> Self {
+        self.event_emitter = Some(emitter);
+        self
+    }
+
     /// 构建 BanManager 实例
     ///
     /// 如果未提供 storage，将使用内存存储作为默认依赖。
@@ -314,7 +328,14 @@ impl BanManagerBuilder {
         };
         let config = self.config.unwrap_or_default();
 
-        BanManager::with_dependencies_and_auth(storage, config, self.authorization_provider).await
+        BanManager::with_dependencies_and_auth(
+            storage,
+            config,
+            self.authorization_provider,
+            #[cfg(feature = "event-system")]
+            self.event_emitter,
+        )
+        .await
     }
 }
 
@@ -428,7 +449,14 @@ impl BanManager {
         storage: Arc<dyn BanStorage>,
         config: BanManagerConfig,
     ) -> Result<Self, FlowGuardError> {
-        Self::with_dependencies_and_auth(storage, config, None).await
+        Self::with_dependencies_and_auth(
+            storage,
+            config,
+            None,
+            #[cfg(feature = "event-system")]
+            None,
+        )
+        .await
     }
 
     /// 使用依赖注入和授权提供者创建 BanManager 实例
@@ -461,6 +489,7 @@ impl BanManager {
         storage: Arc<dyn BanStorage>,
         config: BanManagerConfig,
         authorization_provider: Option<Arc<dyn AuthorizationProvider>>,
+        #[cfg(feature = "event-system")] event_emitter: Option<Arc<crate::events::EventEmitter>>,
     ) -> Result<Self, FlowGuardError> {
         let config = Arc::new(RwLock::new(config));
 
@@ -469,6 +498,8 @@ impl BanManager {
             config,
             auto_unban_handle: Arc::new(RwLock::new(None)),
             authorization_provider,
+            #[cfg(feature = "event-system")]
+            event_emitter,
         };
 
         // 启动自动解封任务
@@ -647,6 +678,27 @@ impl BanManager {
             "Ban created successfully: id={}, ban_times={}",
             detail.id, ban_times
         );
+
+        // 发射封禁事件
+        #[cfg(feature = "event-system")]
+        {
+            if let Some(ref emitter) = self.event_emitter {
+                let target_str = match detail.target {
+                    BanTarget::Ip(ref ip) => ip.clone(),
+                    BanTarget::UserId(ref uid) => uid.clone(),
+                    BanTarget::Mac(ref mac) => mac.clone(),
+                };
+                let event = crate::events::Event::new(crate::events::EventType::BanApplied {
+                    target: target_str,
+                    reason: detail.reason.clone(),
+                    duration: detail.duration.as_secs(),
+                });
+                if let Err(e) = emitter.emit(event).await {
+                    error!("Failed to emit ban event: {}", e);
+                }
+            }
+        }
+
         Ok(detail)
     }
 

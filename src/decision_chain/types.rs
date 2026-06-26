@@ -1,6 +1,6 @@
 //! 决策链类型定义
 
-use crate::error::{Decision, FlowGuardError};
+use crate::error::{Decision, FlowGuardError, RejectionMetadata};
 use crate::limiters::Limiter;
 use ahash::AHashMap;
 use log::{debug, info, trace, warn};
@@ -430,6 +430,8 @@ impl DecisionChain {
     pub async fn check(&self) -> Result<Decision, FlowGuardError> {
         let enabled_nodes: Vec<&DecisionNode> = self.nodes.iter().filter(|n| n.enabled).collect();
 
+        let mut last_rejection: Option<RejectionMetadata> = None;
+
         for node in enabled_nodes {
             match node.limiter.allow(node.cost).await {
                 Ok(false) => {
@@ -438,10 +440,31 @@ impl DecisionChain {
                     self.stats.increment_rejected();
                     self.stats.increment_node_rejection(&node.id);
 
-                    return Ok(Decision::Rejected(format!(
-                        "Rejected by {}: rate limit exceeded",
-                        node.name
-                    )));
+                    // 检查短路标志
+                    if node.short_circuit {
+                        // 短路：立即返回拒绝，不执行后续节点
+                        return Ok(Decision::Rejected(RejectionMetadata {
+                            reason: format!("Rejected by {}: rate limit exceeded", node.name),
+                            retry_after: 60,
+                            limit: 0,
+                            reset_at: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0)
+                                + 60,
+                        }));
+                    }
+                    // 非短路：记录拒绝但继续执行后续节点
+                    last_rejection = Some(RejectionMetadata {
+                        reason: format!("Rejected by {}: rate limit exceeded", node.name),
+                        retry_after: 60,
+                        limit: 0,
+                        reset_at: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0)
+                            + 60,
+                    });
                 }
                 Err(e) => {
                     // 节点错误 - 使用原子操作更新统计
@@ -455,9 +478,15 @@ impl DecisionChain {
 
         // 所有节点都允许 - 使用原子操作更新统计
         self.stats.increment_total();
-        self.stats.increment_allowed();
 
-        Ok(Decision::Allowed(None))
+        // 如果有任何非短路拒绝，返回最后的拒绝结果
+        if let Some(rejection) = last_rejection {
+            self.stats.increment_allowed();
+            return Ok(Decision::Rejected(rejection));
+        }
+
+        self.stats.increment_allowed();
+        Ok(Decision::allowed_default())
     }
 
     /// 获取统计信息
@@ -703,7 +732,7 @@ mod tests {
         let chain = DecisionChain::with_dependencies(vec![]);
         let decision = chain.check().await.unwrap();
 
-        assert_eq!(decision, Decision::Allowed(None));
+        assert_eq!(decision, Decision::allowed_default());
     }
 
     #[tokio::test]
@@ -721,7 +750,7 @@ mod tests {
         // 前10个请求应该被允许
         for _ in 0..10 {
             let decision = chain.check().await.unwrap();
-            assert_eq!(decision, Decision::Allowed(None));
+            assert_eq!(decision, Decision::allowed_default());
         }
 
         // 第11个请求应该被拒绝
@@ -753,7 +782,7 @@ mod tests {
         // 前5个请求应该被允许
         for _ in 0..5 {
             let decision = chain.check().await.unwrap();
-            assert_eq!(decision, Decision::Allowed(None));
+            assert_eq!(decision, Decision::allowed_default());
         }
 
         // 第6个请求应该被更高优先级的node1拒绝
@@ -785,7 +814,7 @@ mod tests {
         // 高优先级的node2应该先被检查
         for _ in 0..5 {
             let decision = chain.check().await.unwrap();
-            assert_eq!(decision, Decision::Allowed(None));
+            assert_eq!(decision, Decision::allowed_default());
         }
 
         // node2应该先拒绝
@@ -793,8 +822,8 @@ mod tests {
         assert!(matches!(decision, Decision::Rejected(_)));
 
         // 验证拒绝原因来自node2
-        if let Decision::Rejected(reason) = decision {
-            assert!(reason.contains("High Priority"));
+        if let Decision::Rejected(metadata) = decision {
+            assert!(metadata.reason.contains("High Priority"));
         }
     }
 
@@ -822,7 +851,7 @@ mod tests {
 
         // node1被禁用，应该检查node2
         let decision = chain.check().await.unwrap();
-        assert_eq!(decision, Decision::Allowed(None));
+        assert_eq!(decision, Decision::allowed_default());
     }
 
     #[tokio::test]
@@ -849,7 +878,7 @@ mod tests {
         // 前5个请求应该被允许
         for _ in 0..5 {
             let decision = chain.check().await.unwrap();
-            assert_eq!(decision, Decision::Allowed(None));
+            assert_eq!(decision, Decision::allowed_default());
         }
 
         // 第6个请求应该被node1拒绝，并短路
@@ -882,7 +911,7 @@ mod tests {
         // 前3个请求应该被允许
         for _ in 0..3 {
             let decision = chain.check().await.unwrap();
-            assert_eq!(decision, Decision::Allowed(None));
+            assert_eq!(decision, Decision::allowed_default());
         }
 
         // 第4个请求应该被node2拒绝
@@ -914,14 +943,14 @@ mod tests {
         // 前3个请求应该被允许
         for _ in 0..3 {
             let decision = chain.check().await.unwrap();
-            assert_eq!(decision, Decision::Allowed(None));
+            assert_eq!(decision, Decision::allowed_default());
         }
 
         // 第4个请求应该检查所有节点
         let decision = chain.check().await.unwrap();
-        if let Decision::Rejected(reason) = decision {
+        if let Decision::Rejected(metadata) = decision {
             // 应该包含两个节点的拒绝原因
-            assert!(reason.contains("First Node"));
+            assert!(metadata.reason.contains("First Node"));
         }
     }
 
@@ -1040,7 +1069,7 @@ mod tests {
         assert_eq!(chain.enabled_node_count(), 0);
 
         let decision = chain.check().await.unwrap();
-        assert_eq!(decision, Decision::Allowed(None));
+        assert_eq!(decision, Decision::allowed_default());
 
         // 启用节点
         chain.enable_node("node1");
@@ -1078,7 +1107,7 @@ mod tests {
 
         // 1. Initial check: Node1 allows. Node2 should be called.
         let decision = chain.check().await.unwrap();
-        assert_eq!(decision, Decision::Allowed(None));
+        assert_eq!(decision, Decision::allowed_default());
         assert_eq!(
             limiter2_spy.calls.load(std::sync::atomic::Ordering::SeqCst),
             1
@@ -1107,7 +1136,7 @@ mod tests {
         // 5. Node1 allows again. Node2 should be called.
         limiter1.set_allowed(true);
         let decision = chain.check().await.unwrap();
-        assert_eq!(decision, Decision::Allowed(None));
+        assert_eq!(decision, Decision::allowed_default());
         assert_eq!(
             limiter2_spy.calls.load(std::sync::atomic::Ordering::SeqCst),
             3
@@ -1182,7 +1211,7 @@ mod tests {
 
         // 第一个请求应该被允许
         let decision = chain.check().await.unwrap();
-        assert_eq!(decision, Decision::Allowed(None));
+        assert_eq!(decision, Decision::allowed_default());
 
         // 检查统计
         let stats = chain.stats().await;
@@ -1206,7 +1235,7 @@ mod tests {
         // 5个请求，每个消耗2个令牌
         for _ in 0..5 {
             let decision = chain.check().await.unwrap();
-            assert_eq!(decision, Decision::Allowed(None));
+            assert_eq!(decision, Decision::allowed_default());
         }
 
         // 第6个请求应该被拒绝（总共消耗了10个令牌）
@@ -1272,7 +1301,7 @@ mod tests {
 
         // 所有检查都应该成功
         for result in results {
-            assert_eq!(result, Decision::Allowed(None));
+            assert_eq!(result, Decision::allowed_default());
         }
 
         // 检查统计
@@ -1772,7 +1801,7 @@ mod tests {
         // 空链应该总是允许
         for _ in 0..100 {
             let decision = chain.check().await.unwrap();
-            assert_eq!(decision, Decision::Allowed(None));
+            assert_eq!(decision, Decision::allowed_default());
         }
 
         let stats = chain.stats_sync();
@@ -1796,7 +1825,7 @@ mod tests {
 
         // 所有节点禁用时应该允许
         let decision = chain.check().await.unwrap();
-        assert_eq!(decision, Decision::Allowed(None));
+        assert_eq!(decision, Decision::allowed_default());
     }
 
     /// 测试决策链成本边界条件
@@ -1815,11 +1844,11 @@ mod tests {
 
         // 第一次检查应该成功（消耗 50 个令牌）
         let decision = chain.check().await.unwrap();
-        assert_eq!(decision, Decision::Allowed(None));
+        assert_eq!(decision, Decision::allowed_default());
 
         // 第二次检查应该成功（消耗剩余 50 个令牌）
         let decision = chain.check().await.unwrap();
-        assert_eq!(decision, Decision::Allowed(None));
+        assert_eq!(decision, Decision::allowed_default());
 
         // 第三次检查应该失败（没有足够的令牌）
         let decision = chain.check().await.unwrap();

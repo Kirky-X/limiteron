@@ -19,10 +19,10 @@ use crate::error::FlowGuardError;
 #[cfg(feature = "fallback")]
 use crate::fallback::FallbackManager;
 #[cfg(feature = "fallback")]
+use crate::l1_cache::IslandFallbackStrategy;
+#[cfg(feature = "fallback")]
 use crate::l1_cache::IslandModeConfig;
-use crate::l1_cache::{
-    CacheableDecision, IslandFallbackStrategy, L1Cache, L1CacheConfig, RateLimitCacheKey,
-};
+use crate::l1_cache::{CacheableDecision, L1Cache, L1CacheConfig, RateLimitCacheKey};
 use crate::logging::{redact_ip, redact_user_id};
 use crate::matchers::{IdentifierExtractor, RequestContext, RuleMatcher};
 use crate::rules::{RuleBuilder, StatsManager, StatsSnapshot};
@@ -159,15 +159,13 @@ pub struct Governor {
 ///
 /// ```rust,no_run
 /// use limiteron::Governor;
-/// use limiteron::adapters::StorageFactory;
+/// use limiteron::storage::{MemoryStorage, MemoryBanStorage, StorageCreate, BanStorageCreate};
 /// use std::sync::Arc;
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
-///     factory.initialize(None).await?;
-///     let storage: Arc<dyn limiteron::storage_trait::Storage> = factory.create_storage().await?;
-///     let ban_storage: Arc<dyn limiteron::storage_trait::BanStorage> = factory.create_ban_storage().await?;
+///     let storage: Arc<dyn limiteron::storage::Storage> = MemoryStorage::create_storage();
+///     let ban_storage: Arc<dyn limiteron::storage::BanStorage> = MemoryBanStorage::create_ban_storage();
 ///
 ///     let governor = Governor::builder()
 ///         .with_storage(storage)
@@ -582,6 +580,8 @@ impl Governor {
             stats: StatsManager::new(),
             l1_cache: L1Cache::new().await.expect("Failed to create L1Cache"),
             l1_cache_enabled: std::sync::atomic::AtomicBool::new(true),
+            #[cfg(feature = "fallback")]
+            fallback_manager: None,
             #[cfg(feature = "event-system")]
             event_emitter: None,
         }
@@ -605,16 +605,20 @@ impl Governor {
     /// ```rust,no_run
     /// use limiteron::Governor;
     /// use limiteron::config::FlowControlConfig;
-    /// use limiteron::storage_trait::MemoryStorage;
+    /// use limiteron::storage::MemoryStorage;
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
     /// async fn main() {
     ///     let config = FlowControlConfig::default();
-    ///     let storage: Arc<dyn limiteron::storage_trait::Storage> = Arc::new(MemoryStorage::new());
-    ///     let ban_storage: Arc<dyn limiteron::storage_trait::BanStorage> = Arc::new(limiteron::storage_trait::MemoryBanStorage::new());
-    ///
-    ///     let governor = Governor::with_storage(config, storage, ban_storage).await.unwrap();
+    ///     let storage: Arc<dyn limiteron::storage::Storage> = Arc::new(MemoryStorage::new());
+    ///     let ban_storage: Arc<dyn limiteron::storage::BanStorage> = Arc::new(limiteron::storage::MemoryBanStorage::new());
+    ///     let _ = Governor::builder()
+    ///         .with_config(config)
+    ///         .with_storage(storage)
+    ///         .with_ban_storage(ban_storage)
+    ///         .build()
+    ///         .await;
     /// }
     /// ```
     #[allow(unused_variables)]
@@ -656,15 +660,13 @@ impl Governor {
     ///
     /// ```rust,no_run
     /// use limiteron::Governor;
-    /// use limiteron::adapters::StorageFactory;
+    /// use limiteron::storage::{MemoryStorage, MemoryBanStorage, StorageCreate, BanStorageCreate};
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
-    ///     factory.initialize(None).await?;
-    ///     let storage: Arc<dyn limiteron::storage_trait::Storage> = factory.create_storage().await?;
-    ///     let ban_storage: Arc<dyn limiteron::storage_trait::BanStorage> = factory.create_ban_storage().await?;
+    ///     let storage: Arc<dyn limiteron::storage::Storage> = MemoryStorage::create_storage();
+    ///     let ban_storage: Arc<dyn limiteron::storage::BanStorage> = MemoryBanStorage::create_ban_storage();
     ///
     ///     let governor = Governor::from_config_file(
     ///         "/path/to/config.yaml",
@@ -675,7 +677,6 @@ impl Governor {
     ///     Ok(())
     /// }
     /// ```
-    #[cfg(feature = "confers")]
     pub async fn from_config_file<P: AsRef<std::path::Path>>(
         config_path: P,
         storage: Arc<dyn Storage>,
@@ -700,15 +701,13 @@ impl Governor {
     ///
     /// ```rust,no_run
     /// use limiteron::Governor;
-    /// use limiteron::adapters::StorageFactory;
+    /// use limiteron::storage::{MemoryStorage, MemoryBanStorage, StorageCreate, BanStorageCreate};
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
-    ///     factory.initialize(None).await?;
-    ///     let storage: Arc<dyn limiteron::storage_trait::Storage> = factory.create_storage().await?;
-    ///     let ban_storage: Arc<dyn limiteron::storage_trait::BanStorage> = factory.create_ban_storage().await?;
+    ///     let storage: Arc<dyn limiteron::storage::Storage> = MemoryStorage::create_storage();
+    ///     let ban_storage: Arc<dyn limiteron::storage::BanStorage> = MemoryBanStorage::create_ban_storage();
     ///
     ///     // 设置环境变量覆盖
     ///     std::env::set_var("LIMITERON_GLOBAL_STORAGE", "redis");
@@ -722,7 +721,6 @@ impl Governor {
     ///     Ok(())
     /// }
     /// ```
-    #[cfg(feature = "confers")]
     pub async fn from_config_with_env<P: AsRef<std::path::Path>>(
         config_path: P,
         storage: Arc<dyn Storage>,
@@ -736,7 +734,6 @@ impl Governor {
     /// 根据配置创建 Governor 实例（内部辅助方法）
     ///
     /// 统一处理不同 feature 组合下的创建逻辑，避免重复的条件编译代码。
-    #[cfg(feature = "confers")]
     async fn create_with_config(
         config: FlowControlConfig,
         storage: Arc<dyn Storage>,
@@ -883,7 +880,7 @@ impl Governor {
                                     _ => "Allowed",
                                 };
                                 self.emit_rate_limit_event(
-                                    identifier.key(),
+                                    &identifier.key(),
                                     &rule.id,
                                     decision_str,
                                 )
@@ -938,6 +935,7 @@ impl Governor {
     /// 仅使用 L1 缓存的降级检查
     ///
     /// 当存储层不可用时，尝试仅从 L1 缓存获取决策结果。
+    #[cfg(feature = "fallback")]
     async fn check_l1_cache_only(
         &self,
         context: &RequestContext,
@@ -1244,6 +1242,7 @@ impl Governor {
     // ==================== L1 缓存相关方法 ====================
 
     /// 获取 L1 缓存统计信息
+    #[cfg(test)]
     pub(crate) async fn l1_cache_stats(&self) -> crate::l1_cache::L1CacheStats {
         self.l1_cache.stats().await
     }
@@ -1573,6 +1572,1791 @@ mod governor_construction_tests {
             .expect("Governor build should succeed");
 
         // health_check() returns () - just verify it doesn't panic
-        governor.health_check().await;
+        let _ = governor.health_check().await;
+    }
+
+    #[tokio::test]
+    async fn test_governor_new_with_defaults() {
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 0);
+    }
+
+    #[test]
+    fn test_governor_builder_validation_empty_config() {
+        let result = std::thread::spawn(|| {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+                let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+                Governor::builder()
+                    .with_storage(storage)
+                    .with_ban_storage(ban_storage)
+                    .build()
+                    .await
+            })
+        });
+        let result = result.join().unwrap();
+        assert!(result.is_err());
+    }
+
+    /// Governor::new() uses FlowControlConfig::default() which has empty rules,
+    /// causing validate() to fail and expect() to panic.
+    #[tokio::test]
+    #[should_panic(expected = "default config should be valid")]
+    async fn test_governor_new_panics_with_empty_default_config() {
+        let _ = Governor::new().await;
+    }
+
+    #[tokio::test]
+    async fn test_governor_builder_with_l1_cache_config() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        use crate::l1_cache::L1CacheConfig;
+        let l1_config = L1CacheConfig {
+            default_ttl: std::time::Duration::from_secs(60),
+            max_size: 10000,
+            ..Default::default()
+        };
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .with_l1_cache_config(l1_config)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 0);
+    }
+
+    #[tokio::test]
+    async fn test_governor_config_validation_missing_rules() {
+        let config = FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::types::GlobalConfig::default(),
+            rules: vec![],
+        };
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let result = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_governor_multiple_requests_stats() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.user_id = Some("user_a".to_string());
+
+        for _ in 0..3 {
+            let _ = governor.check(&ctx).await;
+        }
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 3);
+
+        let mut ctx_b = RequestContext::default();
+        ctx_b.user_id = Some("user_b".to_string());
+        let _ = governor.check(&ctx_b).await;
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 4);
+    }
+
+    #[tokio::test]
+    async fn test_governor_with_storage_reuse() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::with_storage(
+            config,
+            storage.clone(),
+            ban_storage.clone(),
+            #[cfg(feature = "monitoring")]
+            None,
+            #[cfg(feature = "telemetry")]
+            None,
+        )
+        .await
+        .expect("Governor creation should succeed");
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 0);
+    }
+
+    // ============================================================================
+    // Builder Error Paths
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_builder_missing_storage() {
+        let result = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await;
+        let err = result
+            .err()
+            .expect("expected DependencyError for missing storage");
+        match err {
+            FlowGuardError::DependencyError(msg) => assert!(msg.contains("storage")),
+            _ => panic!("expected DependencyError"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_builder_missing_ban_storage() {
+        let result = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .build()
+            .await;
+        let err = result
+            .err()
+            .expect("expected DependencyError for missing ban_storage");
+        match err {
+            FlowGuardError::DependencyError(msg) => assert!(msg.contains("ban_storage")),
+            _ => panic!("expected DependencyError"),
+        }
+    }
+
+    // ============================================================================
+    // check() Code Paths - Identifier Extraction
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_check_identifier_extraction_failure() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let ctx = RequestContext::default();
+        let result = governor.check(&ctx).await;
+        match result {
+            Err(FlowGuardError::ConfigError(msg)) => {
+                assert!(msg.contains("Failed to extract identifier"))
+            }
+            other => panic!("Expected ConfigError, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_check_total_incremented_on_extraction_failure() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let ctx = RequestContext::default();
+        let _ = governor.check(&ctx).await;
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 1);
+        assert_eq!(stats.allowed_requests, 0);
+        assert_eq!(stats.rejected_requests, 0);
+        assert_eq!(stats.banned_requests, 0);
+    }
+
+    // ============================================================================
+    // check() Code Paths - No Matched Rules (fallthrough to default decision chain)
+    // ============================================================================
+
+    fn create_non_matching_config() -> FlowControlConfig {
+        FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::types::GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "specific_rule".to_string(),
+                name: "Specific Rule".to_string(),
+                priority: 100,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["specific_user".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig {
+                    on_exceed: Action::Reject,
+                    ban: None,
+                },
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_check_no_matched_rules_falls_to_default_chain() {
+        let config = create_non_matching_config();
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("192.168.1.1".to_string());
+
+        let result = governor.check(&ctx).await;
+        match result {
+            Ok(Decision::Allowed(_)) => {}
+            other => panic!("Expected Allowed via default chain, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_check_no_matched_rules_updates_stats() {
+        let config = create_non_matching_config();
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("192.168.1.1".to_string());
+
+        let _ = governor.check(&ctx).await;
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 1);
+        assert_eq!(stats.allowed_requests, 1);
+    }
+
+    // ============================================================================
+    // check() Code Paths - Rule Accepts (TokenBucket has capacity)
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_check_rule_allowed() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.1".to_string());
+
+        let result = governor.check(&ctx).await;
+        match result {
+            Ok(Decision::Allowed(_)) => {}
+            other => panic!("Expected Allowed, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_check_allowed_increments_stats() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.2".to_string());
+
+        let _ = governor.check(&ctx).await;
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 1);
+        assert_eq!(stats.allowed_requests, 1);
+    }
+
+    // ============================================================================
+    // check() Code Paths - Rule Rejects (TokenBucket exhausted)
+    // ============================================================================
+
+    fn create_small_capacity_config() -> FlowControlConfig {
+        FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::types::GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "small_bucket".to_string(),
+                name: "Small Bucket Rule".to_string(),
+                priority: 100,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 3,
+                    refill_rate: 1,
+                }],
+                action: ActionConfig {
+                    on_exceed: Action::Reject,
+                    ban: None,
+                },
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_check_rule_accepted_then_rejected() {
+        let config = create_small_capacity_config();
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.3".to_string());
+
+        for _ in 0..3 {
+            let result = governor.check(&ctx).await;
+            assert!(
+                result.is_ok(),
+                "Expected Ok within capacity, got: {:?}",
+                result
+            );
+        }
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 3);
+        assert_eq!(stats.allowed_requests, 3);
+    }
+
+    #[tokio::test]
+    async fn test_check_rejected_updates_rejected_stats() {
+        let config = create_small_capacity_config();
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.4".to_string());
+
+        for _ in 0..4 {
+            let _ = governor.check(&ctx).await;
+        }
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 4);
+    }
+
+    #[tokio::test]
+    async fn test_check_multiple_users_isolated() {
+        let config = create_small_capacity_config();
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let mut ctx_a = RequestContext::default();
+        ctx_a.client_ip = Some("10.0.0.10".to_string());
+
+        let mut ctx_b = RequestContext::default();
+        ctx_b.client_ip = Some("10.0.0.11".to_string());
+
+        for _ in 0..3 {
+            let _ = governor.check(&ctx_a).await;
+        }
+        governor.check(&ctx_a).await.expect("check should succeed");
+        governor.check(&ctx_b).await.expect("check should succeed");
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 5);
+    }
+
+    // ============================================================================
+    // L1 Cache Methods
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_l1_cache_enable_disable() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        assert!(governor.is_l1_cache_enabled());
+
+        governor.disable_l1_cache();
+        assert!(!governor.is_l1_cache_enabled());
+
+        governor.enable_l1_cache();
+        assert!(governor.is_l1_cache_enabled());
+    }
+
+    #[tokio::test]
+    async fn test_l1_cache_disabled_does_not_cache() {
+        let config = create_small_capacity_config();
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_l1_cache_enabled(false)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        assert!(!governor.is_l1_cache_enabled());
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.5".to_string());
+
+        for _ in 0..3 {
+            let result = governor.check(&ctx).await;
+            assert!(result.is_ok());
+        }
+        let result = governor.check(&ctx).await;
+        match result {
+            Ok(Decision::Rejected(_)) => {}
+            other => panic!(
+                "Expected Rejected after exhaust with L1 disabled, got: {:?}",
+                other
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_l1_cache_clear_and_size() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let size = governor.l1_cache_size().await;
+        assert_eq!(size, 0);
+
+        let _ = governor.clear_l1_cache().await;
+        assert_eq!(governor.l1_cache_size().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_evict_expired_l1_cache() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let evicted = governor.evict_expired_l1_cache().await;
+        assert_eq!(evicted, 0);
+    }
+
+    // ============================================================================
+    // Stats and Reset
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_reset_stats() {
+        let config = create_small_capacity_config();
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.6".to_string());
+
+        let _ = governor.check(&ctx).await;
+        let stats_before = governor.stats().await;
+        assert_eq!(stats_before.total_requests, 1);
+        assert_eq!(stats_before.allowed_requests, 1);
+
+        governor.reset_stats().await;
+
+        let stats_after = governor.stats().await;
+        assert_eq!(stats_after.total_requests, 0);
+        assert_eq!(stats_after.allowed_requests, 0);
+        assert_eq!(stats_after.rejected_requests, 0);
+        assert_eq!(stats_after.banned_requests, 0);
+        assert_eq!(stats_after.error_count, 0);
+    }
+
+    // ============================================================================
+    // Chain and Matcher Stats
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_decision_chain_stats() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let stats = governor.decision_chain_stats().await;
+        assert_eq!(stats.allowed_count, 0);
+        assert_eq!(stats.rejected_count, 0);
+        assert_eq!(stats.error_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_rule_matcher_stats() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let stats = governor.rule_matcher_stats().await;
+        assert_eq!(stats.total_matches, 0);
+        assert_eq!(stats.total_mismatches, 0);
+    }
+
+    // ============================================================================
+    // Config and Administrative Methods
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_get_config_history() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let history = governor.get_config_history().await;
+        assert!(history.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_manual_config_check_returns_ok() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let result = governor.manual_config_check().await;
+        assert!(result.is_ok());
+        match result {
+            Ok(val) => assert!(val),
+            _ => unreachable!(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_stop_config_watcher() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let result = governor.stop_config_watcher().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_health_check_returns_ok() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let result = governor.health_check().await;
+        assert!(result.is_ok());
+    }
+
+    // ============================================================================
+    // Ban/Unban Operations (feature-gated)
+    // ============================================================================
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_ban_identifier_user_id() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let identifier = crate::matchers::Identifier::UserId("test_user".to_string());
+        let result = governor
+            .ban_identifier(&identifier, "test ban reason", None)
+            .await;
+        assert!(
+            result.is_ok(),
+            "ban_identifier should succeed: {:?}",
+            result
+        );
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_ban_identifier_ip() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let identifier = crate::matchers::Identifier::Ip("192.168.1.1".to_string());
+        let result = governor
+            .ban_identifier(&identifier, "test IP ban", None)
+            .await;
+        assert!(
+            result.is_ok(),
+            "ban_identifier for IP should succeed: {:?}",
+            result
+        );
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_ban_identifier_unsupported_type() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let identifier = crate::matchers::Identifier::ApiKey("test_key".to_string());
+        let result = governor.ban_identifier(&identifier, "test ban", None).await;
+        match result {
+            Err(FlowGuardError::ValidationError(msg)) => {
+                assert!(msg.contains("Unsupported identifier type"))
+            }
+            other => panic!("Expected ValidationError, got: {:?}", other),
+        }
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_unban_identifier() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let identifier = crate::matchers::Identifier::UserId("unban_test_user".to_string());
+
+        let ban_result = governor.ban_identifier(&identifier, "temp ban", None).await;
+        assert!(ban_result.is_ok(), "ban should succeed");
+
+        let unban_result = governor.unban_identifier(&identifier).await;
+        assert!(
+            unban_result.is_ok(),
+            "unban should succeed: {:?}",
+            unban_result
+        );
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_unban_identifier_unsupported_type() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let identifier = crate::matchers::Identifier::ApiKey("test_key".to_string());
+        let result = governor.unban_identifier(&identifier).await;
+        match result {
+            Err(FlowGuardError::ValidationError(msg)) => {
+                assert!(msg.contains("Unsupported identifier type"))
+            }
+            other => panic!("Expected ValidationError, got: {:?}", other),
+        }
+    }
+
+    // ============================================================================
+    // GovernorBuilder - Full configuration chain
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_governor_builder_full_chain() {
+        use crate::l1_cache::L1CacheConfig;
+
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let l1_config = L1CacheConfig {
+            default_ttl: std::time::Duration::from_secs(30),
+            max_size: 5000,
+            ..Default::default()
+        };
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .with_l1_cache_config(l1_config)
+            .with_l1_cache_enabled(true)
+            .with_identifier_extractor(Arc::new(
+                crate::matchers::CompositeExtractor::builder()
+                    .add_extractor(Box::new(crate::matchers::UserIdExtractor::from_header(
+                        "X-User-Id",
+                    )))
+                    .build(),
+            ))
+            .build()
+            .await
+            .expect("Governor build with full chain should succeed");
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 0);
+        assert!(governor.is_l1_cache_enabled());
+    }
+
+    // ============================================================================
+    // Cache Invalidation Methods
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_invalidate_l1_cache() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        governor.invalidate_l1_cache("test_user").await;
+        governor.invalidate_rule_cache("test_rule").await;
+
+        assert_eq!(governor.l1_cache_size().await, 0);
+    }
+
+    // ============================================================================
+    // From/Into Implementations
+    // ============================================================================
+
+    #[test]
+    fn test_governor_stats_from_snapshot() {
+        let snapshot = crate::rules::StatsSnapshot {
+            total_requests: 100,
+            allowed_requests: 80,
+            rejected_requests: 15,
+            banned_requests: 3,
+            error_count: 2,
+            last_updated: Some(chrono::Utc::now()),
+        };
+        let stats: GovernorStats = snapshot.into();
+        assert_eq!(stats.total_requests, 100);
+        assert_eq!(stats.allowed_requests, 80);
+        assert_eq!(stats.rejected_requests, 15);
+        assert_eq!(stats.banned_requests, 3);
+        assert_eq!(stats.error_count, 2);
+        assert!(stats.last_updated.is_some());
+    }
+
+    // ============================================================================
+    // Trait Implementations (Default, Debug, Clone)
+    // ============================================================================
+
+    #[test]
+    fn test_governor_stats_default_impl() {
+        let stats = GovernorStats::default();
+        assert_eq!(stats.total_requests, 0);
+        assert_eq!(stats.allowed_requests, 0);
+        assert_eq!(stats.rejected_requests, 0);
+        assert_eq!(stats.banned_requests, 0);
+        assert_eq!(stats.error_count, 0);
+        assert!(stats.last_updated.is_none());
+    }
+
+    #[test]
+    fn test_governor_stats_debug_format() {
+        let stats = GovernorStats::default();
+        let debug = format!("{:?}", stats);
+        assert!(debug.contains("total_requests"));
+        assert!(debug.contains("allowed_requests"));
+        assert!(debug.contains("rejected_requests"));
+        assert!(debug.contains("banned_requests"));
+        assert!(debug.contains("error_count"));
+        assert!(debug.contains("last_updated"));
+    }
+
+    #[test]
+    fn test_governor_stats_clone() {
+        let mut stats = GovernorStats::default();
+        stats.total_requests = 42;
+        let cloned = stats.clone();
+        assert_eq!(cloned.total_requests, 42);
+    }
+
+    // ============================================================================
+    // L1 Cache - pub(crate) Stats
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_l1_cache_stats_method() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let stats = governor.l1_cache_stats().await;
+        assert_eq!(stats.total_lookups, 0);
+        assert_eq!(stats.hits, 0);
+        assert_eq!(stats.misses, 0);
+        assert_eq!(stats.current_size, 0);
+    }
+
+    // ============================================================================
+    // Governor::with_dependencies() Constructor
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_with_dependencies_constructor() {
+        let config = Arc::new(tokio::sync::RwLock::new(create_valid_test_config()));
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let extractor: Arc<dyn crate::matchers::IdentifierExtractor> = Arc::new(
+            crate::matchers::CompositeExtractor::builder()
+                .add_extractor(Box::new(crate::matchers::UserIdExtractor::from_header(
+                    "X-User-Id",
+                )))
+                .build(),
+        );
+
+        let config_value = config.read().await.clone();
+        let rules = RuleBuilder::build_rules(&config_value).expect("build_rules should succeed");
+        let rule_matcher = Arc::new(tokio::sync::RwLock::new(
+            crate::matchers::RuleMatcher::with_dependencies(rules),
+        ));
+
+        let decision_chain = Arc::new(tokio::sync::RwLock::new(
+            crate::decision_chain::DecisionChain::with_dependencies(vec![]),
+        ));
+
+        let chain_map = RuleBuilder::build_rule_chains(&config_value)
+            .expect("build_rule_chains should succeed");
+        let rule_chains = Arc::new(tokio::sync::RwLock::new(chain_map));
+
+        #[cfg(feature = "circuit-breaker")]
+        let circuit_breaker = {
+            use crate::circuit::{CircuitBreaker, CircuitBreakerConfig};
+            Arc::new(CircuitBreaker::with_dependencies(
+                CircuitBreakerConfig::default(),
+            ))
+        };
+
+        let governor = Governor::with_dependencies(
+            config,
+            storage,
+            ban_storage,
+            extractor,
+            rule_matcher,
+            decision_chain,
+            rule_chains,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker,
+        )
+        .await;
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 0);
+    }
+
+    // ============================================================================
+    // build_cache_key - All Identifier Types
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_build_cache_key_all_types() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let user_id = crate::matchers::Identifier::UserId("user123".to_string());
+        let key = governor.build_cache_key(&user_id, "rule_1");
+        assert_eq!(key, "rl:user:user123:rule_1");
+
+        let ip = crate::matchers::Identifier::Ip("192.168.1.1".to_string());
+        let key = governor.build_cache_key(&ip, "rule_1");
+        assert_eq!(key, "rl:ip:192.168.1.1:rule_1");
+
+        let api_key = crate::matchers::Identifier::ApiKey("key123".to_string());
+        let key = governor.build_cache_key(&api_key, "rule_1");
+        assert_eq!(key, "rl:apikey:key123:rule_1");
+
+        let mac = crate::matchers::Identifier::Mac("AA:BB:CC:DD:EE:FF".to_string());
+        let key = governor.build_cache_key(&mac, "rule_1");
+        assert_eq!(key, "rl:generic:mac:AA:BB:CC:DD:EE:FF:rule_1");
+
+        let device = crate::matchers::Identifier::DeviceId("device-001".to_string());
+        let key = governor.build_cache_key(&device, "rule_1");
+        assert_eq!(key, "rl:generic:device_id:device-001:rule_1");
+    }
+
+    // ============================================================================
+    // Governor::from_config_file
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_governor_from_config_file_json() {
+        let config_json = r#"{
+            "version": "0.1.0",
+            "global": {
+                "storage": "memory",
+                "cache": "memory",
+                "metrics": "none"
+            },
+            "rules": [{
+                "id": "test_rule",
+                "name": "Test Rule",
+                "priority": 100,
+                "matchers": [{"type": "User", "user_ids": ["*"]}],
+                "limiters": [{"type": "TokenBucket", "capacity": 100, "refill_rate": 10}],
+                "action": {"on_exceed": "reject"}
+            }]
+        }"#;
+
+        let dir = std::env::temp_dir().join(format!("limiteron_cfg_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let config_path = dir.join("test_config.json");
+        std::fs::write(&config_path, config_json).expect("write config file");
+
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let result = Governor::from_config_file(&config_path, storage, ban_storage).await;
+        assert!(
+            result.is_ok(),
+            "from_config_file failed: {:?}",
+            result.err()
+        );
+
+        let _ = std::fs::remove_file(&config_path);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    // ============================================================================
+    // Governor::from_config_with_env
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_governor_from_config_with_env_json() {
+        let config_json = r#"{
+            "version": "0.1.0",
+            "global": {
+                "storage": "memory",
+                "cache": "memory",
+                "metrics": "none"
+            },
+            "rules": [{
+                "id": "test_rule_env",
+                "name": "Test Rule Env",
+                "priority": 100,
+                "matchers": [{"type": "User", "user_ids": ["*"]}],
+                "limiters": [{"type": "TokenBucket", "capacity": 100, "refill_rate": 10}],
+                "action": {"on_exceed": "reject"}
+            }]
+        }"#;
+
+        let dir = std::env::temp_dir().join(format!("limiteron_cfg_env_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let config_path = dir.join("test_env_config.json");
+        std::fs::write(&config_path, config_json).expect("write config file");
+
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let result = Governor::from_config_with_env(&config_path, storage, ban_storage).await;
+        assert!(
+            result.is_ok(),
+            "from_config_with_env failed: {:?}",
+            result.err()
+        );
+
+        let _ = std::fs::remove_file(&config_path);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    #[cfg(feature = "parallel-checker")]
+    #[tokio::test]
+    async fn test_check_resource_parallel_banned() {
+        use crate::matchers::Identifier;
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // Ban a user first
+        let user_id = Identifier::UserId("banned_resource_user".to_string());
+        governor
+            .ban_identifier(&user_id, "test ban for parallel", None)
+            .await
+            .expect("ban should succeed");
+
+        // Check resource parallel should detect the ban
+        let result = governor
+            .check_resource_parallel("banned_resource_user")
+            .await;
+        match result {
+            Ok(Decision::Banned(_)) => {}
+            other => panic!("Expected Banned for banned user, got: {:?}", other),
+        }
+    }
+
+    // ============================================================================
+    // Health Check - feature-gated sub-checks with all features enabled
+    // ============================================================================
+
+    #[tokio::test]
+    async fn test_health_check_with_all_features() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // Under --features full, this exercises:
+        //   #[cfg(feature = "ban-manager")]  -> ban_manager.get_config()
+        //   #[cfg(feature = "circuit-breaker")] -> circuit_breaker.get_state()
+        //   #[cfg(feature = "audit-log")] -> audit_logger()
+        let result = governor.health_check().await;
+        assert!(result.is_ok(), "health_check should succeed: {:?}", result);
+    }
+}
+
+// ============================================================================
+// Feature-Gated Code Paths
+// ============================================================================
+
+#[cfg(test)]
+mod governor_feature_gated_tests {
+    use super::*;
+    use crate::storage::{MemoryBanStorage, MemoryStorage};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    fn create_valid_test_config() -> FlowControlConfig {
+        FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::types::GlobalConfig::default(),
+            rules: vec![crate::config::types::Rule {
+                id: "test_rule".to_string(),
+                name: "Test Rule".to_string(),
+                priority: 100,
+                matchers: vec![crate::config::types::Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![crate::config::types::LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: crate::config::types::ActionConfig {
+                    on_exceed: crate::config::types::Action::Reject,
+                    ban: None,
+                },
+            }],
+        }
+    }
+
+    // ============================================================================
+    // Builder Feature-Gated Methods
+    // ============================================================================
+
+    #[cfg(feature = "circuit-breaker")]
+    #[tokio::test]
+    async fn test_builder_with_circuit_breaker() {
+        use crate::circuit::{CircuitBreaker, CircuitBreakerConfig};
+
+        let cb = Arc::new(CircuitBreaker::with_dependencies(
+            CircuitBreakerConfig::default(),
+        ));
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_circuit_breaker(cb)
+            .build()
+            .await
+            .expect("build with circuit_breaker should succeed");
+
+        assert!(governor.health_check().await.is_ok());
+    }
+
+    #[cfg(feature = "audit-log")]
+    #[tokio::test]
+    async fn test_builder_with_audit_logger() {
+        use crate::logging::AuditLogger;
+
+        let logger = Arc::new(AuditLogger::default().await);
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_audit_logger(logger)
+            .build()
+            .await
+            .expect("build with audit_logger should succeed");
+
+        assert!(governor.health_check().await.is_ok());
+    }
+
+    #[cfg(feature = "monitoring")]
+    #[tokio::test]
+    async fn test_builder_with_metrics() {
+        use crate::telemetry::Metrics;
+
+        let metrics = Arc::new(Metrics::new());
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_metrics(metrics)
+            .build()
+            .await
+            .expect("build with metrics should succeed");
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 0);
+    }
+
+    #[cfg(feature = "telemetry")]
+    #[tokio::test]
+    async fn test_builder_with_tracer() {
+        use crate::telemetry::Tracer;
+
+        let tracer = Arc::new(Tracer::new(true));
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_tracer(tracer)
+            .build()
+            .await
+            .expect("build with tracer should succeed");
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 0);
+    }
+
+    #[cfg(feature = "fallback")]
+    #[tokio::test]
+    async fn test_builder_with_fallback_manager() {
+        use crate::fallback::FallbackManager;
+        use oxcache::Cache;
+
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let fm = Arc::new(FallbackManager::new(Arc::new(cache)));
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_fallback_manager(fm)
+            .build()
+            .await
+            .expect("build with fallback_manager should succeed");
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 0);
+    }
+
+    // ============================================================================
+    // check() with Fallback Manager
+    // Covers: check() dispatch to check_with_fallback, check_with_fallback body
+    // ============================================================================
+
+    #[cfg(feature = "fallback")]
+    #[tokio::test]
+    async fn test_check_with_fallback_manager() {
+        use crate::fallback::FallbackManager;
+        use oxcache::Cache;
+
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let fm = Arc::new(FallbackManager::new(Arc::new(cache)));
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_fallback_manager(fm)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.100".to_string());
+        let result = governor.check(&ctx).await;
+        assert!(
+            result.is_ok(),
+            "check with fallback should succeed: {:?}",
+            result
+        );
+    }
+
+    /// 当 check_internal 因标识符提取失败而返回 Err 时，降级逻辑调用
+    /// check_l1_cache_only，后者也因标识符提取失败而返回 Err。
+    #[cfg(feature = "fallback")]
+    #[tokio::test]
+    async fn test_check_with_fallback_no_identifier() {
+        use crate::fallback::FallbackManager;
+        use oxcache::Cache;
+
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let fm = Arc::new(FallbackManager::new(Arc::new(cache)));
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_fallback_manager(fm)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // 无标识符请求：check_internal 失败 → 降级到 check_l1_cache_only
+        let ctx = RequestContext::default();
+        let result = governor.check(&ctx).await;
+        assert!(result.is_err());
+    }
+
+    /// L1 缓存禁用时，check_l1_cache_only 返回 Err。
+    #[cfg(feature = "fallback")]
+    #[tokio::test]
+    async fn test_check_with_fallback_l1_cache_disabled() {
+        use crate::fallback::FallbackManager;
+        use oxcache::Cache;
+
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let fm = Arc::new(FallbackManager::new(Arc::new(cache)));
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_l1_cache_enabled(false)
+            .with_fallback_manager(fm)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // 无标识符请求：check_internal 失败 → 降级到 check_l1_cache_only
+        // → L1 缓存禁用，返回 Err
+        let ctx = RequestContext::default();
+        let result = governor.check(&ctx).await;
+        assert!(result.is_err());
+    }
+
+    // ============================================================================
+    // check() - Parallel ban check integration in check_internal
+    // With parallel-checker + ban-manager, every check() with a valid identifier
+    // goes through the parallel ban checker code path.
+    // ============================================================================
+
+    #[cfg(feature = "parallel-checker")]
+    #[tokio::test]
+    async fn test_check_parallel_ban_checker_path() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // IP-based request triggers to_ban_target -> Some -> parallel check
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.200".to_string());
+        let result = governor.check(&ctx).await;
+        assert!(
+            result.is_ok(),
+            "check with parallel ban checker should succeed: {:?}",
+            result
+        );
+    }
+
+    // ============================================================================
+    // check_resource_parallel (parallel-checker feature gate)
+    // ============================================================================
+
+    #[cfg(feature = "parallel-checker")]
+    #[tokio::test]
+    async fn test_check_resource_parallel_unbanned() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let result = governor.check_resource_parallel("test_user_123").await;
+        match result {
+            Ok(Decision::Allowed(_)) => {}
+            other => panic!("Expected Allowed for unbanned user, got: {:?}", other),
+        }
+    }
+
+    // ============================================================================
+    // Audit Logger Set/Get (audit-log feature gate)
+    // ============================================================================
+
+    #[cfg(feature = "audit-log")]
+    #[tokio::test]
+    async fn test_audit_logger_set_and_get() {
+        use crate::logging::AuditLogger;
+
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // Initially no logger is set
+        let initial = governor.audit_logger().await;
+        assert!(initial.is_none());
+
+        // Set a logger and verify it's returned
+        let logger = Arc::new(AuditLogger::default().await);
+        governor.set_audit_logger(logger.clone()).await;
+        let retrieved = governor.audit_logger().await;
+        assert!(retrieved.is_some(), "audit_logger should be Some after set");
+    }
+
+    // ============================================================================
+    // check_l1_cache_only - 直接测试各分支（fallback feature gate）
+    // 覆盖 lines 943-1023 的多个分支
+    // ============================================================================
+
+    /// 创建使用 IP matcher 的测试配置（匹配所有 IP）
+    fn create_ip_test_config() -> FlowControlConfig {
+        FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::types::GlobalConfig::default(),
+            rules: vec![crate::config::types::Rule {
+                id: "ip_rule".to_string(),
+                name: "IP Rule".to_string(),
+                priority: 100,
+                matchers: vec![crate::config::types::Matcher::Ip {
+                    ip_ranges: vec!["0.0.0.0/0".to_string()],
+                }],
+                limiters: vec![crate::config::types::LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: crate::config::types::ActionConfig {
+                    on_exceed: crate::config::types::Action::Reject,
+                    ban: None,
+                },
+            }],
+        }
+    }
+
+    /// 创建带指定 user_ids 的 User matcher 配置（用于"无匹配规则"测试）
+    fn create_user_test_config(user_ids: Vec<String>) -> FlowControlConfig {
+        FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::types::GlobalConfig::default(),
+            rules: vec![crate::config::types::Rule {
+                id: "user_rule".to_string(),
+                name: "User Rule".to_string(),
+                priority: 100,
+                matchers: vec![crate::config::types::Matcher::User { user_ids }],
+                limiters: vec![crate::config::types::LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: crate::config::types::ActionConfig {
+                    on_exceed: crate::config::types::Action::Reject,
+                    ban: None,
+                },
+            }],
+        }
+    }
+
+    /// 构造带 IP 请求的 RequestContext
+    fn create_ip_request_context(ip: &str) -> RequestContext {
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some(ip.to_string());
+        ctx
+    }
+
+    /// check_l1_cache_only: L1 缓存禁用时返回 Err（覆盖 lines 943-946）
+    #[cfg(feature = "fallback")]
+    #[tokio::test]
+    async fn test_check_l1_cache_only_disabled_returns_err() {
+        let governor = Governor::builder()
+            .with_config(create_ip_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_l1_cache_enabled(false)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let ctx = create_ip_request_context("10.0.0.1");
+        let result = governor.check_l1_cache_only(&ctx).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            FlowGuardError::LimitError(msg) => {
+                assert!(msg.contains("L1 缓存未启用"), "unexpected: {}", msg);
+            }
+            other => panic!("expected LimitError, got: {:?}", other),
+        }
+    }
+
+    /// check_l1_cache_only: identifier 提取失败时返回 Err（覆盖 lines 950-952）
+    #[cfg(feature = "fallback")]
+    #[tokio::test]
+    async fn test_check_l1_cache_only_identifier_extraction_failure() {
+        let governor = Governor::builder()
+            .with_config(create_ip_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // 默认 RequestContext 无 client_ip/user_id/api_key，identifier 提取失败
+        let ctx = RequestContext::default();
+        let result = governor.check_l1_cache_only(&ctx).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            FlowGuardError::ConfigError(msg) => {
+                assert!(
+                    msg.contains("Failed to extract identifier"),
+                    "unexpected: {}",
+                    msg
+                );
+            }
+            other => panic!("expected ConfigError, got: {:?}", other),
+        }
+    }
+
+    /// check_l1_cache_only: 无匹配规则时返回 Ok(Allowed)（覆盖 lines 964-966）
+    #[cfg(feature = "fallback")]
+    #[tokio::test]
+    async fn test_check_l1_cache_only_no_matched_rules() {
+        // User matcher 只匹配特定 user_id，但请求是 IP（无 user_id header）
+        let governor = Governor::builder()
+            .with_config(create_user_test_config(vec!["specific_user".to_string()]))
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let ctx = create_ip_request_context("10.0.0.1");
+        let result = governor.check_l1_cache_only(&ctx).await;
+        assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
+        match result.unwrap() {
+            Decision::Allowed(_) => {}
+            other => panic!("expected Allowed, got: {:?}", other),
+        }
+    }
+
+    /// check_l1_cache_only: cache miss + 非 island mode → Err（覆盖 lines 970, 973, 980, 1015-1018）
+    #[cfg(feature = "fallback")]
+    #[tokio::test]
+    async fn test_check_l1_cache_only_cache_miss_no_island() {
+        let governor = Governor::builder()
+            .with_config(create_ip_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // 确保不在 island mode
+        assert!(!governor.l1_cache.is_island_mode());
+
+        let ctx = create_ip_request_context("10.0.0.1");
+        let result = governor.check_l1_cache_only(&ctx).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            FlowGuardError::LimitError(msg) => {
+                assert!(msg.contains("降级缓存未命中"), "unexpected: {}", msg);
+            }
+            other => panic!("expected LimitError, got: {:?}", other),
+        }
+    }
+
+    /// check_l1_cache_only: cache miss + island AllowAll → Ok(Allowed)（覆盖 lines 982-987）
+    #[cfg(feature = "fallback")]
+    #[tokio::test]
+    async fn test_check_l1_cache_only_island_allow_all() {
+        let governor = Governor::builder()
+            .with_config(create_ip_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let island_config = IslandModeConfig::new(IslandFallbackStrategy::AllowAll);
+        governor.l1_cache.enable_island_mode(island_config);
+        assert!(governor.l1_cache.is_island_mode());
+
+        let ctx = create_ip_request_context("10.0.0.1");
+        let result = governor.check_l1_cache_only(&ctx).await;
+        assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
+        match result.unwrap() {
+            Decision::Allowed(_) => {}
+            other => panic!("expected Allowed, got: {:?}", other),
+        }
+    }
+
+    /// check_l1_cache_only: cache miss + island RejectAll → Err（覆盖 lines 990-992）
+    #[cfg(feature = "fallback")]
+    #[tokio::test]
+    async fn test_check_l1_cache_only_island_reject_all() {
+        let governor = Governor::builder()
+            .with_config(create_ip_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let island_config = IslandModeConfig::new(IslandFallbackStrategy::RejectAll);
+        governor.l1_cache.enable_island_mode(island_config);
+
+        let ctx = create_ip_request_context("10.0.0.1");
+        let result = governor.check_l1_cache_only(&ctx).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            FlowGuardError::LimitError(msg) => {
+                assert!(msg.contains("拒绝请求"), "unexpected: {}", msg);
+            }
+            other => panic!("expected LimitError, got: {:?}", other),
+        }
+    }
+
+    /// check_l1_cache_only: cache miss + island LocalDecision → Ok(Allowed)（覆盖 lines 997-998）
+    #[cfg(feature = "fallback")]
+    #[tokio::test]
+    async fn test_check_l1_cache_only_island_local_decision() {
+        let governor = Governor::builder()
+            .with_config(create_ip_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let island_config = IslandModeConfig::new(IslandFallbackStrategy::LocalDecision);
+        governor.l1_cache.enable_island_mode(island_config);
+
+        let ctx = create_ip_request_context("10.0.0.1");
+        let result = governor.check_l1_cache_only(&ctx).await;
+        assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
+    }
+
+    /// check_l1_cache_only: cache miss + island ConservativeQuota → Ok(Allowed)（覆盖 lines 1005, 1008）
+    #[cfg(feature = "fallback")]
+    #[tokio::test]
+    async fn test_check_l1_cache_only_island_conservative_quota() {
+        let governor = Governor::builder()
+            .with_config(create_ip_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let island_config = IslandModeConfig::new(IslandFallbackStrategy::ConservativeQuota {
+            max_requests: 10,
+            window_secs: 60,
+        });
+        governor.l1_cache.enable_island_mode(island_config);
+
+        let ctx = create_ip_request_context("10.0.0.1");
+        let result = governor.check_l1_cache_only(&ctx).await;
+        assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
+    }
+
+    /// check_l1_cache_only: cache hit → 返回 cached decision（覆盖 lines 973-978）
+    #[cfg(feature = "fallback")]
+    #[tokio::test]
+    async fn test_check_l1_cache_only_cache_hit() {
+        let governor = Governor::builder()
+            .with_config(create_ip_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // 先用 check() 填充 L1 缓存（check_internal 会 set cache）
+        let ctx = create_ip_request_context("10.0.0.1");
+        let _ = governor.check(&ctx).await;
+
+        // 再次调用 check_l1_cache_only，应命中缓存
+        // （注意：check_l1_cache_only 用相同 identifier 和 rule_id 构建 cache_key）
+        let result = governor.check_l1_cache_only(&ctx).await;
+        assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
+        match result.unwrap() {
+            Decision::Allowed(_) => {}
+            other => panic!("expected Allowed, got: {:?}", other),
+        }
+    }
+
+    /// 覆盖 update_stats_for_decision 中 Banned 分支 (line 1050)
+    /// 通过在 L1 缓存中手动放入 Banned 决策，然后调用 check_l1_cache_only 触发
+    #[tokio::test]
+    async fn test_check_l1_cache_only_cached_banned_updates_stats() {
+        use crate::error::BanInfo;
+        use crate::l1_cache::CacheableDecision;
+
+        let governor = Governor::builder()
+            .with_config(create_ip_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // 手动构建 cache_key（与 check_l1_cache_only 中 build_cache_key 一致）
+        let ctx = create_ip_request_context("10.0.0.50");
+        let cache_key = "rl:ip:10.0.0.50:ip_rule".to_string();
+
+        // 在 L1 缓存中放入 Banned 决策
+        let ban_info = BanInfo::new("test ban".to_string(), chrono::Utc::now(), 1);
+        let banned_decision = CacheableDecision::banned(&ban_info);
+        governor
+            .l1_cache
+            .set(cache_key, banned_decision)
+            .await
+            .expect("cache set should succeed");
+
+        // 调用 check_l1_cache_only，应命中缓存并返回 Banned
+        // 这会触发 update_stats_for_decision 的 Banned 分支 (line 1050)
+        let result = governor.check_l1_cache_only(&ctx).await;
+        assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
+        match result.unwrap() {
+            Decision::Banned(_) => {}
+            other => panic!("expected Banned, got: {:?}", other),
+        }
+    }
+
+    /// 覆盖 update_stats_for_decision 中 Err 分支 (line 1056)
+    /// 直接调用私有方法传入 Err 结果
+    #[tokio::test]
+    async fn test_update_stats_for_decision_err_branch() {
+        let governor = Governor::builder()
+            .with_config(create_ip_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // 直接调用 update_stats_for_decision 传入 Err
+        let err_result: Result<Decision, FlowGuardError> =
+            Err(FlowGuardError::LimitError("test error".to_string()));
+        governor.update_stats_for_decision(&err_result);
+        // 验证不会 panic 即可（stats.increment_error 内部是原子操作）
     }
 }

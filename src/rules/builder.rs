@@ -37,7 +37,7 @@ use std::time::Duration;
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::rule_builder::RuleBuilder;
+/// use limiteron::rules::builder::RuleBuilder;
 /// use limiteron::config::FlowControlConfig;
 ///
 /// let config = FlowControlConfig::default();
@@ -67,7 +67,7 @@ impl RuleBuilder {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::rule_builder::RuleBuilder;
+    /// use limiteron::rules::builder::RuleBuilder;
     /// use std::time::Duration;
     ///
     /// assert_eq!(RuleBuilder::parse_duration("100ms").unwrap(), Duration::from_millis(100));
@@ -76,7 +76,7 @@ impl RuleBuilder {
     /// assert_eq!(RuleBuilder::parse_duration("2h").unwrap(), Duration::from_secs(7200));
     /// ```
     pub fn parse_duration(s: &str) -> Result<Duration, FlowGuardError> {
-        crate::config::types::parse_window_size(s).map_err(|e| FlowGuardError::ConfigError(e))
+        crate::config::types::parse_window_size(s).map_err(FlowGuardError::ConfigError)
     }
 
     /// 从配置构建规则对应的决策链
@@ -93,7 +93,7 @@ impl RuleBuilder {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::rule_builder::RuleBuilder;
+    /// use limiteron::rules::builder::RuleBuilder;
     /// use limiteron::config::FlowControlConfig;
     ///
     /// let config = FlowControlConfig::default();
@@ -201,7 +201,7 @@ impl RuleBuilder {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::rule_builder::RuleBuilder;
+    /// use limiteron::rules::builder::RuleBuilder;
     /// use limiteron::config::FlowControlConfig;
     ///
     /// let config = FlowControlConfig::default();
@@ -274,7 +274,7 @@ impl RuleBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::types::{ActionConfig, Matcher, Rule};
+    use crate::config::types::{ActionConfig, Matcher, QuotaType, Rule};
 
     #[test]
     fn test_parse_duration_milliseconds() {
@@ -461,5 +461,509 @@ mod tests {
         };
         let chains = RuleBuilder::build_rule_chains(&config).unwrap();
         assert!(chains.is_empty());
+    }
+
+    // ==================== build_rules coverage expansion ====================
+
+    #[test]
+    fn test_build_rules_single_user_matcher() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "user-rule".into(),
+                name: "User Rule".into(),
+                priority: 10,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["user1".into(), "user2".into()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let rules = RuleBuilder::build_rules(&config).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, "user-rule");
+        assert_eq!(rules[0].name, "User Rule");
+        assert_eq!(rules[0].priority, 10);
+        assert!(rules[0].enabled);
+    }
+
+    #[test]
+    fn test_build_rules_single_ip_matcher() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "ip-rule".into(),
+                name: "IP Rule".into(),
+                priority: 20,
+                matchers: vec![Matcher::Ip {
+                    ip_ranges: vec!["10.0.0.0/8".into()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let rules = RuleBuilder::build_rules(&config).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, "ip-rule");
+    }
+
+    #[test]
+    fn test_build_rules_invalid_ip_range() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "bad-ip".into(),
+                name: "Bad IP".into(),
+                priority: 1,
+                matchers: vec![Matcher::Ip {
+                    ip_ranges: vec!["not-an-ip".into()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        assert!(RuleBuilder::build_rules(&config).is_err());
+    }
+
+    #[test]
+    fn test_build_rules_single_geo_matcher() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "geo-rule".into(),
+                name: "Geo Rule".into(),
+                priority: 30,
+                matchers: vec![Matcher::Geo {
+                    countries: vec!["US".into(), "CN".into()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 200,
+                    refill_rate: 20,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let rules = RuleBuilder::build_rules(&config).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, "geo-rule");
+    }
+
+    #[test]
+    fn test_build_rules_single_api_version_matcher() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "api-rule".into(),
+                name: "API Rule".into(),
+                priority: 40,
+                matchers: vec![Matcher::ApiVersion {
+                    versions: vec!["v1".into(), "v2".into()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 300,
+                    refill_rate: 30,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let rules = RuleBuilder::build_rules(&config).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, "api-rule");
+    }
+
+    #[test]
+    fn test_build_rules_single_device_matcher() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "device-rule".into(),
+                name: "Device Rule".into(),
+                priority: 50,
+                matchers: vec![Matcher::Device {
+                    device_types: vec!["mobile".into(), "desktop".into()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 400,
+                    refill_rate: 40,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let rules = RuleBuilder::build_rules(&config).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, "device-rule");
+    }
+
+    #[test]
+    fn test_build_rules_custom_matcher() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "custom-rule".into(),
+                name: "Custom Rule".into(),
+                priority: 60,
+                matchers: vec![Matcher::Custom {
+                    name: "my-custom".into(),
+                    config: serde_json::json!({"key": "value"}),
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 500,
+                    refill_rate: 50,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let rules = RuleBuilder::build_rules(&config).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, "custom-rule");
+    }
+
+    #[test]
+    fn test_build_rules_multiple_matchers_composite() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "composite-rule".into(),
+                name: "Composite Rule".into(),
+                priority: 70,
+                matchers: vec![
+                    Matcher::User {
+                        user_ids: vec!["user1".into()],
+                    },
+                    Matcher::Geo {
+                        countries: vec!["US".into()],
+                    },
+                ],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 600,
+                    refill_rate: 60,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let rules = RuleBuilder::build_rules(&config).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id, "composite-rule");
+    }
+
+    #[test]
+    fn test_build_rules_no_matchers_skipped() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "skip-rule".into(),
+                name: "Skip Rule".into(),
+                priority: 1,
+                matchers: vec![],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let rules = RuleBuilder::build_rules(&config).unwrap();
+        assert!(rules.is_empty());
+    }
+
+    #[test]
+    fn test_build_rules_multiple_rules_various_matchers() {
+        let config = FlowControlConfig {
+            rules: vec![
+                Rule {
+                    id: "rule-a".into(),
+                    name: "Rule A".into(),
+                    priority: 1,
+                    matchers: vec![Matcher::User {
+                        user_ids: vec!["user1".into()],
+                    }],
+                    limiters: vec![LimiterConfig::TokenBucket {
+                        capacity: 100,
+                        refill_rate: 10,
+                    }],
+                    action: ActionConfig::default(),
+                },
+                Rule {
+                    id: "rule-b".into(),
+                    name: "Rule B".into(),
+                    priority: 2,
+                    matchers: vec![Matcher::Device {
+                        device_types: vec!["mobile".into()],
+                    }],
+                    limiters: vec![LimiterConfig::FixedWindow {
+                        window_size: "1m".into(),
+                        max_requests: 100,
+                    }],
+                    action: ActionConfig::default(),
+                },
+            ],
+            ..Default::default()
+        };
+        let rules = RuleBuilder::build_rules(&config).unwrap();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].id, "rule-a");
+        assert_eq!(rules[1].id, "rule-b");
+        assert_eq!(rules[0].priority, 1);
+        assert_eq!(rules[1].priority, 2);
+    }
+
+    // ==================== build_rule_chains coverage expansion ====================
+
+    #[test]
+    fn test_build_rule_chains_sliding_window() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "sliding-rule".into(),
+                name: "Sliding Window Rule".into(),
+                priority: 1,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["user1".into()],
+                }],
+                limiters: vec![LimiterConfig::SlidingWindow {
+                    window_size: "30s".into(),
+                    max_requests: 100,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert_eq!(chains.len(), 1);
+        assert!(chains.contains_key("sliding-rule"));
+        let chain = chains.get("sliding-rule").unwrap();
+        assert_eq!(chain.node_count(), 1);
+    }
+
+    #[test]
+    fn test_build_rule_chains_concurrency() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "concurrency-rule".into(),
+                name: "Concurrency Rule".into(),
+                priority: 1,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["user1".into()],
+                }],
+                limiters: vec![LimiterConfig::Concurrency { max_concurrent: 50 }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert_eq!(chains.len(), 1);
+        assert!(chains.contains_key("concurrency-rule"));
+        let chain = chains.get("concurrency-rule").unwrap();
+        assert_eq!(chain.node_count(), 1);
+    }
+
+    #[test]
+    fn test_build_rule_chains_quota_skipped() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "quota-rule".into(),
+                name: "Quota Rule".into(),
+                priority: 1,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["user1".into()],
+                }],
+                limiters: vec![LimiterConfig::Quota {
+                    quota_type: QuotaType::Count,
+                    limit: 1000,
+                    window: "1d".into(),
+                    alert_threshold: Some(80),
+                    overdraft: None,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert_eq!(chains.len(), 1);
+        assert!(chains.contains_key("quota-rule"));
+        let chain = chains.get("quota-rule").unwrap();
+        assert_eq!(chain.node_count(), 0);
+    }
+
+    #[test]
+    fn test_build_rule_chains_custom_skipped() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "custom-rule".into(),
+                name: "Custom Limiter Rule".into(),
+                priority: 1,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["user1".into()],
+                }],
+                limiters: vec![LimiterConfig::Custom {
+                    name: "my-custom-limiter".into(),
+                    config: serde_json::json!({"key": "value"}),
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert_eq!(chains.len(), 1);
+        assert!(chains.contains_key("custom-rule"));
+        let chain = chains.get("custom-rule").unwrap();
+        assert_eq!(chain.node_count(), 0);
+    }
+
+    #[test]
+    fn test_build_rule_chains_multiple_limiters_per_rule() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "multi-limiter".into(),
+                name: "Multi Limiter".into(),
+                priority: 1,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["user1".into()],
+                }],
+                limiters: vec![
+                    LimiterConfig::TokenBucket {
+                        capacity: 100,
+                        refill_rate: 10,
+                    },
+                    LimiterConfig::FixedWindow {
+                        window_size: "1m".into(),
+                        max_requests: 50,
+                    },
+                ],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert_eq!(chains.len(), 1);
+        assert!(chains.contains_key("multi-limiter"));
+        let chain = chains.get("multi-limiter").unwrap();
+        assert_eq!(chain.node_count(), 2);
+    }
+
+    #[test]
+    fn test_build_rule_chains_invalid_window_size() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "bad-window".into(),
+                name: "Bad Window".into(),
+                priority: 1,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["user1".into()],
+                }],
+                limiters: vec![LimiterConfig::SlidingWindow {
+                    window_size: "invalid".into(),
+                    max_requests: 100,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        assert!(RuleBuilder::build_rule_chains(&config).is_err());
+    }
+
+    #[test]
+    fn test_build_rule_chains_all_limiter_types() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "all-types".into(),
+                name: "All Types".into(),
+                priority: 100,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["user1".into()],
+                }],
+                limiters: vec![
+                    LimiterConfig::TokenBucket {
+                        capacity: 100,
+                        refill_rate: 10,
+                    },
+                    LimiterConfig::SlidingWindow {
+                        window_size: "30s".into(),
+                        max_requests: 200,
+                    },
+                    LimiterConfig::FixedWindow {
+                        window_size: "1m".into(),
+                        max_requests: 50,
+                    },
+                    LimiterConfig::Concurrency { max_concurrent: 25 },
+                    LimiterConfig::Quota {
+                        quota_type: QuotaType::Count,
+                        limit: 1000,
+                        window: "1d".into(),
+                        alert_threshold: None,
+                        overdraft: None,
+                    },
+                    LimiterConfig::Custom {
+                        name: "test".into(),
+                        config: serde_json::json!({"key": "val"}),
+                    },
+                ],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert_eq!(chains.len(), 1);
+        let chain = chains.get("all-types").unwrap();
+        assert_eq!(chain.node_count(), 4);
+    }
+
+    #[test]
+    fn test_build_rule_chains_with_fixed_window() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "fixed-rule".into(),
+                name: "Fixed Window Rule".into(),
+                priority: 1,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["user1".into()],
+                }],
+                limiters: vec![LimiterConfig::FixedWindow {
+                    window_size: "5m".into(),
+                    max_requests: 200,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert_eq!(chains.len(), 1);
+        assert!(chains.contains_key("fixed-rule"));
+        let chain = chains.get("fixed-rule").unwrap();
+        assert_eq!(chain.node_count(), 1);
+    }
+
+    #[test]
+    fn test_build_rule_chains_token_bucket_boundary_values() {
+        let config = FlowControlConfig {
+            rules: vec![Rule {
+                id: "boundary".into(),
+                name: "Boundary".into(),
+                priority: 1,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["user1".into()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 1,
+                    refill_rate: 1,
+                }],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+        let chains = RuleBuilder::build_rule_chains(&config).unwrap();
+        assert_eq!(chains.len(), 1);
+        assert!(chains.contains_key("boundary"));
+        let chain = chains.get("boundary").unwrap();
+        assert_eq!(chain.node_count(), 1);
     }
 }

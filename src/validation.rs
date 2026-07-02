@@ -528,4 +528,174 @@ mod tests {
         let invalid_mac = BanTarget::Mac("invalid".to_string());
         assert!(validate_ban_target(&invalid_mac).is_err());
     }
+
+    // ==================== IP 地址长度边界测试 ====================
+
+    #[test]
+    fn test_validate_ip_address_length_exceeded() {
+        // MAX_IP_ADDRESS_LENGTH = 45, 构造一个超长地址
+        let long_ip = format!(
+            "{}:{}:{}:{}:{}:{}:{}:{}",
+            "11111", "22222", "33333", "44444", "55555", "66666", "77777", "88888"
+        );
+        assert!(long_ip.len() > 45);
+        assert!(validate_ip_address(&long_ip).is_err());
+    }
+
+    #[test]
+    fn test_validate_ip_address_max_length_boundary() {
+        // 精确的最大长度 45 字符的 IPv6 地址
+        assert!(validate_ip_address("1234:5678:9abc:def0:1234:5678:9abc:def0").is_ok());
+    }
+
+    // ==================== 用户 ID 边界测试 ====================
+
+    #[test]
+    fn test_validate_user_id_length_exceeded() {
+        // MAX_USER_ID_LENGTH = 256
+        let long_id = "x".repeat(257);
+        assert!(validate_user_id(&long_id).is_err());
+    }
+
+    #[test]
+    fn test_validate_user_id_max_length_boundary() {
+        let max_id = "x".repeat(256);
+        assert!(validate_user_id(&max_id).is_ok());
+    }
+
+    #[test]
+    fn test_validate_user_id_dot_allowed() {
+        assert!(validate_user_id("user.name").is_ok());
+        assert!(validate_user_id("first.last@domain.com").is_ok());
+    }
+
+    #[test]
+    fn test_validate_user_id_underscore_at_boundary() {
+        assert!(validate_user_id("_").is_ok());
+        assert!(validate_user_id("-").is_ok());
+        assert!(validate_user_id("@").is_ok());
+        assert!(validate_user_id(".").is_ok());
+    }
+
+    // ==================== MAC 地址格式变体测试 ====================
+
+    #[test]
+    fn test_validate_mac_address_hyphens() {
+        // MAC 地址使用连字符格式
+        assert!(validate_mac_address("AA-BB-CC-DD-EE-FF").is_ok());
+        assert!(validate_mac_address("aa-bb-cc-dd-ee-ff").is_ok());
+    }
+
+    #[test]
+    fn test_validate_mac_address_periods() {
+        // MAC 地址使用点分格式
+        assert!(validate_mac_address("AABB.CCDD.EEFF").is_ok());
+        assert!(validate_mac_address("0011.2233.4455").is_ok());
+    }
+
+    #[test]
+    fn test_validate_mac_address_mixed_case() {
+        assert!(validate_mac_address("AA:bb:CC:dd:EE:ff").is_ok());
+    }
+
+    // ==================== validate_header_value 测试 ====================
+
+    #[test]
+    fn test_validate_header_value_ok() {
+        assert!(validate_header_value("text/plain").is_ok());
+        assert!(validate_header_value("").is_ok());
+        assert!(validate_header_value("application/json; charset=utf-8").is_ok());
+    }
+
+    #[test]
+    fn test_validate_header_value_exceeds() {
+        // MAX_HEADER_VALUE_LENGTH = 8192
+        let long_value = "x".repeat(8193);
+        assert!(validate_header_value(&long_value).is_err());
+    }
+
+    #[test]
+    fn test_validate_header_value_max_boundary() {
+        let max_value = "x".repeat(8192);
+        assert!(validate_header_value(&max_value).is_ok());
+    }
+
+    // ==================== validate_path 测试 ====================
+
+    #[test]
+    fn test_validate_path_ok() {
+        assert!(validate_path("/api/v1/users").is_ok());
+        assert!(validate_path("").is_ok());
+        assert!(validate_path("/").is_ok());
+    }
+
+    #[test]
+    fn test_validate_path_exceeds() {
+        // MAX_PATH_LENGTH = 2048
+        let long_path = "/".to_string() + &"x".repeat(2048);
+        assert!(long_path.len() > 2048);
+        assert!(validate_path(&long_path).is_err());
+    }
+
+    #[test]
+    fn test_validate_path_max_boundary() {
+        let max_path = "/".to_string() + &"x".repeat(2047);
+        assert_eq!(max_path.len(), 2048);
+        assert!(validate_path(&max_path).is_ok());
+    }
+
+    // ==================== validate_ban_reason 边界测试 ====================
+
+    #[test]
+    fn test_validate_ban_reason_empty() {
+        assert!(validate_ban_reason("").is_ok());
+    }
+
+    #[test]
+    fn test_validate_ban_reason_exact_max() {
+        assert!(validate_ban_reason(&"x".repeat(500)).is_ok());
+    }
+
+    // ==================== validate_api_key 边界测试 ====================
+
+    #[test]
+    fn test_validate_api_key_empty() {
+        assert!(validate_api_key("").is_ok());
+    }
+
+    #[test]
+    fn test_validate_api_key_exact_max() {
+        assert!(validate_api_key(&"k".repeat(512)).is_ok());
+    }
+
+    // ==================== validate_length 边界测试 ====================
+
+    #[test]
+    fn test_validate_length_zero_value() {
+        assert!(validate_length("", 0, "field").is_ok());
+    }
+
+    #[test]
+    fn test_validate_length_zero_max() {
+        assert!(validate_length("x", 0, "field").is_err());
+    }
+
+    #[test]
+    fn test_validate_length_exact_boundary() {
+        assert!(validate_length("abc", 3, "field").is_ok());
+        assert!(validate_length("abcd", 3, "field").is_err());
+    }
+
+    // ==================== extract_ip_part 额外测试 ====================
+
+    #[test]
+    fn test_validate_ip_address_single_colon_no_dot() {
+        // colon_count == 1 但 potential_ip 不含 '.' -> 回退到完整字符串
+        assert!(validate_ip_address("hostname:8080").is_err());
+    }
+
+    #[test]
+    fn test_validate_ip_address_trailing_dot_invalid() {
+        assert!(validate_ip_address("192.168.1.").is_err());
+    }
 }

@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### BREAKING Changes
+
+- **`default = []`**: Cargo.toml 的 `default` feature 从 `["postgres"]` 改为 `[]`。用户必须显式启用 feature 才能使用对应功能。
+  - 迁移示例：`cargo build --features standard`（推荐）或 `cargo build --features postgres`（仅存储）
+  - 默认构建 `cargo build` 现在只包含核心限流功能，不含 PostgreSQL 存储
+- **移除死 feature flags**: `code-review` 和 `advanced-matchers` feature 从 `full` preset 和定义中移除（全仓库零 `#[cfg(feature = "...")]` 引用）
+- **oxcache 升级 0.2.0 → 0.3.0**: 适配 oxcache 0.3.0 API。oxcache 0.2.0/0.3.0 有编译 bug（security 模块无 feature gate 但引用 regex crate），启用 `core` feature 作为 workaround
+
+### Security
+
+- **SSRF 防护加固** (`src/webhook_validator.rs`): 修复 IPv4-mapped IPv6 地址绕过（如 `::ffff:10.0.0.1` 不会被私有 IP 检查捕获）、未指定地址（`0.0.0.0`/`::`）、IPv6 链路本地地址（`fe80::/10`）的检查缺失
+
+### Removed
+
+- **Dead code 清理**: 移除 11 个 dead-code 警告对应的代码（`DecisionNodeBuilder`、`MAX_REGEX_NESTING_DEPTH`、`L1Cache::island_stats` 等），基于 gitnexus 影响分析确认无外部调用
+
+### Developer Experience
+
+- **`.gitignore` 加固**: 添加 `*.profraw`、`coverage/`、`tarpaulin/` 规则，防止覆盖率文件污染仓库
+
 ## [0.1.1] - 2026-01-20
 
 ### Added

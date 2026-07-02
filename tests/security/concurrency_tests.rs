@@ -5,10 +5,8 @@
 //! - 死锁测试（多锁场景死锁检测、超时恢复验证）
 
 use crate::common::{MockBanStorage, MockQuotaStorage};
-use limiteron::{
-    FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter,
-};
 use limiteron::{BanStorage, QuotaStorage};
+use limiteron::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

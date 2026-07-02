@@ -15,6 +15,11 @@ ahash = "0.8.12"
 chrono = { version = "0.4", features = ["serde"] }
 serde_json = "1.0"
 futures = "0.3"
+# oxcache 用于 fallback_demo 的 FallbackManager L2 缓存
+oxcache = { version = "0.3.0", default-features = false, features = ["core"] }
+# http/tower 用于 tower_middleware 的 Tower Service/Layer 集成
+http = "~1.4"
+tower = "~0.5"
 
 [[bin]]
 name = "simple_rate_limit"
@@ -43,15 +48,111 @@ name = "ban_manager"
 path = "src/bin/ban_manager.rs"
 required-features = ["ban-manager"]
 
+# ============================================================================
+# Part 1: 核心 API 示例（无 feature 依赖）
+# ============================================================================
+
+[[bin]]
+name = "governor_demo"
+path = "src/bin/governor_demo.rs"
+
+[[bin]]
+name = "matchers_demo"
+path = "src/bin/matchers_demo.rs"
+
+[[bin]]
+name = "decision_chain"
+path = "src/bin/decision_chain.rs"
+
+[[bin]]
+name = "custom_matchers"
+path = "src/bin/custom_matchers.rs"
+
+[[bin]]
+name = "authorization_demo"
+path = "src/bin/authorization_demo.rs"
+
+[[bin]]
+name = "validation_demo"
+path = "src/bin/validation_demo.rs"
+required-features = ["validation"]
+
+# ============================================================================
+# Part 2: Feature-gated 示例
+# ============================================================================
+
+[[bin]]
+name = "storage_factory"
+path = "src/bin/storage_factory.rs"
+required-features = ["postgres"]
+
+[[bin]]
+name = "fallback_demo"
+path = "src/bin/fallback_demo.rs"
+required-features = ["fallback"]
+
+[[bin]]
+name = "audit_log_demo"
+path = "src/bin/audit_log_demo.rs"
+required-features = ["audit-log"]
+
+[[bin]]
+name = "tower_middleware"
+path = "src/bin/tower_middleware.rs"
+required-features = ["tower-middleware"]
+
+[[bin]]
+name = "telemetry_demo"
+path = "src/bin/telemetry_demo.rs"
+required-features = ["telemetry"]
+
+[[bin]]
+name = "device_geo_matching"
+path = "src/bin/device_geo_matching.rs"
+required-features = ["device-matching", "geo-matching"]
+
 [features]
 default = []
+# 核心功能
 macros = ["limiteron/macros"]
 circuit-breaker = ["limiteron/circuit-breaker"]
 quota-control = ["limiteron/quota-control"]
 ban-manager = ["limiteron/ban-manager"]
-full = ["macros", "circuit-breaker", "quota-control", "ban-manager"]
+# 存储后端
+postgres = ["limiteron/postgres"]
+cache-service = ["limiteron/cache-service"]
+# 可观测性
 telemetry = ["limiteron/telemetry"]
 monitoring = ["limiteron/monitoring"]
+audit-log = ["limiteron/audit-log"]
+# 降级与中间件
+fallback = ["limiteron/fallback"]
+tower-middleware = ["limiteron/tower-middleware"]
+# 高级匹配
+device-matching = ["limiteron/device-matching"]
+geo-matching = ["limiteron/geo-matching"]
+# 验证（含 ban-manager workaround：validate_ban_target 需要 ban-manager feature）
+validation = ["limiteron/validation", "limiteron/ban-manager"]
+# 事件系统
+event-system = ["limiteron/event-system"]
+# 完整功能（包含所有示例所需的 features）
+full = [
+    "macros",
+    "circuit-breaker",
+    "quota-control",
+    "ban-manager",
+    "postgres",
+    "cache-service",
+    "telemetry",
+    "monitoring",
+    "audit-log",
+    "fallback",
+    "tower-middleware",
+    "device-matching",
+    "geo-matching",
+    "validation",
+    "event-system",
+]
 
 [dev-dependencies]
 tokio-test = "0.4"

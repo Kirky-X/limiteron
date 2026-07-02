@@ -209,7 +209,7 @@ impl BanStorage for MemoryBanStorage {
     ) -> Result<Vec<BanRecord>, StorageError> {
         let bans = self.bans.read().await;
         let now = Utc::now();
-        let mut records: Vec<_> = bans.values().cloned().collect();
+        let mut records: Vec<_> = bans.values().map(Clone::clone).collect();
 
         if active_only {
             records.retain(|r| r.expires_at > now);

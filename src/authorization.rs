@@ -323,11 +323,11 @@ impl AuthorizationProvider for DenyAllAuthorizationProvider {
 ///
 /// ```rust
 /// use limiteron::authorization::{OperationAuthorizationProvider, AuthorizationProvider};
-/// use std::collections::HashMap;
+/// use ahash::AHashMap;
 ///
 /// #[tokio::main]
 /// async fn main() {
-///     let mut operation_roles = HashMap::new();
+///     let mut operation_roles = AHashMap::new();
 ///     operation_roles.insert("create_ban".to_string(), vec!["admin".to_string(), "moderator".to_string()]);
 ///     operation_roles.insert("remove_ban".to_string(), vec!["admin".to_string()]);
 ///

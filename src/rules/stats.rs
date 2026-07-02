@@ -47,7 +47,7 @@ pub struct StatsSnapshot {
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::stats_manager::StatsManager;
+/// use limiteron::rules::stats::StatsManager;
 ///
 /// let stats = StatsManager::new();
 ///
@@ -83,7 +83,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// ```
@@ -110,7 +110,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::with_values(100, 80, 10, 5, 5);
     /// ```
@@ -129,7 +129,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_total();
@@ -145,7 +145,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_allowed();
@@ -161,7 +161,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_rejected();
@@ -177,7 +177,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_banned();
@@ -193,7 +193,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_error();
@@ -213,7 +213,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_total();
@@ -239,7 +239,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_total();
@@ -264,7 +264,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_total();
@@ -280,7 +280,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_allowed();
@@ -296,7 +296,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_rejected();
@@ -312,7 +312,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_banned();
@@ -328,7 +328,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_error();
@@ -348,7 +348,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_total();
@@ -375,7 +375,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_total();
@@ -402,7 +402,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_total();
@@ -429,7 +429,7 @@ impl StatsManager {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::stats_manager::StatsManager;
+    /// use limiteron::rules::stats::StatsManager;
     ///
     /// let stats = StatsManager::new();
     /// stats.increment_total();

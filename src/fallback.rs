@@ -161,6 +161,7 @@ impl FallbackManager {
     ///         .capacity(10000)
     ///         .ttl(Duration::from_secs(300))
     ///         .build()
+    ///         .await
     ///         .unwrap();
     ///     let manager = FallbackManager::new(Arc::new(cache));
     /// }
@@ -252,6 +253,8 @@ impl FallbackManager {
     /// use limiteron::fallback::{FallbackManager, FallbackStrategy, ComponentType};
     /// use limiteron::error::FlowGuardError;
     /// use oxcache::Cache;
+    /// use std::sync::Arc;
+    /// use std::time::Duration;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -790,5 +793,434 @@ mod tests {
 
         let cache = manager.l2_cache();
         assert_eq!(cache.len().await.unwrap(), 0);
+    }
+
+    // ==================== ComponentType & FallbackStrategy Tests ====================
+
+    #[test]
+    fn test_component_type_from_str_all_variants() {
+        assert_eq!(ComponentType::from("l2_cache"), ComponentType::L2Cache);
+        assert_eq!(ComponentType::from("config"), ComponentType::Config);
+        assert_eq!(ComponentType::from("ban"), ComponentType::Ban);
+        assert_eq!(ComponentType::from("quota"), ComponentType::Quota);
+        assert_eq!(
+            ComponentType::from("custom_service"),
+            ComponentType::Other("custom_service".to_string())
+        );
+    }
+
+    #[test]
+    fn test_component_type_from_str_case_insensitive() {
+        assert_eq!(ComponentType::from("REDIS"), ComponentType::Redis);
+        assert_eq!(ComponentType::from("Postgres"), ComponentType::Postgres);
+        assert_eq!(ComponentType::from("L2_CACHE"), ComponentType::L2Cache);
+        assert_eq!(ComponentType::from("Config"), ComponentType::Config);
+        assert_eq!(ComponentType::from("BAN"), ComponentType::Ban);
+        assert_eq!(ComponentType::from("QUOTA"), ComponentType::Quota);
+    }
+
+    #[test]
+    fn test_component_type_as_str_all_variants() {
+        assert_eq!(ComponentType::Redis.as_str(), "redis");
+        assert_eq!(ComponentType::Postgres.as_str(), "postgres");
+        assert_eq!(ComponentType::L2Cache.as_str(), "l2_cache");
+        assert_eq!(ComponentType::Config.as_str(), "config");
+        assert_eq!(ComponentType::Ban.as_str(), "ban");
+        assert_eq!(ComponentType::Quota.as_str(), "quota");
+        assert_eq!(
+            ComponentType::Other("custom_type".to_string()).as_str(),
+            "custom_type"
+        );
+    }
+
+    #[test]
+    fn test_component_type_other_equality() {
+        assert_eq!(
+            ComponentType::Other("a".to_string()),
+            ComponentType::Other("a".to_string())
+        );
+        assert_ne!(
+            ComponentType::Other("a".to_string()),
+            ComponentType::Other("b".to_string())
+        );
+        assert_ne!(ComponentType::Other("a".to_string()), ComponentType::Redis);
+    }
+
+    #[test]
+    fn test_component_type_serde_roundtrip() {
+        let variants = vec![
+            ComponentType::Redis,
+            ComponentType::Postgres,
+            ComponentType::L2Cache,
+            ComponentType::Config,
+            ComponentType::Ban,
+            ComponentType::Quota,
+            ComponentType::Other("custom".to_string()),
+        ];
+        for variant in variants {
+            let json = serde_json::to_string(&variant).unwrap();
+            let deserialized: ComponentType = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized, variant);
+        }
+    }
+
+    #[test]
+    fn test_fallback_strategy_serde_roundtrip() {
+        let variants = vec![
+            FallbackStrategy::FailOpen,
+            FallbackStrategy::FailClosed,
+            FallbackStrategy::Degraded,
+        ];
+        for variant in variants {
+            let json = serde_json::to_string(&variant).unwrap();
+            let deserialized: FallbackStrategy = serde_json::from_str(&json).unwrap();
+            assert_eq!(deserialized, variant);
+        }
+    }
+
+    #[test]
+    fn test_fallback_strategy_debug() {
+        assert_eq!(format!("{:?}", FallbackStrategy::FailOpen), "FailOpen");
+        assert_eq!(format!("{:?}", FallbackStrategy::FailClosed), "FailClosed");
+        assert_eq!(format!("{:?}", FallbackStrategy::Degraded), "Degraded");
+    }
+
+    // ==================== FallbackConfig Tests ====================
+
+    #[test]
+    fn test_fallback_config_new_defaults() {
+        let config = FallbackConfig::new(ComponentType::Redis, FallbackStrategy::FailOpen);
+        assert_eq!(config.component, ComponentType::Redis);
+        assert_eq!(config.strategy, FallbackStrategy::FailOpen);
+        assert!(config.enabled);
+        assert_eq!(config.timeout, Duration::from_secs(5));
+        assert_eq!(config.max_retries, 3);
+    }
+
+    #[test]
+    fn test_fallback_config_new_other_component() {
+        let config = FallbackConfig::new(
+            ComponentType::Other("custom".to_string()),
+            FallbackStrategy::FailClosed,
+        );
+        assert_eq!(config.component, ComponentType::Other("custom".to_string()));
+        assert_eq!(config.strategy, FallbackStrategy::FailClosed);
+        assert!(config.enabled);
+        assert_eq!(config.max_retries, 3);
+    }
+
+    // ==================== Helper for FallbackManager tests ====================
+
+    async fn create_manager() -> FallbackManager {
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        FallbackManager::new(Arc::new(cache))
+    }
+
+    // ==================== FallbackManager Default Strategies ====================
+
+    #[tokio::test]
+    async fn test_fallback_manager_all_default_strategies() {
+        let manager = create_manager().await;
+
+        let redis = manager.get_strategy(ComponentType::Redis).await.unwrap();
+        assert_eq!(redis.strategy, FallbackStrategy::Degraded);
+
+        let postgres = manager.get_strategy(ComponentType::Postgres).await.unwrap();
+        assert_eq!(postgres.strategy, FallbackStrategy::Degraded);
+
+        let l2 = manager.get_strategy(ComponentType::L2Cache).await.unwrap();
+        assert_eq!(l2.strategy, FallbackStrategy::Degraded);
+
+        let config = manager.get_strategy(ComponentType::Config).await.unwrap();
+        assert_eq!(config.strategy, FallbackStrategy::FailClosed);
+
+        let ban = manager.get_strategy(ComponentType::Ban).await.unwrap();
+        assert_eq!(ban.strategy, FallbackStrategy::Degraded);
+
+        let quota = manager.get_strategy(ComponentType::Quota).await.unwrap();
+        assert_eq!(quota.strategy, FallbackStrategy::Degraded);
+    }
+
+    #[tokio::test]
+    async fn test_fallback_manager_get_strategy_unknown() {
+        let manager = create_manager().await;
+        let result = manager
+            .get_strategy(ComponentType::Other("nonexistent".to_string()))
+            .await;
+        assert!(result.is_none());
+    }
+
+    // ==================== execute_with_fallback edge cases ====================
+
+    #[tokio::test]
+    async fn test_fallback_manager_execute_disabled() {
+        let manager = create_manager().await;
+
+        let config =
+            FallbackConfig::new(ComponentType::Redis, FallbackStrategy::Degraded).enabled(false);
+        manager.set_strategy(ComponentType::Redis, config).await;
+
+        // When disabled, primary runs directly and errors propagate (no fallback)
+        let result: Result<String, FlowGuardError> = manager
+            .execute_with_fallback(
+                ComponentType::Redis,
+                || async {
+                    Err::<String, FlowGuardError>(FlowGuardError::LimitError(
+                        "primary failed".to_string(),
+                    ))
+                },
+                || async { Ok::<String, FlowGuardError>("fallback".to_string()) },
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("primary failed"));
+    }
+
+    #[tokio::test]
+    async fn test_fallback_manager_execute_disabled_success() {
+        let manager = create_manager().await;
+
+        let config =
+            FallbackConfig::new(ComponentType::Redis, FallbackStrategy::Degraded).enabled(false);
+        manager.set_strategy(ComponentType::Redis, config).await;
+
+        let result: Result<String, FlowGuardError> = manager
+            .execute_with_fallback(
+                ComponentType::Redis,
+                || async { Ok::<String, FlowGuardError>("primary_ok".to_string()) },
+                || async { Ok::<String, FlowGuardError>("fallback".to_string()) },
+            )
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "primary_ok");
+    }
+
+    #[tokio::test]
+    async fn test_fallback_manager_execute_unknown_component() {
+        let manager = create_manager().await;
+
+        // Unknown component uses unwrap_or_default -> Degraded, enabled=true
+        let result: Result<String, FlowGuardError> = manager
+            .execute_with_fallback(
+                ComponentType::Other("unknown".to_string()),
+                || async {
+                    Err::<String, FlowGuardError>(FlowGuardError::StorageError(
+                        StorageError::ConnectionError("down".to_string()),
+                    ))
+                },
+                || async { Ok::<String, FlowGuardError>("degraded_ok".to_string()) },
+            )
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "degraded_ok");
+    }
+
+    // ==================== Failure recording and counting ====================
+
+    #[tokio::test]
+    async fn test_fallback_manager_record_failure() {
+        let manager = create_manager().await;
+
+        assert!(!manager.is_failed(ComponentType::Redis).await);
+
+        manager
+            .record_failure(ComponentType::Redis, "connection timeout")
+            .await;
+        assert!(manager.is_failed(ComponentType::Redis).await);
+    }
+
+    #[tokio::test]
+    async fn test_fallback_manager_failure_count_zero() {
+        let manager = create_manager().await;
+
+        let count = manager.get_failure_count(ComponentType::Redis).await;
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_fallback_manager_failure_count_one() {
+        let manager = create_manager().await;
+
+        manager.inject_failure(ComponentType::Redis).await;
+        let count = manager.get_failure_count(ComponentType::Redis).await;
+        assert_eq!(count, 1);
+    }
+
+    // ==================== Island mode (public API) ====================
+
+    #[tokio::test]
+    async fn test_fallback_manager_set_failure_island_mode_enter() {
+        let manager = create_manager().await;
+
+        let entered = Arc::new(std::sync::Mutex::new(None::<bool>));
+        let entered_clone = entered.clone();
+        let callback: IslandModeCallback = Box::new(move |is_island| {
+            *entered_clone.lock().unwrap() = Some(is_island);
+        });
+        manager.register_island_mode_callback(callback).await;
+
+        manager.set_failure(ComponentType::Redis).await;
+
+        assert!(manager.is_failed(ComponentType::Redis).await);
+        assert_eq!(*entered.lock().unwrap(), Some(true));
+    }
+
+    #[tokio::test]
+    async fn test_fallback_manager_clear_failure_island_mode_exit() {
+        let manager = create_manager().await;
+
+        let state = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let state_clone = state.clone();
+        let callback: IslandModeCallback = Box::new(move |is_island| {
+            state_clone.lock().unwrap().push(is_island);
+        });
+        manager.register_island_mode_callback(callback).await;
+
+        manager.set_failure(ComponentType::Redis).await;
+        assert!(manager.is_failed(ComponentType::Redis).await);
+
+        manager.clear_failure(ComponentType::Redis).await;
+        assert!(!manager.is_failed(ComponentType::Redis).await);
+
+        let calls = state.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0], true);
+        assert_eq!(calls[1], false);
+    }
+
+    #[tokio::test]
+    async fn test_fallback_manager_island_mode_lifecycle() {
+        let manager = create_manager().await;
+
+        let state = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let state_clone = state.clone();
+        let callback: IslandModeCallback = Box::new(move |is_island| {
+            state_clone.lock().unwrap().push(is_island);
+        });
+        manager.register_island_mode_callback(callback).await;
+
+        // First failure enters island mode
+        manager.set_failure(ComponentType::Redis).await;
+        {
+            let calls = state.lock().unwrap();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0], true);
+        }
+
+        // Second failure does NOT re-notify (already in island mode)
+        manager.set_failure(ComponentType::Postgres).await;
+        {
+            let calls = state.lock().unwrap();
+            assert_eq!(calls.len(), 1);
+        }
+
+        // Clearing one failure keeps island mode (Postgres still failed)
+        manager.clear_failure(ComponentType::Redis).await;
+        {
+            let calls = state.lock().unwrap();
+            assert_eq!(calls.len(), 1);
+        }
+        assert!(!manager.is_failed(ComponentType::Redis).await);
+        assert!(manager.is_failed(ComponentType::Postgres).await);
+
+        // Clearing last failure exits island mode
+        manager.clear_failure(ComponentType::Postgres).await;
+        {
+            let calls = state.lock().unwrap();
+            assert_eq!(calls.len(), 2);
+            assert_eq!(calls[1], false);
+        }
+        assert!(!manager.is_failed(ComponentType::Postgres).await);
+    }
+
+    #[tokio::test]
+    async fn test_fallback_manager_set_failure_no_notify_twice() {
+        let manager = create_manager().await;
+
+        let count = Arc::new(std::sync::Mutex::new(0u32));
+        let count_clone = count.clone();
+        let callback: IslandModeCallback = Box::new(move |_| {
+            *count_clone.lock().unwrap() += 1;
+        });
+        manager.register_island_mode_callback(callback).await;
+
+        manager.set_failure(ComponentType::Redis).await;
+        manager.set_failure(ComponentType::Postgres).await;
+        manager.set_failure(ComponentType::Ban).await;
+
+        assert_eq!(*count.lock().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_fallback_manager_clear_failure_no_notify_if_still_failed() {
+        let manager = create_manager().await;
+
+        let state = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let state_clone = state.clone();
+        let callback: IslandModeCallback = Box::new(move |is_island| {
+            state_clone.lock().unwrap().push(is_island);
+        });
+        manager.register_island_mode_callback(callback).await;
+
+        manager.set_failure(ComponentType::Redis).await;
+        manager.set_failure(ComponentType::Postgres).await;
+
+        // Clear Redis while Postgres is still failed: no exit notification
+        manager.clear_failure(ComponentType::Redis).await;
+
+        let calls = state.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0], true);
+    }
+
+    #[tokio::test]
+    async fn test_fallback_manager_clear_failure_no_notify_on_empty() {
+        let manager = create_manager().await;
+
+        let count = Arc::new(std::sync::Mutex::new(0u32));
+        let count_clone = count.clone();
+        let callback: IslandModeCallback = Box::new(move |_| {
+            *count_clone.lock().unwrap() += 1;
+        });
+        manager.register_island_mode_callback(callback).await;
+
+        // Clear a non-existent failure — this still triggers exit if no failures
+        manager.clear_failure(ComponentType::Redis).await;
+
+        assert_eq!(*count.lock().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_fallback_manager_register_island_mode_callback_multiple() {
+        let manager = create_manager().await;
+
+        let count = Arc::new(std::sync::Mutex::new(0u32));
+        let c1 = {
+            let count = count.clone();
+            Box::new(move |_: bool| {
+                *count.lock().unwrap() += 1;
+            }) as IslandModeCallback
+        };
+        let c2 = {
+            let count = count.clone();
+            Box::new(move |_: bool| {
+                *count.lock().unwrap() += 1;
+            }) as IslandModeCallback
+        };
+
+        manager.register_island_mode_callback(c1).await;
+        manager.register_island_mode_callback(c2).await;
+
+        manager.set_failure(ComponentType::Redis).await;
+
+        assert_eq!(*count.lock().unwrap(), 2);
     }
 }

@@ -18,6 +18,8 @@ use super::{
     TokenBucketLimiter,
 };
 use crate::config::types::parse_window_size;
+#[cfg(test)]
+use crate::config::types::QuotaType;
 use crate::config::LimiterConfig;
 use crate::error::FlowGuardError;
 use std::sync::Arc;
@@ -41,7 +43,7 @@ const MAX_CONCURRENT_REQUESTS: u64 = 100_000;
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::factory::LimiterFactory;
+/// use limiteron::limiters::factory::LimiterFactory;
 /// use limiteron::config::LimiterConfig;
 ///
 /// // 创建令牌桶限流器
@@ -51,7 +53,7 @@ const MAX_CONCURRENT_REQUESTS: u64 = 100_000;
 /// };
 /// let limiter = LimiterFactory::create(&config).unwrap();
 /// ```
-pub(crate) struct LimiterFactory;
+pub struct LimiterFactory;
 
 impl LimiterFactory {
     /// 从配置创建限流器
@@ -66,7 +68,7 @@ impl LimiterFactory {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::factory::LimiterFactory;
+    /// use limiteron::limiters::factory::LimiterFactory;
     /// use limiteron::config::LimiterConfig;
     ///
     /// let config = LimiterConfig::TokenBucket {
@@ -134,7 +136,7 @@ impl LimiterFactory {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::factory::LimiterFactory;
+    /// use limiteron::limiters::factory::LimiterFactory;
     /// use limiteron::config::LimiterConfig;
     ///
     /// let configs = vec![
@@ -177,7 +179,7 @@ impl LimiterFactory {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::factory::LimiterFactory;
+    /// use limiteron::limiters::factory::LimiterFactory;
     /// use std::time::Duration;
     ///
     /// let duration = LimiterFactory::parse_window_size("5m").unwrap();
@@ -199,7 +201,7 @@ impl LimiterFactory {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::factory::LimiterFactory;
+    /// use limiteron::limiters::factory::LimiterFactory;
     /// use limiteron::config::LimiterConfig;
     ///
     /// let config = LimiterConfig::TokenBucket { capacity: 1000, refill_rate: 100 };
@@ -473,5 +475,137 @@ mod tests {
     #[test]
     fn test_validate_window_config_invalid_requests() {
         assert!(LimiterFactory::validate_window_config("1m", 0, "test").is_err());
+    }
+
+    #[test]
+    fn test_validate_window_config_requests_exceeded() {
+        assert!(LimiterFactory::validate_window_config("1m", 10_000_001, "test").is_err());
+    }
+
+    #[test]
+    fn test_create_quota_returns_error() {
+        let config = LimiterConfig::Quota {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window: "1m".to_string(),
+            alert_threshold: None,
+            overdraft: None,
+        };
+        assert!(LimiterFactory::create(&config).is_err());
+    }
+
+    #[test]
+    fn test_create_custom_returns_error() {
+        let config = LimiterConfig::Custom {
+            name: "my_limiter".to_string(),
+            config: serde_json::json!({}),
+        };
+        assert!(LimiterFactory::create(&config).is_err());
+    }
+
+    #[test]
+    fn test_create_batch_with_invalid_config() {
+        let configs = vec![
+            LimiterConfig::TokenBucket {
+                capacity: 1000,
+                refill_rate: 100,
+            },
+            LimiterConfig::Custom {
+                name: "bad".to_string(),
+                config: serde_json::json!({}),
+            },
+        ];
+        let result = LimiterFactory::create_batch(&configs);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_batch_empty() {
+        let result = LimiterFactory::create_batch(&[]);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_validate_token_bucket_capacity_exceeded() {
+        let config = LimiterConfig::TokenBucket {
+            capacity: 10_000_001,
+            refill_rate: 100,
+        };
+        assert!(LimiterFactory::validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_validate_token_bucket_refill_exceeded() {
+        let config = LimiterConfig::TokenBucket {
+            capacity: 1000,
+            refill_rate: 1_000_001,
+        };
+        assert!(LimiterFactory::validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_validate_sliding_window_valid() {
+        let config = LimiterConfig::SlidingWindow {
+            window_size: "1m".to_string(),
+            max_requests: 100,
+        };
+        assert!(LimiterFactory::validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_sliding_window_invalid_window() {
+        let config = LimiterConfig::SlidingWindow {
+            window_size: "".to_string(),
+            max_requests: 100,
+        };
+        assert!(LimiterFactory::validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_validate_fixed_window_valid() {
+        let config = LimiterConfig::FixedWindow {
+            window_size: "1m".to_string(),
+            max_requests: 100,
+        };
+        assert!(LimiterFactory::validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_fixed_window_invalid_window() {
+        let config = LimiterConfig::FixedWindow {
+            window_size: "".to_string(),
+            max_requests: 100,
+        };
+        assert!(LimiterFactory::validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_validate_concurrency_exceeded() {
+        let config = LimiterConfig::Concurrency {
+            max_concurrent: 100_001,
+        };
+        assert!(LimiterFactory::validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_validate_quota_returns_limit_error() {
+        let config = LimiterConfig::Quota {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window: "1m".to_string(),
+            alert_threshold: None,
+            overdraft: None,
+        };
+        assert!(LimiterFactory::validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn test_validate_custom_returns_limit_error() {
+        let config = LimiterConfig::Custom {
+            name: "my_limiter".to_string(),
+            config: serde_json::json!({}),
+        };
+        assert!(LimiterFactory::validate_config(&config).is_err());
     }
 }

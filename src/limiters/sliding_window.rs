@@ -137,4 +137,42 @@ mod tests {
         // 第4个请求失败
         assert!(!limiter.allow(1).await.unwrap());
     }
+
+    #[tokio::test]
+    async fn test_sliding_window_accessors() {
+        let limiter = SlidingWindowLimiter::new(Duration::from_secs(120), 50);
+        assert_eq!(limiter.window_size(), Duration::from_secs(120));
+        assert_eq!(limiter.max_requests(), 50);
+    }
+
+    #[tokio::test]
+    async fn test_sliding_window_zero_cost_errors() {
+        let limiter = SlidingWindowLimiter::new(Duration::from_secs(60), 10);
+        let result = limiter.allow(0).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sliding_window_cost_exceeds_max() {
+        let limiter = SlidingWindowLimiter::new(Duration::from_secs(60), 10);
+        let result = limiter.allow(crate::constants::MAX_COST + 1).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sliding_window_cost_blocks_when_exceeds() {
+        let limiter = SlidingWindowLimiter::new(Duration::from_secs(60), 5);
+        // cost=3 fits (count 0 + 3 <= 5)
+        assert!(limiter.allow(3).await.unwrap());
+        // cost=3 would exceed (count 3 + 3 > 5)
+        assert!(!limiter.allow(3).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_sliding_window_check_default_impl() {
+        use crate::limiters::Limiter;
+        let limiter = SlidingWindowLimiter::new(Duration::from_secs(60), 10);
+        // check() default impl calls allow(1)
+        assert!(limiter.check("any_key").await.is_ok());
+    }
 }

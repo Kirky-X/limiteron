@@ -44,8 +44,8 @@ impl QuotaLimiter {
     /// # Examples
     /// ```rust
     /// use limiteron::limiters::QuotaLimiter;
-    /// use limiteron::QuotaConfig;
-    /// use limiteron::QuotaType;
+    /// use limiteron::quota::QuotaConfig;
+    /// use limiteron::quota::QuotaType;
     ///
     /// let config = QuotaConfig {
     ///     quota_type: QuotaType::Count,
@@ -204,5 +204,99 @@ mod tests {
         // Next request should be rejected
         let result = limiter.check("user1").await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_quota_limiter_allow_method() {
+        // allow() 方法不跟踪配额，总是返回 Ok(true)
+        let config = create_test_config();
+        let limiter = QuotaLimiter::new(config);
+
+        let result = limiter.allow(1).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+
+        // 即使多次调用也应返回 Ok(true)
+        for _ in 0..100 {
+            let result = limiter.allow(1).await;
+            assert!(result.is_ok());
+            assert!(result.unwrap());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_quota_limiter_allow_with_zero_cost() {
+        let config = create_test_config();
+        let limiter = QuotaLimiter::new(config);
+
+        // allow() 不验证 cost，总是返回 Ok(true)
+        let result = limiter.allow(0).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_quota_limiter_window_expiry_reset() {
+        // 使用 1 秒窗口，等待过期后验证重置
+        let mut config = create_test_config();
+        config.window_size = 1; // 1 秒窗口
+        config.limit = 3;
+
+        let limiter = QuotaLimiter::new(config);
+
+        // 用完配额
+        for _ in 0..3 {
+            assert!(limiter.check("user1").await.is_ok());
+        }
+        // 此时应被拒绝
+        assert!(limiter.check("user1").await.is_err());
+
+        // 等待窗口过期
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+        // 窗口重置后应再次允许
+        let result = limiter.check("user1").await;
+        assert!(
+            result.is_ok(),
+            "Request after window reset should be allowed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_quota_limiter_overdraft_boundary() {
+        // 测试透支边界：limit + overdraft_limit 恰好用完
+        let mut config = create_test_config();
+        config.limit = 10;
+        config.allow_overdraft = true;
+        config.overdraft_limit_percent = 50; // 50% overdraft = 5 extra
+
+        let limiter = QuotaLimiter::new(config);
+
+        // Should allow 10 + 5 = 15 requests
+        for i in 0..15 {
+            let result = limiter.check("user1").await;
+            assert!(result.is_ok(), "Request {} should be allowed", i);
+        }
+
+        // 16th should be rejected
+        let result = limiter.check("user1").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_quota_limiter_check_propagates_error() {
+        // 当 check_and_consume 返回 Err 时，check 应传播错误
+        let config = create_test_config();
+        let limiter = QuotaLimiter::new(config);
+
+        // 用完配额
+        for _ in 0..10 {
+            let _ = limiter.check("user1").await;
+        }
+
+        // 下一个 check 应返回 QuotaExceeded 错误
+        let result = limiter.check("user1").await;
+        assert!(result.is_err());
+        assert!(matches!(result, Err(FlowGuardError::QuotaExceeded(_))));
     }
 }

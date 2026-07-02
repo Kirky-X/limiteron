@@ -203,13 +203,13 @@ impl ShardedSlidingWindowLimiter {
         for i in 0..DEFAULT_SHARD_COUNT {
             let shard_timestamp = self.shard_timestamps[i].load(Ordering::Acquire);
 
-            if shard_timestamp <= window_start && shard_timestamp != 0 {
-                if self.shard_timestamps[i]
+            if shard_timestamp <= window_start
+                && shard_timestamp != 0
+                && self.shard_timestamps[i]
                     .compare_exchange(shard_timestamp, 0, Ordering::Release, Ordering::Relaxed)
                     .is_ok()
-                {
-                    self.shards[i].store(0, Ordering::Release);
-                }
+            {
+                self.shards[i].store(0, Ordering::Release);
             }
         }
     }
@@ -219,14 +219,13 @@ impl ShardedSlidingWindowLimiter {
         let cleanup_interval = (self.shard_duration_secs / 10).max(1);
         let last = self.last_cleanup.load(Ordering::Acquire);
 
-        if now_secs.saturating_sub(last) >= cleanup_interval {
-            if self
+        if now_secs.saturating_sub(last) >= cleanup_interval
+            && self
                 .last_cleanup
                 .compare_exchange(last, now_secs, Ordering::Release, Ordering::Relaxed)
                 .is_ok()
-            {
-                self.cleanup_expired_shards(now_secs);
-            }
+        {
+            self.cleanup_expired_shards(now_secs);
         }
     }
 
@@ -317,5 +316,79 @@ mod tests {
 
         // 新的请求应该成功
         assert!(limiter.allow(1).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_sharded_zero_cost_rejected() {
+        // validate_cost(0) 应返回错误
+        let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 1000);
+        let result = limiter.allow(0).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sharded_cost_exceeds_max() {
+        // cost > MAX_COST 应返回错误
+        let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 1000);
+        let result = limiter.allow(u64::MAX).await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sharded_get_shard_count_out_of_bounds() {
+        // 越界索引应返回 0
+        let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 1000);
+        let count = limiter.get_shard_count(999);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_sharded_get_shard_count_valid_index() {
+        let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 1000);
+        // 有效索引应返回 0（初始状态）
+        let count = limiter.get_shard_count(0);
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_sharded_get_window_count_after_requests() {
+        let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 1000);
+        for _ in 0..5 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+        let count = limiter.get_window_count();
+        assert_eq!(count, 5);
+    }
+
+    #[tokio::test]
+    async fn test_sharded_multiple_users() {
+        let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 3);
+
+        // user1 uses all 3 slots
+        assert!(limiter.allow(1).await.unwrap());
+        assert!(limiter.allow(1).await.unwrap());
+        assert!(limiter.allow(1).await.unwrap());
+        assert!(!limiter.allow(1).await.unwrap());
+
+        // user2 - but this limiter is per-instance, not per-key.
+        // It tracks total requests, not per-key.
+    }
+
+    #[tokio::test]
+    async fn test_sharded_with_small_window() {
+        // 使用非常小的窗口（1秒）测试 window_size_secs.max(1)
+        let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(1), 10);
+        assert!(limiter.allow(1).await.unwrap());
+        assert_eq!(limiter.get_window_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_sharded_cost_greater_than_max() {
+        // cost > max_requests 应被拒绝
+        let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), 5);
+        // cost of 6 exceeds max of 5
+        let result = limiter.allow(6).await;
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
     }
 }

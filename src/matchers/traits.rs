@@ -201,6 +201,12 @@ impl RequestContext {
         self
     }
 
+    /// 设置请求方法
+    pub fn with_method(mut self, method: &str) -> Self {
+        self.method = method.to_string();
+        self
+    }
+
     /// 获取HTTP头（不区分大小写）
     pub fn get_header(&self, key: &str) -> Option<&String> {
         self.headers.get(&key.to_lowercase())
@@ -233,4 +239,30 @@ pub trait IdentifierExtractor: Send + Sync {
 
     /// 获取提取器名称
     fn name(&self) -> &str;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "ban-manager")]
+    #[test]
+    fn test_identifier_mac_to_ban_target() {
+        let id = Identifier::Mac("AA:BB:CC:DD:EE:FF".to_string());
+        let target = id.to_ban_target();
+        assert!(target.is_some());
+        match target.unwrap() {
+            crate::storage::BanTarget::Mac(mac) => {
+                assert_eq!(mac, "AA:BB:CC:DD:EE:FF");
+            }
+            other => panic!("expected Mac, got: {:?}", other),
+        }
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[test]
+    fn test_identifier_apikey_to_ban_target_none() {
+        let id = Identifier::ApiKey("key123".to_string());
+        assert!(id.to_ban_target().is_none());
+    }
 }

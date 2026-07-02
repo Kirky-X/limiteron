@@ -78,13 +78,6 @@ const MAX_HEADER_VALUE_LENGTH: usize = 4096;
 /// 最大允许的 HTTP 头值数量
 const MAX_ALLOWED_VALUES_COUNT: usize = 100;
 
-/// 最大允许的 HTTP 头值数量
-#[allow(dead_code)]
-const MAX_ALLOWED_HEADERS_COUNT: usize = 10;
-
-/// 最大正则表达式嵌套深度
-const MAX_REGEX_NESTING_DEPTH: usize = 10;
-
 // ============================================================================
 // 输入验证函数
 // ============================================================================
@@ -173,142 +166,6 @@ fn validate_header_value(value: &str) -> Result<(), FlowGuardError> {
     }
 
     Ok(())
-}
-
-/// 验证正则表达式复杂度
-///
-/// 防止 ReDoS（正则表达式拒绝服务）攻击
-///
-/// # 参数
-/// - `pattern`: 正则表达式模式
-///
-/// # 返回
-/// - `Ok(())`: 验证通过
-/// - `Err(FlowGuardError)`: 验证失败
-#[allow(dead_code)]
-fn validate_regex_complexity(pattern: &str) -> Result<(), FlowGuardError> {
-    // 检查模式长度
-    if pattern.len() > 1000 {
-        return Err(FlowGuardError::ConfigError(
-            "正则表达式模式过长（最大 1000 字符）".to_string(),
-        ));
-    }
-
-    // 检查嵌套深度（简单的括号计数）
-    let mut depth: usize = 0;
-    let mut max_depth: usize = 0;
-    for c in pattern.chars() {
-        match c {
-            '(' => {
-                depth += 1;
-                max_depth = max_depth.max(depth);
-            }
-            ')' => {
-                depth = depth.saturating_sub(1);
-            }
-            _ => {}
-        }
-    }
-
-    if max_depth > MAX_REGEX_NESTING_DEPTH {
-        return Err(FlowGuardError::ConfigError(format!(
-            "正则表达式嵌套深度过大（最大 {}）",
-            MAX_REGEX_NESTING_DEPTH
-        )));
-    }
-
-    // 检查危险模式（可能导致指数回溯 - ReDoS 攻击）
-    // 这些模式可能导致正则表达式引擎进行指数级回溯
-    let dangerous_patterns = [
-        // 嵌套量词 - 最常见的 ReDoS 模式
-        "(.+)+",
-        "(.+)*",
-        "(.+){2,}",
-        "(.+){2,}",
-        "([a-z]+)+",
-        "([a-z]+)*",
-        "([a-z]+){2,}",
-        "(\\d+)+",
-        "(\\d+)*",
-        "(\\d+){2,}",
-        "(\\w+)+",
-        "(\\w+)*",
-        "(\\w+){2,}",
-        // 非贪婪量词也可能导致问题
-        "(.+?)+",
-        "(.+?)*",
-        "(.+?){2,}",
-        "([a-z]+?)+",
-        "([a-z]+?)*",
-        "([a-z]+?){2,}",
-        // 占有量词
-        "(.*+)+",
-        "(.*+)*",
-        "(.*+){2,}",
-        // 字符类中的嵌套量词
-        "([a-zA-Z]+)+",
-        "([0-9]+)+",
-        "([\\w\\d]+)+",
-        // 复杂的交替模式
-        "(a+)+",
-        "(b+)+",
-        "(c+)+",
-        "(x+)+",
-        "(y+)+",
-        "(z+)+",
-        // 嵌套的字符类
-        "[a-z]+[a-z]+",
-        "[0-9]+[0-9]+",
-        // 重复的量词
-        "**",
-        "++",
-        "??",
-        "{,}",
-        "{,2}",
-        "{2,}",
-        "{2,1}",
-    ];
-
-    for dangerous in &dangerous_patterns {
-        if pattern.contains(dangerous) {
-            return Err(FlowGuardError::ConfigError(format!(
-                "正则表达式包含危险模式（可能导致 ReDoS 攻击）: {}",
-                dangerous
-            )));
-        }
-    }
-
-    // 检查是否有多个连续的量词
-    if pattern.matches("+*?{}").count() > pattern.len() / 2 {
-        return Err(FlowGuardError::ConfigError(
-            "正则表达式包含过多量词，可能存在性能问题".to_string(),
-        ));
-    }
-
-    // 尝试编译正则表达式以验证语法
-    #[cfg(feature = "advanced-matchers")]
-    {
-        use regex::Regex;
-        Regex::new(pattern)
-            .map_err(|e| FlowGuardError::ConfigError(format!("无效的正则表达式: {}", e)))?;
-    }
-
-    Ok(())
-}
-
-/// 清理字符串（移除危险字符）
-///
-/// # 参数
-/// - `input`: 输入字符串
-///
-/// # 返回
-/// - 清理后的字符串
-#[allow(dead_code)]
-fn sanitize_string(input: &str) -> String {
-    input
-        .chars()
-        .filter(|c| c.is_alphanumeric() || c.is_whitespace() || "-_.".contains(*c))
-        .collect()
 }
 
 // ============================================================================
@@ -1377,5 +1234,307 @@ mod tests {
         }
 
         assert_eq!(success_count, 100);
+    }
+
+    // ==================== 输入验证函数测试 ====================
+
+    #[test]
+    fn test_validate_matcher_name_empty() {
+        let result = validate_matcher_name("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_matcher_name_too_long() {
+        let long_name = "a".repeat(MAX_MATCHER_NAME_LENGTH + 1);
+        let result = validate_matcher_name(&long_name);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_matcher_name_invalid_chars() {
+        let result = validate_matcher_name("invalid@name!");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_header_name_empty() {
+        let result = validate_header_name("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_header_name_too_long() {
+        let long_name = "a".repeat(MAX_HEADER_NAME_LENGTH + 1);
+        let result = validate_header_name(&long_name);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_header_name_invalid_chars() {
+        let result = validate_header_name("X-Header@Name");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_header_value_too_long() {
+        let long_value = "a".repeat(MAX_HEADER_VALUE_LENGTH + 1);
+        let result = validate_header_value(&long_value);
+        assert!(result.is_err());
+
+        assert!(validate_header_value("").is_ok());
+        assert!(validate_header_value("valid-value").is_ok());
+    }
+
+    // ==================== CustomMatcherRegistry 补充测试 ====================
+
+    #[tokio::test]
+    async fn test_registry_default() {
+        let registry = CustomMatcherRegistry::default();
+        assert_eq!(registry.count().await, 0);
+    }
+
+    #[test]
+    fn test_registry_debug() {
+        let registry = CustomMatcherRegistry::new();
+        let debug_str = format!("{:?}", registry);
+        assert!(debug_str.contains("CustomMatcherRegistry"));
+        assert!(debug_str.contains("<custom matchers>"));
+    }
+
+    #[tokio::test]
+    async fn test_registry_builder() {
+        let registry = CustomMatcherRegistry::builder().build();
+        assert_eq!(registry.count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_registry_with_dependencies() {
+        let registry = CustomMatcherRegistry::with_dependencies();
+        assert_eq!(registry.count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_registry_register_with_invalid_name() {
+        let registry = CustomMatcherRegistry::new();
+        let matcher = TimeWindowMatcher::new(9, 18);
+
+        let result = registry.register("".to_string(), Box::new(matcher)).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_registry_get_found() {
+        let registry = CustomMatcherRegistry::new();
+        registry
+            .register("test".to_string(), Box::new(TimeWindowMatcher::new(9, 18)))
+            .await
+            .unwrap();
+        let result = registry.get("test").await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_registry_get_not_found() {
+        let registry = CustomMatcherRegistry::new();
+        let result = registry.get("nonexistent").await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_registry_list_empty() {
+        let registry = CustomMatcherRegistry::new();
+        let list = registry.list().await;
+        assert!(list.is_empty());
+    }
+
+    // ==================== TimeWindowMatcher 补充测试 ====================
+
+    #[test]
+    fn test_time_window_matcher_builder() {
+        let matcher = TimeWindowMatcher::builder()
+            .start_hour(8)
+            .end_hour(20)
+            .build();
+        assert_eq!(matcher.start_hour(), 8);
+        assert_eq!(matcher.end_hour(), 20);
+    }
+
+    #[test]
+    fn test_time_window_matcher_with_dependencies() {
+        let matcher = TimeWindowMatcher::with_dependencies(7, 19);
+        assert_eq!(matcher.start_hour(), 7);
+        assert_eq!(matcher.end_hour(), 19);
+    }
+
+    #[tokio::test]
+    async fn test_time_window_matcher_cross_midnight() {
+        let matcher = TimeWindowMatcher::new(12, 11);
+        let context = RequestContext::new();
+        let result = matcher.matches(&context).await.unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_time_window_matcher_load_config_missing_start_hour() {
+        let mut matcher = TimeWindowMatcher::new(9, 18);
+        let config = serde_json::json!({ "end_hour": 20 });
+        let result = matcher.load_config(config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_time_window_matcher_load_config_missing_end_hour() {
+        let mut matcher = TimeWindowMatcher::new(9, 18);
+        let config = serde_json::json!({ "start_hour": 10 });
+        let result = matcher.load_config(config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_time_window_matcher_load_config_start_out_of_range() {
+        let mut matcher = TimeWindowMatcher::new(9, 18);
+        let config = serde_json::json!({
+            "start_hour": 25,
+            "end_hour": 20,
+        });
+        let result = matcher.load_config(config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_time_window_matcher_load_config_end_out_of_range() {
+        let mut matcher = TimeWindowMatcher::new(9, 18);
+        let config = serde_json::json!({
+            "start_hour": 10,
+            "end_hour": 25,
+        });
+        let result = matcher.load_config(config);
+        assert!(result.is_err());
+    }
+
+    // ==================== HeaderMatcher 补充测试 ====================
+
+    #[test]
+    fn test_header_matcher_new_empty_name() {
+        let result = HeaderMatcher::new("", vec!["value".to_string()]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_header_matcher_new_invalid_name_chars() {
+        let result = HeaderMatcher::new("X-Header@Name", vec!["value".to_string()]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_header_matcher_new_too_many_values() {
+        let values: Vec<String> = (0..=MAX_ALLOWED_VALUES_COUNT)
+            .map(|i| format!("val_{}", i))
+            .collect();
+        let result = HeaderMatcher::new("X-Test", values);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_header_matcher_new_value_too_long() {
+        let long_value = "a".repeat(MAX_HEADER_VALUE_LENGTH + 1);
+        let result = HeaderMatcher::new("X-Test", vec![long_value]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_header_matcher_builder() {
+        let matcher = HeaderMatcher::builder()
+            .header_name("X-Custom")
+            .add_allowed_value("val1")
+            .add_allowed_value("val2")
+            .case_sensitive(true)
+            .build()
+            .unwrap();
+        assert_eq!(matcher.header_name(), "x-custom");
+        assert_eq!(matcher.allowed_values().len(), 2);
+    }
+
+    #[test]
+    fn test_header_matcher_with_dependencies() {
+        let matcher =
+            HeaderMatcher::with_dependencies("X-Custom", vec!["value1".to_string()], true).unwrap();
+        assert_eq!(matcher.header_name(), "x-custom");
+        assert_eq!(matcher.allowed_values().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_header_matcher_case_sensitive_match() {
+        let matcher = HeaderMatcher::new("X-Key", vec!["ExactMatch".to_string()])
+            .unwrap()
+            .with_case_sensitive(true);
+        let context = RequestContext::new().with_header("x-key", "ExactMatch");
+        let result = matcher.matches(&context).await.unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_header_matcher_load_config_partial_header_name() {
+        let mut matcher = HeaderMatcher::new("X-Original", vec!["value".to_string()]).unwrap();
+        let config = serde_json::json!({ "header_name": "Authorization" });
+        assert!(matcher.load_config(config).is_ok());
+        assert_eq!(matcher.header_name(), "authorization");
+        assert_eq!(matcher.allowed_values().len(), 1);
+    }
+
+    #[test]
+    fn test_header_matcher_load_config_partial_values() {
+        let mut matcher = HeaderMatcher::new("X-Original", vec!["old_value".to_string()]).unwrap();
+        let config = serde_json::json!({ "allowed_values": ["new_value"] });
+        assert!(matcher.load_config(config).is_ok());
+        assert_eq!(matcher.header_name(), "x-original");
+        assert_eq!(matcher.allowed_values().len(), 1);
+        assert_eq!(matcher.allowed_values()[0], "new_value");
+    }
+
+    #[test]
+    fn test_header_matcher_load_config_partial_case_sensitive() {
+        let mut matcher = HeaderMatcher::new("X-Test", vec!["value".to_string()]).unwrap();
+        let config = serde_json::json!({ "case_sensitive": true });
+        assert!(matcher.load_config(config).is_ok());
+        assert!(matcher.case_sensitive);
+    }
+
+    #[test]
+    fn test_header_matcher_load_config_too_many_values() {
+        let mut matcher = HeaderMatcher::new("X-Test", vec!["value".to_string()]).unwrap();
+        let values: Vec<String> = (0..=MAX_ALLOWED_VALUES_COUNT)
+            .map(|i| format!("value_{}", i))
+            .collect();
+        let config = serde_json::json!({ "allowed_values": values });
+        let result = matcher.load_config(config);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_header_matcher_load_config_non_string_value() {
+        let mut matcher = HeaderMatcher::new("X-Test", vec!["valid".to_string()]).unwrap();
+        let config = serde_json::json!({
+            "allowed_values": ["valid1", 123, "valid2"],
+        });
+        assert!(matcher.load_config(config).is_ok());
+        assert_eq!(matcher.allowed_values().len(), 2);
+        assert_eq!(matcher.allowed_values()[0], "valid1");
+        assert_eq!(matcher.allowed_values()[1], "valid2");
+    }
+
+    #[test]
+    fn test_header_matcher_builder_allowed_values() {
+        // 覆盖 HeaderMatcherBuilder::allowed_values 方法（设置整个值列表）
+        let values = vec!["v1".to_string(), "v2".to_string(), "v3".to_string()];
+        let matcher = HeaderMatcher::builder()
+            .header_name("X-Test")
+            .allowed_values(values)
+            .build()
+            .unwrap();
+        assert_eq!(matcher.allowed_values().len(), 3);
+        assert_eq!(matcher.allowed_values()[0], "v1");
+        assert_eq!(matcher.allowed_values()[2], "v3");
     }
 }

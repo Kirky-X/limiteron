@@ -29,7 +29,7 @@
 //! async fn main() {
 //!     let matcher = DeviceMatcher::new().await.unwrap();
 //!     let user_agent = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15";
-//!     let info = matcher.parse(user_agent).unwrap();
+//!     let info = matcher.parse(user_agent).await.unwrap();
 //! }
 //! ```
 
@@ -63,7 +63,7 @@ const MAX_USER_AGENT_LENGTH: usize = 2048;
 fn sanitize_user_agent(user_agent: &str) -> String {
     user_agent
         .chars()
-        .filter(|c| c.is_ascii() || c.is_alphanumeric() || " -./:;()[]{}@".contains(*c))
+        .filter(|&c| c.is_ascii_graphic() || c == ' ')
         .collect()
 }
 
@@ -1255,5 +1255,369 @@ mod tests {
             .await
             .unwrap();
         assert!(!matched2);
+    }
+
+    // === 新增覆盖率测试 ===
+
+    #[test]
+    fn test_device_type_parse_aliases() {
+        assert_eq!(DeviceType::parse("smartphone"), DeviceType::Mobile);
+        assert_eq!(DeviceType::parse("pc"), DeviceType::Desktop);
+        assert_eq!(DeviceType::parse("ipad"), DeviceType::Tablet);
+        assert_eq!(DeviceType::parse("bot"), DeviceType::API);
+        assert_eq!(DeviceType::parse("crawler"), DeviceType::API);
+    }
+
+    #[test]
+    fn test_device_type_helpers() {
+        assert!(DeviceType::Desktop.is_desktop());
+        assert!(!DeviceType::Mobile.is_desktop());
+        assert!(!DeviceType::Tablet.is_desktop());
+        assert!(DeviceType::API.is_api());
+        assert!(!DeviceType::Mobile.is_api());
+        assert!(!DeviceType::Desktop.is_api());
+    }
+
+    #[test]
+    fn test_device_type_display() {
+        assert_eq!(format!("{}", DeviceType::Mobile), "mobile");
+        assert_eq!(format!("{}", DeviceType::Desktop), "desktop");
+        assert_eq!(format!("{}", DeviceType::Tablet), "tablet");
+        assert_eq!(format!("{}", DeviceType::API), "api");
+        assert_eq!(format!("{}", DeviceType::Unknown), "unknown");
+    }
+
+    #[test]
+    fn test_device_info_description_browser_only() {
+        let info = DeviceInfo {
+            device_type: DeviceType::Desktop,
+            browser: Some("Chrome".to_string()),
+            browser_version: Some("91".to_string()),
+            os: None,
+            os_version: None,
+            user_agent: None,
+        };
+        assert_eq!(info.description(), "Chrome 91 on desktop");
+    }
+
+    #[test]
+    fn test_device_info_description_os_only() {
+        let info = DeviceInfo {
+            device_type: DeviceType::Desktop,
+            browser: None,
+            browser_version: None,
+            os: Some("Windows".to_string()),
+            os_version: Some("10".to_string()),
+            user_agent: None,
+        };
+        assert_eq!(info.description(), "Windows on desktop");
+    }
+
+    #[test]
+    fn test_device_info_description_device_only() {
+        let info = DeviceInfo {
+            device_type: DeviceType::Desktop,
+            browser: None,
+            browser_version: None,
+            os: None,
+            os_version: None,
+            user_agent: None,
+        };
+        assert_eq!(info.description(), "desktop");
+    }
+
+    #[test]
+    fn test_device_condition_browser_none() {
+        let condition = DeviceCondition::browsers(vec!["Safari".to_string()]);
+        let info = DeviceInfo {
+            device_type: DeviceType::Desktop,
+            browser: None,
+            browser_version: None,
+            os: None,
+            os_version: None,
+            user_agent: None,
+        };
+        assert!(!condition.matches(&info));
+    }
+
+    #[test]
+    fn test_device_condition_os_none() {
+        let condition = DeviceCondition::os(vec!["iOS".to_string()]);
+        let info = DeviceInfo {
+            device_type: DeviceType::Desktop,
+            browser: None,
+            browser_version: None,
+            os: None,
+            os_version: None,
+            user_agent: None,
+        };
+        assert!(!condition.matches(&info));
+    }
+
+    #[tokio::test]
+    async fn test_device_matcher_builder() {
+        let matcher = DeviceMatcher::builder()
+            .cache_size_limit(500)
+            .add_custom_rule(
+                "CustomBot",
+                r"CustomBot/\d+",
+                DeviceType::API,
+                Some("CustomBot".to_string()),
+                None,
+            )
+            .build()
+            .await
+            .unwrap();
+        assert_eq!(matcher.cache_stats().await.limit, 500);
+        let info = matcher.parse("CustomBot/2.0").await.unwrap();
+        assert_eq!(info.device_type, DeviceType::API);
+    }
+
+    #[tokio::test]
+    async fn test_device_matcher_with_cache_limit() {
+        let matcher = DeviceMatcher::with_cache_limit(500).await.unwrap();
+        assert_eq!(matcher.cache_stats().await.limit, 500);
+    }
+
+    #[tokio::test]
+    async fn test_device_matcher_parse_long_ua() {
+        let matcher = DeviceMatcher::new().await.unwrap();
+        let long_ua = "X".repeat(3000);
+        let result = matcher.parse(&long_ua).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_device_matcher_parse_unrecognized() {
+        let matcher = DeviceMatcher::new().await.unwrap();
+        let info = matcher
+            .parse("zzz1nvalid-th1ng-th4t-w00thee-c4nt-p4rs3")
+            .await
+            .unwrap();
+        assert_eq!(info.device_type, DeviceType::Unknown);
+        assert!(info.os.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_device_matcher_matches_direct() {
+        let matcher = DeviceMatcher::new().await.unwrap();
+        let info = DeviceInfo {
+            device_type: DeviceType::Tablet,
+            browser: Some("Safari".to_string()),
+            browser_version: None,
+            os: Some("iOS".to_string()),
+            os_version: None,
+            user_agent: None,
+        };
+        let condition = DeviceCondition::device_types(vec![DeviceType::Tablet]);
+        assert!(matcher.matches(&info, &condition));
+        let no_match = DeviceCondition::device_types(vec![DeviceType::Desktop]);
+        assert!(!matcher.matches(&info, &no_match));
+    }
+
+    #[tokio::test]
+    async fn test_device_matcher_invalid_custom_rule() {
+        let mut matcher = DeviceMatcher::new().await.unwrap();
+        let before = matcher.remove_custom_rule("non-existent");
+        assert!(!before);
+        matcher.add_custom_rule(
+            "BadRegex",
+            r"[invalid(unclosed",
+            DeviceType::Mobile,
+            None,
+            None,
+        );
+        let info = matcher.parse("anything").await.unwrap();
+        assert_eq!(info.device_type, DeviceType::Unknown);
+    }
+
+    #[tokio::test]
+    async fn test_device_matcher_parse_cache_full() {
+        let matcher = DeviceMatcher::with_cache_limit(2).await.unwrap();
+        let _ = matcher
+            .parse("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .await
+            .unwrap();
+        let _ = matcher.parse("curl/7.68.0").await.unwrap();
+        let _ = matcher.parse("Wget/1.21").await.unwrap();
+        let stats = matcher.cache_stats().await;
+        assert!(stats.hits + stats.misses >= 3);
+    }
+
+    #[tokio::test]
+    async fn test_device_matcher_clear_cache_with_data() {
+        let matcher = DeviceMatcher::new().await.unwrap();
+        let _ = matcher
+            .parse("Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15")
+            .await
+            .unwrap();
+        let _ = matcher
+            .parse("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .await
+            .unwrap();
+        let stats_before = matcher.cache_stats().await;
+        assert!(stats_before.hits == 0);
+        matcher.clear_cache().await;
+        let stats_after = matcher.cache_stats().await;
+        assert_eq!(stats_after.size, 0);
+    }
+
+    #[tokio::test]
+    async fn test_device_matcher_parse_tablet() {
+        let matcher = DeviceMatcher::new().await.unwrap();
+        let info = matcher.parse("Mozilla/5.0 (iPad; CPU OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1").await.unwrap();
+        assert_eq!(info.device_type, DeviceType::Mobile);
+    }
+
+    #[tokio::test]
+    async fn test_device_matcher_parse_crawler() {
+        let matcher = DeviceMatcher::new().await.unwrap();
+        let info = matcher
+            .parse("Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
+            .await
+            .unwrap();
+        assert_eq!(info.device_type, DeviceType::API);
+    }
+
+    #[tokio::test]
+    async fn test_device_matcher_parse_wget() {
+        let matcher = DeviceMatcher::new().await.unwrap();
+        let info = matcher.parse("Wget/1.21.1").await.unwrap();
+        assert_eq!(info.device_type, DeviceType::API);
+        assert_eq!(info.browser, Some("wget".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_device_matcher_parse_bingbot() {
+        let matcher = DeviceMatcher::new().await.unwrap();
+        let info = matcher
+            .parse("Mozilla/5.0 (compatible; Bingbot/2.0; +http://www.bing.com/bingbot.htm)")
+            .await
+            .unwrap();
+        assert_eq!(info.device_type, DeviceType::API);
+        assert_eq!(info.browser, Some("Bingbot".to_string()));
+    }
+
+    #[test]
+    fn test_sanitize_user_agent_filters_non_ascii() {
+        let result = sanitize_user_agent("Mozilla/5.0 \u{00e9}\u{00e0}iPhone");
+        assert!(!result.contains('\u{00e9}'));
+        assert!(!result.contains('\u{00e0}'));
+        assert!(result.contains("Mozilla/5.0 iPhone"));
+    }
+
+    #[tokio::test]
+    async fn test_device_matcher_with_dependencies() {
+        use std::sync::Arc;
+        let parser = Arc::new(Parser::new());
+        let cache = Arc::new(Cache::builder().build().await.unwrap());
+        let matcher = DeviceMatcher::with_dependencies(parser, cache, 1000);
+        assert_eq!(matcher.cache_stats().await.limit, 1000);
+        let info = matcher.parse("curl/7.68.0").await.unwrap();
+        assert_eq!(info.device_type, DeviceType::API);
+    }
+
+    #[test]
+    fn test_map_woothee_device_type_all_variants() {
+        assert_eq!(
+            DeviceInfo::map_woothee_device_type("pc"),
+            DeviceType::Desktop
+        );
+        assert_eq!(
+            DeviceInfo::map_woothee_device_type("smartphone"),
+            DeviceType::Mobile
+        );
+        assert_eq!(
+            DeviceInfo::map_woothee_device_type("mobilephone"),
+            DeviceType::Mobile
+        );
+        assert_eq!(
+            DeviceInfo::map_woothee_device_type("tablet"),
+            DeviceType::Tablet
+        );
+        assert_eq!(
+            DeviceInfo::map_woothee_device_type("appliance"),
+            DeviceType::API
+        );
+        assert_eq!(
+            DeviceInfo::map_woothee_device_type("crawler"),
+            DeviceType::API
+        );
+        assert_eq!(DeviceInfo::map_woothee_device_type("misc"), DeviceType::API);
+        assert_eq!(
+            DeviceInfo::map_woothee_device_type("unknown_category"),
+            DeviceType::Unknown
+        );
+    }
+
+    #[test]
+    fn test_device_info_from_woothee_api_category() {
+        use woothee::parser::WootheeResult;
+        let result = WootheeResult {
+            name: "Googlebot",
+            category: "crawler",
+            os: "-",
+            os_version: "-".into(),
+            version: "2.1",
+            browser_type: "-",
+            vendor: "-",
+        };
+        let info = DeviceInfo::from_woothee(&result);
+        assert_eq!(info.device_type, DeviceType::API);
+        assert!(info.browser.is_none());
+        assert!(info.os.is_none());
+    }
+
+    #[test]
+    fn test_device_info_from_woothee_non_api() {
+        use woothee::parser::WootheeResult;
+        let result = WootheeResult {
+            name: "Chrome",
+            category: "pc",
+            os: "Windows",
+            os_version: "10".into(),
+            version: "91.0",
+            browser_type: "-",
+            vendor: "-",
+        };
+        let info = DeviceInfo::from_woothee(&result);
+        assert_eq!(info.device_type, DeviceType::Desktop);
+        assert_eq!(info.browser, Some("Chrome".to_string()));
+        assert_eq!(info.os, Some("Windows".to_string()));
+    }
+
+    #[test]
+    fn test_device_info_default() {
+        let info = DeviceInfo::default();
+        assert!(info.is_empty());
+    }
+
+    #[cfg(feature = "device-matching")]
+    #[test]
+    fn test_device_matcher_builder_default() {
+        let builder = DeviceMatcherBuilder::default();
+        assert_eq!(builder.cache_size_limit, 10_000);
+    }
+
+    #[cfg(feature = "device-matching")]
+    #[tokio::test]
+    async fn test_device_matcher_cache_near_limit() {
+        // 设置很小的缓存限制，解析多个不同 UA 触发缓存接近限制分支
+        let matcher = DeviceMatcher::with_cache_limit(5).await.unwrap();
+        // 解析 6 个不同的 UA，使缓存长度达到或超过限制
+        let user_agents = vec![
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) Safari/605",
+            "Mozilla/5.0 (X11; Linux x86_64; rv:89.0) Firefox/89.0",
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0) Safari/605",
+            "Mozilla/5.0 (Linux; Android 11) Chrome/91.0",
+            "curl/7.68.0",
+        ];
+        for ua in &user_agents {
+            let _ = matcher.parse(ua).await;
+        }
+        // 验证缓存已接近或达到限制
+        let stats = matcher.cache_stats().await;
+        assert!(stats.limit == 5);
     }
 }

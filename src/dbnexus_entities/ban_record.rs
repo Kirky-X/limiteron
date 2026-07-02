@@ -8,14 +8,14 @@
 //! This entity is used by DBNexusBanStorageAdapter to store ban records
 //! with support for IP bans, user ID bans, and MAC address bans.
 
-use dbnexus::db_crud;
+use dbnexus::db_entity;
 use sea_orm::entity::prelude::DateTimeUtc;
 use sea_orm::entity::prelude::*;
 
 /// Ban record model
+#[db_entity(table_name = "limiteron_bans", primary_key = "id")]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "limiteron_bans")]
-#[db_crud(table_name = "limiteron_bans")]
 pub struct Model {
     /// Primary key - unique ban ID
     #[sea_orm(primary_key)]
@@ -52,8 +52,6 @@ pub struct Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {}
 
-impl sea_orm::ActiveModelBehavior for ActiveModel {}
-
 /// Create table DDL for BanRecordEntity
 pub fn create_table_ddl() -> &'static str {
     r#"
@@ -77,4 +75,28 @@ pub fn create_table_ddl() -> &'static str {
 /// Helper to create target key from type and value
 pub fn create_target_key(target_type: &str, target_value: &str) -> String {
     format!("{}:{}", target_type, target_value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_target_key() {
+        assert_eq!(create_target_key("ip", "192.168.1.1"), "ip:192.168.1.1");
+        assert_eq!(create_target_key("user", "user123"), "user:user123");
+        assert_eq!(
+            create_target_key("mac", "aa:bb:cc:dd:ee:ff"),
+            "mac:aa:bb:cc:dd:ee:ff"
+        );
+    }
+
+    #[test]
+    fn test_create_table_ddl() {
+        let ddl = create_table_ddl();
+        assert!(ddl.contains("limiteron_bans"));
+        assert!(ddl.contains("target_type"));
+        assert!(ddl.contains("target_value"));
+        assert!(ddl.contains("expires_at"));
+    }
 }

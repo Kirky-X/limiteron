@@ -8,8 +8,8 @@
 //! Run: cargo run --bin ban_manager --features ban-manager
 
 use limiteron::ban::{BanManager, BanManagerConfig, BanSource};
-use limiteron::{BanStorage, BanTarget};
 use limiteron::error::FlowGuardError;
+use limiteron::{BanStorage, BanTarget};
 use limiteron_examples::MemoryBanStorage;
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,7 +37,7 @@ async fn demo_ip_ban() -> Result<(), FlowGuardError> {
     let ban_manager = BanManager::with_dependencies(storage, config).await?;
 
     let target = BanTarget::Ip("192.168.1.100".to_string());
-    println!("Creating ban for IP: {}", "192.168.1.100");
+    println!("Creating ban for IP: 192.168.1.100");
 
     let detail = ban_manager
         .create_ban(
@@ -71,7 +71,7 @@ async fn demo_user_ban() -> Result<(), FlowGuardError> {
     let ban_manager = BanManager::with_dependencies(storage, config).await?;
 
     let target = BanTarget::UserId("user-12345".to_string());
-    println!("Creating manual ban for user: {}", "user-12345");
+    println!("Creating manual ban for user: user-12345");
 
     let detail = ban_manager
         .create_ban(
@@ -123,7 +123,12 @@ async fn demo_ban_update() -> Result<(), FlowGuardError> {
 
     println!("\nUpdating ban reason...");
     let updated = ban_manager
-        .update_ban(&target, Some("repeated rate limit violations".to_string()), None, None)
+        .update_ban(
+            &target,
+            Some("repeated rate limit violations".to_string()),
+            None,
+            None,
+        )
         .await?;
 
     if let Some(record) = updated {

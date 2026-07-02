@@ -10,7 +10,8 @@
 
 use limiteron::error::FlowGuardError;
 use limiteron::limiters::{
-    ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter,
+    ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
+    TokenBucketLimiter,
 };
 use std::time::Duration;
 
@@ -71,7 +72,10 @@ async fn demo_sliding_window() -> Result<(), FlowGuardError> {
 
     println!("  Request 1: allowed={}", first);
     println!("  Request 2: allowed={}", second);
-    println!("  Request 3: allowed={} (blocked - window limit reached)\n", third);
+    println!(
+        "  Request 3: allowed={} (blocked - window limit reached)\n",
+        third
+    );
 
     println!("  Waiting 220ms for window to slide...");
     tokio::time::sleep(Duration::from_millis(220)).await;
@@ -94,7 +98,10 @@ async fn demo_fixed_window() -> Result<(), FlowGuardError> {
 
     println!("  Request 1: allowed={}", first);
     println!("  Request 2: allowed={}", second);
-    println!("  Request 3: allowed={} (blocked - window limit reached)\n", third);
+    println!(
+        "  Request 3: allowed={} (blocked - window limit reached)\n",
+        third
+    );
 
     println!("  Waiting 220ms for new window...");
     tokio::time::sleep(Duration::from_millis(220)).await;
@@ -118,7 +125,10 @@ async fn demo_concurrency() -> Result<(), FlowGuardError> {
     println!("  Acquired permit 2");
 
     let third_result = limiter.acquire(1).await;
-    println!("  Third acquire: {:?} (blocked - max concurrent reached)", third_result);
+    println!(
+        "  Third acquire: {:?} (blocked - max concurrent reached)",
+        third_result
+    );
 
     drop(permit_one);
     drop(permit_two);

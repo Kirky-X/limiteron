@@ -1090,6 +1090,137 @@ on_exceed = "reject"
         ];
         assert_eq!(sources.len(), 6);
     }
+
+    #[test]
+    fn test_config_builder_with_trusted_proxies() {
+        let trusted = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".to_string()],
+            max_hops: 5,
+        };
+        let builder = ConfigBuilder::new().with_trusted_proxies(trusted.clone());
+        assert!(builder.trusted_proxies.enabled);
+        assert_eq!(
+            builder.trusted_proxies.proxies,
+            vec!["10.0.0.1".to_string()]
+        );
+        assert_eq!(builder.trusted_proxies.max_hops, 5);
+    }
+
+    fn make_rule(id: &str) -> Rule {
+        Rule {
+            id: id.to_string(),
+            name: format!("Rule {}", id),
+            priority: 100,
+            matchers: vec![Matcher::User {
+                user_ids: vec!["*".to_string()],
+            }],
+            limiters: vec![LimiterConfig::TokenBucket {
+                capacity: 1000,
+                refill_rate: 100,
+            }],
+            action: ActionConfig {
+                on_exceed: Action::Reject,
+                ban: None,
+            },
+        }
+    }
+
+    #[test]
+    fn test_diff_changes_global_config_changed() {
+        let old_config = FlowControlConfig {
+            version: "1.0".to_string(),
+            global: GlobalConfig {
+                storage: StorageType::Memory,
+                cache: CacheBackend::Memory,
+                metrics: MetricsBackend::Prometheus,
+                trusted_proxies: TrustedProxyConfig::default(),
+            },
+            rules: vec![make_rule("r1")],
+        };
+        let new_config = FlowControlConfig {
+            version: "1.0".to_string(),
+            global: GlobalConfig {
+                storage: StorageType::Memory,
+                cache: CacheBackend::Redis, // 改变缓存类型
+                metrics: MetricsBackend::Prometheus,
+                trusted_proxies: TrustedProxyConfig::default(),
+            },
+            rules: vec![make_rule("r1")],
+        };
+
+        let record = new_config.create_change_record(
+            Some(&old_config),
+            ChangeSource::Manual {
+                operator: "test".to_string(),
+            },
+        );
+        assert!(record.changes.iter().any(|c| c.contains("全局配置已变更")));
+    }
+
+    #[test]
+    fn test_diff_changes_rule_count_changed() {
+        let old_config = FlowControlConfig {
+            version: "1.0".to_string(),
+            rules: vec![make_rule("r1"), make_rule("r2")],
+            ..Default::default()
+        };
+        let new_config = FlowControlConfig {
+            version: "1.0".to_string(),
+            rules: vec![make_rule("r1")],
+            ..Default::default()
+        };
+
+        let record = new_config.create_change_record(Some(&old_config), ChangeSource::Poll);
+        assert!(record.changes.iter().any(|c| c.contains("规则数量变更")));
+    }
+
+    #[test]
+    fn test_diff_changes_rules_added() {
+        let old_config = FlowControlConfig {
+            version: "1.0".to_string(),
+            rules: vec![make_rule("r1")],
+            ..Default::default()
+        };
+        let new_config = FlowControlConfig {
+            version: "1.0".to_string(),
+            rules: vec![make_rule("r1"), make_rule("r2")],
+            ..Default::default()
+        };
+
+        let record = new_config.create_change_record(Some(&old_config), ChangeSource::Api);
+        assert!(record.changes.iter().any(|c| c.contains("新增规则")));
+    }
+
+    #[test]
+    fn test_diff_changes_rules_removed() {
+        let old_config = FlowControlConfig {
+            version: "1.0".to_string(),
+            rules: vec![make_rule("r1"), make_rule("r2")],
+            ..Default::default()
+        };
+        let new_config = FlowControlConfig {
+            version: "1.0".to_string(),
+            rules: vec![make_rule("r1")],
+            ..Default::default()
+        };
+
+        let record = new_config.create_change_record(Some(&old_config), ChangeSource::Watch);
+        assert!(record.changes.iter().any(|c| c.contains("移除规则")));
+    }
+
+    #[test]
+    fn test_diff_changes_no_changes() {
+        let old_config = FlowControlConfig {
+            version: "1.0".to_string(),
+            rules: vec![make_rule("r1")],
+            ..Default::default()
+        };
+        let new_config = old_config.clone();
+
+        let record = new_config.create_change_record(Some(&old_config), ChangeSource::Reload);
+        assert!(record.changes.iter().any(|c| c.contains("配置内容无变化")));
+    }
 }
 
 // ============================================================================
@@ -1113,9 +1244,9 @@ on_exceed = "reject"
 /// use limiteron::config::ConfigBuilder;
 ///
 /// let config = ConfigBuilder::new()
-///     .with_storage("memory")
-///     .with_cache("memory")
-///     .with_metrics("prometheus")
+///     .with_storage("memory".into())
+///     .with_cache("memory".into())
+///     .with_metrics("prometheus".into())
 ///     .with_rule(|rule| {
 ///         rule.id("default")
 ///             .name("Default Rule")

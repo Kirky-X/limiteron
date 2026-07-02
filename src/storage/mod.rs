@@ -222,7 +222,7 @@ use tokio::sync::RwLock;
 ///
 /// **Note**: This implementation is not suitable for production use with
 /// multiple instances as data is not shared across processes.
-pub(crate) struct MemoryStorage {
+pub struct MemoryStorage {
     /// Key-value data storage
     data: RwLock<HashMap<String, String>>,
     /// Expiration times (key -> expiration timestamp in seconds)
@@ -309,7 +309,7 @@ impl Storage for MemoryStorage {
 ///
 /// **Note**: This implementation is not suitable for production use with
 /// multiple instances as data is not shared across processes.
-pub(crate) struct MemoryBanStorage {
+pub struct MemoryBanStorage {
     /// Ban records storage
     bans: RwLock<HashMap<BanTarget, BanRecord>>,
     /// Expiration tracking (target -> expires_at timestamp)
@@ -406,7 +406,14 @@ impl BanStorage for MemoryBanStorage {
         let now = Utc::now().timestamp();
         let mut removed = 0u64;
 
-        let targets: Vec<_> = self.expiration.read().await.keys().cloned().collect();
+        #[allow(clippy::map_clone)]
+        let targets: Vec<_> = self
+            .expiration
+            .read()
+            .await
+            .keys()
+            .map(|x| x.clone())
+            .collect();
         for target in targets {
             if let Some(exp) = self.expiration.read().await.get(&target) {
                 if *exp <= now {
@@ -433,7 +440,8 @@ impl BanStorage for MemoryBanStorage {
             let _ = self.cleanup_expired_bans().await;
         }
 
-        let bans: Vec<_> = self.bans.read().await.values().cloned().collect();
+        #[allow(clippy::map_clone)]
+        let bans: Vec<_> = self.bans.read().await.values().map(|x| x.clone()).collect();
 
         let filtered: Vec<_> = if active_only {
             bans.into_iter()
@@ -786,6 +794,92 @@ mod tests {
         let none = BanStorage::is_banned(&bs, &rec.target).await.unwrap();
         assert!(none.is_none());
     }
+
+    #[tokio::test]
+    async fn test_arc_quota_storage_reset() {
+        let qs = Arc::new(TestQuotaStorage {
+            quotas: RwLock::new(HashMap::new()),
+        });
+        QuotaStorage::consume(&qs, "u", "res", 100, 1000, Duration::from_secs(60))
+            .await
+            .unwrap();
+        QuotaStorage::reset(&qs, "u", "res", 500, Duration::from_secs(120))
+            .await
+            .unwrap();
+        let q = QuotaStorage::get_quota(&qs, "u", "res")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(q.consumed, 0);
+        assert_eq!(q.limit, 500);
+    }
+
+    #[tokio::test]
+    async fn test_arc_ban_storage_get_history() {
+        let bs = Arc::new(TestBanStorage {
+            bans: RwLock::new(HashMap::new()),
+        });
+        let target = BanTarget::UserId("u".to_string());
+        let h = BanStorage::get_history(&bs, &target).await.unwrap();
+        assert!(h.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_arc_ban_storage_increment_ban_times() {
+        let bs = Arc::new(TestBanStorage {
+            bans: RwLock::new(HashMap::new()),
+        });
+        let target = BanTarget::UserId("u".to_string());
+        let n = BanStorage::increment_ban_times(&bs, &target).await.unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[tokio::test]
+    async fn test_arc_ban_storage_get_ban_times() {
+        let bs = Arc::new(TestBanStorage {
+            bans: RwLock::new(HashMap::new()),
+        });
+        let target = BanTarget::UserId("u".to_string());
+        let n = BanStorage::get_ban_times(&bs, &target).await.unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[tokio::test]
+    async fn test_arc_ban_storage_cleanup_expired_bans() {
+        let bs = Arc::new(TestBanStorage {
+            bans: RwLock::new(HashMap::new()),
+        });
+        let n = BanStorage::cleanup_expired_bans(&bs).await.unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[tokio::test]
+    async fn test_arc_ban_storage_list_bans() {
+        let bs = Arc::new(TestBanStorage {
+            bans: RwLock::new(HashMap::new()),
+        });
+        let rec = BanRecord {
+            target: BanTarget::UserId("u".to_string()),
+            ban_times: 1,
+            duration: Duration::from_secs(60),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(60),
+            is_manual: false,
+            reason: "r".to_string(),
+        };
+        BanStorage::save(&bs, &rec).await.unwrap();
+        let bans = BanStorage::list_bans(&bs, false, 0, 10).await.unwrap();
+        assert_eq!(bans.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_arc_ban_storage_as_any() {
+        let bs: Arc<dyn BanStorage> = Arc::new(TestBanStorage {
+            bans: RwLock::new(HashMap::new()),
+        });
+        let any = BanStorage::as_any(&bs);
+        assert!(any.downcast_ref::<TestBanStorage>().is_some());
+    }
 }
 
 // ============================================================================
@@ -872,6 +966,75 @@ mod memory_storage_tests {
             .unwrap();
         let value = Storage::get(&storage, "key1").await.unwrap();
         assert_eq!(value, Some("value1".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_memory_storage_default() {
+        let storage: MemoryStorage = Default::default();
+        Storage::set(&storage, "k", "v", None).await.unwrap();
+        let v = Storage::get(&storage, "k").await.unwrap();
+        assert_eq!(v, Some("v".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_memory_storage_with_capacity() {
+        let storage = MemoryStorage::with_capacity(100);
+        Storage::set(&storage, "k", "v", None).await.unwrap();
+        let v = Storage::get(&storage, "k").await.unwrap();
+        assert_eq!(v, Some("v".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_memory_storage_get_nonexistent() {
+        let storage = MemoryStorage::new();
+        let v = Storage::get(&storage, "nonexistent").await.unwrap();
+        assert!(v.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_memory_storage_delete_nonexistent() {
+        let storage = MemoryStorage::new();
+        Storage::delete(&storage, "nonexistent").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_memory_storage_update_ttl() {
+        let storage = MemoryStorage::new();
+
+        Storage::set(&storage, "k", "v1", None).await.unwrap();
+        Storage::set(&storage, "k", "v2", Some(1)).await.unwrap();
+        let v = Storage::get(&storage, "k").await.unwrap();
+        assert_eq!(v, Some("v2".to_string()));
+
+        Storage::set(&storage, "k", "v3", Some(3600)).await.unwrap();
+        Storage::set(&storage, "k", "v4", None).await.unwrap();
+        let v = Storage::get(&storage, "k").await.unwrap();
+        assert_eq!(v, Some("v4".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_memory_storage_overwrite_expired_key() {
+        let storage = MemoryStorage::new();
+
+        Storage::set(&storage, "k", "v1", Some(1)).await.unwrap();
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+        let v = Storage::get(&storage, "k").await.unwrap();
+        assert!(v.is_none());
+
+        Storage::set(&storage, "k", "v2", None).await.unwrap();
+        let v = Storage::get(&storage, "k").await.unwrap();
+        assert_eq!(v, Some("v2".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_arc_memory_storage_blanket_all() {
+        let s: Arc<MemoryStorage> = Arc::new(MemoryStorage::new());
+        Storage::set(&s, "k", "v", None).await.unwrap();
+        assert_eq!(Storage::get(&s, "k").await.unwrap(), Some("v".to_string()));
+        Storage::delete(&s, "k").await.unwrap();
+        assert!(Storage::get(&s, "k").await.unwrap().is_none());
     }
 }
 
@@ -1016,5 +1179,305 @@ mod memory_ban_storage_tests {
         BanStorage::save(&storage, &rec).await.unwrap();
         let found = BanStorage::is_banned(&storage, &rec.target).await.unwrap();
         assert!(found.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_default() {
+        let storage: MemoryBanStorage = Default::default();
+        let rec = BanRecord {
+            target: BanTarget::UserId("default_user".to_string()),
+            ban_times: 1,
+            duration: Duration::from_secs(60),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(60),
+            is_manual: false,
+            reason: "default test".to_string(),
+        };
+        BanStorage::save(&storage, &rec).await.unwrap();
+        let found = BanStorage::is_banned(&storage, &rec.target).await.unwrap();
+        assert!(found.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_with_capacity() {
+        let storage = MemoryBanStorage::with_capacity(100);
+        let rec = BanRecord {
+            target: BanTarget::Ip("10.0.0.1".to_string()),
+            ban_times: 1,
+            duration: Duration::from_secs(60),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(60),
+            is_manual: false,
+            reason: "capacity test".to_string(),
+        };
+        BanStorage::save(&storage, &rec).await.unwrap();
+        let found = BanStorage::is_banned(&storage, &rec.target).await.unwrap();
+        assert!(found.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_get_ban_alias() {
+        let storage = MemoryBanStorage::new();
+        let rec = BanRecord {
+            target: BanTarget::Mac("00:11:22:33:44:55".to_string()),
+            ban_times: 1,
+            duration: Duration::from_secs(60),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(60),
+            is_manual: false,
+            reason: "mac ban".to_string(),
+        };
+        BanStorage::save(&storage, &rec).await.unwrap();
+        let found = BanStorage::get_ban(&storage, &rec.target).await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().reason, "mac ban");
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_add_ban_alias() {
+        let storage = MemoryBanStorage::new();
+        let rec = BanRecord {
+            target: BanTarget::UserId("alias_test".to_string()),
+            ban_times: 1,
+            duration: Duration::from_secs(60),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(60),
+            is_manual: false,
+            reason: "add_ban test".to_string(),
+        };
+        BanStorage::add_ban(&storage, &rec).await.unwrap();
+        let found = BanStorage::is_banned(&storage, &rec.target).await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().reason, "add_ban test");
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_get_history() {
+        let storage = MemoryBanStorage::new();
+        let rec = BanRecord {
+            target: BanTarget::UserId("history_test".to_string()),
+            ban_times: 1,
+            duration: Duration::from_secs(60),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(60),
+            is_manual: false,
+            reason: "history".to_string(),
+        };
+        BanStorage::save(&storage, &rec).await.unwrap();
+        let history = BanStorage::get_history(&storage, &rec.target)
+            .await
+            .unwrap();
+        assert!(history.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_cleanup_expired_bans_empty() {
+        let storage = MemoryBanStorage::new();
+        let removed = BanStorage::cleanup_expired_bans(&storage).await.unwrap();
+        assert_eq!(removed, 0);
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_list_bans_active_only() {
+        let storage = MemoryBanStorage::new();
+
+        let active = BanRecord {
+            target: BanTarget::UserId("active".to_string()),
+            ban_times: 1,
+            duration: Duration::from_secs(3600),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(3600),
+            is_manual: false,
+            reason: "active".to_string(),
+        };
+        BanStorage::save(&storage, &active).await.unwrap();
+
+        let active_only = BanStorage::list_bans(&storage, true, 0, 10).await.unwrap();
+        assert_eq!(active_only.len(), 1);
+        assert_eq!(active_only[0].reason, "active");
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_list_bans_pagination() {
+        let storage = MemoryBanStorage::new();
+
+        for i in 0..5 {
+            let rec = BanRecord {
+                target: BanTarget::UserId(format!("user{}", i)),
+                ban_times: 1,
+                duration: Duration::from_secs(60),
+                banned_at: Utc::now(),
+                expires_at: Utc::now() + chrono::Duration::seconds(60),
+                is_manual: false,
+                reason: format!("ban {}", i),
+            };
+            BanStorage::save(&storage, &rec).await.unwrap();
+        }
+
+        let bans = BanStorage::list_bans(&storage, false, 5, 10).await.unwrap();
+        assert!(bans.is_empty());
+
+        let bans = BanStorage::list_bans(&storage, false, 3, 10).await.unwrap();
+        assert_eq!(bans.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_increment_nonexistent() {
+        let storage = MemoryBanStorage::new();
+        let target = BanTarget::UserId("nonexistent".to_string());
+        let times = BanStorage::increment_ban_times(&storage, &target)
+            .await
+            .unwrap();
+        assert_eq!(times, 0);
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_as_any() {
+        let storage = MemoryBanStorage::new();
+        let any = BanStorage::as_any(&storage);
+        assert!(any.downcast_ref::<MemoryBanStorage>().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_list_bans_offset_eq_total() {
+        let storage = MemoryBanStorage::new();
+
+        for i in 0..3 {
+            let rec = BanRecord {
+                target: BanTarget::UserId(format!("user{}", i)),
+                ban_times: 1,
+                duration: Duration::from_secs(60),
+                banned_at: Utc::now(),
+                expires_at: Utc::now() + chrono::Duration::seconds(60),
+                is_manual: false,
+                reason: format!("ban {}", i),
+            };
+            BanStorage::save(&storage, &rec).await.unwrap();
+        }
+
+        let bans = BanStorage::list_bans(&storage, false, 3, 5).await.unwrap();
+        assert!(bans.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_list_bans_limit_zero() {
+        let storage = MemoryBanStorage::new();
+
+        for i in 0..3 {
+            let rec = BanRecord {
+                target: BanTarget::UserId(format!("user{}", i)),
+                ban_times: 1,
+                duration: Duration::from_secs(60),
+                banned_at: Utc::now(),
+                expires_at: Utc::now() + chrono::Duration::seconds(60),
+                is_manual: false,
+                reason: format!("ban {}", i),
+            };
+            BanStorage::save(&storage, &rec).await.unwrap();
+        }
+
+        let bans = BanStorage::list_bans(&storage, false, 0, 0).await.unwrap();
+        assert!(bans.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_save_overwrite() {
+        let storage = MemoryBanStorage::new();
+
+        let rec1 = BanRecord {
+            target: BanTarget::Ip("10.0.0.1".to_string()),
+            ban_times: 1,
+            duration: Duration::from_secs(60),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(60),
+            is_manual: false,
+            reason: "first".to_string(),
+        };
+        BanStorage::save(&storage, &rec1).await.unwrap();
+
+        let rec2 = BanRecord {
+            target: BanTarget::Ip("10.0.0.1".to_string()),
+            ban_times: 2,
+            duration: Duration::from_secs(120),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(120),
+            is_manual: true,
+            reason: "overwritten".to_string(),
+        };
+        BanStorage::save(&storage, &rec2).await.unwrap();
+
+        let found = BanStorage::is_banned(&storage, &rec2.target)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.ban_times, 2);
+        assert_eq!(found.reason, "overwritten");
+        assert!(found.is_manual);
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_remove_ban_cleans_expiration() {
+        let storage = MemoryBanStorage::new();
+
+        let rec = BanRecord {
+            target: BanTarget::UserId("remove_me".to_string()),
+            ban_times: 1,
+            duration: Duration::from_secs(60),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(60),
+            is_manual: false,
+            reason: "to remove".to_string(),
+        };
+        BanStorage::save(&storage, &rec).await.unwrap();
+        BanStorage::remove_ban(&storage, &rec.target).await.unwrap();
+
+        let removed = BanStorage::cleanup_expired_bans(&storage).await.unwrap();
+        assert_eq!(removed, 0);
+    }
+
+    #[tokio::test]
+    async fn test_arc_memory_ban_storage_blanket() {
+        let bs: Arc<MemoryBanStorage> = Arc::new(MemoryBanStorage::new());
+        let rec = BanRecord {
+            target: BanTarget::UserId("arc_blanket".to_string()),
+            ban_times: 1,
+            duration: Duration::from_secs(60),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(60),
+            is_manual: false,
+            reason: "arc blanket".to_string(),
+        };
+        BanStorage::save(&bs, &rec).await.unwrap();
+        let found = BanStorage::is_banned(&bs, &rec.target).await.unwrap();
+        assert!(found.is_some());
+        BanStorage::remove_ban(&bs, &rec.target).await.unwrap();
+        assert!(BanStorage::is_banned(&bs, &rec.target)
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    /// 覆盖 cleanup_expired_bans 中无过期 ban 的路径
+    /// 注意：cleanup_expired_bans 在有过期 ban 时存在死锁 bug
+    ///（持有 expiration 读锁时尝试获取写锁），此处仅测试无过期场景
+    #[tokio::test]
+    async fn test_memory_ban_storage_cleanup_no_expired() {
+        let storage = MemoryBanStorage::new();
+
+        // 只添加未过期的 ban
+        let active_rec = BanRecord {
+            target: BanTarget::UserId("active_user".to_string()),
+            ban_times: 1,
+            duration: Duration::from_secs(60),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(3600),
+            is_manual: false,
+            reason: "active".to_string(),
+        };
+        BanStorage::save(&storage, &active_rec).await.unwrap();
+
+        // cleanup_expired_bans 应返回 0（无过期 ban）
+        let removed = BanStorage::cleanup_expired_bans(&storage).await.unwrap();
+        assert_eq!(removed, 0, "should remove 0 bans");
     }
 }

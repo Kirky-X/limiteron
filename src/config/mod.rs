@@ -7,7 +7,6 @@
 //! 整合所有配置相关的子模块，提供统一的配置管理接口。
 
 // 子模块声明
-#[cfg(feature = "confers")]
 pub(crate) mod loader;
 pub(crate) mod types;
 // TODO: watcher and security modules need to be implemented
@@ -26,8 +25,7 @@ pub use crate::config::types::{
 #[allow(unused_imports)]
 pub use Matcher as ConfigMatcher;
 
-// Re-export config loader (requires confers feature)
-#[cfg(feature = "confers")]
+// Re-export config loader
 pub use crate::config::loader::ConfigLoader;
 
 // Re-export config watcher (requires config-watcher feature)

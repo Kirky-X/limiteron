@@ -81,3 +81,92 @@ impl Default for ConfigHistory {
         Self::new(100)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn sample_record(version: &str) -> ConfigChangeRecord {
+        ConfigChangeRecord {
+            timestamp: Utc::now(),
+            old_version: Some("v1".into()),
+            new_version: version.into(),
+            old_hash: Some("abc".into()),
+            new_hash: "def".into(),
+            source: ChangeSource::Manual {
+                operator: "admin".into(),
+            },
+            changes: vec!["change1".into()],
+        }
+    }
+
+    #[test]
+    fn test_history_new() {
+        let history = ConfigHistory::new(10);
+        assert_eq!(history.max_records(), 10);
+        assert!(history.get_records().is_empty());
+    }
+
+    #[test]
+    fn test_history_default() {
+        let history = ConfigHistory::default();
+        assert_eq!(history.max_records(), 100);
+    }
+
+    #[test]
+    fn test_history_add_record() {
+        let mut history = ConfigHistory::new(10);
+        history.add_record(sample_record("v2"));
+        assert_eq!(history.get_records().len(), 1);
+    }
+
+    #[test]
+    fn test_history_max_records_trim() {
+        let mut history = ConfigHistory::new(2);
+        history.add_record(sample_record("v2"));
+        history.add_record(sample_record("v3"));
+        history.add_record(sample_record("v4"));
+        assert_eq!(history.get_records().len(), 2);
+        assert_eq!(history.get_records()[0].new_version, "v3");
+    }
+
+    #[test]
+    fn test_history_get_latest() {
+        let mut history = ConfigHistory::new(10);
+        assert!(history.get_latest().is_none());
+        history.add_record(sample_record("v2"));
+        assert!(history.get_latest().is_some());
+        assert_eq!(history.get_latest().unwrap().new_version, "v2");
+    }
+
+    #[test]
+    fn test_history_clear() {
+        let mut history = ConfigHistory::new(10);
+        history.add_record(sample_record("v2"));
+        history.clear();
+        assert!(history.get_records().is_empty());
+    }
+
+    #[test]
+    fn test_change_source_manual() {
+        let source = ChangeSource::Manual {
+            operator: "admin".into(),
+        };
+        match source {
+            ChangeSource::Manual { operator } => assert_eq!(operator, "admin"),
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn test_change_source_rollback() {
+        let source = ChangeSource::Rollback {
+            target_version: "v1".into(),
+        };
+        match source {
+            ChangeSource::Rollback { target_version } => assert_eq!(target_version, "v1"),
+            _ => panic!("wrong variant"),
+        }
+    }
+}

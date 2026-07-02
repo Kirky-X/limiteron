@@ -98,18 +98,15 @@ pub mod events;
 
 // Consolidated modules
 pub mod error; // Contains error types and abstraction
-pub(crate) mod limiters; // Contains limiters, factory, and manager
+pub mod limiters; // Contains limiters, factory, and manager
 pub mod logging; // Contains audit_log and log_redaction
 pub mod rules; // Contains rule_builder and stats_manager
-pub(crate) mod storage; // Contains storage_trait and parallel_ban_checker
-
-#[cfg(feature = "redis-storage")]
-pub mod redis;
+pub mod storage; // Contains storage_trait and parallel_ban_checker
 
 #[cfg(feature = "fallback")]
 pub mod fallback;
 pub mod governor;
-pub(crate) mod l1_cache;
+pub mod l1_cache;
 #[cfg(feature = "macros")]
 pub mod macros;
 pub mod matchers;
@@ -145,14 +142,12 @@ pub use circuit::{CircuitBreaker, CircuitBreakerConfig};
 pub use logging::audit::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
 // 导出配置相关类型
 #[cfg(feature = "cache-service")]
-pub use cache::{cache_service::CacheService, Cache, CacheKey, Cacheable};
+pub use cache::{cache_service::CacheService, Cache, CacheKey};
+pub use config::ConfigLoader;
 pub use config::{
     ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, ConfigMatcher,
     FlowControlConfig, LimiterConfig, Rule as ConfigRule,
 };
-// 导出 confers ConfigBuilder（当启用 confers feature 时）
-#[cfg(feature = "confers")]
-pub use config::{ConfigBuilder, ConfigLoader};
 pub use decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
 // AtomicChainStats 改为 pub(crate)，不再公开导出
 pub use error::{
@@ -172,7 +167,6 @@ pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrat
 pub use governor::{Governor, GovernorStats};
 pub use l1_cache::{L1Cache, L1CacheConfig, RateLimitCacheKey};
 pub use limiters::Limiter;
-// GLOBAL_LIMITER_MANAGER 改为 pub(crate)，不再公开导出
 #[cfg(feature = "quota-control")]
 pub use limiters::QuotaLimiter;
 #[cfg(feature = "macros")]
@@ -198,6 +192,7 @@ pub use matchers::{
 #[cfg(feature = "geo-matching")]
 pub use matchers::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
 #[cfg(feature = "quota-control")]
+pub use quota::QuotaController;
 #[cfg(feature = "telemetry")]
 pub use telemetry::{init_telemetry, TelemetryConfig, Tracer};
 #[cfg(feature = "monitoring")]
@@ -224,12 +219,13 @@ pub use storage::{
 #[cfg(feature = "parallel-checker")]
 pub use storage::ParallelBanChecker;
 
-// Re-export Redis types (feature-gated)
-#[cfg(feature = "redis-storage")]
-pub use redis::{
-    execute_gcra, execute_gcra_with_sha, load_gcra_script, GcraResult, RedisStorage, ScriptManager,
-    ScriptType,
-};
+// Re-export CacheStorage (feature-gated)
+#[cfg(feature = "cache-storage")]
+pub use cache::ban_storage::CacheBanStorage;
+#[cfg(feature = "cache-storage")]
+pub use cache::quota_storage::CacheQuotaStorage;
+#[cfg(feature = "cache-storage")]
+pub use cache::storage::CacheStorage;
 
 // Re-export GCRA limiter (feature-gated)
 #[cfg(feature = "gcra")]

@@ -111,26 +111,6 @@ pub fn inject_rate_limit_headers<B>(
     response
 }
 
-/// 从 HTTP 响应中移除所有限流响应头
-///
-/// 用于需要清理响应的场景。
-pub fn remove_rate_limit_headers<B>(response: &mut Response<B>) {
-    let headers = response.headers_mut();
-    headers.remove("RateLimit-Limit");
-    headers.remove("RateLimit-Remaining");
-    headers.remove("RateLimit-Reset");
-    headers.remove("RateLimit-Policy");
-    headers.remove("Retry-After");
-}
-
-/// 检查响应是否包含限流响应头
-pub fn has_rate_limit_headers<B>(response: &Response<B>) -> bool {
-    let headers = response.headers();
-    headers.contains_key("RateLimit-Limit")
-        || headers.contains_key("RateLimit-Remaining")
-        || headers.contains_key("RateLimit-Reset")
-}
-
 // ============================================================================
 // 单元测试
 // ============================================================================
@@ -198,41 +178,5 @@ mod tests {
 
         assert_eq!(response.headers().get("RateLimit-Limit").unwrap(), "50");
         assert!(response.headers().get("RateLimit-Policy").is_none());
-    }
-
-    #[test]
-    fn test_remove_rate_limit_headers() {
-        let mut response = Response::new(());
-        let values = RateLimitHeaderValues {
-            limit: 100,
-            remaining: 99,
-            reset_at: 1234567890,
-            retry_after: Some(30),
-            policy: "test".to_string(),
-        };
-
-        let mut response = inject_rate_limit_headers(response, &values);
-        assert!(has_rate_limit_headers(&response));
-
-        remove_rate_limit_headers(&mut response);
-        assert!(!has_rate_limit_headers(&response));
-    }
-
-    #[test]
-    fn test_has_rate_limit_headers() {
-        let response = Response::new(());
-        assert!(!has_rate_limit_headers(&response));
-
-        let mut response = Response::new(());
-        let values = RateLimitHeaderValues {
-            limit: 100,
-            remaining: 99,
-            reset_at: 1234567890,
-            retry_after: None,
-            policy: String::new(),
-        };
-
-        let response = inject_rate_limit_headers(response, &values);
-        assert!(has_rate_limit_headers(&response));
     }
 }

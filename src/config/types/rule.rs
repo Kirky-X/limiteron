@@ -130,3 +130,138 @@ impl Matcher {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_rule() -> Rule {
+        Rule {
+            id: "rule1".into(),
+            name: "Test Rule".into(),
+            priority: 100,
+            matchers: vec![Matcher::User {
+                user_ids: vec!["u1".into()],
+            }],
+            limiters: vec![LimiterConfig::TokenBucket {
+                capacity: 100,
+                refill_rate: 10,
+            }],
+            action: ActionConfig::default(),
+        }
+    }
+
+    // ==================== Rule::validate ====================
+
+    #[test]
+    fn test_rule_valid() {
+        assert!(valid_rule().validate().is_ok());
+    }
+
+    #[test]
+    fn test_rule_empty_id() {
+        let mut rule = valid_rule();
+        rule.id = "".into();
+        assert!(rule.validate().is_err());
+    }
+
+    #[test]
+    fn test_rule_empty_name() {
+        let mut rule = valid_rule();
+        rule.name = "".into();
+        assert!(rule.validate().is_err());
+    }
+
+    #[test]
+    fn test_rule_no_matchers() {
+        let mut rule = valid_rule();
+        rule.matchers = vec![];
+        assert!(rule.validate().is_err());
+    }
+
+    #[test]
+    fn test_rule_no_limiters() {
+        let mut rule = valid_rule();
+        rule.limiters = vec![];
+        assert!(rule.validate().is_err());
+    }
+
+    // ==================== Matcher::validate ====================
+
+    #[test]
+    fn test_matcher_user_valid() {
+        assert!(Matcher::User {
+            user_ids: vec!["u1".into()]
+        }
+        .validate()
+        .is_ok());
+    }
+
+    #[test]
+    fn test_matcher_user_empty() {
+        assert!(Matcher::User { user_ids: vec![] }.validate().is_err());
+    }
+
+    #[test]
+    fn test_matcher_ip_valid() {
+        assert!(Matcher::Ip {
+            ip_ranges: vec!["10.0.0.0/8".into()]
+        }
+        .validate()
+        .is_ok());
+    }
+
+    #[test]
+    fn test_matcher_ip_empty() {
+        assert!(Matcher::Ip { ip_ranges: vec![] }.validate().is_err());
+    }
+
+    #[test]
+    fn test_matcher_geo_empty() {
+        assert!(Matcher::Geo { countries: vec![] }.validate().is_err());
+    }
+
+    #[test]
+    fn test_matcher_api_version_empty() {
+        assert!(Matcher::ApiVersion { versions: vec![] }.validate().is_err());
+    }
+
+    #[test]
+    fn test_matcher_device_empty() {
+        assert!(Matcher::Device {
+            device_types: vec![]
+        }
+        .validate()
+        .is_err());
+    }
+
+    #[test]
+    fn test_matcher_custom_valid() {
+        assert!(Matcher::Custom {
+            name: "my-custom".into(),
+            config: serde_json::json!({"key": "val"}),
+        }
+        .validate()
+        .is_ok());
+    }
+
+    #[test]
+    fn test_matcher_custom_empty_name() {
+        assert!(Matcher::Custom {
+            name: "".into(),
+            config: serde_json::json!({"key": "val"}),
+        }
+        .validate()
+        .is_err());
+    }
+
+    #[test]
+    fn test_matcher_custom_null_config() {
+        assert!(Matcher::Custom {
+            name: "my-custom".into(),
+            config: serde_json::Value::Null,
+        }
+        .validate()
+        .is_err());
+    }
+}

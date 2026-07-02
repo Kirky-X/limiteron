@@ -181,3 +181,287 @@ pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration
         )),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::types::QuotaType;
+
+    // ==================== parse_window_size ====================
+
+    #[test]
+    fn test_parse_ms() {
+        let d = parse_window_size("500ms").unwrap();
+        assert_eq!(d, std::time::Duration::from_millis(500));
+    }
+
+    #[test]
+    fn test_parse_seconds() {
+        let d = parse_window_size("30s").unwrap();
+        assert_eq!(d, std::time::Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_parse_minutes() {
+        let d = parse_window_size("5m").unwrap();
+        assert_eq!(d, std::time::Duration::from_secs(300));
+    }
+
+    #[test]
+    fn test_parse_hours() {
+        let d = parse_window_size("2h").unwrap();
+        assert_eq!(d, std::time::Duration::from_secs(7200));
+    }
+
+    #[test]
+    fn test_parse_days() {
+        let d = parse_window_size("1d").unwrap();
+        assert_eq!(d, std::time::Duration::from_secs(86400));
+    }
+
+    #[test]
+    fn test_parse_full_unit_names() {
+        assert_eq!(
+            parse_window_size("10seconds").unwrap(),
+            std::time::Duration::from_secs(10)
+        );
+        assert_eq!(
+            parse_window_size("3minutes").unwrap(),
+            std::time::Duration::from_secs(180)
+        );
+        assert!(parse_window_size("2hours").is_ok());
+        assert!(parse_window_size("1days").is_ok());
+    }
+
+    #[test]
+    fn test_parse_empty() {
+        assert!(parse_window_size("").is_err());
+    }
+
+    #[test]
+    fn test_parse_zero() {
+        assert!(parse_window_size("0s").is_err());
+    }
+
+    #[test]
+    fn test_parse_unknown_unit() {
+        assert!(parse_window_size("10weeks").is_err());
+    }
+
+    #[test]
+    fn test_parse_no_number() {
+        assert!(parse_window_size("s").is_err());
+    }
+
+    #[test]
+    fn test_parse_no_unit() {
+        assert!(parse_window_size("10").is_err());
+    }
+
+    #[test]
+    fn test_parse_invalid_number() {
+        assert!(parse_window_size("abc").is_err());
+    }
+
+    // ==================== LimiterConfig::validate ====================
+
+    #[test]
+    fn test_token_bucket_valid() {
+        let config = LimiterConfig::TokenBucket {
+            capacity: 100,
+            refill_rate: 10,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_token_bucket_zero_capacity() {
+        let config = LimiterConfig::TokenBucket {
+            capacity: 0,
+            refill_rate: 10,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_token_bucket_zero_refill() {
+        let config = LimiterConfig::TokenBucket {
+            capacity: 100,
+            refill_rate: 0,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_sliding_window_valid() {
+        let config = LimiterConfig::SlidingWindow {
+            window_size: "60s".into(),
+            max_requests: 100,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_sliding_window_zero_requests() {
+        let config = LimiterConfig::SlidingWindow {
+            window_size: "60s".into(),
+            max_requests: 0,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_sliding_window_invalid_window() {
+        let config = LimiterConfig::SlidingWindow {
+            window_size: "".into(),
+            max_requests: 100,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_fixed_window_valid() {
+        let config = LimiterConfig::FixedWindow {
+            window_size: "60s".into(),
+            max_requests: 100,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_concurrency_valid() {
+        let config = LimiterConfig::Concurrency { max_concurrent: 10 };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_concurrency_zero() {
+        let config = LimiterConfig::Concurrency { max_concurrent: 0 };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_custom_valid() {
+        let config = LimiterConfig::Custom {
+            name: "my-limiter".into(),
+            config: serde_json::json!({"key": "value"}),
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_custom_empty_name() {
+        let config = LimiterConfig::Custom {
+            name: "".into(),
+            config: serde_json::json!({"key": "value"}),
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_custom_null_config() {
+        let config = LimiterConfig::Custom {
+            name: "my-limiter".into(),
+            config: serde_json::Value::Null,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_quota_valid() {
+        let config = LimiterConfig::Quota {
+            quota_type: QuotaType::Count,
+            limit: 1000,
+            window: "1d".into(),
+            alert_threshold: Some(80),
+            overdraft: Some(OverdraftConfig {
+                enabled: true,
+                max_overdraft: 100,
+            }),
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_quota_zero_limit() {
+        let config = LimiterConfig::Quota {
+            quota_type: QuotaType::Count,
+            limit: 0,
+            window: "1d".into(),
+            alert_threshold: None,
+            overdraft: None,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_quota_threshold_overflow() {
+        let config = LimiterConfig::Quota {
+            quota_type: QuotaType::Count,
+            limit: 1000,
+            window: "1d".into(),
+            alert_threshold: Some(150),
+            overdraft: None,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_quota_overdraft_enabled_zero() {
+        let config = LimiterConfig::Quota {
+            quota_type: QuotaType::Count,
+            limit: 1000,
+            window: "1d".into(),
+            alert_threshold: None,
+            overdraft: Some(OverdraftConfig {
+                enabled: true,
+                max_overdraft: 0,
+            }),
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_quota_overdraft_disabled() {
+        let config = LimiterConfig::Quota {
+            quota_type: QuotaType::Count,
+            limit: 1000,
+            window: "1d".into(),
+            alert_threshold: None,
+            overdraft: Some(OverdraftConfig {
+                enabled: false,
+                max_overdraft: 0,
+            }),
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    // ==================== OverdraftConfig ====================
+
+    #[test]
+    fn test_overdraft_enabled_valid() {
+        let config = OverdraftConfig {
+            enabled: true,
+            max_overdraft: 100,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_overdraft_enabled_zero() {
+        let config = OverdraftConfig {
+            enabled: true,
+            max_overdraft: 0,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_overdraft_disabled() {
+        let config = OverdraftConfig {
+            enabled: false,
+            max_overdraft: 0,
+        };
+        assert!(config.validate().is_ok());
+    }
+}

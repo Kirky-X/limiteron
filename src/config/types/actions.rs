@@ -192,19 +192,10 @@ impl std::fmt::Display for MetricsBackend {
 }
 
 /// 动作配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ActionConfig {
     pub on_exceed: Action,
     pub ban: Option<BanConfig>,
-}
-
-impl Default for ActionConfig {
-    fn default() -> Self {
-        Self {
-            on_exceed: Action::default(),
-            ban: None,
-        }
-    }
 }
 
 impl ActionConfig {
@@ -413,5 +404,88 @@ mod tests {
             scope: BanScope::Ip,
         };
         assert!(invalid_backoff.validate().is_err());
+    }
+
+    #[test]
+    fn test_ban_scope_from_str_and_display() {
+        assert_eq!(BanScope::from("ip"), BanScope::Ip);
+        assert_eq!(BanScope::from("user"), BanScope::User);
+        assert_eq!(BanScope::from("mac"), BanScope::Mac);
+        assert_eq!(BanScope::from("invalid"), BanScope::Ip);
+        assert_eq!(format!("{}", BanScope::Ip), "ip");
+        assert_eq!(format!("{}", BanScope::User), "user");
+        assert_eq!(format!("{}", BanScope::Mac), "mac");
+    }
+
+    #[test]
+    fn test_cache_backend_from_str_display_default() {
+        assert_eq!(CacheBackend::from("memory"), CacheBackend::Memory);
+        assert_eq!(CacheBackend::from("redis"), CacheBackend::Redis);
+        assert_eq!(CacheBackend::from("none"), CacheBackend::None);
+        assert_eq!(CacheBackend::from("invalid"), CacheBackend::Memory);
+        assert_eq!(format!("{}", CacheBackend::Memory), "memory");
+        assert_eq!(format!("{}", CacheBackend::Redis), "redis");
+        assert_eq!(format!("{}", CacheBackend::None), "none");
+        assert_eq!(CacheBackend::default(), CacheBackend::Memory);
+    }
+
+    #[test]
+    fn test_metrics_backend_from_str_display_default() {
+        assert_eq!(
+            MetricsBackend::from("prometheus"),
+            MetricsBackend::Prometheus
+        );
+        assert_eq!(MetricsBackend::from("statsd"), MetricsBackend::Statsd);
+        assert_eq!(MetricsBackend::from("none"), MetricsBackend::None);
+        assert_eq!(MetricsBackend::from("invalid"), MetricsBackend::Prometheus);
+        assert_eq!(format!("{}", MetricsBackend::Prometheus), "prometheus");
+        assert_eq!(format!("{}", MetricsBackend::Statsd), "statsd");
+        assert_eq!(format!("{}", MetricsBackend::None), "none");
+        assert_eq!(MetricsBackend::default(), MetricsBackend::Prometheus);
+    }
+
+    #[test]
+    fn test_ban_scope_equality() {
+        assert_eq!(BanScope::Ip, BanScope::Ip);
+        assert_ne!(BanScope::Ip, BanScope::User);
+        assert_ne!(BanScope::User, BanScope::Mac);
+    }
+
+    #[test]
+    fn test_action_config_validate_with_invalid_backoff() {
+        let config = ActionConfig {
+            on_exceed: Action::Reject,
+            ban: Some(BanConfig {
+                threshold: 5,
+                initial_duration: "1h".to_string(),
+                backoff_multiplier: -1.0,
+                max_duration: "24h".to_string(),
+                scope: BanScope::Ip,
+            }),
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_action_equality() {
+        assert_eq!(Action::Reject, Action::Reject);
+        assert_ne!(Action::Reject, Action::Allow);
+        assert_ne!(Action::Allow, Action::Degrade);
+    }
+
+    #[test]
+    fn test_action_serde_roundtrip() {
+        let json = serde_json::to_string(&Action::Allow).unwrap();
+        assert_eq!(json, "\"allow\"");
+        let back: Action = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, Action::Allow);
+    }
+
+    #[test]
+    fn test_ban_scope_serde_roundtrip() {
+        let json = serde_json::to_string(&BanScope::Mac).unwrap();
+        assert_eq!(json, "\"mac\"");
+        let back: BanScope = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, BanScope::Mac);
     }
 }

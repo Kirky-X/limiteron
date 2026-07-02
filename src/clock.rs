@@ -276,4 +276,56 @@ mod tests {
         assert_eq!(clock.now(), instant);
         assert_eq!(clock.unix_timestamp(), unix_ts);
     }
+
+    #[test]
+    fn test_mock_clock_default() {
+        let clock = MockClock::default();
+        let ts = clock.unix_timestamp();
+        assert!(ts > 1_700_000_000);
+    }
+
+    #[test]
+    fn test_mock_clock_clone() {
+        let clock = MockClock::new();
+        clock.advance(Duration::from_secs(42));
+        let cloned = clock.clone();
+        assert_eq!(cloned.unix_timestamp(), clock.unix_timestamp());
+        assert_eq!(clock.now(), cloned.now());
+    }
+
+    #[test]
+    fn test_mock_clock_as_arc() {
+        let clock = MockClock::new();
+        let arc_clock: Arc<dyn Clock> = clock.as_arc();
+        let ts = arc_clock.unix_timestamp();
+        assert!(ts > 1_700_000_000);
+        let now = arc_clock.now();
+        assert!(now.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn test_mock_clock_clone_independent() {
+        let clock = MockClock::new();
+        clock.advance(Duration::from_secs(10));
+        let cloned = clock.clone();
+        clock.advance(Duration::from_secs(20));
+        assert_eq!(clock.unix_timestamp(), cloned.unix_timestamp() + 20);
+    }
+
+    #[test]
+    fn test_system_clock_copy_and_clone() {
+        let clock1 = SystemClock;
+        let clock2 = clock1;
+        let ts1 = clock1.unix_timestamp();
+        let ts2 = clock2.unix_timestamp();
+        assert!(ts1 <= ts2);
+    }
+
+    #[test]
+    fn test_mock_clock_advance_then_nanos() {
+        let clock = MockClock::with_instant(Instant::now(), 100);
+        clock.advance(Duration::from_secs(5));
+        let nanos = clock.unix_timestamp_nanos();
+        assert_eq!(nanos, 105 * 1_000_000_000);
+    }
 }

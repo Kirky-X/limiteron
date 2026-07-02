@@ -173,6 +173,16 @@ pub enum CircuitState {
     HalfOpen,
 }
 
+impl std::fmt::Display for CircuitState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CircuitState::Closed => write!(f, "closed"),
+            CircuitState::Open => write!(f, "open"),
+            CircuitState::HalfOpen => write!(f, "half_open"),
+        }
+    }
+}
+
 /// 熔断器统计信息
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CircuitBreakerStats {
@@ -193,7 +203,7 @@ pub struct CircuitBreakerStats {
 /// 限流元数据信息
 ///
 /// 用于标准限流响应头，包含当前限流状态信息。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct RateLimitMetadata {
     /// 限流上限
     pub limit: u64,
@@ -205,18 +215,6 @@ pub struct RateLimitMetadata {
     pub retry_after: Option<u64>,
     /// 限流策略名称
     pub policy: String,
-}
-
-impl Default for RateLimitMetadata {
-    fn default() -> Self {
-        Self {
-            limit: 0,
-            remaining: 0,
-            reset_at: 0,
-            retry_after: None,
-            policy: String::new(),
-        }
-    }
 }
 
 /// 拒绝元数据信息
@@ -432,5 +430,207 @@ mod tests {
         let info1 = BanInfo::new("test".to_string(), now, 1);
         let info2 = BanInfo::new("test".to_string(), now, 1);
         assert_eq!(info1, info2);
+    }
+
+    #[test]
+    fn test_ban_info_accessors() {
+        let until = chrono::Utc::now() + chrono::Duration::hours(1);
+        let info = BanInfo::new("spam".to_string(), until, 5);
+        assert_eq!(info.reason(), "spam");
+        assert_eq!(info.banned_until(), until);
+        assert_eq!(info.ban_times(), 5);
+    }
+
+    #[test]
+    fn test_storage_error_is_transient() {
+        assert!(StorageError::TimeoutError("t".into()).is_transient());
+        assert!(StorageError::ConnectionError("c".into()).is_transient());
+        assert!(StorageError::RateLimitError("r".into()).is_transient());
+        assert!(!StorageError::NotFound("n".into()).is_transient());
+        assert!(!StorageError::QueryError("q".into()).is_transient());
+        assert!(!StorageError::AuthenticationError("a".into()).is_transient());
+        assert!(!StorageError::PermissionError("p".into()).is_transient());
+        assert!(!StorageError::InvalidConfig("i".into()).is_transient());
+        assert!(!StorageError::ValidationError("v".into()).is_transient());
+    }
+
+    #[test]
+    fn test_storage_error_is_permanent() {
+        assert!(StorageError::AuthenticationError("a".into()).is_permanent());
+        assert!(StorageError::PermissionError("p".into()).is_permanent());
+        assert!(StorageError::InvalidConfig("i".into()).is_permanent());
+        assert!(!StorageError::TimeoutError("t".into()).is_permanent());
+        assert!(!StorageError::ConnectionError("c".into()).is_permanent());
+        assert!(!StorageError::NotFound("n".into()).is_permanent());
+        assert!(!StorageError::QueryError("q".into()).is_permanent());
+        assert!(!StorageError::RateLimitError("r".into()).is_permanent());
+        assert!(!StorageError::ValidationError("v".into()).is_permanent());
+    }
+
+    #[test]
+    fn test_circuit_state_display() {
+        assert_eq!(format!("{}", CircuitState::Closed), "closed");
+        assert_eq!(format!("{}", CircuitState::Open), "open");
+        assert_eq!(format!("{}", CircuitState::HalfOpen), "half_open");
+    }
+
+    #[test]
+    fn test_decision_allowed_constructor() {
+        let metadata = RateLimitMetadata {
+            limit: 200,
+            remaining: 150,
+            reset_at: 999,
+            retry_after: None,
+            policy: "sliding".to_string(),
+        };
+        let decision = Decision::allowed(metadata.clone());
+        let retrieved = decision
+            .rate_limit_metadata()
+            .expect("should have metadata");
+        assert_eq!(retrieved.limit, 200);
+        assert_eq!(retrieved.remaining, 150);
+        assert_eq!(retrieved.reset_at, 999);
+        assert_eq!(retrieved.policy, "sliding");
+    }
+
+    #[test]
+    fn test_decision_rejected_constructor() {
+        let metadata = RejectionMetadata::new("too many".to_string(), 30, 100, 12345);
+        let decision = Decision::rejected(metadata);
+        let retrieved = decision
+            .rate_limit_metadata()
+            .expect("should have metadata");
+        assert_eq!(retrieved.limit, 100);
+        assert_eq!(retrieved.remaining, 0);
+        assert_eq!(retrieved.reset_at, 12345);
+        assert_eq!(retrieved.retry_after, Some(30));
+    }
+
+    #[test]
+    fn test_consume_result_construction() {
+        let result = ConsumeResult {
+            allowed: true,
+            remaining: 50,
+            alert_triggered: true,
+            usage_percent: 50.0,
+        };
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 50);
+        assert!(result.alert_triggered);
+        assert!((result.usage_percent - 50.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_flowguard_error_variants_display() {
+        assert_eq!(
+            FlowGuardError::LimitError("x".into()).to_string(),
+            "限流错误: x"
+        );
+        assert_eq!(
+            FlowGuardError::BanError("x".into()).to_string(),
+            "封禁错误: x"
+        );
+        assert_eq!(
+            FlowGuardError::CircuitBreakerError("x".into()).to_string(),
+            "熔断器错误: x"
+        );
+        assert_eq!(
+            FlowGuardError::FallbackError("x".into()).to_string(),
+            "降级错误: x"
+        );
+        assert_eq!(
+            FlowGuardError::AuditLogError("x".into()).to_string(),
+            "审计日志错误: x"
+        );
+        assert_eq!(
+            FlowGuardError::AuthorizationError("x".into()).to_string(),
+            "授权错误: x"
+        );
+        assert_eq!(
+            FlowGuardError::RateLimitExceeded("x".into()).to_string(),
+            "速率限制超出: x"
+        );
+        assert_eq!(
+            FlowGuardError::QuotaExceeded("x".into()).to_string(),
+            "配额超出: x"
+        );
+        assert_eq!(
+            FlowGuardError::ConcurrencyLimitExceeded("x".into()).to_string(),
+            "并发限制超出: x"
+        );
+        assert_eq!(
+            FlowGuardError::ValidationError("x".into()).to_string(),
+            "验证错误: x"
+        );
+        assert_eq!(
+            FlowGuardError::LockError("x".into()).to_string(),
+            "锁获取错误: x"
+        );
+        assert_eq!(
+            FlowGuardError::TimeError("x".into()).to_string(),
+            "时间错误: x"
+        );
+        assert_eq!(
+            FlowGuardError::DependencyError("x".into()).to_string(),
+            "依赖缺失: x"
+        );
+        assert_eq!(FlowGuardError::Other("x".into()).to_string(), "未知错误: x");
+    }
+
+    #[test]
+    fn test_storage_error_display() {
+        assert_eq!(
+            StorageError::ConnectionError("c".into()).to_string(),
+            "连接错误: c"
+        );
+        assert_eq!(
+            StorageError::QueryError("q".into()).to_string(),
+            "查询错误: q"
+        );
+        assert_eq!(
+            StorageError::TimeoutError("t".into()).to_string(),
+            "超时错误: t"
+        );
+        assert_eq!(StorageError::NotFound("n".into()).to_string(), "未找到: n");
+        assert_eq!(
+            StorageError::AuthenticationError("a".into()).to_string(),
+            "认证错误: a"
+        );
+        assert_eq!(
+            StorageError::PermissionError("p".into()).to_string(),
+            "权限错误: p"
+        );
+        assert_eq!(
+            StorageError::InvalidConfig("i".into()).to_string(),
+            "无效配置: i"
+        );
+        assert_eq!(
+            StorageError::RateLimitError("r".into()).to_string(),
+            "速率限制: r"
+        );
+        assert_eq!(
+            StorageError::ValidationError("v".into()).to_string(),
+            "验证错误: v"
+        );
+    }
+
+    #[test]
+    fn test_serde_error_conversion() {
+        let json_err = serde_json::from_str::<serde_json::Value>("{invalid}");
+        let err: serde_json::Error = json_err.unwrap_err();
+        let fg_err: FlowGuardError = err.into();
+        assert!(matches!(fg_err, FlowGuardError::SerdeError(_)));
+    }
+
+    #[test]
+    fn test_storage_error_from_into_flowguard() {
+        let se = StorageError::QueryError("q".into());
+        let fg: FlowGuardError = se.into();
+        assert!(matches!(fg, FlowGuardError::StorageError(_)));
+        let back = match fg {
+            FlowGuardError::StorageError(s) => s,
+            _ => unreachable!(),
+        };
+        assert!(matches!(back, StorageError::QueryError(_)));
     }
 }

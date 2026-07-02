@@ -41,7 +41,8 @@ pub(crate) struct CacheableBanInfo {
 }
 
 impl CacheableDecision {
-    /// 创建允许决策
+    /// 创建允许决策（仅测试用）
+    #[cfg(test)]
     pub fn allowed() -> Self {
         Self {
             decision_type: "allowed".to_string(),
@@ -50,7 +51,8 @@ impl CacheableDecision {
         }
     }
 
-    /// 创建拒绝决策
+    /// 创建拒绝决策（仅测试用）
+    #[cfg(test)]
     pub fn rejected(reason: impl Into<String>) -> Self {
         Self {
             decision_type: "rejected".to_string(),
@@ -126,17 +128,20 @@ impl CacheableDecision {
         }
     }
 
-    /// 检查是否为允许决策
+    /// 检查是否为允许决策（仅测试用）
+    #[cfg(test)]
     pub fn is_allowed(&self) -> bool {
         self.decision_type == "allowed"
     }
 
-    /// 检查是否为拒绝决策
+    /// 检查是否为拒绝决策（仅测试用）
+    #[cfg(test)]
     pub fn is_rejected(&self) -> bool {
         self.decision_type == "rejected"
     }
 
-    /// 检查是否为封禁决策
+    /// 检查是否为封禁决策（仅测试用）
+    #[cfg(test)]
     pub fn is_banned(&self) -> bool {
         self.decision_type == "banned"
     }
@@ -241,7 +246,7 @@ impl RateLimitCacheKey {
 ///
 /// 记录缓存的命中、未命中、驱逐等统计信息。
 #[derive(Debug, Clone, Default)]
-pub(crate) struct L1CacheStats {
+pub struct L1CacheStats {
     /// 总查询次数
     pub total_lookups: u64,
     /// 命中次数
@@ -336,13 +341,14 @@ impl L1CacheConfig {
 /// 孤岛模式降级策略
 ///
 /// 当存储层（L2/L3）不可用时，L1 缓存进入孤岛模式，使用此策略决定如何处理请求。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum IslandFallbackStrategy {
     /// 保守策略：拒绝所有请求，避免过载
     RejectAll,
     /// 宽松策略：允许所有请求通过，可能超限
     AllowAll,
     /// 本地降级：使用 L1 缓存中的历史决策（如果存在）
+    #[default]
     LocalDecision,
     /// 配额限制：使用预设的保守配额继续限流
     ConservativeQuota {
@@ -351,12 +357,6 @@ pub enum IslandFallbackStrategy {
         /// 时间窗口（秒）
         window_secs: u64,
     },
-}
-
-impl Default for IslandFallbackStrategy {
-    fn default() -> Self {
-        Self::LocalDecision
-    }
 }
 
 /// 孤岛模式配置
@@ -459,7 +459,7 @@ where
     T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
     /// oxcache 缓存实例
-    cache: Cache<String, T>,
+    cache: Arc<Cache<String, T>>,
     /// 配置
     config: L1CacheConfig,
     /// 统计：总查询次数
@@ -474,6 +474,36 @@ where
     island_config: Arc<RwLock<Option<IslandModeConfig>>>,
     /// 是否处于孤岛模式 (0 = false, 1 = true)
     is_island_mode: AtomicU64,
+}
+
+impl<T> Clone for L1Cache<T>
+where
+    T: Serialize + DeserializeOwned + Send + Sync + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            cache: Arc::clone(&self.cache),
+            config: self.config.clone(),
+            total_lookups: AtomicU64::new(
+                self.total_lookups
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
+            hits: AtomicU64::new(self.hits.load(std::sync::atomic::Ordering::Relaxed)),
+            expired_evictions: AtomicU64::new(
+                self.expired_evictions
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
+            capacity_evictions: AtomicU64::new(
+                self.capacity_evictions
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
+            island_config: Arc::clone(&self.island_config),
+            is_island_mode: AtomicU64::new(
+                self.is_island_mode
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
+        }
+    }
 }
 
 impl<T> L1Cache<T>
@@ -506,7 +536,7 @@ where
             .await?;
 
         Ok(Self {
-            cache,
+            cache: Arc::new(cache),
             config,
             total_lookups: AtomicU64::new(0),
             hits: AtomicU64::new(0),
@@ -661,7 +691,7 @@ where
     }
 
     /// 获取缓存统计信息
-    pub(crate) async fn stats(&self) -> L1CacheStats {
+    pub async fn stats(&self) -> L1CacheStats {
         let current_size = self.len().await.unwrap_or(0);
         L1CacheStats {
             total_lookups: self.total_lookups.load(Ordering::Relaxed),
@@ -746,6 +776,7 @@ where
     /// 获取孤岛模式统计信息
     ///
     /// 扩展标准统计信息，包含孤岛模式状态。
+    #[cfg(test)]
     pub(crate) async fn island_stats(&self) -> L1CacheStats {
         let mut stats = self.stats().await;
         if self.is_island_mode() {
@@ -925,5 +956,379 @@ mod tests {
         // 封禁检查键
         let ban_key = RateLimitCacheKey::ban_check("user123");
         assert_eq!(ban_key, "ban:user123");
+    }
+
+    #[test]
+    fn test_cacheable_decision_from_decision_rejected() {
+        let metadata = RejectionMetadata {
+            reason: "too many requests".to_string(),
+            retry_after: 30,
+            limit: 100,
+            reset_at: 1234567890,
+        };
+        let decision = Decision::Rejected(metadata);
+        let cacheable = CacheableDecision::from_decision(&decision);
+        assert!(cacheable.is_rejected());
+        assert_eq!(cacheable.reason, Some("too many requests".to_string()));
+    }
+
+    #[test]
+    fn test_cacheable_decision_from_decision_banned() {
+        let ban_info = BanInfo::new("spam".to_string(), chrono::Utc::now(), 3);
+        let decision = Decision::Banned(ban_info);
+        let cacheable = CacheableDecision::from_decision(&decision);
+        assert!(cacheable.is_banned());
+        let cached_ban = cacheable.ban_info.unwrap();
+        assert_eq!(cached_ban.reason, "spam");
+        assert_eq!(cached_ban.ban_times, 3);
+    }
+
+    #[test]
+    fn test_cacheable_decision_from_decision_allowed_empty_policy() {
+        let metadata = RateLimitMetadata {
+            limit: 100,
+            remaining: 50,
+            reset_at: 1234567890,
+            retry_after: None,
+            policy: String::new(),
+        };
+        let decision = Decision::Allowed(metadata);
+        let cacheable = CacheableDecision::from_decision(&decision);
+        assert!(cacheable.is_allowed());
+        assert_eq!(cacheable.reason, None);
+    }
+
+    #[test]
+    fn test_cacheable_decision_to_decision_unknown() {
+        let cd = CacheableDecision {
+            decision_type: "unknown".to_string(),
+            reason: None,
+            ban_info: None,
+        };
+        let decision = cd.to_decision();
+        assert!(matches!(decision, Decision::Allowed(_)));
+    }
+
+    #[test]
+    fn test_cacheable_decision_to_decision_banned_no_baninfo() {
+        let cd = CacheableDecision {
+            decision_type: "banned".to_string(),
+            reason: Some("test".to_string()),
+            ban_info: None,
+        };
+        let decision = cd.to_decision();
+        assert!(matches!(decision, Decision::Banned(_)));
+    }
+
+    #[test]
+    fn test_cacheable_decision_to_decision_banned_with_baninfo() {
+        // 覆盖 ban_info = Some(...) 路径（lines 116-121）
+        let cd = CacheableDecision {
+            decision_type: "banned".to_string(),
+            reason: Some("banned".to_string()),
+            ban_info: Some(CacheableBanInfo {
+                reason: "policy violation".to_string(),
+                banned_until: "2026-12-31T23:59:59Z".to_string(),
+                ban_times: 5,
+            }),
+        };
+        let decision = cd.to_decision();
+        match decision {
+            Decision::Banned(info) => {
+                assert_eq!(info.reason(), "policy violation");
+                assert_eq!(info.ban_times(), 5);
+            }
+            _ => panic!("expected Decision::Banned"),
+        }
+    }
+
+    #[test]
+    fn test_cacheable_decision_to_decision_banned_invalid_date() {
+        // 当日期解析失败时，应回退到当前时间（unwrap_or_else 分支）
+        let cd = CacheableDecision {
+            decision_type: "banned".to_string(),
+            reason: Some("banned".to_string()),
+            ban_info: Some(CacheableBanInfo {
+                reason: "bad date".to_string(),
+                banned_until: "not-a-date".to_string(),
+                ban_times: 1,
+            }),
+        };
+        let decision = cd.to_decision();
+        assert!(matches!(decision, Decision::Banned(_)));
+    }
+
+    #[test]
+    fn test_rate_limit_cache_key_with_namespace() {
+        let ns = "tenant:acme:env:prod";
+        assert_eq!(
+            RateLimitCacheKey::user_rate_limit_with_ns(ns, "user123", "rule1"),
+            "tenant:acme:env:prod:rl:user:user123:rule1"
+        );
+        assert_eq!(
+            RateLimitCacheKey::ip_rate_limit_with_ns(ns, "10.0.0.1", "rule2"),
+            "tenant:acme:env:prod:rl:ip:10.0.0.1:rule2"
+        );
+        assert_eq!(
+            RateLimitCacheKey::api_key_rate_limit_with_ns(ns, "key123", "rule3"),
+            "tenant:acme:env:prod:rl:apikey:key123:rule3"
+        );
+        assert_eq!(
+            RateLimitCacheKey::generic_with_ns(ns, "ident", "rule4"),
+            "tenant:acme:env:prod:rl:generic:ident:rule4"
+        );
+        assert_eq!(
+            RateLimitCacheKey::ban_check_with_ns(ns, "user123"),
+            "tenant:acme:env:prod:ban:user123"
+        );
+    }
+
+    #[test]
+    fn test_cache_stats_hit_rate_empty() {
+        let stats = L1CacheStats::default();
+        assert_eq!(stats.hit_rate(), 0.0);
+        assert_eq!(stats.miss_rate(), 100.0);
+    }
+
+    #[test]
+    fn test_cache_stats_methods() {
+        let stats = L1CacheStats {
+            total_lookups: 100,
+            hits: 75,
+            misses: 25,
+            ..Default::default()
+        };
+        assert_eq!(stats.hit_rate(), 75.0);
+        assert_eq!(stats.miss_rate(), 25.0);
+    }
+
+    #[test]
+    fn test_cache_stats_debug() {
+        let stats = L1CacheStats::default();
+        let debug = format!("{:?}", stats);
+        assert!(debug.starts_with("L1CacheStats {"));
+        assert!(debug.contains("total_lookups"));
+    }
+
+    #[test]
+    fn test_cache_config_new() {
+        let config = L1CacheConfig::new(Duration::from_secs(30), 500);
+        assert_eq!(config.default_ttl, Duration::from_secs(30));
+        assert_eq!(config.max_size, 500);
+        assert!(config.enable_stats);
+    }
+
+    #[test]
+    fn test_island_fallback_strategy_default() {
+        assert_eq!(
+            IslandFallbackStrategy::default(),
+            IslandFallbackStrategy::LocalDecision
+        );
+    }
+
+    #[test]
+    fn test_island_mode_config_default_and_builder() {
+        let default = IslandModeConfig::default();
+        assert!(!default.enabled);
+        assert_eq!(
+            default.fallback_strategy,
+            IslandFallbackStrategy::LocalDecision
+        );
+        assert_eq!(default.island_ttl, Duration::from_secs(300));
+        assert!(default.auto_exit_on_recovery);
+
+        let built = IslandModeConfig::default()
+            .with_fallback_strategy(IslandFallbackStrategy::AllowAll)
+            .with_island_ttl(Duration::from_secs(600))
+            .with_auto_exit_on_recovery(false);
+        assert_eq!(built.fallback_strategy, IslandFallbackStrategy::AllowAll);
+        assert_eq!(built.island_ttl, Duration::from_secs(600));
+        assert!(!built.auto_exit_on_recovery);
+    }
+
+    #[test]
+    fn test_island_mode_config_new() {
+        let config = IslandModeConfig::new(IslandFallbackStrategy::RejectAll);
+        assert!(config.enabled);
+        assert_eq!(config.fallback_strategy, IslandFallbackStrategy::RejectAll);
+
+        let config2 = IslandModeConfig::new(IslandFallbackStrategy::ConservativeQuota {
+            max_requests: 100,
+            window_secs: 60,
+        });
+        assert!(config2.enabled);
+        assert!(matches!(
+            config2.fallback_strategy,
+            IslandFallbackStrategy::ConservativeQuota { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_cache_with_ttl_and_size() {
+        let cache: L1Cache<String> = L1Cache::with_ttl_and_size(Duration::from_secs(60), 100)
+            .await
+            .unwrap();
+        cache.set("k".to_string(), "v".to_string()).await.unwrap();
+        assert_eq!(cache.get("k").await.unwrap(), Some("v".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_cache_set_with_ttl() {
+        let cache: L1Cache<String> = L1Cache::new().await.unwrap();
+        cache
+            .set_with_ttl("k".to_string(), "v".to_string(), Duration::from_secs(60))
+            .await
+            .unwrap();
+        assert_eq!(cache.get("k").await.unwrap(), Some("v".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_cache_clear_and_len() {
+        let cache: L1Cache<String> = L1Cache::new().await.unwrap();
+        let _ = cache.len().await.unwrap();
+        let _ = cache.is_empty().await.unwrap();
+
+        cache.set("k1".to_string(), "v1".to_string()).await.unwrap();
+        cache.set("k2".to_string(), "v2".to_string()).await.unwrap();
+
+        // Verify items exist before clear
+        assert_eq!(cache.get("k1").await.unwrap(), Some("v1".to_string()));
+        assert_eq!(cache.get("k2").await.unwrap(), Some("v2".to_string()));
+
+        cache.clear().await.unwrap();
+
+        // Verify items are gone after clear
+        assert_eq!(cache.get("k1").await.unwrap(), None);
+        assert_eq!(cache.get("k2").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn test_cache_evict_expired() {
+        let cache: L1Cache<String> = L1Cache::new().await.unwrap();
+        assert_eq!(cache.evict_expired().await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_cache_ttl_method() {
+        let cache: L1Cache<String> = L1Cache::new().await.unwrap();
+        cache.set("k".to_string(), "v".to_string()).await.unwrap();
+        assert!(cache.ttl("k").await.unwrap().is_none());
+        assert!(cache.ttl("nonexistent").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_cache_invalidate_prefix_and_containing() {
+        let cache: L1Cache<String> = L1Cache::new().await.unwrap();
+        cache.invalidate_by_prefix("test:").await.unwrap();
+        cache.invalidate_containing("pattern").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_cache_empty_key() {
+        let cache: L1Cache<String> = L1Cache::new().await.unwrap();
+        cache
+            .set(String::new(), "empty_val".to_string())
+            .await
+            .unwrap();
+        assert_eq!(cache.get("").await.unwrap(), Some("empty_val".to_string()));
+        cache.invalidate("").await.unwrap();
+        assert_eq!(cache.get("").await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn test_cache_stats_disabled() {
+        let config = L1CacheConfig::new(Duration::from_secs(60), 1000).with_stats(false);
+        let cache: L1Cache<String> = L1Cache::with_config(config).await.unwrap();
+
+        cache.set("k".to_string(), "v".to_string()).await.unwrap();
+        let _ = cache.get("k").await.unwrap();
+        let _ = cache.get("nonexistent").await.unwrap();
+
+        let stats = cache.stats().await;
+        assert_eq!(stats.total_lookups, 0);
+        assert_eq!(stats.hits, 0);
+        assert_eq!(stats.misses, 0);
+    }
+
+    #[tokio::test]
+    async fn test_cache_island_mode() {
+        let cache: L1Cache<String> = L1Cache::new().await.unwrap();
+
+        assert!(!cache.is_island_mode());
+        assert!(cache.island_config().is_none());
+
+        let island_cfg = IslandModeConfig::new(IslandFallbackStrategy::RejectAll);
+        cache.enable_island_mode(island_cfg);
+
+        assert!(cache.is_island_mode());
+        let cfg = cache.island_config().unwrap();
+        assert_eq!(cfg.fallback_strategy, IslandFallbackStrategy::RejectAll);
+
+        // Re-enable should not panic
+        cache.enable_island_mode(IslandModeConfig::new(IslandFallbackStrategy::AllowAll));
+
+        cache.disable_island_mode();
+        assert!(!cache.is_island_mode());
+        assert!(cache.island_config().is_none());
+
+        // Double disable should not panic
+        cache.disable_island_mode();
+    }
+
+    #[tokio::test]
+    async fn test_cache_island_stats() {
+        let cache: L1Cache<String> = L1Cache::new().await.unwrap();
+        let normal_stats = cache.island_stats().await;
+        assert_eq!(normal_stats.total_lookups, 0);
+
+        cache.enable_island_mode(IslandModeConfig::new(IslandFallbackStrategy::LocalDecision));
+        let island_stats = cache.island_stats().await;
+        assert_eq!(island_stats.current_size, normal_stats.current_size + 1);
+
+        cache.disable_island_mode();
+    }
+
+    #[tokio::test]
+    async fn test_cache_clone() {
+        let cache: L1Cache<String> = L1Cache::new().await.unwrap();
+        cache.set("k".to_string(), "v".to_string()).await.unwrap();
+        let _ = cache.get("k").await.unwrap();
+
+        let cloned = cache.clone();
+        // Cloned instance shares the same underlying cache data
+        assert_eq!(cloned.get("k").await.unwrap(), Some("v".to_string()));
+
+        // Both instances can access shared data
+        assert_eq!(cache.get("k").await.unwrap(), Some("v".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_cache_concurrent_access() {
+        let cache: L1Cache<String> = L1Cache::new().await.unwrap();
+        let mut handles = Vec::new();
+
+        for i in 0..10 {
+            let c = cache.clone();
+            handles.push(tokio::spawn(async move {
+                let key = format!("concurrent_key_{}", i);
+                let val = format!("concurrent_val_{}", i);
+                c.set(key.clone(), val.clone()).await.unwrap();
+                let result = c.get(&key).await.unwrap();
+                assert_eq!(result, Some(val));
+            }));
+        }
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        // Verify all data is accessible from the original instance
+        for i in 0..10 {
+            let key = format!("concurrent_key_{}", i);
+            assert_eq!(
+                cache.get(&key).await.unwrap(),
+                Some(format!("concurrent_val_{}", i))
+            );
+        }
     }
 }

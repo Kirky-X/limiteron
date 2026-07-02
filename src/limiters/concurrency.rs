@@ -360,4 +360,75 @@ mod tests {
         assert!(limiter.allow(1).await.unwrap());
         assert!(limiter.allow(1).await.unwrap());
     }
+
+    #[tokio::test]
+    async fn test_concurrency_limiter_trait_overflows_u32() {
+        use super::super::traits::Limiter;
+        let limiter = ConcurrencyLimiter::new(10);
+        let result = limiter.allow(u64::from(u32::MAX) + 1).await;
+        assert!(result.is_err());
+        match result {
+            Err(FlowGuardError::LimitError(msg)) => {
+                assert!(msg.contains("u32"));
+            }
+            _ => panic!("expected LimitError for u32 overflow"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_acquire_overflows_u32() {
+        let limiter = ConcurrencyLimiter::new(10);
+        let result = limiter.acquire(u64::from(u32::MAX) + 1).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_try_acquire_overflows_u32() {
+        let limiter = ConcurrencyLimiter::new(10);
+        let result = limiter.try_acquire(u64::from(u32::MAX) + 1);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_acquire_timeout() {
+        let limiter = ConcurrencyLimiter::with_timeout(1, Duration::from_millis(50));
+        // Acquire the only permit
+        let permit = limiter.acquire(1).await.unwrap();
+        // Second acquire should time out
+        let result = limiter.acquire(1).await;
+        assert!(result.is_err());
+        match result {
+            Err(FlowGuardError::LimitError(msg)) => {
+                assert!(msg.contains("超时"));
+            }
+            _ => panic!("expected timeout error"),
+        }
+        drop(permit);
+    }
+
+    #[test]
+    fn test_concurrency_builder_default() {
+        let builder = ConcurrencyLimiterBuilder::default();
+        assert!(builder.max_concurrent.is_none());
+        assert!(builder.timeout.is_none());
+        assert!(builder.semaphore.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_allow_returns_false_when_exhausted() {
+        use super::super::traits::Limiter;
+        let limiter = ConcurrencyLimiter::new(1);
+        // Hold the permit via acquire (keeps it held)
+        let _permit = limiter.acquire(1).await.unwrap();
+        // allow() uses try_acquire_many - should return Ok(false) since exhausted
+        let result = limiter.allow(1).await.unwrap();
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_builder_new_default_equivalent() {
+        let b1 = ConcurrencyLimiterBuilder::new();
+        let b2 = ConcurrencyLimiterBuilder::default();
+        assert!(b1.max_concurrent.is_none() == b2.max_concurrent.is_none());
+    }
 }

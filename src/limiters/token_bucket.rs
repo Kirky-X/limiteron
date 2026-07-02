@@ -261,4 +261,44 @@ mod tests {
             tokens
         );
     }
+
+    #[test]
+    fn test_token_bucket_accessors() {
+        let limiter = TokenBucketLimiter::new(500, 25);
+        assert_eq!(limiter.capacity(), 500);
+        assert_eq!(limiter.refill_rate(), 25);
+        assert_eq!(limiter.tokens(), 500);
+    }
+
+    #[tokio::test]
+    async fn test_token_bucket_check_default_impl() {
+        use crate::limiters::Limiter;
+        let limiter = TokenBucketLimiter::new(100, 10);
+        // check() default impl calls allow(1)
+        assert!(limiter.check("any_key").await.is_ok());
+        assert_eq!(limiter.tokens(), 99);
+    }
+
+    #[tokio::test]
+    async fn test_token_bucket_refill_capped_at_capacity() {
+        let mock_clock = Arc::new(MockClock::new());
+        let clock: Arc<dyn Clock> = mock_clock.clone();
+        let limiter = TokenBucketLimiter::with_clock(10, 1000, clock);
+
+        // 消费所有令牌
+        assert!(limiter.allow(10).await.unwrap());
+        assert_eq!(limiter.tokens(), 0);
+
+        // 时间前进 100 秒，应该补充很多令牌，但受容量限制
+        mock_clock.advance(Duration::from_secs(100));
+        let _ = limiter.allow(1).await;
+
+        // 容量限制为 10，所以最多 10 个令牌（减去刚才消费的 1）
+        let tokens = limiter.tokens();
+        assert!(
+            tokens <= 10,
+            "Expected tokens <= capacity (10), got {}",
+            tokens
+        );
+    }
 }

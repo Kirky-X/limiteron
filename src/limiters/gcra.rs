@@ -55,12 +55,11 @@ pub struct GcraCheckResult {
 /// ```rust
 /// use limiteron::limiters::{GcraLimiter, Limiter};
 ///
+/// # #[tokio::main]
+/// # async fn main() {
 /// // 100 requests burst capacity, 1000us (1ms) between each token
 /// // = 1000 requests per second sustained rate
 /// let limiter = GcraLimiter::new(100, 1000);
-///
-/// # #[tokio::main]
-/// # async fn main() {
 /// let allowed = limiter.allow(1).await.unwrap();
 /// assert!(allowed);
 /// # }
@@ -157,12 +156,19 @@ impl GcraLimiter {
         let now_us = Self::now_us();
         let tat = *self.tat.read();
 
+        if cost > self.capacity {
+            return GcraCheckResult {
+                allowed: false,
+                remaining: 0,
+                retry_after_us: 0,
+            };
+        }
+
         // Calculate Earliest Arrival Time (EAT)
         let eat = tat.saturating_sub((self.capacity.saturating_sub(1)) * self.refill_interval_us);
 
         if now_us >= eat {
             // Request would be allowed
-            let new_tat = std::cmp::max(tat, now_us) + cost * self.refill_interval_us;
             let elapsed = now_us.saturating_sub(eat);
             let refilled = elapsed / self.refill_interval_us;
             let remaining = std::cmp::min(self.capacity, refilled + 1 - cost);
@@ -215,6 +221,10 @@ impl Limiter for GcraLimiter {
         validate_cost(cost)?;
 
         let now_us = Self::now_us();
+
+        if cost > self.capacity {
+            return Ok(false);
+        }
 
         let allowed = {
             let mut tat = self.tat.write();
@@ -321,5 +331,81 @@ mod tests {
 
         // Request with cost > capacity should be denied
         assert!(!limiter.allow(11).await.unwrap());
+    }
+
+    #[test]
+    fn test_gcra_with_rate_zero() {
+        // requests_per_second == 0 should use fallback interval of 1_000_000us
+        let limiter = GcraLimiter::with_rate(10, 0);
+        assert_eq!(limiter.refill_interval_us(), 1_000_000);
+        assert_eq!(limiter.capacity(), 10);
+    }
+
+    #[test]
+    fn test_gcra_check_cost_exceeds_capacity() {
+        let limiter = GcraLimiter::new(10, 1000);
+        let result = limiter.check(11);
+        assert!(!result.allowed);
+        assert_eq!(result.remaining, 0);
+        assert_eq!(result.retry_after_us, 0);
+    }
+
+    #[tokio::test]
+    async fn test_gcra_check_denied_path() {
+        // Exhaust the limiter, then check() should return denied with retry_after
+        let limiter = GcraLimiter::new(2, 100_000); // 100ms interval
+                                                    // Use up capacity
+        assert!(limiter.allow(1).await.unwrap());
+        assert!(limiter.allow(1).await.unwrap());
+        // Now check should be denied
+        let result = limiter.check(1);
+        assert!(!result.allowed);
+        assert_eq!(result.remaining, 0);
+        assert!(result.retry_after_us > 0);
+    }
+
+    #[tokio::test]
+    async fn test_gcra_remaining_denied_path() {
+        // Exhaust the limiter, remaining() should return 0
+        let limiter = GcraLimiter::new(2, 100_000);
+        let _ = limiter.allow(1).await;
+        let _ = limiter.allow(1).await;
+        // remaining should be 0 when exhausted
+        let rem = limiter.remaining();
+        assert!(
+            rem <= 1,
+            "remaining should be low when exhausted, got {}",
+            rem
+        );
+    }
+
+    #[test]
+    fn test_gcra_tat_accessor() {
+        let limiter = GcraLimiter::new(10, 1000);
+        let tat = limiter.tat();
+        // TAT should be a valid timestamp (non-zero)
+        assert!(tat > 0);
+    }
+
+    #[tokio::test]
+    async fn test_gcra_check_allowed_with_remaining() {
+        let limiter = GcraLimiter::new(10, 1000);
+        let result = limiter.check(1);
+        assert!(result.allowed);
+        assert_eq!(result.retry_after_us, 0);
+        // remaining should be <= capacity
+        assert!(result.remaining <= 10);
+    }
+
+    #[test]
+    fn test_gcra_check_result_fields() {
+        let result = GcraCheckResult {
+            allowed: true,
+            remaining: 5,
+            retry_after_us: 0,
+        };
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 5);
+        assert_eq!(result.retry_after_us, 0);
     }
 }

@@ -89,3 +89,72 @@ pub trait Limiter: Send + Sync {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_cost_zero() {
+        let result = validate_cost(0);
+        assert!(result.is_err());
+        match result {
+            Err(FlowGuardError::ConfigError(msg)) => {
+                assert!(msg.contains("Cost cannot be zero"))
+            }
+            _ => panic!("expected ConfigError for zero cost"),
+        }
+    }
+
+    #[test]
+    fn test_validate_cost_exceeds_max() {
+        let result = validate_cost(crate::constants::MAX_COST + 1);
+        assert!(result.is_err());
+        match result {
+            Err(FlowGuardError::ConfigError(msg)) => {
+                assert!(msg.contains("Cost exceeds maximum limit"))
+            }
+            _ => panic!("expected ConfigError for exceeding max cost"),
+        }
+    }
+
+    #[test]
+    fn test_validate_cost_valid() {
+        assert_eq!(validate_cost(1).unwrap(), 1);
+        assert_eq!(
+            validate_cost(crate::constants::MAX_COST).unwrap(),
+            crate::constants::MAX_COST
+        );
+    }
+
+    #[tokio::test]
+    async fn test_limiter_check_default_impl() {
+        struct AllowAllLimiter;
+        #[async_trait]
+        impl Limiter for AllowAllLimiter {
+            async fn allow(&self, _cost: u64) -> Result<bool, FlowGuardError> {
+                Ok(true)
+            }
+        }
+
+        let limiter = AllowAllLimiter;
+        // check() default impl calls allow(1) and returns Ok(())
+        assert!(limiter.check("any_key").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_limiter_check_default_impl_propagates_error() {
+        struct ErrorLimiter;
+        #[async_trait]
+        impl Limiter for ErrorLimiter {
+            async fn allow(&self, _cost: u64) -> Result<bool, FlowGuardError> {
+                Err(FlowGuardError::LimitError("denied".to_string()))
+            }
+        }
+
+        let limiter = ErrorLimiter;
+        // check() propagates Err from allow()
+        let result = limiter.check("any_key").await;
+        assert!(result.is_err());
+    }
+}

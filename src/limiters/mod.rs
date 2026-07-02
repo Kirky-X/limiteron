@@ -19,10 +19,11 @@
 
 // 子模块
 pub mod concurrency;
-pub(crate) mod factory;
+pub mod factory;
 pub mod fixed_window;
 #[cfg(feature = "gcra")]
 pub mod gcra;
+#[cfg(feature = "macros")]
 pub(crate) mod manager;
 pub mod sharded_sliding_window;
 #[allow(deprecated)]

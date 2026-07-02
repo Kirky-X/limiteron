@@ -999,6 +999,91 @@ mod tests {
         assert!(span.events().is_empty());
         assert!(span.error().is_none());
     }
+
+    #[test]
+    fn test_span_new() {
+        let span = Span::new();
+        assert!(span.elapsed().is_some());
+    }
+
+    #[test]
+    fn test_span_disabled_finish() {
+        let span = Span::new_disabled();
+        span.finish();
+    }
+
+    #[test]
+    fn test_span_disabled_drop() {
+        let span = Span::new_disabled();
+        drop(span);
+    }
+
+    #[test]
+    fn test_tracer_start_span_disabled() {
+        let tracer = Tracer::new(false);
+        let span = tracer.start_span("noop");
+        assert!(span.elapsed().is_none());
+    }
+}
+
+#[cfg(all(test, feature = "telemetry"))]
+mod tests_init_telemetry {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_init_telemetry_prometheus_disabled() {
+        let config = TelemetryConfig::new("test");
+        let (_, tracer) = init_telemetry(&config).await.unwrap();
+        assert!(!tracer.is_enabled());
+    }
+
+    #[tokio::test]
+    async fn test_init_telemetry_with_console_tracing() {
+        let config = TelemetryConfig {
+            service_name: "test".to_string(),
+            jaeger_endpoint: None,
+            enable_prometheus: true,
+            enable_tracing: true,
+            prometheus_port: 9090,
+            sampling_rate: 1.0,
+        };
+        let (_, tracer) = init_telemetry(&config).await.unwrap();
+        assert!(tracer.is_enabled());
+    }
+
+    #[tokio::test]
+    async fn test_init_telemetry_with_jaeger() {
+        let config = TelemetryConfig::new("test").with_jaeger("http://jaeger:14268/api/traces");
+        let (_, tracer) = init_telemetry(&config).await.unwrap();
+        assert!(tracer.is_enabled());
+    }
+
+    #[tokio::test]
+    async fn test_init_telemetry_tracing_disabled_no_prometheus() {
+        let config = TelemetryConfig {
+            service_name: "test".to_string(),
+            jaeger_endpoint: None,
+            enable_prometheus: false,
+            enable_tracing: false,
+            prometheus_port: 9090,
+            sampling_rate: 1.0,
+        };
+        let (_, tracer) = init_telemetry(&config).await.unwrap();
+        assert!(!tracer.is_enabled());
+    }
+
+    /// 覆盖 init_console_tracer 中 try_init 失败路径（line 709）
+    /// 全局 tracing subscriber 只能初始化一次，第二次调用必定失败
+    #[tokio::test]
+    async fn test_init_console_tracer_double_init_warns() {
+        let config = TelemetryConfig::new("test_double_init");
+        // 第一次调用（可能成功也可能因全局 subscriber 已设置而失败）
+        let _ = init_console_tracer(&config);
+        // 第二次调用：try_init 必定失败，触发 warn! 行
+        let result = init_console_tracer(&config);
+        // init_console_tracer 不论 try_init 成功失败都返回 Ok(())
+        assert!(result.is_ok());
+    }
 }
 
 #[cfg(all(test, feature = "monitoring"))]
@@ -1144,5 +1229,91 @@ mod tests_monitoring {
         assert!(output.contains("flowguard_requests_allowed_total"));
         assert!(output.contains("flowguard_requests_rejected_total"));
         assert!(output.contains("flowguard_check_duration_seconds"));
+    }
+}
+
+#[cfg(all(test, feature = "monitoring"))]
+mod tests_prometheus_server {
+    use super::*;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn find_free_port() -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        port
+    }
+
+    #[tokio::test]
+    async fn test_server_metrics_endpoint() {
+        let metrics = Arc::new(Metrics::new());
+        metrics.record_check(Duration::from_millis(10), true);
+        let port = find_free_port().await;
+        let handle = tokio::spawn(async move {
+            let _ = start_prometheus_server(metrics, port).await;
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
+            .await
+            .unwrap();
+        stream
+            .write_all(b"GET /metrics HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        let resp = String::from_utf8_lossy(&response);
+        assert!(resp.contains("200 OK"));
+        assert!(resp.contains("flowguard_requests_total"));
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_server_health_endpoint() {
+        let metrics = Arc::new(Metrics::new());
+        let port = find_free_port().await;
+        let handle = tokio::spawn(async move {
+            let _ = start_prometheus_server(metrics, port).await;
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
+            .await
+            .unwrap();
+        stream
+            .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        let resp = String::from_utf8_lossy(&response);
+        assert!(resp.contains("200 OK"));
+        assert!(resp.contains("OK"));
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_server_not_found() {
+        let metrics = Arc::new(Metrics::new());
+        let port = find_free_port().await;
+        let handle = tokio::spawn(async move {
+            let _ = start_prometheus_server(metrics, port).await;
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
+            .await
+            .unwrap();
+        stream
+            .write_all(b"GET /unknown HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        let resp = String::from_utf8_lossy(&response);
+        assert!(resp.contains("404 Not Found"));
+        handle.abort();
     }
 }

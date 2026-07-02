@@ -7,14 +7,12 @@ use limiteron::config::{
     Matcher, MetricsBackend, Rule, StorageType,
 };
 use limiteron::error::{ConsumeResult, StorageError};
+use limiteron::Governor;
+use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage};
 use limiteron::{
     ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
     TokenBucketLimiter,
 };
-use limiteron::{
-    BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage,
-};
-use limiteron::Governor;
 use rand::Rng;
 use std::sync::Arc;
 use std::time::Duration;

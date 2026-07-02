@@ -8,12 +8,10 @@ use limiteron::config::{
     MetricsBackend, Rule, StorageType,
 };
 use limiteron::error::{Decision, StorageError};
-use limiteron::Limiter;
 use limiteron::matchers::RequestContext;
-use limiteron::{
-    BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage,
-};
 use limiteron::Governor;
+use limiteron::Limiter;
+use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage};
 use std::sync::Arc;
 use std::time::Duration;
 

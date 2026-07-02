@@ -46,9 +46,7 @@ mod ban_manager_tests {
 
         // 验证封禁记录
         let is_banned = manager
-            .is_banned(&limiteron::BanTarget::Ip(
-                "192.168.1.100".to_string(),
-            ))
+            .is_banned(&limiteron::BanTarget::Ip("192.168.1.100".to_string()))
             .await;
         assert!(is_banned, "IP should be banned");
     }
@@ -72,9 +70,7 @@ mod ban_manager_tests {
 
         // 验证封禁记录
         let is_banned = manager
-            .is_banned(&limiteron::BanTarget::UserId(
-                "user_12345".to_string(),
-            ))
+            .is_banned(&limiteron::BanTarget::UserId("user_12345".to_string()))
             .await;
         assert!(is_banned, "User should be banned");
     }
@@ -98,26 +94,20 @@ mod ban_manager_tests {
         // 验证已封禁
         assert!(
             manager
-                .is_banned(&limiteron::BanTarget::Ip(
-                    "192.168.1.200".to_string()
-                ))
+                .is_banned(&limiteron::BanTarget::Ip("192.168.1.200".to_string()))
                 .await
         );
 
         // 解封
         let result = manager
-            .unban(&limiteron::BanTarget::Ip(
-                "192.168.1.200".to_string(),
-            ))
+            .unban(&limiteron::BanTarget::Ip("192.168.1.200".to_string()))
             .await;
         assert!(result.is_ok(), "Unban should succeed");
 
         // 验证已解封
         assert!(
             !manager
-                .is_banned(&limiteron::BanTarget::Ip(
-                    "192.168.1.200".to_string()
-                ))
+                .is_banned(&limiteron::BanTarget::Ip("192.168.1.200".to_string()))
                 .await
         );
     }
@@ -129,9 +119,7 @@ mod ban_manager_tests {
 
         // 解封不存在的记录应该成功（幂等操作）
         let result = manager
-            .unban(&limiteron::BanTarget::Ip(
-                "nonexistent_ip".to_string(),
-            ))
+            .unban(&limiteron::BanTarget::Ip("nonexistent_ip".to_string()))
             .await;
         assert!(result.is_ok(), "Unban nonexistent should succeed");
     }
@@ -157,9 +145,7 @@ mod ban_manager_tests {
         // 立即检查应该被封禁
         assert!(
             manager
-                .is_banned(&limiteron::BanTarget::Ip(
-                    "192.168.1.50".to_string()
-                ))
+                .is_banned(&limiteron::BanTarget::Ip("192.168.1.50".to_string()))
                 .await
         );
 
@@ -169,9 +155,7 @@ mod ban_manager_tests {
         // 过期后应该自动解除
         assert!(
             !manager
-                .is_banned(&limiteron::BanTarget::Ip(
-                    "192.168.1.50".to_string()
-                ))
+                .is_banned(&limiteron::BanTarget::Ip("192.168.1.50".to_string()))
                 .await,
             "Ban should be expired"
         );
@@ -280,10 +264,7 @@ mod ban_manager_tests {
         for i in 0..20 {
             assert!(
                 manager
-                    .is_banned(&limiteron::BanTarget::Ip(format!(
-                        "concurrent_{}",
-                        i
-                    )))
+                    .is_banned(&limiteron::BanTarget::Ip(format!("concurrent_{}", i)))
                     .await,
                 "Concurrent ban {} should exist",
                 i
@@ -312,10 +293,8 @@ mod ban_manager_tests {
 
             let mgr = Arc::clone(&manager);
             handles.push(tokio::spawn(async move {
-                mgr.unban(&limiteron::BanTarget::Ip(
-                    "concurrent_same".to_string(),
-                ))
-                .await
+                mgr.unban(&limiteron::BanTarget::Ip("concurrent_same".to_string()))
+                    .await
             }));
         }
 
@@ -324,9 +303,7 @@ mod ban_manager_tests {
 
         // 最终状态应该是确定的（要么封禁要么未封禁）
         let _ = manager
-            .is_banned(&limiteron::BanTarget::Ip(
-                "concurrent_same".to_string(),
-            ))
+            .is_banned(&limiteron::BanTarget::Ip("concurrent_same".to_string()))
             .await;
     }
 
@@ -352,26 +329,20 @@ mod ban_manager_tests {
         // 验证封禁存在
         assert!(
             manager
-                .is_banned(&limiteron::BanTarget::Ip(
-                    "storage_test".to_string()
-                ))
+                .is_banned(&limiteron::BanTarget::Ip("storage_test".to_string()))
                 .await
         );
 
         // 解封
         manager
-            .unban(&limiteron::BanTarget::Ip(
-                "storage_test".to_string(),
-            ))
+            .unban(&limiteron::BanTarget::Ip("storage_test".to_string()))
             .await
             .unwrap();
 
         // 验证已解封
         assert!(
             !manager
-                .is_banned(&limiteron::BanTarget::Ip(
-                    "storage_test".to_string()
-                ))
+                .is_banned(&limiteron::BanTarget::Ip("storage_test".to_string()))
                 .await
         );
     }
@@ -416,9 +387,7 @@ mod ban_manager_tests {
         // 验证永久封禁仍然存在
         assert!(
             manager
-                .is_banned(&limiteron::BanTarget::Ip(
-                    "cleanup_permanent".to_string()
-                ))
+                .is_banned(&limiteron::BanTarget::Ip("cleanup_permanent".to_string()))
                 .await,
             "Permanent ban should still exist"
         );
@@ -426,9 +395,7 @@ mod ban_manager_tests {
         // 验证过期封禁已删除
         assert!(
             !manager
-                .is_banned(&limiteron::BanTarget::Ip(
-                    "cleanup_short".to_string()
-                ))
+                .is_banned(&limiteron::BanTarget::Ip("cleanup_short".to_string()))
                 .await,
             "Expired ban should be removed"
         );

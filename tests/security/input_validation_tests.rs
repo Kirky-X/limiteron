@@ -9,8 +9,8 @@
 use limiteron::config::ConfigSecurityValidator;
 use limiteron::constants::MAX_COST;
 use limiteron::error::FlowGuardError;
-use limiteron::{Limiter, TokenBucketLimiter};
 use limiteron::matchers::{Identifier, IdentifierExtractor, IpExtractor, RequestContext};
+use limiteron::{Limiter, TokenBucketLimiter};
 
 // ============================================================================
 // IP 地址注入测试

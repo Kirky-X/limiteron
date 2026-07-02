@@ -9,8 +9,8 @@ use limiteron::config::{
 };
 use limiteron::error::{ConsumeResult, Decision, FlowGuardError, StorageError};
 use limiteron::governor::GovernorStats;
-use limiteron::Limiter;
 use limiteron::matchers::RequestContext;
+use limiteron::Limiter;
 use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, Storage};
 use std::sync::Arc;
 use std::time::Duration;

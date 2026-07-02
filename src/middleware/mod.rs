@@ -24,17 +24,20 @@
 //! use limiteron::Governor;
 //! use std::sync::Arc;
 //!
-//! // 创建 Governor 实例
-//! let governor = Governor::new().await;
+//! #[tokio::main]
+//! async fn main() {
+//!     // 创建 Governor 实例
+//!     let governor = Governor::new().await;
 //!
-//! // 创建限流中间件层
-//! let layer = RateLimitLayer::new(
-//!     Arc::new(governor),
-//!     RateLimitConfig::default(),
-//! );
+//!     // 创建限流中间件层
+//!     let layer = RateLimitLayer::new(
+//!         Arc::new(governor),
+//!         RateLimitConfig::default(),
+//!     );
 //!
-//! // 与 Tower 服务链集成
-//! // let service = layer.make_service(inner_service);
+//!     // 与 Tower 服务链集成
+//!     // let service = layer.make_service(inner_service);
+//! }
 //! ```
 //!
 //! # 响应头

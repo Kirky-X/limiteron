@@ -8,14 +8,14 @@
 //! This entity is used by DBNexusStorageAdapter to store rate limit
 //! counter state for sliding window and fixed window algorithms.
 
-use dbnexus::db_crud;
+use dbnexus::db_entity;
 use sea_orm::entity::prelude::DateTimeUtc;
 use sea_orm::entity::prelude::*;
 
 /// Rate limit counter model
+#[db_entity(table_name = "limiteron_rate_limits", primary_key = "id")]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "limiteron_rate_limits")]
-#[db_crud(table_name = "limiteron_rate_limits")]
 pub struct Model {
     /// Primary key - unique rate limit ID
     #[sea_orm(primary_key)]
@@ -45,8 +45,6 @@ pub struct Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {}
 
-impl sea_orm::ActiveModelBehavior for ActiveModel {}
-
 /// Create table DDL for RateLimitEntity
 pub fn create_table_ddl() -> &'static str {
     r#"
@@ -66,4 +64,29 @@ pub fn create_table_ddl() -> &'static str {
 /// Helper to create rate limit key
 pub fn create_rate_key(identifier: &str, limiter_type: &str, params: &str) -> String {
     format!("{}:{}:{}", identifier, limiter_type, params)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_rate_key() {
+        assert_eq!(
+            create_rate_key("user1", "token_bucket", "100/1s"),
+            "user1:token_bucket:100/1s"
+        );
+        assert_eq!(
+            create_rate_key("192.168.1.1", "fixed_window", "60/1m"),
+            "192.168.1.1:fixed_window:60/1m"
+        );
+    }
+
+    #[test]
+    fn test_create_table_ddl() {
+        let ddl = create_table_ddl();
+        assert!(ddl.contains("limiteron_rate_limits"));
+        assert!(ddl.contains("rate_key"));
+        assert!(ddl.contains("capacity"));
+    }
 }

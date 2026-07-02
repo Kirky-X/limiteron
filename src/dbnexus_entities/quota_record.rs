@@ -8,14 +8,14 @@
 //! This entity is used by DBNexusQuotaStorageAdapter to store quota records
 //! for tracking user resource consumption.
 
-use dbnexus::db_crud;
+use dbnexus::db_entity;
 use sea_orm::entity::prelude::DateTimeUtc;
 use sea_orm::entity::prelude::*;
 
 /// Quota record model
+#[db_entity(table_name = "limiteron_quotas", primary_key = "id")]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "limiteron_quotas")]
-#[db_crud(table_name = "limiteron_quotas")]
 pub struct Model {
     /// Primary key - unique quota ID
     #[sea_orm(primary_key)]
@@ -49,8 +49,6 @@ pub struct Model {
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {}
 
-impl sea_orm::ActiveModelBehavior for ActiveModel {}
-
 /// Create table DDL for QuotaRecordEntity
 pub fn create_table_ddl() -> &'static str {
     r#"
@@ -72,4 +70,27 @@ pub fn create_table_ddl() -> &'static str {
 /// Helper to create quota key from user_id and resource
 pub fn create_quota_key(user_id: &str, resource: &str) -> String {
     format!("{}:{}", user_id, resource)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_quota_key() {
+        assert_eq!(
+            create_quota_key("user1", "api_requests"),
+            "user1:api_requests"
+        );
+        assert_eq!(create_quota_key("user2", "storage_mb"), "user2:storage_mb");
+    }
+
+    #[test]
+    fn test_create_table_ddl() {
+        let ddl = create_table_ddl();
+        assert!(ddl.contains("limiteron_quotas"));
+        assert!(ddl.contains("user_id"));
+        assert!(ddl.contains("quota_key"));
+        assert!(ddl.contains("consumed"));
+    }
 }

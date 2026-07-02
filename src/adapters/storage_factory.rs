@@ -18,7 +18,7 @@
 //!
 //! ```rust,no_run
 //! use limiteron::adapters::StorageFactory;
-//! use limiteron::storage_trait::Storage;
+//! use limiteron::storage::Storage;
 //! use std::sync::Arc;
 //!
 //! #[tokio::main]
@@ -475,5 +475,232 @@ mod tests {
         );
         assert_eq!(StorageType::DBNexusMySQL.to_string(), "DBNexus MySQL");
         assert_eq!(StorageType::DBNexusSQLite.to_string(), "DBNexus SQLite");
+        assert_eq!(StorageType::Memory.to_string(), "Memory");
+    }
+
+    #[test]
+    fn test_storage_type_parse_postgres_variants() {
+        assert_eq!(
+            StorageType::parse("dbnexus_postgres"),
+            Some(StorageType::DBNexusPostgres)
+        );
+        assert_eq!(
+            StorageType::parse("postgresql"),
+            Some(StorageType::DBNexusPostgres)
+        );
+        assert_eq!(
+            StorageType::parse("postgres"),
+            Some(StorageType::DBNexusPostgres)
+        );
+    }
+
+    #[test]
+    fn test_storage_type_parse_mysql() {
+        assert_eq!(
+            StorageType::parse("dbnexus_mysql"),
+            Some(StorageType::DBNexusMySQL)
+        );
+        assert_eq!(StorageType::parse("mysql"), Some(StorageType::DBNexusMySQL));
+    }
+
+    #[test]
+    fn test_storage_type_parse_sqlite() {
+        assert_eq!(
+            StorageType::parse("dbnexus_sqlite"),
+            Some(StorageType::DBNexusSQLite)
+        );
+        assert_eq!(
+            StorageType::parse("sqlite"),
+            Some(StorageType::DBNexusSQLite)
+        );
+    }
+
+    #[test]
+    fn test_storage_type_parse_memory() {
+        assert_eq!(StorageType::parse("memory"), Some(StorageType::Memory));
+    }
+
+    #[test]
+    fn test_storage_type_parse_case_insensitive() {
+        assert_eq!(
+            StorageType::parse("POSTGRES"),
+            Some(StorageType::DBNexusPostgres)
+        );
+        assert_eq!(StorageType::parse("MySQL"), Some(StorageType::DBNexusMySQL));
+    }
+
+    #[test]
+    fn test_storage_type_parse_unknown() {
+        assert_eq!(StorageType::parse("unknown_db"), None);
+        assert_eq!(StorageType::parse(""), None);
+    }
+
+    #[test]
+    fn test_storage_type_as_str() {
+        assert_eq!(StorageType::DBNexusPostgres.as_str(), "dbnexus_postgres");
+        assert_eq!(StorageType::DBNexusMySQL.as_str(), "dbnexus_mysql");
+        assert_eq!(StorageType::DBNexusSQLite.as_str(), "dbnexus_sqlite");
+        assert_eq!(StorageType::Memory.as_str(), "memory");
+    }
+
+    #[test]
+    fn test_storage_type_from_str_known() {
+        let st: StorageType = "postgres".into();
+        assert_eq!(st, StorageType::DBNexusPostgres);
+        let st: StorageType = "mysql".into();
+        assert_eq!(st, StorageType::DBNexusMySQL);
+        let st: StorageType = "sqlite".into();
+        assert_eq!(st, StorageType::DBNexusSQLite);
+    }
+
+    #[test]
+    fn test_storage_type_from_str_unknown_falls_back_to_default() {
+        let st: StorageType = "unknown_db".into();
+        assert_eq!(st, StorageType::DBNexusPostgres);
+    }
+
+    #[test]
+    fn test_storage_type_default() {
+        let st = StorageType::default();
+        assert_eq!(st, StorageType::DBNexusPostgres);
+    }
+
+    #[test]
+    fn test_config_mysql() {
+        let config = StorageFactoryConfig::mysql("mysql://localhost/test");
+        assert_eq!(config.storage_type, StorageType::DBNexusMySQL);
+        assert_eq!(config.connection_string, "mysql://localhost/test");
+        assert_eq!(config.pool_size, 10);
+    }
+
+    #[test]
+    fn test_config_sqlite() {
+        let config = StorageFactoryConfig::sqlite("/tmp/test.db");
+        assert_eq!(config.storage_type, StorageType::DBNexusSQLite);
+        assert_eq!(config.connection_string, "sqlite:/tmp/test.db");
+    }
+
+    #[test]
+    fn test_config_with_idle_timeout() {
+        let config = StorageFactoryConfig::default().with_idle_timeout(600);
+        assert_eq!(config.idle_timeout, 600);
+    }
+
+    #[test]
+    fn test_config_postgres_full_builder() {
+        let config = StorageFactoryConfig::postgres("postgresql://localhost/test")
+            .with_pool_size(20)
+            .with_connection_timeout(15)
+            .with_idle_timeout(120);
+        assert_eq!(config.storage_type, StorageType::DBNexusPostgres);
+        assert_eq!(config.pool_size, 20);
+        assert_eq!(config.connection_timeout, 15);
+        assert_eq!(config.idle_timeout, 120);
+    }
+
+    #[tokio::test]
+    async fn test_factory_new_with_config() {
+        let config = StorageFactoryConfig::sqlite("/tmp/test.db");
+        let factory = StorageFactory::new(config.clone());
+        assert!(!factory.is_initialized());
+        assert_eq!(factory.config().storage_type, config.storage_type);
+        assert_eq!(factory.config().connection_string, config.connection_string);
+    }
+
+    #[tokio::test]
+    async fn test_factory_config_accessor() {
+        let factory = StorageFactory::from_dsn("postgresql://localhost/test");
+        assert_eq!(factory.config().storage_type, StorageType::DBNexusPostgres);
+        assert_eq!(
+            factory.config().connection_string,
+            "postgresql://localhost/test"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_factory_close_is_noop() {
+        let factory = StorageFactory::from_dsn("postgresql://localhost/test");
+        // close should not panic even when not initialized
+        factory.close().await;
+        assert!(!factory.is_initialized());
+    }
+
+    #[tokio::test]
+    async fn test_create_ban_storage_not_initialized() {
+        let factory = StorageFactory::from_dsn("postgresql://localhost/test");
+        let result = factory.create_ban_storage().await;
+        assert!(result.is_err());
+        // 使用 err() 避免 trait object 需要 Debug 的约束
+        let err = result.err().unwrap();
+        assert!(matches!(err, StorageError::ConnectionError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_create_quota_storage_not_initialized() {
+        let factory = StorageFactory::from_dsn("postgresql://localhost/test");
+        let result = factory.create_quota_storage().await;
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(matches!(err, StorageError::ConnectionError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_create_all_not_initialized() {
+        let factory = StorageFactory::from_dsn("postgresql://localhost/test");
+        let result = factory.create_all().await;
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(matches!(err, StorageError::ConnectionError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_factory_clone() {
+        let factory = StorageFactory::from_dsn("postgresql://localhost/test");
+        let cloned = factory.clone();
+        assert_eq!(
+            factory.config().connection_string,
+            cloned.config().connection_string
+        );
+        assert_eq!(factory.is_initialized(), cloned.is_initialized());
+    }
+
+    #[test]
+    fn test_storage_type_equality_and_clone() {
+        let st1 = StorageType::DBNexusMySQL;
+        let st2 = st1.clone();
+        assert_eq!(st1, st2);
+        assert_ne!(st1, StorageType::DBNexusSQLite);
+    }
+
+    #[test]
+    fn test_storage_type_serde_roundtrip() {
+        // serde rename_all="lowercase" => "dbnexussqlite" (no underscore)
+        let st = StorageType::DBNexusSQLite;
+        let json = serde_json::to_string(&st).unwrap();
+        assert_eq!(json, "\"dbnexussqlite\"");
+        let deserialized: StorageType = serde_json::from_str(&json).unwrap();
+        assert_eq!(st, deserialized);
+    }
+
+    #[test]
+    fn test_storage_type_serde_postgres() {
+        let st = StorageType::DBNexusPostgres;
+        let json = serde_json::to_string(&st).unwrap();
+        assert_eq!(json, "\"dbnexuspostgres\"");
+    }
+
+    #[test]
+    fn test_storage_type_serde_mysql() {
+        let st = StorageType::DBNexusMySQL;
+        let json = serde_json::to_string(&st).unwrap();
+        assert_eq!(json, "\"dbnexusmysql\"");
+    }
+
+    #[test]
+    fn test_config_debug_format() {
+        let config = StorageFactoryConfig::default();
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("StorageFactoryConfig"));
+        assert!(debug_str.contains("DBNexusPostgres"));
     }
 }

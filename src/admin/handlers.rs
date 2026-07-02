@@ -6,9 +6,10 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 use super::server::AppState;
+#[cfg(feature = "ban-manager")]
+use crate::ban::{BanFilter, BanTarget};
 
 // ==================== 响应类型 ====================
 
@@ -65,18 +66,24 @@ pub async fn get_status(State(state): State<AppState>) -> Json<ApiResponse<Syste
     };
 
     #[cfg(feature = "ban-manager")]
-    let active_bans = state
-        .ban_manager
-        .as_ref()
-        .map(|bm| bm.active_ban_count())
-        .unwrap_or(0);
+    let active_bans: usize = if let Some(ref bm) = state.ban_manager {
+        bm.list_bans(BanFilter {
+            active_only: true,
+            ..Default::default()
+        })
+        .await
+        .map(|v| v.len())
+        .unwrap_or(0)
+    } else {
+        0
+    };
 
     #[cfg(feature = "circuit-breaker")]
-    let cb_state = state
-        .circuit_breaker
-        .as_ref()
-        .map(|cb| cb.state().to_string())
-        .unwrap_or_else(|| "disabled".to_string());
+    let cb_state = if let Some(ref cb) = state.circuit_breaker {
+        cb.get_state().await.to_string()
+    } else {
+        "disabled".to_string()
+    };
 
     Json(ApiResponse::ok(SystemStatus {
         total_requests: total,
@@ -122,9 +129,13 @@ pub async fn get_limiter_status(
 #[derive(Deserialize)]
 pub struct UnbanRequest {
     pub reason: Option<String>,
+    /// 操作者标识（用于授权检查与审计）
+    pub operator: Option<String>,
 }
 
 /// DELETE /api/v1/ban/{target}
+///
+/// 路径 `target` 优先尝试解析为 IP，否则视为 UserId。
 #[cfg(feature = "ban-manager")]
 pub async fn delete_ban(
     State(state): State<AppState>,
@@ -132,12 +143,20 @@ pub async fn delete_ban(
     Json(req): Json<UnbanRequest>,
 ) -> Json<ApiResponse<()>> {
     if let Some(ref ban_manager) = state.ban_manager {
-        match ban_manager.remove_ban(&target).await {
-            Ok(_) => Json(ApiResponse {
+        // 路径 target 优先按 IP 解析，回退为 UserId
+        let ban_target = if target.parse::<std::net::IpAddr>().is_ok() {
+            BanTarget::Ip(target)
+        } else {
+            BanTarget::UserId(target)
+        };
+        let operator = req.operator.unwrap_or_else(|| "admin-api".to_string());
+        match ban_manager.delete_ban(&ban_target, operator).await {
+            Ok(true) => Json(ApiResponse {
                 success: true,
                 message: req.reason.unwrap_or_else(|| "Ban removed".to_string()),
                 data: Some(()),
             }),
+            Ok(false) => Json(ApiResponse::error("Ban not found")),
             Err(e) => Json(ApiResponse::error(format!("Failed to remove ban: {}", e))),
         }
     } else {
@@ -177,24 +196,30 @@ pub async fn update_quota(
     Json(req): Json<UpdateQuotaRequest>,
 ) -> Json<ApiResponse<UpdateQuotaResponse>> {
     if let Some(ref quota_controller) = state.quota_controller {
-        let expires_at = req.duration_secs.map(|d| {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
-            now + d
-        });
-
-        match quota_controller
-            .update_quota(&tenant_id, &req.resource, req.new_limit)
-            .await
-        {
-            Ok(_) => Json(ApiResponse::ok(UpdateQuotaResponse {
-                success: true,
-                expires_at,
-            })),
-            Err(e) => Json(ApiResponse::error(format!("Failed to update quota: {}", e))),
+        // QuotaController 当前不支持 per-tenant 配额上限更新（配额上限为全局 QuotaConfig）
+        // 提供重置配额使用量作为最接近的操作
+        if req.new_limit == 0 {
+            // new_limit=0 视为重置信号
+            match quota_controller
+                .reset_quota(&tenant_id, &req.resource)
+                .await
+            {
+                Ok(_) => Json(ApiResponse::ok(UpdateQuotaResponse {
+                    success: true,
+                    expires_at: req.duration_secs.map(|d| {
+                        use std::time::{SystemTime, UNIX_EPOCH};
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map(|t| t.as_secs() + d)
+                            .unwrap_or(0)
+                    }),
+                })),
+                Err(e) => Json(ApiResponse::error(format!("Failed to reset quota: {}", e))),
+            }
+        } else {
+            Json(ApiResponse::error(
+                "Per-tenant quota limit update is not supported; use global QuotaConfig update_config instead",
+            ))
         }
     } else {
         Json(ApiResponse::error("Quota controller not configured"))
@@ -225,11 +250,18 @@ pub async fn get_circuit_breaker_status(
     State(state): State<AppState>,
 ) -> Json<ApiResponse<CircuitBreakerStatus>> {
     if let Some(ref cb) = state.circuit_breaker {
-        let status = cb.status().await;
+        let stats = cb.get_stats().await;
+        let total = stats.total_calls as f64;
+        // CircuitBreakerStats 不跟踪 slow_call_rate，置为 0.0
+        let failure_rate = if total > 0.0 {
+            stats.failure_count as f64 / total
+        } else {
+            0.0
+        };
         Json(ApiResponse::ok(CircuitBreakerStatus {
-            state: status.state.to_string(),
-            failure_rate: status.failure_rate,
-            slow_call_rate: status.slow_call_rate.unwrap_or(0.0),
+            state: stats.state.to_string(),
+            failure_rate,
+            slow_call_rate: 0.0,
         }))
     } else {
         Json(ApiResponse::error("Circuit breaker not configured"))

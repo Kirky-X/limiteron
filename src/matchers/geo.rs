@@ -829,4 +829,335 @@ mod tests {
 
         assert_eq!(condition, deserialized);
     }
+
+    #[test]
+    fn test_geo_info_default_is_empty() {
+        let info = GeoInfo::default();
+        assert!(info.is_empty());
+        assert_eq!(info.description(), "Unknown");
+    }
+
+    #[test]
+    fn test_geo_info_is_empty_false_with_fields() {
+        // 设置任一关键字段后 is_empty 应返回 false
+        let info = GeoInfo {
+            country_code: Some("CN".to_string()),
+            country_name: None,
+            city: None,
+            continent: None,
+            longitude: None,
+            latitude: None,
+            timezone: None,
+        };
+        assert!(!info.is_empty());
+
+        let info2 = GeoInfo {
+            country_code: None,
+            country_name: Some("China".to_string()),
+            city: None,
+            continent: None,
+            longitude: None,
+            latitude: None,
+            timezone: None,
+        };
+        assert!(!info2.is_empty());
+
+        let info3 = GeoInfo {
+            country_code: None,
+            country_name: None,
+            city: Some("Beijing".to_string()),
+            continent: None,
+            longitude: None,
+            latitude: None,
+            timezone: None,
+        };
+        assert!(!info3.is_empty());
+
+        let info4 = GeoInfo {
+            country_code: None,
+            country_name: None,
+            city: None,
+            continent: Some("Asia".to_string()),
+            longitude: None,
+            latitude: None,
+            timezone: None,
+        };
+        assert!(!info4.is_empty());
+    }
+
+    #[test]
+    fn test_geo_info_is_empty_true_with_only_optional_location_fields() {
+        // is_empty 仅检查 country_code/country_name/city/continent，
+        // 仅设置 longitude/latitude/timezone 时仍返回 true
+        let info = GeoInfo {
+            country_code: None,
+            country_name: None,
+            city: None,
+            continent: None,
+            longitude: Some(116.4),
+            latitude: Some(39.9),
+            timezone: Some("Asia/Shanghai".to_string()),
+        };
+        assert!(info.is_empty());
+    }
+
+    #[test]
+    fn test_geo_info_description_city_only() {
+        let info = GeoInfo {
+            country_code: None,
+            country_name: None,
+            city: Some("Tokyo".to_string()),
+            continent: None,
+            longitude: None,
+            latitude: None,
+            timezone: None,
+        };
+        assert_eq!(info.description(), "Tokyo");
+    }
+
+    #[test]
+    fn test_geo_info_description_country_only() {
+        let info = GeoInfo {
+            country_code: Some("JP".to_string()),
+            country_name: Some("Japan".to_string()),
+            city: None,
+            continent: None,
+            longitude: None,
+            latitude: None,
+            timezone: None,
+        };
+        assert_eq!(info.description(), "Japan");
+    }
+
+    #[test]
+    fn test_geo_condition_countries_no_country_info() {
+        // 当条件包含国家列表但 GeoInfo.country_code 为 None 时应返回 false
+        let condition = GeoCondition::countries(vec!["CN".to_string()]);
+        let info = GeoInfo::empty();
+        assert!(!condition.matches(&info));
+    }
+
+    #[test]
+    fn test_geo_condition_cities_no_city_info() {
+        // 当条件包含城市列表但 GeoInfo.city 为 None 时应返回 false
+        let condition = GeoCondition::cities(vec!["Beijing".to_string()]);
+        let info = GeoInfo::empty();
+        assert!(!condition.matches(&info));
+    }
+
+    #[test]
+    fn test_geo_condition_continents_no_continent_info() {
+        // 当条件包含大洲列表但 GeoInfo.continent 为 None 时应返回 false
+        let condition = GeoCondition::continents(vec!["Asia".to_string()]);
+        let info = GeoInfo::empty();
+        assert!(!condition.matches(&info));
+    }
+
+    #[test]
+    fn test_geo_condition_countries_match_with_partial_info() {
+        // 条件匹配但 info 仅有部分字段
+        let condition = GeoCondition::countries(vec!["US".to_string()]);
+        let info = GeoInfo {
+            country_code: Some("US".to_string()),
+            country_name: None,
+            city: None,
+            continent: None,
+            longitude: None,
+            latitude: None,
+            timezone: None,
+        };
+        assert!(condition.matches(&info));
+    }
+
+    #[test]
+    fn test_geo_condition_cities_match() {
+        let condition = GeoCondition::cities(vec!["Shanghai".to_string()]);
+        let info = GeoInfo {
+            country_code: Some("CN".to_string()),
+            country_name: Some("China".to_string()),
+            city: Some("Shanghai".to_string()),
+            continent: None,
+            longitude: None,
+            latitude: None,
+            timezone: None,
+        };
+        assert!(condition.matches(&info));
+    }
+
+    #[test]
+    fn test_geo_condition_continents_match() {
+        let condition = GeoCondition::continents(vec!["Europe".to_string()]);
+        let info = GeoInfo {
+            country_code: Some("FR".to_string()),
+            country_name: Some("France".to_string()),
+            city: Some("Paris".to_string()),
+            continent: Some("Europe".to_string()),
+            longitude: None,
+            latitude: None,
+            timezone: None,
+        };
+        assert!(condition.matches(&info));
+    }
+
+    #[test]
+    fn test_geo_condition_partial_equality() {
+        let c1 = GeoCondition::countries(vec!["CN".to_string()]);
+        let c2 = GeoCondition::countries(vec!["CN".to_string()]);
+        assert_eq!(c1, c2);
+
+        let c3 = GeoCondition::cities(vec!["CN".to_string()]);
+        assert_ne!(c1, c3);
+    }
+
+    #[test]
+    fn test_geo_info_clone_equality() {
+        let info = GeoInfo {
+            country_code: Some("CN".to_string()),
+            country_name: Some("China".to_string()),
+            city: Some("Beijing".to_string()),
+            continent: Some("Asia".to_string()),
+            longitude: Some(116.4),
+            latitude: Some(39.9),
+            timezone: Some("Asia/Shanghai".to_string()),
+        };
+        let cloned = info.clone();
+        assert_eq!(info, cloned);
+    }
+
+    #[test]
+    fn test_geo_info_debug_format() {
+        let info = GeoInfo::empty();
+        let debug = format!("{:?}", info);
+        assert!(debug.contains("GeoInfo"));
+    }
+
+    // ------------------------------------------------------------------------
+    // GeoMatcher 测试（需要 geo-matching feature）
+    // ------------------------------------------------------------------------
+
+    #[cfg(feature = "geo-matching")]
+    #[tokio::test]
+    async fn test_geo_matcher_new_file_not_found() {
+        // 文件不存在时应返回 ConfigError
+        let result = GeoMatcher::new("/nonexistent/path/to/GeoLite2-City.mmdb").await;
+        assert!(result.is_err());
+        // 使用 err() 避免 GeoMatcher 需要 Debug 的约束
+        let err = result.err().unwrap();
+        assert!(
+            matches!(err, FlowGuardError::ConfigError(_)),
+            "expected ConfigError, got {:?}",
+            err
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("不存在") || msg.contains("not exist"),
+            "error should mention missing file: {}",
+            msg
+        );
+    }
+
+    #[cfg(feature = "geo-matching")]
+    #[tokio::test]
+    async fn test_geo_matcher_new_file_too_small() {
+        // 创建一个临时小文件，应触发文件大小异常错误
+        let temp_dir = std::env::temp_dir();
+        let temp_path = temp_dir.join(format!(
+            "limiteron_test_geo_small_{}.mmdb",
+            std::process::id()
+        ));
+        std::fs::write(&temp_path, b"too small to be a real mmdb file").unwrap();
+
+        let result = GeoMatcher::new(&temp_path).await;
+        // 清理临时文件
+        let _ = std::fs::remove_file(&temp_path);
+
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(
+            matches!(err, FlowGuardError::ConfigError(_)),
+            "expected ConfigError, got {:?}",
+            err
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("大小异常") || msg.contains("size"),
+            "error should mention file size: {}",
+            msg
+        );
+    }
+
+    #[cfg(feature = "geo-matching")]
+    #[tokio::test]
+    async fn test_geo_matcher_with_cache_limit_file_not_found() {
+        // with_cache_limit 内部调用 new，文件不存在时应返回错误
+        let result =
+            GeoMatcher::with_cache_limit("/nonexistent/path/to/GeoLite2-City.mmdb", 5000).await;
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(matches!(err, FlowGuardError::ConfigError(_)));
+    }
+
+    #[cfg(feature = "geo-matching")]
+    #[tokio::test]
+    async fn test_geo_cache_stats_zero_state() {
+        // 直接构造 GeoCacheStats 验证字段
+        let stats = GeoCacheStats {
+            size: 100,
+            limit: 10000,
+            hit_rate: 75.0,
+            hits: 750,
+            misses: 250,
+        };
+        assert_eq!(stats.size, 100);
+        assert_eq!(stats.limit, 10000);
+        assert_eq!(stats.hit_rate, 75.0);
+        assert_eq!(stats.hits, 750);
+        assert_eq!(stats.misses, 250);
+    }
+
+    #[cfg(feature = "geo-matching")]
+    #[tokio::test]
+    async fn test_geo_cache_stats_high_hit_rate() {
+        let stats = GeoCacheStats {
+            size: 5000,
+            limit: 10000,
+            hit_rate: 99.5,
+            hits: 9950,
+            misses: 50,
+        };
+        assert!(stats.hit_rate > 99.0);
+        assert!(stats.hits > stats.misses);
+    }
+
+    #[cfg(feature = "geo-matching")]
+    #[test]
+    fn test_geo_cache_stats_serialization() {
+        let stats = GeoCacheStats {
+            size: 42,
+            limit: 100,
+            hit_rate: 50.0,
+            hits: 10,
+            misses: 10,
+        };
+        let json = serde_json::to_string(&stats).unwrap();
+        let deserialized: GeoCacheStats = serde_json::from_str(&json).unwrap();
+        assert_eq!(stats.size, deserialized.size);
+        assert_eq!(stats.limit, deserialized.limit);
+        assert_eq!(stats.hits, deserialized.hits);
+        assert_eq!(stats.misses, deserialized.misses);
+    }
+
+    #[cfg(feature = "geo-matching")]
+    #[test]
+    fn test_geo_cache_stats_debug_format() {
+        let stats = GeoCacheStats {
+            size: 0,
+            limit: 0,
+            hit_rate: 0.0,
+            hits: 0,
+            misses: 0,
+        };
+        let debug = format!("{:?}", stats);
+        assert!(debug.contains("GeoCacheStats"));
+    }
 }

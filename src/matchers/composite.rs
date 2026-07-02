@@ -149,3 +149,74 @@ impl IdentifierExtractor for CompositeExtractor {
         "CompositeExtractor"
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod tests {
+    use super::*;
+    use crate::matchers::{IpExtractor, UserIdExtractor};
+
+    #[test]
+    fn test_composite_builder() {
+        let extractor = CompositeExtractor::builder()
+            .add_extractor(Box::new(UserIdExtractor::from_header("X-User-Id")))
+            .add_extractor(Box::new(IpExtractor::from_header("X-Forwarded-For")))
+            .with_fallback(true)
+            .build();
+        assert_eq!(extractor.name(), "CompositeExtractor");
+    }
+
+    #[test]
+    fn test_composite_fallback_to_client_ip() {
+        let extractor = CompositeExtractor::new(vec![], true);
+        let ctx = RequestContext::new().with_client_ip("10.0.0.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("10.0.0.1".into()))
+        );
+    }
+
+    #[test]
+    fn test_composite_fallback_no_ip() {
+        let extractor = CompositeExtractor::new(vec![], true);
+        let ctx = RequestContext::new();
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_composite_fallback_invalid_ip() {
+        let extractor = CompositeExtractor::new(vec![], true);
+        let ctx = RequestContext::new().with_client_ip("not-an-ip");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_composite_with_dependencies() {
+        let extractor = CompositeExtractor::with_dependencies(
+            vec![Box::new(UserIdExtractor::from_header("X-User-Id"))],
+            false,
+        );
+        let ctx = RequestContext::new().with_header("X-User-Id", "u1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::UserId("u1".into()))
+        );
+    }
+
+    #[test]
+    fn test_composite_add_extractor() {
+        let extractor = CompositeExtractor::new(vec![], false)
+            .add_extractor(Box::new(UserIdExtractor::from_header("X-User-Id")));
+        let ctx = RequestContext::new().with_header("X-User-Id", "added");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::UserId("added".into()))
+        );
+    }
+
+    #[test]
+    fn test_composite_with_fallback() {
+        let extractor = CompositeExtractor::new(vec![], false).with_fallback(true);
+        assert_eq!(extractor.name(), "CompositeExtractor");
+    }
+}

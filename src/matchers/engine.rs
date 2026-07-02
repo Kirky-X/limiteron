@@ -681,3 +681,775 @@ impl RuleMatcher {
         Ok(Self::new(rules))
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    // ==================== IpRange ====================
+
+    #[test]
+    fn test_ip_range_single() {
+        let range: IpRange = "192.168.1.1".parse().unwrap();
+        assert!(range.contains(&"192.168.1.1".parse::<IpAddr>().unwrap()));
+        assert!(!range.contains(&"192.168.1.2".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_ip_range_ipv4_cidr() {
+        let range: IpRange = "192.168.0.0/16".parse().unwrap();
+        assert!(range.contains(&"192.168.1.1".parse::<IpAddr>().unwrap()));
+        assert!(range.contains(&"192.168.255.255".parse::<IpAddr>().unwrap()));
+        assert!(!range.contains(&"10.0.0.1".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_ip_range_ipv4_cidr_single() {
+        let range: IpRange = "10.0.0.1/32".parse().unwrap();
+        assert!(range.contains(&"10.0.0.1".parse::<IpAddr>().unwrap()));
+        assert!(!range.contains(&"10.0.0.2".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_ip_range_ipv6_cidr() {
+        let range: IpRange = "2001:db8::/32".parse().unwrap();
+        assert!(range.contains(&"2001:db8::1".parse::<IpAddr>().unwrap()));
+        assert!(!range.contains(&"::1".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_ip_range_v4_range() {
+        let range: IpRange = "192.168.1.1-192.168.1.10".parse().unwrap();
+        assert!(range.contains(&"192.168.1.5".parse::<IpAddr>().unwrap()));
+        assert!(!range.contains(&"192.168.2.1".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_ip_range_single_ipv6() {
+        let range: IpRange = "::1".parse().unwrap();
+        assert!(range.contains(&"::1".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_ip_range_invalid_format() {
+        assert!("not-an-ip".parse::<IpRange>().is_err());
+        assert!("192.168.1.0/33".parse::<IpRange>().is_err());
+        assert!("::1/129".parse::<IpRange>().is_err());
+    }
+
+    // ==================== MatchCondition ====================
+
+    fn make_ctx(headers: Vec<(&str, &str)>, client_ip: Option<&str>) -> RequestContext {
+        let mut ctx = RequestContext::new();
+        for (k, v) in headers {
+            ctx = ctx.with_header(k, v);
+        }
+        if let Some(ip) = client_ip {
+            ctx = ctx.with_client_ip(ip);
+        }
+        ctx
+    }
+
+    #[test]
+    fn test_match_user_match() {
+        let cond = MatchCondition::User(vec!["user1".into(), "user2".into()]);
+        let ctx = make_ctx(vec![("X-User-Id", "user1")], None);
+        assert!(cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_user_no_match() {
+        let cond = MatchCondition::User(vec!["user1".into()]);
+        let ctx = make_ctx(vec![("X-User-Id", "user2")], None);
+        assert!(!cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_user_wildcard() {
+        let cond = MatchCondition::User(vec!["*".into()]);
+        let ctx = make_ctx(vec![("X-User-Id", "anyone")], None);
+        assert!(cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_user_no_header_wildcard() {
+        let cond = MatchCondition::User(vec!["*".into()]);
+        let ctx = make_ctx(vec![], None);
+        assert!(cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_user_no_header_no_wildcard() {
+        let cond = MatchCondition::User(vec!["user1".into()]);
+        let ctx = make_ctx(vec![], None);
+        assert!(!cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_ip_match() {
+        let cond = MatchCondition::Ip(vec!["192.168.0.0/16".parse().unwrap()]);
+        let ctx = make_ctx(vec![], Some("192.168.1.1"));
+        assert!(cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_ip_no_match() {
+        let cond = MatchCondition::Ip(vec!["192.168.0.0/16".parse().unwrap()]);
+        let ctx = make_ctx(vec![], Some("10.0.0.1"));
+        assert!(!cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_ip_no_client_ip() {
+        let cond = MatchCondition::Ip(vec!["192.168.0.0/16".parse().unwrap()]);
+        let ctx = make_ctx(vec![], None);
+        assert!(!cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_geo_match() {
+        let cond = MatchCondition::Geo(vec!["US".into(), "CN".into()]);
+        let ctx = make_ctx(vec![("X-Country", "CN")], None);
+        assert!(cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_geo_no_match() {
+        let cond = MatchCondition::Geo(vec!["US".into()]);
+        let ctx = make_ctx(vec![("X-Country", "CN")], None);
+        assert!(!cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_geo_wildcard() {
+        let cond = MatchCondition::Geo(vec!["*".into()]);
+        let ctx = make_ctx(vec![], None);
+        assert!(cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_api_version_match() {
+        let cond = MatchCondition::ApiVersion(vec!["v1".into(), "v2".into()]);
+        let ctx = make_ctx(vec![("X-API-Version", "v2")], None);
+        assert!(cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_api_version_no_match() {
+        let cond = MatchCondition::ApiVersion(vec!["v1".into()]);
+        let ctx = make_ctx(vec![("X-API-Version", "v3")], None);
+        assert!(!cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_device_match() {
+        let cond = MatchCondition::Device(vec!["mobile".into(), "desktop".into()]);
+        let ctx = make_ctx(vec![("X-Device-Type", "mobile")], None);
+        assert!(cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_device_no_match() {
+        let cond = MatchCondition::Device(vec!["mobile".into()]);
+        let ctx = make_ctx(vec![("X-Device-Type", "tablet")], None);
+        assert!(!cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_custom_closure() {
+        let cond = MatchCondition::Custom(Arc::new(|ctx| {
+            ctx.get_header("X-Feature")
+                .map_or(false, |v| v == "enabled")
+        }));
+        let ctx = make_ctx(vec![("X-Feature", "enabled")], None);
+        assert!(cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_custom_closure_no_match() {
+        let cond = MatchCondition::Custom(Arc::new(|_| false));
+        let ctx = make_ctx(vec![], None);
+        assert!(!cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_match_condition_description() {
+        let cond = MatchCondition::User(vec!["u1".into()]);
+        assert!(cond.description().contains("User"));
+        let cond = MatchCondition::Geo(vec!["US".into()]);
+        assert!(cond.description().contains("Country"));
+        let cond = MatchCondition::Custom(Arc::new(|_| true));
+        assert_eq!(cond.description(), "Custom condition");
+    }
+
+    // ==================== CompositeCondition ====================
+
+    #[test]
+    fn test_composite_and_all_true() {
+        let cond = CompositeCondition {
+            conditions: vec![
+                Box::new(MatchCondition::User(vec!["u1".into()])),
+                Box::new(MatchCondition::Geo(vec!["US".into()])),
+            ],
+            operator: LogicalOperator::And,
+        };
+        let ctx = make_ctx(vec![("X-User-Id", "u1"), ("X-Country", "US")], None);
+        assert!(cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_composite_and_one_false() {
+        let cond = CompositeCondition {
+            conditions: vec![
+                Box::new(MatchCondition::User(vec!["u1".into()])),
+                Box::new(MatchCondition::Geo(vec!["US".into()])),
+            ],
+            operator: LogicalOperator::And,
+        };
+        let ctx = make_ctx(vec![("X-User-Id", "u1"), ("X-Country", "CN")], None);
+        assert!(!cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_composite_or_all_false() {
+        let cond = CompositeCondition {
+            conditions: vec![
+                Box::new(MatchCondition::User(vec!["u1".into()])),
+                Box::new(MatchCondition::Geo(vec!["US".into()])),
+            ],
+            operator: LogicalOperator::Or,
+        };
+        let ctx = make_ctx(vec![("X-User-Id", "u2"), ("X-Country", "CN")], None);
+        assert!(!cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_composite_or_one_true() {
+        let cond = CompositeCondition {
+            conditions: vec![
+                Box::new(MatchCondition::User(vec!["u1".into()])),
+                Box::new(MatchCondition::Geo(vec!["US".into()])),
+            ],
+            operator: LogicalOperator::Or,
+        };
+        let ctx = make_ctx(vec![("X-User-Id", "u1"), ("X-Country", "CN")], None);
+        assert!(cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_composite_not_true() {
+        let cond = CompositeCondition {
+            conditions: vec![Box::new(MatchCondition::User(vec!["u1".into()]))],
+            operator: LogicalOperator::Not,
+        };
+        let ctx = make_ctx(vec![("X-User-Id", "u2")], None);
+        assert!(cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_composite_not_false() {
+        let cond = CompositeCondition {
+            conditions: vec![Box::new(MatchCondition::User(vec!["u1".into()]))],
+            operator: LogicalOperator::Not,
+        };
+        let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
+        assert!(!cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_composite_not_empty() {
+        let cond = CompositeCondition {
+            conditions: vec![],
+            operator: LogicalOperator::Not,
+        };
+        let ctx = make_ctx(vec![], None);
+        assert!(!cond.evaluate(&ctx));
+    }
+
+    // ==================== RuleMatcher ====================
+
+    #[test]
+    fn test_rule_matcher_match() {
+        let matcher = RuleMatcher::new(vec![Rule {
+            id: "r1".into(),
+            name: "Test".into(),
+            priority: 100,
+            condition: Box::new(MatchCondition::User(vec!["u1".into()])),
+            enabled: true,
+        }]);
+        let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
+        let result = matcher.matches(&ctx);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().id, "r1");
+    }
+
+    #[test]
+    fn test_rule_matcher_no_match() {
+        let matcher = RuleMatcher::new(vec![Rule {
+            id: "r1".into(),
+            name: "Test".into(),
+            priority: 100,
+            condition: Box::new(MatchCondition::User(vec!["u1".into()])),
+            enabled: true,
+        }]);
+        let ctx = make_ctx(vec![("X-User-Id", "u2")], None);
+        assert!(matcher.matches(&ctx).is_none());
+    }
+
+    #[test]
+    fn test_rule_matcher_disabled_rule() {
+        let matcher = RuleMatcher::new(vec![Rule {
+            id: "r1".into(),
+            name: "Disabled".into(),
+            priority: 100,
+            condition: Box::new(MatchCondition::User(vec!["*".into()])),
+            enabled: false,
+        }]);
+        let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
+        assert!(matcher.matches(&ctx).is_none());
+    }
+
+    #[test]
+    fn test_rule_matcher_priority() {
+        let matcher = RuleMatcher::new(vec![
+            Rule {
+                id: "low".into(),
+                name: "Low".into(),
+                priority: 50,
+                condition: Box::new(MatchCondition::User(vec!["u1".into()])),
+                enabled: true,
+            },
+            Rule {
+                id: "high".into(),
+                name: "High".into(),
+                priority: 100,
+                condition: Box::new(MatchCondition::User(vec!["*".into()])),
+                enabled: true,
+            },
+        ]);
+        let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
+        let result = matcher.matches(&ctx);
+        assert_eq!(result.unwrap().id, "high");
+    }
+
+    #[test]
+    fn test_rule_matcher_add_rule() {
+        let mut matcher = RuleMatcher::new(vec![]);
+        matcher.add_rule(Rule {
+            id: "r1".into(),
+            name: "Added".into(),
+            priority: 100,
+            condition: Box::new(MatchCondition::User(vec!["*".into()])),
+            enabled: true,
+        });
+        assert_eq!(matcher.rule_count(), 1);
+    }
+
+    #[test]
+    fn test_rule_matcher_remove_rule() {
+        let mut matcher = RuleMatcher::new(vec![Rule {
+            id: "r1".into(),
+            name: "Test".into(),
+            priority: 100,
+            condition: Box::new(MatchCondition::User(vec!["*".into()])),
+            enabled: true,
+        }]);
+        let removed = matcher.remove_rule("r1");
+        assert!(removed.is_some());
+        assert_eq!(matcher.rule_count(), 0);
+    }
+
+    #[test]
+    fn test_rule_matcher_remove_nonexistent() {
+        let mut matcher = RuleMatcher::new(vec![]);
+        assert!(matcher.remove_rule("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_rule_matcher_match_all() {
+        let matcher = RuleMatcher::new(vec![
+            Rule {
+                id: "r1".into(),
+                name: "R1".into(),
+                priority: 100,
+                condition: Box::new(MatchCondition::User(vec!["*".into()])),
+                enabled: true,
+            },
+            Rule {
+                id: "r2".into(),
+                name: "R2".into(),
+                priority: 50,
+                condition: Box::new(MatchCondition::Geo(vec!["*".into()])),
+                enabled: true,
+            },
+        ]);
+        let ctx = make_ctx(vec![("X-User-Id", "u1"), ("X-Country", "US")], None);
+        let results = matcher.match_all(&ctx);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_rule_matcher_stats() {
+        let matcher = RuleMatcher::new(vec![Rule {
+            id: "r1".into(),
+            name: "Test".into(),
+            priority: 100,
+            condition: Box::new(MatchCondition::User(vec!["*".into()])),
+            enabled: true,
+        }]);
+        let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
+        matcher.matches(&ctx);
+        let stats = matcher.stats();
+        assert_eq!(stats.total_matches, 1);
+        assert_eq!(stats.total_mismatches, 0);
+    }
+
+    #[test]
+    fn test_rule_matcher_reset_stats() {
+        let matcher = RuleMatcher::new(vec![Rule {
+            id: "r1".into(),
+            name: "Test".into(),
+            priority: 100,
+            condition: Box::new(MatchCondition::User(vec!["*".into()])),
+            enabled: true,
+        }]);
+        let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
+        matcher.matches(&ctx);
+        matcher.reset_stats();
+        let stats = matcher.stats();
+        assert_eq!(stats.total_matches, 0);
+    }
+
+    #[test]
+    fn test_rule_matcher_rule_count() {
+        let matcher = RuleMatcher::new(vec![
+            Rule {
+                id: "r1".into(),
+                name: "R1".into(),
+                priority: 100,
+                condition: Box::new(MatchCondition::User(vec!["*".into()])),
+                enabled: true,
+            },
+            Rule {
+                id: "r2".into(),
+                name: "R2".into(),
+                priority: 50,
+                condition: Box::new(MatchCondition::User(vec!["*".into()])),
+                enabled: true,
+            },
+        ]);
+        assert_eq!(matcher.rule_count(), 2);
+    }
+
+    #[test]
+    fn test_rule_matcher_rule_matcher_builder() {
+        let matcher = RuleMatcherBuilder::new()
+            .add_rule(Rule {
+                id: "r1".into(),
+                name: "Builder".into(),
+                priority: 100,
+                condition: Box::new(MatchCondition::User(vec!["*".into()])),
+                enabled: true,
+            })
+            .build();
+        assert_eq!(matcher.rule_count(), 1);
+    }
+
+    #[test]
+    fn test_rule_matcher_add_rules() {
+        let matcher = RuleMatcherBuilder::new()
+            .add_rules(vec![
+                Rule {
+                    id: "r1".into(),
+                    name: "R1".into(),
+                    priority: 100,
+                    condition: Box::new(MatchCondition::User(vec!["*".into()])),
+                    enabled: true,
+                },
+                Rule {
+                    id: "r2".into(),
+                    name: "R2".into(),
+                    priority: 50,
+                    condition: Box::new(MatchCondition::User(vec!["*".into()])),
+                    enabled: true,
+                },
+            ])
+            .build();
+        assert_eq!(matcher.rule_count(), 2);
+    }
+
+    // ==================== Edge cases ====================
+
+    #[test]
+    fn test_empty_rules_no_match() {
+        let matcher = RuleMatcher::new(vec![]);
+        let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
+        assert!(matcher.matches(&ctx).is_none());
+        assert!(matcher.match_all(&ctx).is_empty());
+    }
+
+    #[test]
+    fn test_from_config_user() {
+        use crate::config::ConfigMatcher;
+        let matchers = vec![ConfigMatcher::User {
+            user_ids: vec!["u1".into()],
+        }];
+        let matcher = RuleMatcher::from_config(&matchers).unwrap();
+        assert_eq!(matcher.rule_count(), 1);
+        let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
+        assert!(matcher.matches(&ctx).is_some());
+    }
+
+    #[test]
+    fn test_from_config_ip() {
+        use crate::config::ConfigMatcher;
+        let matchers = vec![ConfigMatcher::Ip {
+            ip_ranges: vec!["10.0.0.0/8".into()],
+        }];
+        let matcher = RuleMatcher::from_config(&matchers).unwrap();
+        assert_eq!(matcher.rule_count(), 1);
+    }
+
+    #[test]
+    fn test_from_config_geo() {
+        use crate::config::ConfigMatcher;
+        let matchers = vec![ConfigMatcher::Geo {
+            countries: vec!["US".into()],
+        }];
+        let matcher = RuleMatcher::from_config(&matchers).unwrap();
+        assert_eq!(matcher.rule_count(), 1);
+    }
+
+    #[test]
+    fn test_from_config_custom() {
+        use crate::config::ConfigMatcher;
+        let matchers = vec![ConfigMatcher::Custom {
+            name: "my-custom".into(),
+            config: serde_json::Value::Null,
+        }];
+        let matcher = RuleMatcher::from_config(&matchers).unwrap();
+        assert_eq!(matcher.rule_count(), 1);
+    }
+
+    #[test]
+    fn test_ip_range_description() {
+        let cond = MatchCondition::Ip(vec!["10.0.0.0/8".parse().unwrap()]);
+        assert!(cond.description().contains("IP in"));
+    }
+
+    // ==================== IpRange additional error paths ====================
+
+    #[test]
+    fn test_ip_range_invalid_cidr_extra_parts() {
+        assert!("10.0.0.0/8/extra".parse::<IpRange>().is_err());
+    }
+
+    #[test]
+    fn test_ip_range_invalid_range_extra_parts() {
+        assert!("10.0.0.0-10.0.0.255-extra".parse::<IpRange>().is_err());
+    }
+
+    #[test]
+    fn test_ip_range_start_gt_end() {
+        assert!("10.0.0.10-10.0.0.5".parse::<IpRange>().is_err());
+    }
+
+    // ==================== IpRange cross-type ====================
+
+    #[test]
+    fn test_ip_range_ipv4_cidr_with_ipv6() {
+        let range: IpRange = "10.0.0.0/8".parse().unwrap();
+        assert!(!range.contains(&"::1".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_ip_range_ipv6_cidr_with_ipv4() {
+        let range: IpRange = "2001:db8::/32".parse().unwrap();
+        assert!(!range.contains(&"10.0.0.1".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_ip_range_v4_range_with_ipv6() {
+        let range: IpRange = "10.0.0.1-10.0.0.10".parse().unwrap();
+        assert!(!range.contains(&"::1".parse::<IpAddr>().unwrap()));
+    }
+
+    // ==================== Debug implementations ====================
+
+    #[test]
+    fn test_match_condition_debug_all() {
+        let _ = format!("{:?}", MatchCondition::User(vec!["u1".into()]));
+        let _ = format!("{:?}", MatchCondition::Ip(vec![]));
+        let _ = format!("{:?}", MatchCondition::Geo(vec!["US".into()]));
+        let _ = format!("{:?}", MatchCondition::ApiVersion(vec!["v1".into()]));
+        let _ = format!("{:?}", MatchCondition::Device(vec!["mobile".into()]));
+        let _ = format!("{:?}", MatchCondition::Custom(Arc::new(|_| true)));
+    }
+
+    #[test]
+    fn test_composite_condition_debug() {
+        let cond = CompositeCondition {
+            conditions: vec![Box::new(MatchCondition::User(vec!["u1".into()]))],
+            operator: LogicalOperator::And,
+        };
+        let _ = format!("{:?}", cond);
+    }
+
+    #[test]
+    fn test_rule_debug() {
+        let rule = Rule {
+            id: "test".into(),
+            name: "Test".into(),
+            priority: 100,
+            condition: Box::new(MatchCondition::User(vec!["*".into()])),
+            enabled: true,
+        };
+        let _ = format!("{:?}", rule);
+    }
+
+    // ==================== Clone implementations ====================
+
+    #[test]
+    fn test_composite_condition_clone() {
+        let cond = CompositeCondition {
+            conditions: vec![Box::new(MatchCondition::User(vec!["u1".into()]))],
+            operator: LogicalOperator::And,
+        };
+        let cloned = cond.clone();
+        assert_eq!(cloned.conditions.len(), 1);
+        assert_eq!(cloned.operator, LogicalOperator::And);
+    }
+
+    #[test]
+    fn test_rule_clone() {
+        let rule = Rule {
+            id: "test-rule".into(),
+            name: "Test Rule".into(),
+            priority: 100,
+            condition: Box::new(MatchCondition::User(vec!["u1".into()])),
+            enabled: true,
+        };
+        let cloned = rule.clone();
+        assert_eq!(cloned.id, "test-rule");
+        assert_eq!(cloned.name, "Test Rule");
+        assert_eq!(cloned.priority, 100);
+        assert!(cloned.enabled);
+    }
+
+    // ==================== from_config additional config types ====================
+
+    #[test]
+    fn test_from_config_api_version() {
+        use crate::config::ConfigMatcher;
+        let matchers = vec![ConfigMatcher::ApiVersion {
+            versions: vec!["v2".into()],
+        }];
+        let matcher = RuleMatcher::from_config(&matchers).unwrap();
+        let ctx = make_ctx(vec![("X-API-Version", "v2")], None);
+        assert!(matcher.matches(&ctx).is_some());
+    }
+
+    #[test]
+    fn test_from_config_device() {
+        use crate::config::ConfigMatcher;
+        let matchers = vec![ConfigMatcher::Device {
+            device_types: vec!["mobile".into()],
+        }];
+        let matcher = RuleMatcher::from_config(&matchers).unwrap();
+        let ctx = make_ctx(vec![("X-Device-Type", "mobile")], None);
+        assert!(matcher.matches(&ctx).is_some());
+    }
+
+    #[test]
+    fn test_from_config_custom_evaluate() {
+        use crate::config::ConfigMatcher;
+        let matchers = vec![ConfigMatcher::Custom {
+            name: "test-custom".into(),
+            config: serde_json::Value::Null,
+        }];
+        let matcher = RuleMatcher::from_config(&matchers).unwrap();
+        let ctx = make_ctx(vec![], None);
+        assert!(matcher.matches(&ctx).is_none());
+    }
+
+    // ==================== matches() EMA path ====================
+
+    #[test]
+    fn test_rule_matcher_stats_ema() {
+        let matcher = RuleMatcher::new(vec![Rule {
+            id: "r1".into(),
+            name: "Test".into(),
+            priority: 100,
+            condition: Box::new(MatchCondition::User(vec!["*".into()])),
+            enabled: true,
+        }]);
+        let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
+        matcher.matches(&ctx);
+        matcher.matches(&ctx);
+        let stats = matcher.stats();
+        assert_eq!(stats.total_matches, 2);
+        assert!(stats.avg_match_time_ns > 0);
+    }
+
+    // ==================== IPv6 CIDR 非对齐前缀测试 ====================
+
+    #[test]
+    fn test_ip_range_ipv6_cidr_non_aligned_prefix() {
+        // /20 前缀：full_segments=1, remaining_bits=4
+        // 覆盖 ipv6_in_cidr 中的剩余位检查分支
+        let range: IpRange = "2001:db8::/20".parse().unwrap();
+        assert!(range.contains(&"2001:db8::1".parse::<IpAddr>().unwrap()));
+        assert!(range.contains(&"2001:0fff::1".parse::<IpAddr>().unwrap()));
+        assert!(!range.contains(&"2002:db8::1".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_ip_range_ipv6_cidr_non_aligned_prefix_match() {
+        // /48 前缀：full_segments=3, remaining_bits=0 -> 不触发剩余位分支
+        // /52 前缀：full_segments=3, remaining_bits=4 -> 触发剩余位分支
+        let range: IpRange = "2001:db8:abcd::/52".parse().unwrap();
+        assert!(range.contains(&"2001:db8:abcd::1".parse::<IpAddr>().unwrap()));
+        assert!(!range.contains(&"2001:db8:abef::1".parse::<IpAddr>().unwrap()));
+    }
+
+    // ==================== CompositeCondition description 测试 ====================
+
+    #[test]
+    fn test_composite_description_and() {
+        let cond = CompositeCondition {
+            conditions: vec![
+                Box::new(MatchCondition::User(vec!["u1".into()])),
+                Box::new(MatchCondition::Geo(vec!["US".into()])),
+            ],
+            operator: LogicalOperator::And,
+        };
+        let desc = cond.description();
+        assert!(desc.contains("AND"));
+        assert!(desc.contains("2"));
+    }
+
+    #[test]
+    fn test_composite_description_or() {
+        let cond = CompositeCondition {
+            conditions: vec![
+                Box::new(MatchCondition::User(vec!["u1".into()])),
+                Box::new(MatchCondition::Geo(vec!["US".into()])),
+            ],
+            operator: LogicalOperator::Or,
+        };
+        let desc = cond.description();
+        assert!(desc.contains("OR"));
+    }
+
+    #[test]
+    fn test_composite_description_not() {
+        let cond = CompositeCondition {
+            conditions: vec![Box::new(MatchCondition::User(vec!["u1".into()]))],
+            operator: LogicalOperator::Not,
+        };
+        let desc = cond.description();
+        assert!(desc.contains("NOT"));
+    }
+}

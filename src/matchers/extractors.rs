@@ -1036,3 +1036,804 @@ where
         &self.name
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod tests {
+    use super::*;
+    use crate::config::TrustedProxyConfig;
+    use crate::matchers::CompositeExtractor;
+
+    // ==================== UserIdExtractor ====================
+
+    #[test]
+    fn test_user_id_name() {
+        let extractor = UserIdExtractor::from_header("X-User-Id");
+        assert_eq!(extractor.name(), "UserIdExtractor");
+    }
+
+    #[test]
+    fn test_user_id_with_dependencies() {
+        let extractor = UserIdExtractor::with_dependencies(
+            Some("X-User-Id".into()),
+            Some("uid".into()),
+            Some("default".into()),
+        );
+        let ctx = RequestContext::new().with_header("X-User-Id", "dep-user");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::UserId("dep-user".into()))
+        );
+    }
+
+    #[test]
+    fn test_user_id_from_header() {
+        let extractor = UserIdExtractor::from_header("X-User-Id");
+        let ctx = RequestContext::new().with_header("X-User-Id", "user123");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::UserId("user123".into()))
+        );
+    }
+
+    #[test]
+    fn test_user_id_from_query_param() {
+        let extractor = UserIdExtractor::from_query_param("user_id");
+        let ctx = RequestContext::new().with_query_param("user_id", "quser");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::UserId("quser".into()))
+        );
+    }
+
+    #[test]
+    fn test_user_id_with_default() {
+        let extractor = UserIdExtractor::from_header("X-User-Id").with_default("guest");
+        let ctx = RequestContext::new();
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::UserId("guest".into()))
+        );
+    }
+
+    #[test]
+    fn test_user_id_missing() {
+        let extractor = UserIdExtractor::from_header("X-User-Id");
+        let ctx = RequestContext::new();
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_user_id_header_priority() {
+        let extractor =
+            UserIdExtractor::new(Some("X-User-Id".into()), Some("user_id".into()), None);
+        let ctx = RequestContext::new()
+            .with_header("X-User-Id", "from_header")
+            .with_query_param("user_id", "from_query");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::UserId("from_header".into()))
+        );
+    }
+
+    #[test]
+    fn test_user_id_empty_header() {
+        let extractor = UserIdExtractor::from_header("X-User-Id");
+        let ctx = RequestContext::new().with_header("X-User-Id", "");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_user_id_builder() {
+        let extractor = UserIdExtractor::builder()
+            .header_name("X-User-Id")
+            .query_param_name("uid")
+            .default_user_id("fallback")
+            .build();
+        let ctx = RequestContext::new();
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::UserId("fallback".into()))
+        );
+    }
+
+    // ==================== IpExtractor ====================
+
+    #[test]
+    fn test_ip_name() {
+        let extractor = IpExtractor::new_default();
+        assert_eq!(extractor.name(), "IpExtractor");
+    }
+
+    #[test]
+    fn test_ip_with_dependencies() {
+        let extractor = IpExtractor::with_dependencies(vec!["X-Real-IP".into()], true);
+        let ctx = RequestContext::new().with_header("X-Real-IP", "10.0.0.5");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("10.0.0.5".into()))
+        );
+    }
+
+    #[test]
+    fn test_ip_parse_empty_after_filter() {
+        let extractor = IpExtractor::from_header("X-Forwarded-For");
+        let ctx = RequestContext::new().with_header("X-Forwarded-For", " , ");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_ip_parse_max_hops_exceeded() {
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec![],
+            max_hops: 2,
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".into()], true, config);
+        let ctx =
+            RequestContext::new().with_header("X-Forwarded-For", "10.0.0.1, 10.0.0.2, 10.0.0.3");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_ip_trusted_proxy_invalid_in_chain() {
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".into(), "10.0.0.2".into()],
+            max_hops: 10,
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".into()], true, config);
+        let ctx = RequestContext::new()
+            .with_header("X-Forwarded-For", "203.0.113.5, not-an-ip, 10.0.0.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("203.0.113.5".into()))
+        );
+    }
+
+    #[test]
+    fn test_ip_trusted_proxy_all_trusted() {
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".into(), "10.0.0.2".into()],
+            max_hops: 10,
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".into()], true, config);
+        let ctx = RequestContext::new().with_header("X-Forwarded-For", "10.0.0.1, 10.0.0.2");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("10.0.0.2".into()))
+        );
+    }
+
+    #[test]
+    fn test_ip_trusted_proxy_all_trusted_invalid_last() {
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".into()],
+            max_hops: 10,
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".into()], true, config);
+        let ctx = RequestContext::new().with_header("X-Forwarded-For", "10.0.0.1, not-an-ip");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_ip_trusted_proxy_all_trusted_no_validation() {
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".into()],
+            max_hops: 10,
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".into()], false, config);
+        let ctx = RequestContext::new().with_header("X-Forwarded-For", "10.0.0.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("10.0.0.1".into()))
+        );
+    }
+
+    #[test]
+    fn test_ip_no_headers_fallback_to_client_ip_none() {
+        let extractor = IpExtractor::new_default();
+        let ctx = RequestContext::new();
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_ip_new_default() {
+        let extractor = IpExtractor::new_default();
+        let ctx = RequestContext::new().with_client_ip("10.0.0.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("10.0.0.1".into()))
+        );
+    }
+
+    #[test]
+    fn test_ip_from_header() {
+        let extractor = IpExtractor::from_header("X-Forwarded-For");
+        let ctx = RequestContext::new().with_header("X-Forwarded-For", "203.0.113.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("203.0.113.1".into()))
+        );
+    }
+
+    #[test]
+    fn test_ip_from_headers() {
+        let extractor = IpExtractor::from_headers(vec!["X-Real-IP", "X-Forwarded-For"]);
+        let ctx = RequestContext::new()
+            .with_header("X-Forwarded-For", "203.0.113.1")
+            .with_header("X-Real-IP", "10.0.0.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("10.0.0.1".into()))
+        );
+    }
+
+    #[test]
+    fn test_ip_single() {
+        let extractor = IpExtractor::from_header("X-Forwarded-For");
+        let ctx = RequestContext::new().with_header("X-Forwarded-For", "192.168.1.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("192.168.1.1".into()))
+        );
+    }
+
+    #[test]
+    fn test_ip_multi_invalid_first_ip_default() {
+        let extractor = IpExtractor::builder()
+            .header_name("X-Forwarded-For")
+            .validate(true)
+            .build();
+        let ctx = RequestContext::new().with_header("X-Forwarded-For", "not-an-ip, 10.0.0.1");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_ip_multi_default_leftmost() {
+        let extractor = IpExtractor::from_header("X-Forwarded-For");
+        let ctx = RequestContext::new()
+            .with_header("X-Forwarded-For", "192.168.1.1, 10.0.0.1, 172.16.0.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("192.168.1.1".into()))
+        );
+    }
+
+    #[test]
+    fn test_ip_trusted_proxies() {
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".into(), "172.16.0.1".into()],
+            max_hops: 10,
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".into()], true, config);
+        let ctx = RequestContext::new()
+            .with_header("X-Forwarded-For", "203.0.113.5, 10.0.0.1, 172.16.0.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("203.0.113.5".into()))
+        );
+    }
+
+    #[test]
+    fn test_ip_invalid_returns_none() {
+        let extractor = IpExtractor::from_header("X-Forwarded-For");
+        let ctx = RequestContext::new().with_header("X-Forwarded-For", "not-an-ip");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_ip_no_validation() {
+        let extractor = IpExtractor::builder()
+            .header_name("X-Forwarded-For")
+            .validate(false)
+            .build();
+        let ctx = RequestContext::new().with_header("X-Forwarded-For", "not-an-ip");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("not-an-ip".into()))
+        );
+    }
+
+    #[test]
+    fn test_ip_empty_header() {
+        let extractor = IpExtractor::from_header("X-Forwarded-For");
+        let ctx = RequestContext::new().with_header("X-Forwarded-For", "");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_ip_builder() {
+        let extractor = IpExtractor::builder()
+            .header_name("X-Real-IP")
+            .header_name("X-Forwarded-For")
+            .validate(true)
+            .build();
+        let ctx = RequestContext::new().with_header("X-Forwarded-For", "203.0.113.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("203.0.113.1".into()))
+        );
+    }
+
+    #[test]
+    fn test_ip_builder_header_names() {
+        let extractor = IpExtractor::builder()
+            .header_names(vec!["X-Real-IP", "X-Forwarded-For"])
+            .validate(true)
+            .build();
+        let ctx = RequestContext::new().with_header("X-Forwarded-For", "10.0.0.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("10.0.0.1".into()))
+        );
+    }
+
+    #[test]
+    fn test_ip_builder_with_trusted_proxy_config() {
+        let config = TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".into()],
+            max_hops: 10,
+        };
+        let extractor = IpExtractor::builder()
+            .header_name("X-Forwarded-For")
+            .validate(true)
+            .trusted_proxy_config(config)
+            .build();
+        let ctx = RequestContext::new().with_header("X-Forwarded-For", "203.0.113.5, 10.0.0.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("203.0.113.5".into()))
+        );
+    }
+
+    // ==================== MacExtractor ====================
+
+    #[test]
+    fn test_mac_name() {
+        let extractor = MacExtractor::from_header("X-Mac-Address");
+        assert_eq!(extractor.name(), "MacExtractor");
+    }
+
+    #[test]
+    fn test_mac_with_dependencies() {
+        let extractor =
+            MacExtractor::with_dependencies(Some("X-Mac-Address".into()), Some("mac".into()), true);
+        let ctx = RequestContext::new().with_header("X-Mac-Address", "AA:BB:CC:DD:EE:FF");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Mac("AA:BB:CC:DD:EE:FF".into()))
+        );
+    }
+
+    #[test]
+    fn test_mac_query_param_invalid_value() {
+        let extractor = MacExtractor::new(None, Some("mac".into()), true);
+        let ctx = RequestContext::new().with_query_param("mac", "GG:GG:GG:GG:GG:GG");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_mac_query_param_empty_value() {
+        let extractor = MacExtractor::new(None, Some("mac".into()), true);
+        let ctx = RequestContext::new().with_query_param("mac", "");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_mac_query_param_not_present() {
+        let extractor = MacExtractor::new(None, Some("mac".into()), true);
+        let ctx = RequestContext::new();
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_mac_query_param_priority() {
+        let extractor = MacExtractor::new(Some("X-Mac-Address".into()), Some("mac".into()), true);
+        let ctx = RequestContext::new()
+            .with_header("X-Mac-Address", "11:22:33:44:55:66")
+            .with_query_param("mac", "AA:BB:CC:DD:EE:FF");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Mac("11:22:33:44:55:66".into()))
+        );
+    }
+
+    #[test]
+    fn test_mac_without_validation() {
+        let extractor = MacExtractor::new(Some("X-Mac-Address".into()), None, false);
+        let ctx = RequestContext::new().with_header("X-Mac-Address", "invalid-mac-value");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Mac("invalid-mac-value".into()))
+        );
+    }
+
+    #[test]
+    fn test_mac_short_hex() {
+        let extractor = MacExtractor::from_header("X-Mac-Address");
+        let ctx = RequestContext::new().with_header("X-Mac-Address", "AABB");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_mac_from_header() {
+        let extractor = MacExtractor::from_header("X-Mac-Address");
+        let ctx = RequestContext::new().with_header("X-Mac-Address", "00:1A:2B:3C:4D:5E");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Mac("00:1A:2B:3C:4D:5E".into()))
+        );
+    }
+
+    #[test]
+    fn test_mac_from_query_param() {
+        let extractor = MacExtractor::from_query_param("mac");
+        let ctx = RequestContext::new().with_query_param("mac", "00:1A:2B:3C:4D:5E");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Mac("00:1A:2B:3C:4D:5E".into()))
+        );
+    }
+
+    #[test]
+    fn test_mac_colon_format() {
+        let extractor = MacExtractor::from_header("X-Mac-Address");
+        let ctx = RequestContext::new().with_header("X-Mac-Address", "AA:BB:CC:DD:EE:FF");
+        assert!(extractor.extract(&ctx).is_some());
+    }
+
+    #[test]
+    fn test_mac_hyphen_format() {
+        let extractor = MacExtractor::from_header("X-Mac-Address");
+        let ctx = RequestContext::new().with_header("X-Mac-Address", "AA-BB-CC-DD-EE-FF");
+        assert!(extractor.extract(&ctx).is_some());
+    }
+
+    #[test]
+    fn test_mac_dot_format() {
+        let extractor = MacExtractor::from_header("X-Mac-Address");
+        let ctx = RequestContext::new().with_header("X-Mac-Address", "AABB.CCDD.EEFF");
+        assert!(extractor.extract(&ctx).is_some());
+    }
+
+    #[test]
+    fn test_mac_plain_hex() {
+        let extractor = MacExtractor::from_header("X-Mac-Address");
+        let ctx = RequestContext::new().with_header("X-Mac-Address", "AABBCCDDEEFF");
+        assert!(extractor.extract(&ctx).is_some());
+    }
+
+    #[test]
+    fn test_mac_invalid() {
+        let extractor = MacExtractor::from_header("X-Mac-Address");
+        let ctx = RequestContext::new().with_header("X-Mac-Address", "GG:1A:2B:3C:4D:5E");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_mac_empty() {
+        let extractor = MacExtractor::from_header("X-Mac-Address");
+        let ctx = RequestContext::new().with_header("X-Mac-Address", "");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_mac_builder() {
+        let extractor = MacExtractor::builder()
+            .header_name("X-Mac-Address")
+            .query_param_name("mac_addr")
+            .validate(true)
+            .build();
+        let ctx = RequestContext::new().with_header("X-Mac-Address", "00:1A:2B:3C:4D:5E");
+        assert!(extractor.extract(&ctx).is_some());
+    }
+
+    // ==================== ApiKeyExtractor ====================
+
+    #[test]
+    fn test_api_key_name() {
+        let extractor = ApiKeyExtractor::from_authorization_header();
+        assert_eq!(extractor.name(), "ApiKeyExtractor");
+    }
+
+    #[test]
+    fn test_api_key_with_dependencies() {
+        let extractor = ApiKeyExtractor::with_dependencies(
+            Some("Authorization".into()),
+            None,
+            Some("Bearer ".into()),
+        );
+        let ctx = RequestContext::new().with_header("Authorization", "Bearer token-123");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::ApiKey("token-123".into()))
+        );
+    }
+
+    #[test]
+    fn test_api_key_from_authorization() {
+        let extractor = ApiKeyExtractor::from_authorization_header();
+        let ctx = RequestContext::new().with_header("Authorization", "Bearer sk-12345");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::ApiKey("sk-12345".into()))
+        );
+    }
+
+    #[test]
+    fn test_api_key_from_header() {
+        let extractor = ApiKeyExtractor::from_header("X-API-Key");
+        let ctx = RequestContext::new().with_header("X-API-Key", "my-api-key");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::ApiKey("my-api-key".into()))
+        );
+    }
+
+    #[test]
+    fn test_api_key_from_query_param() {
+        let extractor = ApiKeyExtractor::from_query_param("api_key");
+        // query param is disabled for security, but constructor still accepts it
+        // No header configured → always returns None even if query param matches
+        let ctx = RequestContext::new().with_query_param("api_key", "key-from-query");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_api_key_bearer_stripping() {
+        let extractor = ApiKeyExtractor::from_authorization_header();
+        let ctx = RequestContext::new().with_header("Authorization", "Bearer   sk-999  ");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::ApiKey("sk-999".into()))
+        );
+    }
+
+    #[test]
+    fn test_api_key_no_prefix() {
+        let extractor = ApiKeyExtractor::from_header("X-API-Key");
+        let ctx = RequestContext::new().with_header("X-API-Key", "raw-key-value");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::ApiKey("raw-key-value".into()))
+        );
+    }
+
+    #[test]
+    fn test_api_key_empty_after_prefix() {
+        let extractor = ApiKeyExtractor::from_authorization_header();
+        let ctx = RequestContext::new().with_header("Authorization", "Bearer ");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_api_key_missing_prefix() {
+        let extractor = ApiKeyExtractor::from_authorization_header();
+        let ctx = RequestContext::new().with_header("Authorization", "naked-key");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_api_key_empty_header() {
+        let extractor = ApiKeyExtractor::from_header("X-API-Key");
+        let ctx = RequestContext::new().with_header("X-API-Key", "");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_api_key_builder() {
+        let extractor = ApiKeyExtractor::builder()
+            .header_name("Authorization")
+            .prefix("Bearer ")
+            .build();
+        let ctx = RequestContext::new().with_header("Authorization", "Bearer builder-key");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::ApiKey("builder-key".into()))
+        );
+    }
+
+    // ==================== CompositeExtractor ====================
+
+    #[test]
+    fn test_composite_first_match() {
+        let extractor = CompositeExtractor::new(
+            vec![
+                Box::new(UserIdExtractor::from_header("X-User-Id")),
+                Box::new(IpExtractor::new_default()),
+            ],
+            false,
+        );
+        let ctx = RequestContext::new()
+            .with_header("X-User-Id", "user99")
+            .with_client_ip("10.0.0.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::UserId("user99".into()))
+        );
+    }
+
+    #[test]
+    fn test_composite_priority() {
+        let extractor = CompositeExtractor::new(
+            vec![
+                Box::new(UserIdExtractor::from_header("X-User-Id")),
+                Box::new(ApiKeyExtractor::from_header("X-API-Key")),
+            ],
+            false,
+        );
+        let ctx = RequestContext::new()
+            .with_header("X-API-Key", "key-val")
+            .with_client_ip("10.0.0.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::ApiKey("key-val".into()))
+        );
+    }
+
+    // ==================== CustomExtractor ====================
+
+    #[test]
+    fn test_custom_name() {
+        let extractor = CustomExtractor::new("MyCustom", |_| None);
+        assert_eq!(extractor.name(), "MyCustom");
+    }
+
+    #[test]
+    fn test_custom_closure() {
+        let extractor = CustomExtractor::new("MyExt", |ctx| {
+            ctx.get_header("X-Custom")
+                .map(|v| Identifier::UserId(v.clone()))
+        });
+        let ctx = RequestContext::new().with_header("X-Custom", "custom-val");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::UserId("custom-val".into()))
+        );
+    }
+
+    #[test]
+    fn test_custom_returns_none() {
+        let extractor = CustomExtractor::new("Empty", |_| None);
+        let ctx = RequestContext::new();
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    // ==================== DeviceIdExtractor ====================
+
+    #[test]
+    fn test_device_id_name() {
+        let extractor = DeviceIdExtractor::from_header("X-Device-Id");
+        assert_eq!(extractor.name(), "DeviceIdExtractor");
+    }
+
+    #[test]
+    fn test_device_id_with_dependencies() {
+        let extractor =
+            DeviceIdExtractor::with_dependencies(Some("X-Device-Id".into()), Some("did".into()));
+        let ctx = RequestContext::new().with_header("X-Device-Id", "dep-device");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::DeviceId("dep-device".into()))
+        );
+    }
+
+    #[test]
+    fn test_device_id_empty_query_param_fallback() {
+        let extractor =
+            DeviceIdExtractor::new(Some("X-Device-Id".into()), Some("device_id".into()));
+        let ctx = RequestContext::new().with_header("X-Device-Id", "from-header");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::DeviceId("from-header".into()))
+        );
+    }
+
+    #[test]
+    fn test_device_id_query_param_empty() {
+        let extractor = DeviceIdExtractor::new(None, Some("device_id".into()));
+        let ctx = RequestContext::new().with_query_param("device_id", "");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_device_id_query_param_not_present() {
+        let extractor = DeviceIdExtractor::new(None, Some("device_id".into()));
+        let ctx = RequestContext::new();
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_device_id_from_header() {
+        let extractor = DeviceIdExtractor::from_header("X-Device-Id");
+        let ctx = RequestContext::new().with_header("X-Device-Id", "device-abc");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::DeviceId("device-abc".into()))
+        );
+    }
+
+    #[test]
+    fn test_device_id_from_query_param() {
+        let extractor = DeviceIdExtractor::from_query_param("device_id");
+        let ctx = RequestContext::new().with_query_param("device_id", "dev-xyz");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::DeviceId("dev-xyz".into()))
+        );
+    }
+
+    #[test]
+    fn test_device_id_missing() {
+        let extractor = DeviceIdExtractor::from_header("X-Device-Id");
+        let ctx = RequestContext::new();
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_device_id_builder() {
+        let extractor = DeviceIdExtractor::builder()
+            .header_name("X-Device-Id")
+            .query_param_name("did")
+            .build();
+        let ctx = RequestContext::new().with_header("X-Device-Id", "built-device");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::DeviceId("built-device".into()))
+        );
+    }
+
+    // ==================== Builder edge cases ====================
+
+    #[test]
+    fn test_user_id_builder_empty() {
+        let extractor = UserIdExtractor::builder().build();
+        let ctx = RequestContext::new();
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_ip_builder_empty_headers() {
+        let extractor = IpExtractor::builder().validate(true).build();
+        let ctx = RequestContext::new().with_client_ip("10.0.0.1");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("10.0.0.1".into()))
+        );
+    }
+
+    #[test]
+    fn test_mac_builder_validate_off() {
+        let extractor = MacExtractor::builder()
+            .header_name("X-Mac-Address")
+            .validate(false)
+            .build();
+        let ctx = RequestContext::new().with_header("X-Mac-Address", "invalid-mac");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Mac("invalid-mac".into()))
+        );
+    }
+
+    #[test]
+    fn test_api_key_builder_no_prefix() {
+        let extractor = ApiKeyExtractor::builder().header_name("X-API-Key").build();
+        let ctx = RequestContext::new().with_header("X-API-Key", "plain-key");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::ApiKey("plain-key".into()))
+        );
+    }
+}

@@ -7,7 +7,7 @@
 //! 使用 tokio broadcast channel 实现事件的发布/订阅模式。
 
 use crate::events::types::{Event, EventConfig};
-use log::{debug, error, warn};
+use log::debug;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 

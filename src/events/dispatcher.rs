@@ -12,6 +12,7 @@ use crate::events::types::{Event, EventHandler};
 use crate::webhook_validator::validate_webhook_url;
 use log::{debug, error, info, warn};
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
@@ -203,7 +204,8 @@ async fn send_webhook(
     event: &Event,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // 安全验证：检查 URL 是否安全（生产环境要求 HTTPS）
-    validate_webhook_url(url, !cfg!(debug_assertions)).map_err(|e| e.into())?;
+    validate_webhook_url(url, !cfg!(debug_assertions))
+        .map_err(Box::<dyn std::error::Error + Send + Sync>::from)?;
 
     let client = reqwest::Client::new();
     let response = client

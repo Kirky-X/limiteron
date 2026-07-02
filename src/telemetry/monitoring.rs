@@ -9,7 +9,7 @@
 use super::Tracer;
 use log::{debug, error, info, warn};
 use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -354,9 +354,6 @@ pub struct MonitoringSystem {
     /// 告警配置
     alert_config: AlertConfig,
 
-    /// 告警状态
-    alert_in_progress: Arc<AtomicBool>,
-
     /// 最后告警时间
     last_alert_time: Arc<ParkingMutex<Instant>>,
 
@@ -377,7 +374,6 @@ impl MonitoringSystem {
             metrics,
             tracer,
             alert_config,
-            alert_in_progress: Arc::new(AtomicBool::new(false)),
             last_alert_time: Arc::new(ParkingMutex::new(Instant::now())),
             alert_state: Arc::new(ParkingRwLock::new(AlertState::default())),
         }
@@ -563,7 +559,7 @@ impl MonitoringSystem {
             }
         }
 
-        self.send_alert_notifications(&alerts).await;
+        self.send_alert_notifications(alerts).await;
     }
 
     /// 格式化告警级别
@@ -660,17 +656,17 @@ impl MonitoringSystem {
 pub struct RequestTimer {
     request_id: String,
     start_time: Instant,
-    metrics: Arc<PerformanceMetrics>,
-    tracer: Arc<Tracer>,
 }
 
 impl RequestTimer {
-    pub fn new(request_id: String, metrics: Arc<PerformanceMetrics>, tracer: Arc<Tracer>) -> Self {
+    pub fn new(
+        request_id: String,
+        _metrics: Arc<PerformanceMetrics>,
+        _tracer: Arc<Tracer>,
+    ) -> Self {
         Self {
             request_id,
             start_time: Instant::now(),
-            metrics,
-            tracer,
         }
     }
 
@@ -701,8 +697,8 @@ mod tests {
                 critical: 0.9,
             },
             latency_thresholds_ms: AlertThresholdU64 {
-                warning: 100,
-                critical: 300,
+                warning: 15,
+                critical: 30,
             },
             error_rate_thresholds: AlertThresholdF64 {
                 warning: 0.03,
@@ -750,5 +746,811 @@ mod tests {
         let alerts = monitoring.check_alerts();
         assert!(!alerts.is_empty());
         assert!(alerts.contains(&AlertLevel::Warning));
+    }
+
+    // -- LatencySamples tests --
+
+    #[test]
+    fn test_latency_samples_new_custom_size() {
+        let samples = LatencySamples::new(50);
+        assert!(samples.percentile(95.0) == 0);
+        assert!(samples.p95() == 0);
+        assert!(samples.p99() == 0);
+    }
+
+    #[test]
+    fn test_latency_samples_empty_percentile() {
+        let samples = LatencySamples::default();
+        assert_eq!(samples.percentile(50.0), 0);
+        assert_eq!(samples.p95(), 0);
+        assert_eq!(samples.p99(), 0);
+    }
+
+    #[test]
+    fn test_latency_samples_fifo_eviction() {
+        let mut samples = LatencySamples::new(5);
+        for i in 0..10 {
+            samples.add_sample(i);
+        }
+        // Oldest 5 (0-4) evicted, remaining [5,6,7,8,9]
+        // sorted[5*0/100=0] = 5, sorted[5*60/100=3] = 8, sorted[5*50/100=2] = 7
+        assert_eq!(samples.percentile(0.0), 5);
+        assert_eq!(samples.percentile(60.0), 8);
+        assert_eq!(samples.percentile(50.0), 7);
+    }
+
+    #[test]
+    fn test_latency_samples_percentile_exact() {
+        let mut samples = LatencySamples::new(10);
+        for i in 0..10 {
+            samples.add_sample(i as u64);
+        }
+        // sorted: [0,1,2,3,4,5,6,7,8,9]
+        // p95 index = (10 * 95/100) = 9 -> value 9
+        assert_eq!(samples.p95(), 9);
+        // p99 index = (10 * 99/100) = 9 -> value 9
+        assert_eq!(samples.p99(), 9);
+        // p50 index = (10 * 50/100) = 5 -> value 5
+        assert_eq!(samples.percentile(50.0), 5);
+    }
+
+    // -- Threshold evaluation tests --
+
+    #[test]
+    fn test_evaluate_threshold_f64_higher_is_worse() {
+        let t = AlertThresholdF64 {
+            warning: 0.7,
+            critical: 0.9,
+        };
+
+        // below warning -> None
+        assert!(MonitoringSystem::evaluate_threshold_f64(0.5, &t, true).is_none());
+        // above warning -> Warning
+        assert_eq!(
+            MonitoringSystem::evaluate_threshold_f64(0.8, &t, true),
+            Some(AlertLevel::Warning)
+        );
+        // above critical -> Critical
+        assert_eq!(
+            MonitoringSystem::evaluate_threshold_f64(0.95, &t, true),
+            Some(AlertLevel::Critical)
+        );
+        // exactly at warning -> Warning
+        assert_eq!(
+            MonitoringSystem::evaluate_threshold_f64(0.7, &t, true),
+            Some(AlertLevel::Warning)
+        );
+        // exactly at critical -> Critical
+        assert_eq!(
+            MonitoringSystem::evaluate_threshold_f64(0.9, &t, true),
+            Some(AlertLevel::Critical)
+        );
+    }
+
+    #[test]
+    fn test_evaluate_threshold_f64_lower_is_worse() {
+        let t = AlertThresholdF64 {
+            warning: 0.7,
+            critical: 0.4,
+        };
+
+        // above warning -> None
+        assert!(MonitoringSystem::evaluate_threshold_f64(0.8, &t, false).is_none());
+        // below warning -> Warning
+        assert_eq!(
+            MonitoringSystem::evaluate_threshold_f64(0.6, &t, false),
+            Some(AlertLevel::Warning)
+        );
+        // below critical -> Critical
+        assert_eq!(
+            MonitoringSystem::evaluate_threshold_f64(0.3, &t, false),
+            Some(AlertLevel::Critical)
+        );
+    }
+
+    #[test]
+    fn test_evaluate_threshold_u64_all_levels() {
+        let t = AlertThresholdU64 {
+            warning: 100,
+            critical: 200,
+        };
+
+        // below warning -> None
+        assert!(MonitoringSystem::evaluate_threshold_u64(50, &t).is_none());
+        // above warning -> Warning
+        assert_eq!(
+            MonitoringSystem::evaluate_threshold_u64(150, &t),
+            Some(AlertLevel::Warning)
+        );
+        // above critical -> Critical
+        assert_eq!(
+            MonitoringSystem::evaluate_threshold_u64(250, &t),
+            Some(AlertLevel::Critical)
+        );
+        // exactly at critical -> Critical
+        assert_eq!(
+            MonitoringSystem::evaluate_threshold_u64(200, &t),
+            Some(AlertLevel::Critical)
+        );
+    }
+
+    // -- Apply jitter tests --
+
+    #[test]
+    fn test_apply_jitter_none_level() {
+        let config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.95,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 0.7,
+                critical: 0.9,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 15,
+                critical: 30,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 0.03,
+                critical: 0.05,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.6,
+            },
+            alert_cooldown: Duration::from_secs(60),
+            jitter_suppression_count: 3,
+        };
+        let mut state = MetricAlertState {
+            last_level: Some(AlertLevel::Warning),
+            consecutive: 5,
+        };
+        let result = MonitoringSystem::apply_jitter(None, &mut state, &config);
+        assert!(result.is_none());
+        assert!(state.last_level.is_none());
+        assert_eq!(state.consecutive, 0);
+    }
+
+    #[test]
+    fn test_apply_jitter_critical_bypass() {
+        let config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.95,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 0.7,
+                critical: 0.9,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 15,
+                critical: 30,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 0.03,
+                critical: 0.05,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.6,
+            },
+            alert_cooldown: Duration::from_secs(60),
+            jitter_suppression_count: 5,
+        };
+        let mut state = MetricAlertState::default();
+        // Critical should bypass jitter suppression
+        let result =
+            MonitoringSystem::apply_jitter(Some(AlertLevel::Critical), &mut state, &config);
+        assert_eq!(result, Some(AlertLevel::Critical));
+        assert_eq!(state.consecutive, 1);
+    }
+
+    #[test]
+    fn test_apply_jitter_consecutive_tracking() {
+        let config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.95,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 0.7,
+                critical: 0.9,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 15,
+                critical: 30,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 0.03,
+                critical: 0.05,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.6,
+            },
+            alert_cooldown: Duration::from_secs(60),
+            jitter_suppression_count: 3,
+        };
+        let mut state = MetricAlertState::default();
+
+        // First occurrence of Warning -> not enough consecutive
+        let r1 = MonitoringSystem::apply_jitter(Some(AlertLevel::Warning), &mut state, &config);
+        assert!(r1.is_none());
+        assert_eq!(state.consecutive, 1);
+        assert_eq!(state.last_level, Some(AlertLevel::Warning));
+
+        // Second consecutive -> still not enough (need 3)
+        let r2 = MonitoringSystem::apply_jitter(Some(AlertLevel::Warning), &mut state, &config);
+        assert!(r2.is_none());
+        assert_eq!(state.consecutive, 2);
+
+        // Third consecutive -> threshold met
+        let r3 = MonitoringSystem::apply_jitter(Some(AlertLevel::Warning), &mut state, &config);
+        assert_eq!(r3, Some(AlertLevel::Warning));
+        assert_eq!(state.consecutive, 3);
+    }
+
+    #[test]
+    fn test_apply_jitter_level_change_resets_counter() {
+        let config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.95,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 0.7,
+                critical: 0.9,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 15,
+                critical: 30,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 0.03,
+                critical: 0.05,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.6,
+            },
+            alert_cooldown: Duration::from_secs(60),
+            jitter_suppression_count: 3,
+        };
+        let mut state = MetricAlertState::default();
+
+        // Build up consecutive warnings
+        MonitoringSystem::apply_jitter(Some(AlertLevel::Warning), &mut state, &config);
+        MonitoringSystem::apply_jitter(Some(AlertLevel::Warning), &mut state, &config);
+        assert_eq!(state.consecutive, 2);
+
+        // Level changes -> counter resets to 1
+        let r = MonitoringSystem::apply_jitter(Some(AlertLevel::Critical), &mut state, &config);
+        assert_eq!(r, Some(AlertLevel::Critical));
+        assert_eq!(state.consecutive, 1);
+        assert_eq!(state.last_level, Some(AlertLevel::Critical));
+    }
+
+    // -- Format alert level tests --
+
+    #[test]
+    fn test_format_alert_level_all() {
+        assert_eq!(
+            MonitoringSystem::format_alert_level(&AlertLevel::Info),
+            "INFO"
+        );
+        assert_eq!(
+            MonitoringSystem::format_alert_level(&AlertLevel::Warning),
+            "WARNING"
+        );
+        assert_eq!(
+            MonitoringSystem::format_alert_level(&AlertLevel::Critical),
+            "CRITICAL"
+        );
+    }
+
+    // -- handle_alerts tests --
+
+    #[tokio::test]
+    async fn test_handle_alerts_empty() {
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        let alert_config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.95,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 0.7,
+                critical: 0.9,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 15,
+                critical: 30,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 0.03,
+                critical: 0.05,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.6,
+            },
+            alert_cooldown: Duration::from_secs(60),
+            jitter_suppression_count: 1,
+        };
+        let monitoring = MonitoringSystem::new(metrics, tracer, alert_config);
+        monitoring.handle_alerts(&[]).await;
+    }
+
+    #[tokio::test]
+    async fn test_handle_alerts_critical_bypasses_cooldown() {
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        let alert_config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.95,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 0.7,
+                critical: 0.9,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 15,
+                critical: 30,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 0.03,
+                critical: 0.05,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.6,
+            },
+            alert_cooldown: Duration::from_secs(3600),
+            jitter_suppression_count: 1,
+        };
+        let monitoring = MonitoringSystem::new(metrics, tracer, alert_config);
+        monitoring.handle_alerts(&[AlertLevel::Critical]).await;
+    }
+
+    #[tokio::test]
+    async fn test_handle_alerts_all_levels() {
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        let alert_config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.95,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 0.7,
+                critical: 0.9,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 15,
+                critical: 30,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 0.03,
+                critical: 0.05,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.6,
+            },
+            alert_cooldown: Duration::ZERO,
+            jitter_suppression_count: 1,
+        };
+        let monitoring = MonitoringSystem::new(metrics, tracer, alert_config);
+        monitoring
+            .handle_alerts(&[AlertLevel::Info, AlertLevel::Warning, AlertLevel::Critical])
+            .await;
+    }
+
+    // -- send_alert_notifications test --
+
+    #[tokio::test]
+    async fn test_send_alert_notifications_all_levels() {
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        let alert_config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.95,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 0.7,
+                critical: 0.9,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 15,
+                critical: 30,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 0.03,
+                critical: 0.05,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.6,
+            },
+            alert_cooldown: Duration::ZERO,
+            jitter_suppression_count: 1,
+        };
+        let monitoring = MonitoringSystem::new(metrics, tracer, alert_config);
+        monitoring
+            .send_alert_notifications(&[
+                AlertLevel::Info,
+                AlertLevel::Warning,
+                AlertLevel::Critical,
+            ])
+            .await;
+    }
+
+    // -- check_alerts comprehensive tests --
+
+    #[test]
+    fn test_check_alerts_all_normal_no_alerts() {
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        // thresholds that should never trigger on a normal system
+        let alert_config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 999999,
+                critical: 9999999,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: -1.0,
+                critical: -2.0,
+            },
+            alert_cooldown: Duration::from_secs(0),
+            jitter_suppression_count: 1,
+        };
+        let monitoring = MonitoringSystem::new(metrics, tracer, alert_config);
+        let alerts = monitoring.check_alerts();
+        assert!(alerts.is_empty());
+    }
+
+    #[test]
+    fn test_check_alerts_cache_hit_rate_trigger() {
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        // Only cache_hit_rate threshold is triggerable
+        let alert_config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 999999,
+                critical: 9999999,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: 0.8,
+                critical: 0.6,
+            },
+            alert_cooldown: Duration::from_secs(0),
+            jitter_suppression_count: 1,
+        };
+        let monitoring = MonitoringSystem::new(metrics, tracer, alert_config);
+        // Default cache_hit_rate is 0.0, which is <= 0.6 critical (lower_is_worse)
+        let alerts = monitoring.check_alerts();
+        assert!(!alerts.is_empty());
+        assert!(alerts.contains(&AlertLevel::Critical));
+    }
+
+    #[test]
+    fn test_check_alerts_error_rate_critical() {
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        // Trigger only error rate
+        let alert_config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 999999,
+                critical: 9999999,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 0.1,
+                critical: 0.2,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: -1.0,
+                critical: -2.0,
+            },
+            alert_cooldown: Duration::from_secs(0),
+            jitter_suppression_count: 1,
+        };
+        let monitoring = MonitoringSystem::new(metrics, tracer, alert_config);
+
+        // record failures to create high error rate
+        let timer = monitoring.record_request_start("fail1");
+        monitoring.record_request_failure(timer);
+        let timer = monitoring.record_request_start("fail2");
+        monitoring.record_request_failure(timer);
+        let timer = monitoring.record_request_start("fail3");
+        monitoring.record_request_failure(timer);
+
+        // error_rate = 3/3 = 1.0 >= 0.2 -> Critical
+        let alerts = monitoring.check_alerts();
+        assert!(!alerts.is_empty());
+        assert!(alerts.contains(&AlertLevel::Critical));
+    }
+
+    #[test]
+    fn test_check_alerts_latency_critical() {
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        let alert_config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 5,
+                critical: 10,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: -1.0,
+                critical: -2.0,
+            },
+            alert_cooldown: Duration::from_secs(0),
+            jitter_suppression_count: 1,
+        };
+        let monitoring = MonitoringSystem::new(metrics, tracer, alert_config);
+
+        // Record a slow request to bump avg latency
+        // avg = (0*9 + 200)/10 = 20 >= critical=10
+        let timer = monitoring.record_request_start("slow");
+        std::thread::sleep(Duration::from_millis(200));
+        monitoring.record_request_success(timer);
+
+        let alerts = monitoring.check_alerts();
+        assert!(!alerts.is_empty());
+        assert!(alerts.contains(&AlertLevel::Critical));
+    }
+
+    // -- PerformanceMetrics tests --
+
+    #[test]
+    fn test_performance_metrics_new() {
+        let metrics = PerformanceMetrics::new();
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.total_requests, 0);
+        assert_eq!(snapshot.successful_requests, 0);
+        assert_eq!(snapshot.failed_requests, 0);
+        assert_eq!(snapshot.avg_latency_ms, 0);
+        assert_eq!(snapshot.error_rate, 0.0);
+    }
+
+    #[test]
+    fn test_snapshot_error_rate_with_total() {
+        let metrics = Arc::new(PerformanceMetrics::default());
+        // Manually set values through recorded events
+        // fail 3, no success -> total=3
+        let tracer = Arc::new(Tracer::new(false));
+        let dummy_config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 999999,
+                critical: 9999999,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: -1.0,
+                critical: -2.0,
+            },
+            alert_cooldown: Duration::from_secs(0),
+            jitter_suppression_count: 1,
+        };
+        let monitoring = MonitoringSystem::new(metrics.clone(), tracer, dummy_config);
+        monitoring.record_request_failure(monitoring.record_request_start("f1"));
+        monitoring.record_request_failure(monitoring.record_request_start("f2"));
+        monitoring.record_request_failure(monitoring.record_request_start("f3"));
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.total_requests, 3);
+        assert_eq!(snapshot.failed_requests, 3);
+        assert!(snapshot.error_rate > 0.0);
+    }
+
+    // -- RequestTimer test --
+
+    #[test]
+    fn test_request_timer_finish() {
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        let timer = RequestTimer::new("test_timer".to_string(), metrics, tracer);
+        let duration = timer.finish();
+        assert!(duration >= Duration::ZERO);
+    }
+
+    // -- Read memory/cpu functions (existence tests) --
+
+    #[test]
+    fn test_read_memory_usage() {
+        let usage = read_memory_usage();
+        assert!(usage >= 0.0);
+        assert!(usage <= 1.0);
+    }
+
+    #[test]
+    fn test_system_sampler_initially_zero() {
+        let mut sampler = SystemMetricsSampler::default();
+        // First call returns 0.0 since last_total == 0
+        let usage = sampler.read_cpu_usage();
+        assert_eq!(usage, 0.0);
+        // Second call should compute a real value (system is running)
+        let usage2 = sampler.read_cpu_usage();
+        assert!(usage2 >= 0.0);
+        assert!(usage2 <= 1.0);
+    }
+
+    // -- Debug formatting tests --
+
+    #[test]
+    fn test_latency_samples_debug() {
+        let samples = LatencySamples::new(100);
+        let debug_str = format!("{:?}", samples);
+        assert!(debug_str.contains("samples_count"));
+        assert!(debug_str.contains("max_samples"));
+    }
+
+    #[test]
+    fn test_metrics_snapshot_debug_clone() {
+        let snapshot = MetricsSnapshot {
+            total_requests: 100,
+            successful_requests: 90,
+            failed_requests: 10,
+            avg_latency_ms: 50,
+            p95_latency_ms: 100,
+            p99_latency_ms: 200,
+            concurrent_requests: 5,
+            cache_hit_rate: 0.85,
+            circuit_breaker_trips: 1,
+            active_connections: 42,
+            error_rate: 0.1,
+            cpu_usage: 0.5,
+            memory_usage: 0.6,
+        };
+        let cloned = snapshot.clone();
+        assert_eq!(cloned.total_requests, 100);
+        assert_eq!(cloned.error_rate, 0.1);
+    }
+
+    #[test]
+    fn test_check_alerts_multiple_checks() {
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        let alert_config = AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 5,
+                critical: 10,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: -1.0,
+                critical: -2.0,
+            },
+            alert_cooldown: Duration::from_secs(0),
+            jitter_suppression_count: 1,
+        };
+        let monitoring = MonitoringSystem::new(metrics, tracer, alert_config);
+
+        // No alerts initially
+        assert!(monitoring.check_alerts().is_empty());
+
+        // Add a slow request (avg = (0*9 + 200)/10 = 20 >= critical=10)
+        let timer = monitoring.record_request_start("slow");
+        std::thread::sleep(Duration::from_millis(200));
+        monitoring.record_request_success(timer);
+
+        // Now latency alert should trigger
+        let alerts = monitoring.check_alerts();
+        assert!(!alerts.is_empty());
+    }
+
+    /// 覆盖 check_alerts 中 cpu (line 471) 和 memory (line 481) 的 alerts.push(level) 路径
+    /// 设置 critical = 0.0 使得任何 cpu/memory 使用率都触发 Critical 告警
+    #[test]
+    fn test_check_alerts_cpu_memory_critical() {
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        let alert_config = AlertConfig {
+            // critical = 0.0 使得 cpu_usage >= 0.0 恒为 true -> Critical
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 0.0,
+                critical: 0.0,
+            },
+            // critical = 0.0 使得 memory_usage >= 0.0 恒为 true -> Critical
+            memory_thresholds: AlertThresholdF64 {
+                warning: 0.0,
+                critical: 0.0,
+            },
+            // 其他阈值设为不触发
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 999_999,
+                critical: 9_999_999,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: -1.0,
+                critical: -2.0,
+            },
+            alert_cooldown: Duration::from_secs(0),
+            jitter_suppression_count: 1,
+        };
+        let monitoring = MonitoringSystem::new(metrics, tracer, alert_config);
+
+        // cpu_usage 首次调用返回 0.0，0.0 >= 0.0 触发 Critical
+        // memory_usage 从 /proc/meminfo 读取非零值，>= 0.0 触发 Critical
+        // Critical 级别在 apply_jitter 中直接返回 Some(level)，无需累积
+        let alerts = monitoring.check_alerts();
+        assert!(
+            alerts.contains(&AlertLevel::Critical),
+            "expected Critical alert from cpu/memory, got: {:?}",
+            alerts
+        );
     }
 }

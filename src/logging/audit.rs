@@ -1207,4 +1207,546 @@ mod tests {
         assert_eq!(stats.decision_events(), 50);
         assert_eq!(stats.signature_failures(), 2);
     }
+
+    // ================================================================
+    // === AuditEvent — complete variant coverage ===
+    // ================================================================
+
+    #[test]
+    fn test_audit_event_all_variants_comprehensive() {
+        let now = Utc::now();
+
+        let decision = AuditEvent::Decision {
+            timestamp: now,
+            identifier: "usr".into(),
+            decision: "allow".into(),
+            reason: "test".into(),
+            request_id: None,
+        };
+        let config_change = AuditEvent::ConfigChange {
+            timestamp: now,
+            old_version: "v1".into(),
+            new_version: "v2".into(),
+            changes: vec!["a".into()],
+            operator: None,
+        };
+        let ban_op = AuditEvent::BanOperation {
+            timestamp: now,
+            target: "ip".into(),
+            action: "ban".into(),
+            reason: "abuse".into(),
+            operator: "admin".into(),
+            expires_at: None,
+        };
+        let sys_event = AuditEvent::SystemEvent {
+            timestamp: now,
+            level: "info".into(),
+            name: "boot".into(),
+            details: "ok".into(),
+        };
+        let err_event = AuditEvent::ErrorEvent {
+            timestamp: now,
+            error_type: "e500".into(),
+            message: "fail".into(),
+            stack_trace: None,
+        };
+
+        assert_eq!(decision.timestamp(), now);
+        assert_eq!(config_change.timestamp(), now);
+        assert_eq!(ban_op.timestamp(), now);
+        assert_eq!(sys_event.timestamp(), now);
+        assert_eq!(err_event.timestamp(), now);
+
+        assert_eq!(decision.operation(), "decision");
+        assert_eq!(config_change.operation(), "config_change");
+        assert_eq!(ban_op.operation(), "ban_operation");
+        assert_eq!(sys_event.operation(), "system_event");
+        assert_eq!(err_event.operation(), "error_event");
+
+        assert_eq!(decision.target(), "usr");
+        assert_eq!(config_change.target(), "v1->v2");
+        assert_eq!(ban_op.target(), "ip");
+        assert_eq!(sys_event.target(), "boot");
+        assert_eq!(err_event.target(), "e500");
+
+        assert_eq!(decision.result(), "allow");
+        assert_eq!(config_change.result(), "a");
+        assert_eq!(ban_op.result(), "ban");
+        assert_eq!(sys_event.result(), "info");
+        assert_eq!(err_event.result(), "fail");
+    }
+
+    // ================================================================
+    // === AuditLogEntry — new() and sign() in isolation ===
+    // ================================================================
+
+    #[test]
+    fn test_audit_log_entry_new_and_sign_standalone() {
+        let event = AuditEvent::Decision {
+            timestamp: Utc::now(),
+            identifier: "usr".into(),
+            decision: "allow".into(),
+            reason: "test".into(),
+            request_id: None,
+        };
+        let mut entry = AuditLogEntry::new(event);
+        assert!(entry.signature.is_none());
+        assert!(entry.signature_version.is_none());
+
+        entry.sign("test-key");
+        assert!(entry.signature.is_some());
+        assert_eq!(entry.signature_version, Some(1));
+    }
+
+    // ================================================================
+    // === constant_time_compare — edge cases ===
+    // ================================================================
+
+    #[test]
+    fn test_constant_time_compare_edge_cases() {
+        assert!(AuditLogEntry::constant_time_compare("", ""));
+        assert!(!AuditLogEntry::constant_time_compare("", "a"));
+        assert!(!AuditLogEntry::constant_time_compare("a", ""));
+        assert!(!AuditLogEntry::constant_time_compare("hello", "world"));
+        assert!(!AuditLogEntry::constant_time_compare("abc", "ABC"));
+        assert!(AuditLogEntry::constant_time_compare(
+            "abc123xyz",
+            "abc123xyz"
+        ));
+    }
+
+    // ================================================================
+    // === sanitize_identifier — all branch coverage ===
+    // ================================================================
+
+    #[test]
+    fn test_sanitize_identifier_edge_cases() {
+        assert_eq!(sanitize_identifier("ab@x.com"), "***@x.com");
+        assert_eq!(sanitize_identifier("abc@x.com"), "***@x.com");
+        assert_eq!(sanitize_identifier("abc"), "***");
+        assert_eq!(sanitize_identifier("ab"), "***");
+        assert_eq!(sanitize_identifier("abcdefg"), "abc***efg");
+        assert_eq!(sanitize_identifier("abcdefgh"), "abc***fgh");
+        assert_eq!(sanitize_identifier("abcdefghij"), "abc***hij");
+        assert_eq!(sanitize_identifier("abcdefghijklmnop"), "abc***nop");
+    }
+
+    // ================================================================
+    // === AuditLogStats — all getters + reset ===
+    // ================================================================
+
+    #[test]
+    fn test_audit_log_stats_all_counters() {
+        let stats = AuditLogStats::default();
+        stats.total_events.store(10, Ordering::Relaxed);
+        stats.decision_events.store(3, Ordering::Relaxed);
+        stats.config_change_events.store(2, Ordering::Relaxed);
+        stats.ban_operation_events.store(1, Ordering::Relaxed);
+        stats.system_events.store(2, Ordering::Relaxed);
+        stats.error_events.store(2, Ordering::Relaxed);
+        stats.batch_writes.store(5, Ordering::Relaxed);
+        stats.write_failures.store(1, Ordering::Relaxed);
+        stats.signature_failures.store(3, Ordering::Relaxed);
+        stats.verification_failures.store(4, Ordering::Relaxed);
+
+        assert_eq!(stats.total_events(), 10);
+        assert_eq!(stats.decision_events(), 3);
+        assert_eq!(stats.config_change_events(), 2);
+        assert_eq!(stats.ban_operation_events(), 1);
+        assert_eq!(stats.system_events(), 2);
+        assert_eq!(stats.error_events(), 2);
+        assert_eq!(stats.batch_writes(), 5);
+        assert_eq!(stats.write_failures(), 1);
+        assert_eq!(stats.signature_failures(), 3);
+        assert_eq!(stats.verification_failures(), 4);
+    }
+
+    #[test]
+    fn test_audit_log_stats_reset() {
+        let stats = AuditLogStats::default();
+        stats.total_events.store(10, Ordering::Relaxed);
+        stats.decision_events.store(3, Ordering::Relaxed);
+        stats.verification_failures.store(4, Ordering::Relaxed);
+        assert_eq!(stats.total_events(), 10);
+
+        stats.reset();
+        assert_eq!(stats.total_events(), 0);
+        assert_eq!(stats.decision_events(), 0);
+        assert_eq!(stats.verification_failures(), 0);
+    }
+
+    // ================================================================
+    // === AuditLogger — default constructor + accessors ===
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_audit_logger_default_and_accessors() {
+        let logger = AuditLogger::default().await;
+        assert_eq!(logger.stats().total_events(), 0);
+        assert!(logger.config().enabled);
+    }
+
+    #[tokio::test]
+    async fn test_audit_logger_shutdown() {
+        let config = AuditLogConfig::new();
+        let logger = AuditLogger::new(config).await;
+        logger.shutdown().await;
+    }
+
+    // ================================================================
+    // === AuditLogger — all event-type log methods ===
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_audit_logger_log_all_event_types() {
+        let config = AuditLogConfig::new().batch_size(10);
+        let logger = AuditLogger::new(config).await;
+
+        logger
+            .log_config_change(
+                "v1".into(),
+                "v2".into(),
+                vec!["change1".into()],
+                Some("admin".into()),
+            )
+            .await;
+        logger
+            .log_ban_operation(
+                "192.168.1.1".into(),
+                "ban".into(),
+                "abuse".into(),
+                "admin".into(),
+                None,
+            )
+            .await;
+        logger
+            .log_system_event("warn".into(), "disk".into(), "low space".into())
+            .await;
+        logger
+            .log_error_event(
+                "timeout".into(),
+                "connection failed".into(),
+                Some("trace".into()),
+            )
+            .await;
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        assert_eq!(logger.stats().total_events(), 4);
+        assert_eq!(logger.stats().config_change_events(), 1);
+        assert_eq!(logger.stats().ban_operation_events(), 1);
+        assert_eq!(logger.stats().system_events(), 1);
+        assert_eq!(logger.stats().error_events(), 1);
+    }
+
+    // ================================================================
+    // === AuditLogger — disabled mode ===
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_audit_logger_disabled() {
+        let config = AuditLogConfig::new().enabled(false);
+        let logger = AuditLogger::new(config).await;
+
+        logger
+            .log_decision("usr".into(), "allow".into(), "test".into(), None)
+            .await;
+        logger
+            .log_config_change("v1".into(), "v2".into(), vec![], None)
+            .await;
+        logger
+            .log_ban_operation("ip".into(), "ban".into(), "test".into(), "op".into(), None)
+            .await;
+        logger
+            .log_system_event("info".into(), "test".into(), "test".into())
+            .await;
+        logger
+            .log_error_event("err".into(), "test".into(), None)
+            .await;
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        assert_eq!(logger.stats().total_events(), 0);
+        assert_eq!(logger.stats().decision_events(), 0);
+        assert_eq!(logger.stats().config_change_events(), 0);
+        assert_eq!(logger.stats().ban_operation_events(), 0);
+        assert_eq!(logger.stats().system_events(), 0);
+        assert_eq!(logger.stats().error_events(), 0);
+    }
+
+    // ================================================================
+    // === AuditLogger — verify_integrity ===
+    // ================================================================
+
+    #[tokio::test]
+    async fn test_audit_logger_verify_integrity() {
+        let event = AuditEvent::Decision {
+            timestamp: Utc::now(),
+            identifier: "usr".into(),
+            decision: "allow".into(),
+            reason: "test".into(),
+            request_id: None,
+        };
+        let key = "test-key-32-bytes-long-secret!!";
+
+        let config = AuditLogConfig::new().signing_key(key.into());
+        let logger = AuditLogger::new(config).await;
+        let entry = AuditLogEntry::with_signature(event.clone(), key);
+        assert!(logger.verify_integrity(&entry).unwrap());
+
+        let config2 = AuditLogConfig::new();
+        let logger2 = AuditLogger::new(config2).await;
+        let entry2 = AuditLogEntry::new(event);
+        assert!(!logger2.verify_integrity(&entry2).unwrap());
+    }
+
+    // ================================================================
+    // === read_and_verify — basic scenarios ===
+    // ================================================================
+
+    #[test]
+    fn test_read_and_verify_basic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let p = path.to_str().unwrap();
+
+        let event1 = AuditEvent::Decision {
+            timestamp: Utc::now(),
+            identifier: "usr".into(),
+            decision: "allow".into(),
+            reason: "test".into(),
+            request_id: None,
+        };
+        let event2 = AuditEvent::SystemEvent {
+            timestamp: Utc::now(),
+            level: "info".into(),
+            name: "boot".into(),
+            details: "ok".into(),
+        };
+        let entry1 = AuditLogEntry::new(event1);
+        let entry2 = AuditLogEntry::new(event2);
+
+        let json1 = serde_json::to_string(&entry1).unwrap();
+        let json2 = serde_json::to_string(&entry2).unwrap();
+
+        {
+            let mut f = std::fs::File::create(&path).unwrap();
+            use std::io::Write;
+            writeln!(f, "{}", json1).unwrap();
+            writeln!(f, "").unwrap();
+            writeln!(f, "{}", json2).unwrap();
+            writeln!(f, "{{corrupted}}").unwrap();
+        }
+
+        let config = AuditLogConfig::new().verify_on_read(false);
+        let stats = AuditLogStats::default();
+        let entries = AuditLogger::read_and_verify(p, &config, &stats).unwrap();
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(stats.verification_failures(), 1);
+    }
+
+    #[test]
+    fn test_read_and_verify_with_signature() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit_sig.log");
+        let p = path.to_str().unwrap();
+        let key = "test-key-sig-32-bytes-long!!!!";
+
+        let event = AuditEvent::Decision {
+            timestamp: Utc::now(),
+            identifier: "usr".into(),
+            decision: "allow".into(),
+            reason: "test".into(),
+            request_id: None,
+        };
+        let entry = AuditLogEntry::with_signature(event, key);
+        let json = serde_json::to_string(&entry).unwrap();
+        std::fs::write(p, format!("{}\n", json)).unwrap();
+
+        let config = AuditLogConfig::new()
+            .verify_on_read(true)
+            .signing_key(key.into());
+        let stats = AuditLogStats::default();
+        let entries = AuditLogger::read_and_verify(p, &config, &stats).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(stats.verification_failures(), 0);
+
+        let config2 = AuditLogConfig::new()
+            .verify_on_read(true)
+            .signing_key("wrong-key-32-bytes-long!!!!!".into());
+        let stats2 = AuditLogStats::default();
+        let entries2 = AuditLogger::read_and_verify(p, &config2, &stats2).unwrap();
+        assert_eq!(entries2.len(), 1);
+        assert_eq!(stats2.verification_failures(), 1);
+    }
+
+    #[test]
+    fn test_read_and_verify_no_signing_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit_nokey.log");
+        let p = path.to_str().unwrap();
+
+        let event = AuditEvent::Decision {
+            timestamp: Utc::now(),
+            identifier: "usr".into(),
+            decision: "allow".into(),
+            reason: "test".into(),
+            request_id: None,
+        };
+        let entry = AuditLogEntry::with_signature(event, "some-key");
+        let json = serde_json::to_string(&entry).unwrap();
+        std::fs::write(p, format!("{}\n", json)).unwrap();
+
+        let config = AuditLogConfig::new().verify_on_read(true);
+        let stats = AuditLogStats::default();
+        let entries = AuditLogger::read_and_verify(p, &config, &stats).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(stats.verification_failures(), 0);
+    }
+
+    // ================================================================
+    // === write_to_file + rotate_log_file ===
+    // ================================================================
+
+    #[test]
+    fn test_write_to_file_direct() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_direct.log");
+        let p = path.to_str().unwrap().to_string();
+        let config = AuditLogConfig::new().output_path(p.clone());
+
+        let result = AuditLogger::write_to_file(&p, "line1", &config);
+        assert!(result.is_ok());
+
+        let content = std::fs::read_to_string(&p).unwrap();
+        assert_eq!(content, "line1\n");
+
+        let result2 = AuditLogger::write_to_file(&p, "line2", &config);
+        assert!(result2.is_ok());
+
+        let content2 = std::fs::read_to_string(&p).unwrap();
+        assert_eq!(content2, "line1\nline2\n");
+    }
+
+    #[tokio::test]
+    async fn test_audit_logger_write_to_file_integration() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit_integration.log");
+        let p = path.to_str().unwrap().to_string();
+
+        let config = AuditLogConfig::new().batch_size(1).output_path(p.clone());
+        let logger = AuditLogger::new(config).await;
+
+        logger
+            .log_decision(
+                "user123".into(),
+                "allow".into(),
+                "within_limit".into(),
+                None,
+            )
+            .await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let content = std::fs::read_to_string(&p).unwrap();
+        assert!(content.contains("allow"));
+        assert_eq!(logger.stats().batch_writes(), 1);
+    }
+
+    #[test]
+    fn test_rotate_log_file_basic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit_rot.log");
+        let p = path.to_str().unwrap();
+
+        std::fs::write(p, "content").unwrap();
+
+        let result = AuditLogger::rotate_log_file(p, Some(3));
+        assert!(result.is_ok());
+
+        let rotated = dir.path().join("audit_rot.1.log");
+        assert!(rotated.exists());
+
+        let content = std::fs::read_to_string(&rotated).unwrap();
+        assert_eq!(content, "content");
+    }
+
+    // ================================================================
+    // === write_batch — file write failure path (lines 572-573) ===
+    // ================================================================
+
+    #[test]
+    fn test_write_batch_file_write_failure() {
+        // 创建一个文件作为"阻塞目录"：以该文件为前缀构造路径时
+        // create_dir_all 会失败（因为路径中存在一个非目录组件）
+        let dir = tempfile::tempdir().unwrap();
+        let blocker = dir.path().join("blocker_file");
+        std::fs::write(&blocker, "blocker").unwrap();
+        let invalid_path = blocker.join("audit.log").to_str().unwrap().to_string();
+
+        let config = AuditLogConfig::new().output_path(invalid_path);
+        let stats = AuditLogStats::default();
+
+        let event = AuditEvent::Decision {
+            timestamp: Utc::now(),
+            identifier: "usr".into(),
+            decision: "allow".into(),
+            reason: "test".into(),
+            request_id: None,
+        };
+
+        // write_batch 应正常返回，但内部 write_to_file 失败
+        // 应触发 stats.write_failures +1 和 error! 日志
+        AuditLogger::write_batch(&[event], &config, &stats);
+
+        assert_eq!(stats.write_failures(), 1);
+        assert_eq!(stats.batch_writes(), 1);
+    }
+
+    // ================================================================
+    // === write_to_file — rotation triggered via size (lines 603, 645, 659) ===
+    // ================================================================
+
+    #[test]
+    fn test_write_to_file_triggers_full_rotation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let p = path.to_str().unwrap().to_string();
+
+        // 预先写入超过 max_file_size 的内容（触发 line 603 的 rotate 调用）
+        std::fs::write(&path, "0".repeat(100)).unwrap();
+
+        // 预创建 audit.1.log 和 audit.2.log（触发 line 659 重命名中间文件）
+        std::fs::write(dir.path().join("audit.1.log"), "old1").unwrap();
+        std::fs::write(dir.path().join("audit.2.log"), "old2").unwrap();
+
+        // 预创建 audit.3.log（触发 line 645 删除最旧文件，max_files=3）
+        std::fs::write(dir.path().join("audit.3.log"), "old3").unwrap();
+
+        let mut config = AuditLogConfig::new().output_path(p.clone());
+        config.max_file_size = Some(10);
+        config.max_files = Some(3);
+
+        let result = AuditLogger::write_to_file(&p, "new entry", &config);
+        assert!(result.is_ok());
+
+        // 原始 audit.log（100 字节）应被重命名为 audit.1.log
+        let rotated = dir.path().join("audit.1.log");
+        assert!(rotated.exists());
+        let content = std::fs::read_to_string(&rotated).unwrap();
+        assert_eq!(content, "0".repeat(100));
+
+        // audit.2.log 应由原 audit.1.log 重命名而来（line 659，i=1）
+        let a2 = dir.path().join("audit.2.log");
+        assert_eq!(std::fs::read_to_string(&a2).unwrap(), "old1");
+
+        // audit.3.log 应由原 audit.2.log 重命名而来（line 659，i=2）
+        // 原 audit.3.log 已在 line 645 被删除
+        let a3 = dir.path().join("audit.3.log");
+        assert_eq!(std::fs::read_to_string(&a3).unwrap(), "old2");
+
+        // 新内容应写入新的 audit.log
+        let new_content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(new_content, "new entry\n");
+    }
 }

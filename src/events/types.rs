@@ -6,9 +6,9 @@
 //!
 //! 提供事件系统使用的类型、枚举和元数据结构。
 
+use ahash::AHashMap as StdHashMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap as StdHashMap;
 
 /// 事件类型枚举
 ///
@@ -385,5 +385,42 @@ mod tests {
         let deserialized: Event = serde_json::from_str(&json).unwrap();
 
         assert_eq!(deserialized.name(), event.name());
+    }
+
+    /// 测试 EventHandler trait 的 accepts 默认实现
+    /// 默认实现应返回 true（处理所有事件类型）
+    #[test]
+    fn test_event_handler_accepts_default() {
+        struct DummyHandler;
+
+        #[async_trait::async_trait]
+        impl EventHandler for DummyHandler {
+            async fn handle(
+                &self,
+                _event: &Event,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                Ok(())
+            }
+
+            fn name(&self) -> &str {
+                "dummy"
+            }
+        }
+
+        let handler = DummyHandler;
+        let event_type = EventType::RateLimitTriggered {
+            key: "k".to_string(),
+            rule_id: "r".to_string(),
+            decision: "Deny".to_string(),
+        };
+        // 默认 accepts 应返回 true
+        assert!(handler.accepts(&event_type));
+
+        let ban_event = EventType::BanApplied {
+            target: "t".to_string(),
+            reason: "r".to_string(),
+            duration: 60,
+        };
+        assert!(handler.accepts(&ban_event));
     }
 }

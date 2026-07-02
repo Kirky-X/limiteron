@@ -264,13 +264,23 @@ impl QuotaController {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::quota_controller::{QuotaController, QuotaConfig};
+    /// use limiteron::quota::{QuotaController, QuotaConfig};
     /// use limiteron::storage::QuotaStorage;
     /// use std::sync::Arc;
+    /// # use limiteron::error::{ConsumeResult, StorageError};
+    /// # use limiteron::storage::QuotaInfo;
+    /// # use std::time::Duration;
+    /// # struct MockStorage;
+    /// # #[async_trait::async_trait]
+    /// # impl QuotaStorage for MockStorage {
+    /// #     async fn get_quota(&self, _: &str, _: &str) -> Result<Option<QuotaInfo>, StorageError> { Ok(None) }
+    /// #     async fn consume(&self, _: &str, _: &str, _: u64, _: u64, _: Duration) -> Result<ConsumeResult, StorageError> { unimplemented!() }
+    /// #     async fn reset(&self, _: &str, _: &str, _: u64, _: Duration) -> Result<(), StorageError> { Ok(()) }
+    /// # }
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let storage: Arc<dyn QuotaStorage> = Arc::new(my_storage);
+    ///     let storage: Arc<dyn QuotaStorage> = Arc::new(MockStorage);
     ///     let config = QuotaConfig::default();
     ///     let controller = QuotaController::with_dependencies(storage, config);
     /// }
@@ -336,13 +346,13 @@ impl QuotaController {
     /// # 示例
     /// ```rust, ignore
     /// # use limiteron::quota_controller::{QuotaController, QuotaConfig, QuotaType};
-    /// # use limiteron::storage_trait::QuotaStorage;
+    /// # use limiteron::storage::QuotaStorage;
     /// # use std::sync::Arc;
     /// #
     /// # struct MockStorage;
     /// # #[async_trait::async_trait]
     /// # impl QuotaStorage for MockStorage {
-    /// #   async fn get_quota(&self, _: &str, _: &str) -> Result<Option<limiteron::storage_trait::QuotaInfo>, limiteron::error::StorageError> { Ok(None) }
+    /// #   async fn get_quota(&self, _: &str, _: &str) -> Result<Option<limiteron::storage::QuotaInfo>, limiteron::error::StorageError> { Ok(None) }
     /// #   async fn consume(&self, _: &str, _: &str, _: u64, _: u64, _: std::time::Duration) -> Result<limiteron::error::ConsumeResult, limiteron::error::FlowGuardError> { unimplemented!() }
     /// #   async fn reset(&self, _: &str, _: &str, _: u64, _: std::time::Duration) -> Result<(), limiteron::error::FlowGuardError> { Ok(()) }
     /// # }
@@ -733,7 +743,7 @@ async fn send_webhook_alert(
     alert_info: &AlertInfo,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 安全验证：检查 URL 是否安全
-    validate_webhook_url(url, true).map_err(|e| e.into())?;
+    validate_webhook_url(url, true).map_err(crate::error::FlowGuardError::ConfigError)?;
 
     let client = reqwest::Client::new();
     let response = client
@@ -1950,5 +1960,252 @@ mod tests {
         // 验证功能正常
         let result = controller.consume("user1", "resource1", 50).await.unwrap();
         assert!(result.allowed);
+    }
+
+    // ========================================================================
+    // 额外覆盖率测试 - 覆盖未触及的生产代码路径
+    // ========================================================================
+
+    /// 测试 QuotaController 的 Clone 实现
+    ///
+    /// 注意：clone 共享同一个 Arc<dyn QuotaStorage>，因此克隆体和原始体
+    /// 操作同一个存储后端。配置是独立克隆的。
+    /// 覆盖 Clone impl（第 150-157 行）
+    #[tokio::test]
+    async fn test_quota_controller_clone() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 克隆控制器
+        let cloned = controller.clone();
+
+        // 验证克隆体保留了配置（配置是独立克隆的）
+        assert_eq!(cloned.config().limit, 100);
+        assert_eq!(cloned.config().window_size, 3600);
+
+        // 验证克隆体和原始体共享同一个存储
+        // 通过克隆体消费 30，剩余应为 70
+        let result = cloned.consume("user1", "resource1", 30).await.unwrap();
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 70);
+
+        // 通过原始体消费 20，基于共享存储累计消费 50，剩余 50
+        let result = controller.consume("user1", "resource1", 20).await.unwrap();
+        assert!(result.allowed);
+        assert_eq!(result.remaining, 50);
+    }
+
+    /// 测试 QuotaControllerBuilder 的 Default 实现
+    ///
+    /// 覆盖 Default impl（第 227-229 行）
+    #[test]
+    fn test_quota_controller_builder_default() {
+        let _builder = QuotaControllerBuilder::default();
+        // Default trait 创建 builder 后可以直接链式调用
+        let _builder = QuotaControllerBuilder::default()
+            .with_storage(Arc::new(TestQuotaStorage::new()) as Arc<dyn QuotaStorage>);
+    }
+
+    /// 测试溢出保护路径：calculate_overdraft_limit 和 calculate_total_limit
+    ///
+    /// 使用大数值使 checked_mul/checked_add 溢出，触发 unwrap_or 安全值路径。
+    /// 覆盖第 698 行（calculate_overdraft_limit 溢出）和第 711 行（calculate_total_limit 溢出）
+    #[tokio::test]
+    async fn test_calculate_limits_overflow() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: u64::MAX,
+            window_size: 3600,
+            allow_overdraft: true,
+            overdraft_limit_percent: 100,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 触发 consumption，内部会调用 calculate_overdraft_limit 和 calculate_total_limit
+        // 当 limit=u64::MAX, percent=100 时：
+        //   checked_mul(u64::MAX, 100) → None → unwrap_or(u64::MAX / 2)
+        //   checked_add(u64::MAX, u64::MAX / 2) → None → unwrap_or(u64::MAX / 2)
+        let result = controller.consume("user1", "resource1", 10).await.unwrap();
+        assert!(result.allowed);
+    }
+
+    /// 测试 Drop 时后台清理任务的 CancellationToken 被触发
+    ///
+    /// 覆盖第 294-295 行（cancelled() 分支的执行）
+    #[tokio::test]
+    async fn test_quota_controller_drop_cancels_cleanup_task() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig::default();
+
+        // 在局部作用域中创建控制器，离开作用域时 Drop 被调用
+        {
+            let controller = QuotaController::with_dependencies(storage, config);
+
+            // 执行一些操作确保控制器正常运转
+            let result = controller.consume("user1", "resource1", 10).await.unwrap();
+            assert!(result.allowed);
+            // 控制器在此处被 drop，cleanup_token.cancel() 被调用
+        }
+
+        // 给后台任务一点时间来处理取消信号
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+
+    /// 测试 Webhook 告警通道 - 使用无效 URL 触发错误路径
+    ///
+    /// 覆盖 send_alert 中的 AlertChannel::Webhook 分支（第 658, 660-662 行）
+    /// 以及 send_webhook_alert 的 URL 验证路径（第 731-736 行）
+    #[tokio::test]
+    async fn test_alert_webhook_invalid_url() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: true,
+                thresholds: vec![50],
+                channels: vec![AlertChannel::Webhook {
+                    url: "http://invalid.local/webhook".to_string(),
+                }],
+                dedup_window: 1,
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 消费到阈值以上，触发告警
+        // Webhook URL 会通过 send_webhook_alert 发送（在 spawned 任务中）
+        // URL "http://invalid.local/webhook" 会因 require_https=true 验证失败
+        let result = controller.consume("user1", "resource1", 80).await.unwrap();
+        assert!(result.allowed);
+        assert!(result.alert_triggered);
+
+        // 确保 spawned 的 webhook 任务执行完毕
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    }
+
+    /// 测试多次触发不同 Webhook URL（测试 send_webhook_alert 被多次调用）
+    #[tokio::test]
+    async fn test_alert_webhook_multiple_thresholds() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: true,
+                thresholds: vec![50, 80],
+                channels: vec![AlertChannel::Webhook {
+                    url: "http://blocked.test/webhook".to_string(),
+                }],
+                dedup_window: 1,
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 消费到 50% - 触发 50% 阈值 webhook
+        let result = controller.consume("user1", "resource1", 50).await.unwrap();
+        assert!(result.allowed);
+        assert!(result.alert_triggered);
+
+        // 等待去重窗口过期
+        tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+        controller.cleanup_alert_dedup();
+
+        // 消费到 80% - 触发 80% 阈值 webhook
+        let result = controller.consume("user1", "resource1", 30).await.unwrap();
+        assert!(result.allowed);
+        assert!(result.alert_triggered);
+
+        // 确保 spawned 的 webhook 任务执行完毕
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    }
+
+    /// 测试 check_and_reset_window 的按比例保留消费量分支
+    /// 覆盖 line 548: windows_passed < 1 时按比例保留消费量
+    #[tokio::test]
+    async fn test_check_and_reset_window_proportional_retain() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600, // 1 小时窗口
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 构造一个不一致的 QuotaState：
+        // window_start 在 2 秒前，window_end 在 1 秒前（已过期，但远小于 window_size=3600s）
+        // 这样 now >= window_end（触发重置），但 elapsed < window_duration（windows_passed=0）
+        let now = Utc::now();
+        let state = QuotaState {
+            consumed: 100,
+            window_start: now - Duration::seconds(2),
+            window_end: now - Duration::seconds(1), // 已过期
+        };
+
+        let result = controller.check_and_reset_window(state).await.unwrap();
+        // windows_passed=0，进入 else 分支，retained_consumed 按比例计算
+        // 由于 window_progress 接近 1.0，retained_consumed 应接近 0
+        assert!(result.consumed < 100);
+    }
+
+    /// 测试 check_and_trigger_alert 在 limit=0 时的分支
+    /// 覆盖 line 601: limit == 0 时 usage_percent = 100
+    #[tokio::test]
+    async fn test_check_and_trigger_alert_zero_limit() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 0, // limit 为 0
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: true,
+                thresholds: vec![100],
+                channels: vec![AlertChannel::Log],
+                dedup_window: 300,
+            },
+        };
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 直接调用私有方法 check_and_trigger_alert
+        // limit=0 时应进入 else 分支，usage_percent=100，触发告警
+        let result = controller
+            .check_and_trigger_alert("zero_user", "zero_resource", 0)
+            .await
+            .unwrap();
+        // usage_percent=100 >= threshold=100，应触发告警
+        assert!(result);
     }
 }

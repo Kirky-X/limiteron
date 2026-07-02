@@ -285,6 +285,7 @@ impl BanManagerBuilder {
     /// ```rust
     /// use limiteron::ban::BanManager;
     /// use limiteron::authorization::SimpleAuthorizationProvider;
+    /// use limiteron::storage::{MemoryBanStorage, BanStorageCreate};
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
@@ -293,6 +294,7 @@ impl BanManagerBuilder {
     ///         "admin".to_string(),
     ///     ]));
     ///
+    ///     let storage = MemoryBanStorage::create_ban_storage();
     ///     let ban_manager = BanManager::builder()
     ///         .with_storage(storage)
     ///         .with_authorization_provider(auth_provider)
@@ -390,7 +392,7 @@ impl BanManager {
     /// # 示例
     ///
     /// ```rust,no_run
-    /// use limiteron::ban_manager::BanManager;
+    /// use limiteron::BanManager;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -411,7 +413,7 @@ impl BanManager {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::ban_manager::BanManager;
+    /// use limiteron::BanManager;
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
@@ -434,13 +436,13 @@ impl BanManager {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::ban_manager::{BanManager, BanManagerConfig};
-    /// use limiteron::storage::BanStorage;
+    /// use limiteron::{BanManager, BanManagerConfig};
+    /// use limiteron::storage::{BanStorage, MemoryBanStorage, BanStorageCreate};
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let storage: Arc<dyn BanStorage> = Arc::new(my_storage);
+    ///     let storage: Arc<dyn BanStorage> = MemoryBanStorage::create_ban_storage();
     ///     let config = BanManagerConfig::default();
     ///     let ban_manager = BanManager::with_dependencies(storage, config).await.unwrap();
     /// }
@@ -468,14 +470,14 @@ impl BanManager {
     ///
     /// # 示例
     /// ```rust
-    /// use limiteron::ban_manager::{BanManager, BanManagerConfig};
+    /// use limiteron::{BanManager, BanManagerConfig};
     /// use limiteron::authorization::SimpleAuthorizationProvider;
-    /// use limiteron::storage::BanStorage;
+    /// use limiteron::storage::{BanStorage, MemoryBanStorage, BanStorageCreate};
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let storage: Arc<dyn BanStorage> = Arc::new(my_storage);
+    ///     let storage: Arc<dyn BanStorage> = MemoryBanStorage::create_ban_storage();
     ///     let config = BanManagerConfig::default();
     ///     let auth_provider = Arc::new(SimpleAuthorizationProvider::new(vec!["admin".to_string()]));
     ///     let ban_manager = BanManager::with_dependencies_and_auth(
@@ -1333,6 +1335,7 @@ mod tests {
     }
 
     /// 创建带有自定义配置的 BanManager
+    #[allow(dead_code)]
     async fn create_test_ban_manager_with_config(config: BanManagerConfig) -> BanManager {
         let storage = Arc::new(MockBanStorage::new());
         BanManager::with_dependencies(storage, config)
@@ -1552,6 +1555,32 @@ mod tests {
         let ban_manager = create_test_ban_manager().await;
 
         // 停止任务应该不会失败
+        ban_manager.stop_auto_unban_task().await;
+    }
+
+    /// 覆盖 auto-unban task 的实际执行路径（lines 534, 539, 540）。
+    /// 使用 fail_mode=true 的 MockBanStorage 让 cleanup_expired_bans 返回 Err，
+    /// 从而同时覆盖 if let Err 分支和 error! 日志行。
+    #[tokio::test]
+    async fn test_auto_unban_task_executes_and_handles_cleanup_error() {
+        let storage = Arc::new(MockBanStorage::with_behavior(MockBanBehavior {
+            fail_mode: true,
+            ..Default::default()
+        }));
+        let config = BanManagerConfig {
+            enable_auto_unban: true,
+            auto_unban_interval: 1,
+            ..Default::default()
+        };
+        let ban_manager = BanManager::with_dependencies(storage, config)
+            .await
+            .expect("BanManager creation should succeed");
+
+        // 等待足够时间让 spawned task 执行第一个 tick
+        // (tokio::time::interval 的第一次 tick 立即就绪)
+        tokio::time::sleep(StdDuration::from_millis(200)).await;
+
+        // 停止任务，避免泄漏
         ban_manager.stop_auto_unban_task().await;
     }
 
@@ -2706,6 +2735,484 @@ mod tests {
 
         let target = BanTarget::Mac("aa:bb:cc:dd:ee:ff".to_string());
         let result = ban_manager.is_banned(&target).await;
+        assert!(result.is_ok());
+    }
+
+    // ========================================================================
+    // list_bans 过滤逻辑测试
+    // ========================================================================
+
+    /// 创建带有可访问存储的测试管理器
+    async fn create_manager_with_storage() -> (BanManager, Arc<dyn BanStorage>) {
+        let storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
+        let manager = BanManager::with_dependencies(storage.clone(), BanManagerConfig::default())
+            .await
+            .unwrap();
+        (manager, storage)
+    }
+
+    /// 创建测试封禁记录
+    fn make_ban_record(
+        target: BanTarget,
+        is_manual: bool,
+        banned_at: DateTime<Utc>,
+        duration_secs: u64,
+    ) -> BanRecord {
+        BanRecord {
+            target,
+            ban_times: 1,
+            duration: StdDuration::from_secs(duration_secs),
+            banned_at,
+            expires_at: banned_at + chrono::Duration::seconds(duration_secs as i64),
+            is_manual,
+            reason: format!("ban at {}", banned_at),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_bans_filter_target_type_ip() {
+        let (manager, storage) = create_manager_with_storage().await;
+        let now = chrono::Utc::now();
+
+        storage
+            .save(&make_ban_record(
+                BanTarget::Ip("10.0.0.1".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+        storage
+            .save(&make_ban_record(
+                BanTarget::UserId("user1".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+
+        let filter = BanFilter {
+            target_type: Some("ip".to_string()),
+            ..Default::default()
+        };
+        let result = manager.list_bans(filter).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(matches!(result[0].target, BanTarget::Ip(_)));
+    }
+
+    #[tokio::test]
+    async fn test_list_bans_filter_target_type_user() {
+        let (manager, storage) = create_manager_with_storage().await;
+        let now = chrono::Utc::now();
+
+        storage
+            .save(&make_ban_record(
+                BanTarget::Ip("10.0.0.2".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+        storage
+            .save(&make_ban_record(
+                BanTarget::UserId("user2".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+
+        let filter = BanFilter {
+            target_type: Some("user".to_string()),
+            ..Default::default()
+        };
+        let result = manager.list_bans(filter).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(matches!(result[0].target, BanTarget::UserId(_)));
+    }
+
+    #[tokio::test]
+    async fn test_list_bans_filter_target_type_mac() {
+        let (manager, storage) = create_manager_with_storage().await;
+        let now = chrono::Utc::now();
+
+        storage
+            .save(&make_ban_record(
+                BanTarget::Mac("aa:bb:cc:dd:ee:ff".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+        storage
+            .save(&make_ban_record(
+                BanTarget::UserId("user3".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+
+        let filter = BanFilter {
+            target_type: Some("mac".to_string()),
+            ..Default::default()
+        };
+        let result = manager.list_bans(filter).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(matches!(result[0].target, BanTarget::Mac(_)));
+    }
+
+    #[tokio::test]
+    async fn test_list_bans_filter_target_type_unknown() {
+        let (manager, storage) = create_manager_with_storage().await;
+        let now = chrono::Utc::now();
+
+        storage
+            .save(&make_ban_record(
+                BanTarget::Ip("10.0.0.3".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+
+        // 未知类型应匹配所有记录都为 false
+        let filter = BanFilter {
+            target_type: Some("unknown_type".to_string()),
+            ..Default::default()
+        };
+        let result = manager.list_bans(filter).await.unwrap();
+        assert_eq!(result.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_list_bans_filter_target_type_case_insensitive() {
+        let (manager, storage) = create_manager_with_storage().await;
+        let now = chrono::Utc::now();
+
+        storage
+            .save(&make_ban_record(
+                BanTarget::Ip("10.0.0.4".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+
+        // 大写也应匹配
+        let filter = BanFilter {
+            target_type: Some("IP".to_string()),
+            ..Default::default()
+        };
+        let result = manager.list_bans(filter).await.unwrap();
+        assert_eq!(result.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_list_bans_filter_target_value_match() {
+        let (manager, storage) = create_manager_with_storage().await;
+        let now = chrono::Utc::now();
+
+        storage
+            .save(&make_ban_record(
+                BanTarget::Ip("192.168.1.100".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+        storage
+            .save(&make_ban_record(
+                BanTarget::Ip("10.0.0.5".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+
+        // 模糊匹配 192.168
+        let filter = BanFilter {
+            target_value: Some("192.168".to_string()),
+            ..Default::default()
+        };
+        let result = manager.list_bans(filter).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(matches!(result[0].target, BanTarget::Ip(ref ip) if ip.contains("192.168")));
+    }
+
+    #[tokio::test]
+    async fn test_list_bans_filter_target_value_no_match() {
+        let (manager, storage) = create_manager_with_storage().await;
+        let now = chrono::Utc::now();
+
+        storage
+            .save(&make_ban_record(
+                BanTarget::UserId("user_abc".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+
+        // 不匹配的值应过滤掉
+        let filter = BanFilter {
+            target_value: Some("nonexistent".to_string()),
+            ..Default::default()
+        };
+        let result = manager.list_bans(filter).await.unwrap();
+        assert_eq!(result.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_list_bans_filter_manual_only() {
+        let (manager, storage) = create_manager_with_storage().await;
+        let now = chrono::Utc::now();
+
+        storage
+            .save(&make_ban_record(
+                BanTarget::Ip("10.0.0.6".to_string()),
+                true,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+        storage
+            .save(&make_ban_record(
+                BanTarget::UserId("user_auto".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+
+        let filter = BanFilter {
+            manual_only: true,
+            ..Default::default()
+        };
+        let result = manager.list_bans(filter).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(result[0].is_manual);
+    }
+
+    #[tokio::test]
+    async fn test_list_bans_filter_start_time() {
+        let (manager, storage) = create_manager_with_storage().await;
+        let now = chrono::Utc::now();
+        let past = now - chrono::Duration::seconds(100);
+
+        // 旧记录（应被过滤掉）
+        storage
+            .save(&make_ban_record(
+                BanTarget::Ip("10.0.0.7".to_string()),
+                false,
+                past,
+                3600,
+            ))
+            .await
+            .unwrap();
+        // 新记录（应保留）
+        storage
+            .save(&make_ban_record(
+                BanTarget::Ip("10.0.0.8".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+
+        let filter = BanFilter {
+            start_time: Some(now),
+            ..Default::default()
+        };
+        let result = manager.list_bans(filter).await.unwrap();
+        // 由于 start_time 触发 active_only，过去的记录可能已过期
+        // 但 10.0.0.7 过期时间是 past + 3600s，所以仍然活跃
+        // 过滤条件是 banned_at < start_time 返回 false
+        assert!(!result.is_empty());
+        for detail in &result {
+            assert!(detail.banned_at >= now);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_bans_filter_end_time() {
+        let (manager, storage) = create_manager_with_storage().await;
+        let now = chrono::Utc::now();
+        let future = now + chrono::Duration::seconds(100);
+
+        // 现在的记录（应被保留，因为 banned_at <= end_time）
+        storage
+            .save(&make_ban_record(
+                BanTarget::Ip("10.0.0.9".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+
+        let filter = BanFilter {
+            end_time: Some(future),
+            ..Default::default()
+        };
+        let result = manager.list_bans(filter).await.unwrap();
+        assert!(!result.is_empty());
+        for detail in &result {
+            assert!(detail.banned_at <= future);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_bans_filter_combined() {
+        let (manager, storage) = create_manager_with_storage().await;
+        let now = chrono::Utc::now();
+
+        storage
+            .save(&make_ban_record(
+                BanTarget::Ip("192.168.1.1".to_string()),
+                true,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+        storage
+            .save(&make_ban_record(
+                BanTarget::UserId("user_x".to_string()),
+                false,
+                now,
+                3600,
+            ))
+            .await
+            .unwrap();
+
+        // 组合过滤：IP 类型 + 手动 + 值包含 192.168
+        let filter = BanFilter {
+            target_type: Some("ip".to_string()),
+            target_value: Some("192.168".to_string()),
+            manual_only: true,
+            ..Default::default()
+        };
+        let result = manager.list_bans(filter).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert!(matches!(result[0].target, BanTarget::Ip(_)));
+        assert!(result[0].is_manual);
+    }
+
+    #[tokio::test]
+    async fn test_check_ban_priority_truly_empty_targets() {
+        let ban_manager = create_test_ban_manager().await;
+
+        let targets: Vec<BanTarget> = vec![];
+        let result = ban_manager.check_ban_priority(&targets).await;
+
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    /// 覆盖 add_ban 中 is_manual=false 分支 (BanSource::Auto)
+    #[tokio::test]
+    async fn test_add_ban_auto_source() {
+        let ban_manager = create_test_ban_manager().await;
+        let now = chrono::Utc::now();
+        let record = BanRecord {
+            target: BanTarget::Ip("203.0.113.10".to_string()),
+            ban_times: 1,
+            duration: StdDuration::from_secs(3600),
+            banned_at: now,
+            expires_at: now + chrono::Duration::seconds(3600),
+            is_manual: false,
+            reason: "auto ban via add_ban".to_string(),
+        };
+
+        let result = ban_manager.add_ban(record).await;
+        assert!(result.is_ok());
+
+        // 验证封禁已添加
+        let banned = ban_manager
+            .read_ban(&BanTarget::Ip("203.0.113.10".to_string()))
+            .await
+            .unwrap();
+        assert!(banned.is_some());
+        assert!(!banned.unwrap().is_manual);
+    }
+
+    /// 覆盖 list_bans 过滤器中 Mac 目标值的模糊匹配分支
+    #[tokio::test]
+    async fn test_list_bans_filter_mac_target_value() {
+        let ban_manager = create_test_ban_manager().await;
+
+        ban_manager
+            .create_ban(
+                BanTarget::Mac("AA:BB:CC:DD:EE:FF".to_string()),
+                "MAC封禁".to_string(),
+                BanSource::Auto,
+                serde_json::json!({}),
+                Some(StdDuration::from_secs(1800)),
+            )
+            .await
+            .unwrap();
+
+        // 按 target_value 模糊匹配 Mac 地址
+        let filter = BanFilter {
+            target_value: Some("BB:CC".to_string()),
+            ..Default::default()
+        };
+        let bans = ban_manager.list_bans(filter).await.unwrap();
+        assert_eq!(bans.len(), 1);
+        assert!(matches!(bans[0].target, BanTarget::Mac(_)));
+
+        // 不匹配的值应返回空
+        let filter = BanFilter {
+            target_value: Some("ZZ:ZZ".to_string()),
+            ..Default::default()
+        };
+        let bans = ban_manager.list_bans(filter).await.unwrap();
+        assert!(bans.is_empty());
+    }
+
+    /// 覆盖 check_authorization 中 Mac 目标分支
+    #[tokio::test]
+    async fn test_create_ban_with_authorization_mac_target() {
+        use crate::authorization::SimpleAuthorizationProvider;
+
+        let storage = Arc::new(MockBanStorage::new());
+        let auth_provider = Arc::new(SimpleAuthorizationProvider::new(vec!["admin".to_string()]));
+
+        let ban_manager = BanManager::builder()
+            .with_storage(storage)
+            .with_authorization_provider(auth_provider)
+            .build()
+            .await
+            .unwrap();
+
+        let target = BanTarget::Mac("AA:BB:CC:DD:EE:FF".to_string());
+        let result = ban_manager
+            .create_ban(
+                target,
+                "MAC auth ban".to_string(),
+                BanSource::Manual {
+                    operator: "admin".to_string(),
+                },
+                serde_json::json!({}),
+                None,
+            )
+            .await;
+
         assert!(result.is_ok());
     }
 }

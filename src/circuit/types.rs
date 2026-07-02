@@ -29,6 +29,7 @@ use tokio::sync::RwLock;
 /// use limiteron::circuit::ErrorClassifier;
 /// use limiteron::error::FlowGuardError;
 ///
+/// #[derive(Debug)]
 /// struct CustomErrorClassifier;
 /// impl ErrorClassifier for CustomErrorClassifier {
 ///     fn is_counted_as_failure(&self, error: &FlowGuardError) -> bool {
@@ -37,7 +38,7 @@ use tokio::sync::RwLock;
 ///     }
 /// }
 /// ```
-pub trait ErrorClassifier: Send + Sync {
+pub trait ErrorClassifier: Send + Sync + std::fmt::Debug {
     /// 判断错误是否应该计入失败计数
     ///
     /// # 参数
@@ -55,6 +56,7 @@ pub trait ErrorClassifier: Send + Sync {
 /// - 5xx 错误（StorageError::ConnectionError, StorageError::TimeoutError）算失败
 /// - 超时错误算失败
 /// - 4xx 错误（ValidationError, NotFound）不算失败
+#[derive(Debug)]
 pub struct DefaultErrorClassifier;
 
 impl ErrorClassifier for DefaultErrorClassifier {
@@ -555,9 +557,6 @@ impl CircuitBreaker {
             return; // 状态未改变，无需处理
         }
 
-        let old_state_str = format!("{:?}", old_state);
-        let new_state_str = format!("{:?}", new_state);
-
         // 更新状态和时间戳
         *self.state.write().await = new_state;
         *self.last_state_change.write().await = Some(self.clock.now());
@@ -593,6 +592,8 @@ impl CircuitBreaker {
         #[cfg(feature = "event-system")]
         {
             if let Some(ref emitter) = self.event_emitter {
+                let old_state_str = format!("{:?}", old_state);
+                let new_state_str = format!("{:?}", new_state);
                 let event =
                     crate::events::Event::new(crate::events::EventType::CircuitStateChanged {
                         from: old_state_str,
@@ -757,7 +758,7 @@ mod tests {
         // 第一次失败
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("test error".to_string()))
+                Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -769,7 +770,7 @@ mod tests {
         // 第二次失败
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("test error".to_string()))
+                Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -781,7 +782,7 @@ mod tests {
         // 第三次失败，应该触发熔断
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("test error".to_string()))
+                Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -800,7 +801,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("test error".to_string()))
+                    Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
                 })
                 .await;
         }
@@ -824,7 +825,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("test error".to_string()))
+                    Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
                 })
                 .await;
         }
@@ -858,7 +859,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("test error".to_string()))
+                    Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
                 })
                 .await;
         }
@@ -878,7 +879,7 @@ mod tests {
         // 再次失败，应该回到打开状态
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("test error".to_string()))
+                Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -894,7 +895,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("test error".to_string()))
+                    Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
                 })
                 .await;
         }
@@ -943,7 +944,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("test error".to_string()))
+                    Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
                 })
                 .await;
         }
@@ -1002,7 +1003,7 @@ mod tests {
         // 第一次失败
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("error 1".to_string()))
+                Err::<(), FlowGuardError>(FlowGuardError::BanError("error 1".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -1011,7 +1012,7 @@ mod tests {
         // 第二次失败
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("error 2".to_string()))
+                Err::<(), FlowGuardError>(FlowGuardError::BanError("error 2".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -1020,7 +1021,7 @@ mod tests {
         // 第三次失败，应触发熔断
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("error 3".to_string()))
+                Err::<(), FlowGuardError>(FlowGuardError::BanError("error 3".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -1038,7 +1039,7 @@ mod tests {
         for i in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError(format!("error {}", i)))
+                    Err::<(), FlowGuardError>(FlowGuardError::BanError(format!("error {}", i)))
                 })
                 .await;
         }
@@ -1072,7 +1073,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
+                    Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
                 })
                 .await;
         }
@@ -1109,7 +1110,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
+                    Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
                 })
                 .await;
         }
@@ -1226,6 +1227,7 @@ mod tests {
     /// 测试自定义错误分类器
     #[tokio::test]
     async fn test_custom_error_classifier() {
+        #[derive(Debug)]
         struct CustomClassifier;
         impl ErrorClassifier for CustomClassifier {
             fn is_counted_as_failure(&self, error: &FlowGuardError) -> bool {
@@ -1234,9 +1236,11 @@ mod tests {
             }
         }
 
-        let config = CircuitBreakerConfig::default()
-            .error_classifier(Arc::new(CustomClassifier))
-            .failure_threshold(2);
+        let config = CircuitBreakerConfig {
+            error_classifier: Arc::new(CustomClassifier),
+            failure_threshold: 2,
+            ..Default::default()
+        };
 
         let breaker = CircuitBreaker::new(config);
 
@@ -1277,5 +1281,170 @@ mod tests {
             Duration::from_millis(200)
         );
         assert_eq!(config.slow_call_rate_threshold, 0.6);
+    }
+
+    #[test]
+    fn test_circuit_breaker_builder_default() {
+        let builder = CircuitBreakerBuilder::default();
+        assert_eq!(builder.config.failure_threshold, 5);
+        assert_eq!(builder.config.success_threshold, 3);
+    }
+
+    #[test]
+    fn test_config_error_classifier_builder() {
+        let classifier: Arc<dyn ErrorClassifier> = Arc::new(DefaultErrorClassifier);
+        let config = CircuitBreakerConfig::default().error_classifier(classifier);
+        // Just verify it doesn't panic and config is accessible
+        assert_eq!(config.failure_threshold, 5);
+    }
+
+    #[test]
+    fn test_config_all_builder_methods() {
+        let classifier: Arc<dyn ErrorClassifier> = Arc::new(DefaultErrorClassifier);
+        let config = CircuitBreakerConfig::new(10, 5, Duration::from_secs(30))
+            .half_open_max_calls(4)
+            .slow_call_duration_threshold(Duration::from_millis(100))
+            .slow_call_rate_threshold(0.7)
+            .error_classifier(classifier);
+        assert_eq!(config.failure_threshold, 10);
+        assert_eq!(config.success_threshold, 5);
+        assert_eq!(config.half_open_max_calls, 4);
+        assert_eq!(
+            config.slow_call_duration_threshold,
+            Duration::from_millis(100)
+        );
+        assert!((config.slow_call_rate_threshold - 0.7).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn test_slow_call_rate_triggers_open() {
+        // Every call is "slow" (threshold=0) and rate threshold is 0.5
+        // After 1 call: slow=1/total=1 = 1.0 >= 0.5 -> should open
+        let config = CircuitBreakerConfig {
+            slow_call_duration_threshold: Duration::ZERO,
+            slow_call_rate_threshold: 0.5,
+            failure_threshold: 100,
+            ..Default::default()
+        };
+        let breaker = CircuitBreaker::new(config);
+
+        let _ = breaker
+            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .await;
+
+        assert!(
+            breaker.is_open().await,
+            "Slow call rate should trigger Open state"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_slow_call_rate_below_threshold_stays_closed() {
+        // threshold is very high so no calls are "slow"
+        let config = CircuitBreakerConfig {
+            slow_call_duration_threshold: Duration::from_secs(60),
+            slow_call_rate_threshold: 0.5,
+            ..Default::default()
+        };
+        let breaker = CircuitBreaker::new(config);
+
+        for _ in 0..5 {
+            let _ = breaker
+                .execute(|| async { Ok::<(), FlowGuardError>(()) })
+                .await;
+        }
+
+        assert!(breaker.is_closed().await);
+    }
+
+    #[tokio::test]
+    async fn test_on_success_in_open_state_logs_warning() {
+        // Force breaker into Open state, then call on_success path
+        let config = CircuitBreakerConfig::new(1, 1, Duration::from_secs(60));
+        let breaker = CircuitBreaker::new(config);
+
+        // Trigger open
+        let _ = breaker
+            .execute(|| async { Err::<(), FlowGuardError>(FlowGuardError::BanError("e".into())) })
+            .await;
+        assert!(breaker.is_open().await);
+
+        // Next call should be rejected (still open, not timed out)
+        let result = breaker
+            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_circuit_breaker_with_clock() {
+        use crate::clock::MockClock;
+        let mock_clock = Arc::new(MockClock::new());
+        let clock: Arc<dyn Clock> = mock_clock.clone();
+        let config = CircuitBreakerConfig::new(2, 2, Duration::from_secs(60));
+        let breaker = CircuitBreaker::with_clock(config, clock);
+
+        assert!(breaker.is_closed().await);
+        let stats = breaker.get_stats().await;
+        assert_eq!(stats.state, CircuitState::Closed);
+    }
+
+    #[tokio::test]
+    async fn test_circuit_breaker_builder_error_classifier() {
+        let classifier: Arc<dyn ErrorClassifier> = Arc::new(DefaultErrorClassifier);
+        let breaker = CircuitBreaker::builder()
+            .failure_threshold(3)
+            .error_classifier(classifier)
+            .build();
+        assert_eq!(breaker.config().failure_threshold, 3);
+    }
+
+    #[tokio::test]
+    async fn test_get_stats_after_failure() {
+        let config = CircuitBreakerConfig::new(5, 2, Duration::from_secs(60));
+        let breaker = CircuitBreaker::new(config);
+
+        let _ = breaker
+            .execute(|| async { Err::<(), FlowGuardError>(FlowGuardError::BanError("e".into())) })
+            .await;
+
+        let stats = breaker.get_stats().await;
+        assert_eq!(stats.failure_count, 1);
+        assert_eq!(stats.total_calls, 1);
+        assert!(stats.last_failure_time.is_some());
+    }
+
+    #[test]
+    fn test_default_error_classifier_storage_not_transiet() {
+        let classifier = DefaultErrorClassifier;
+        // NotFound is NOT transient, so it should NOT be counted as failure
+        let error = FlowGuardError::StorageError(crate::error::StorageError::NotFound("nf".into()));
+        assert!(!classifier.is_counted_as_failure(&error));
+    }
+
+    /// 测试在 Open 状态下调用 on_failure
+    /// 覆盖 on_failure 内 CircuitState::Open 分支（line 500, 502）
+    #[tokio::test]
+    async fn test_on_failure_when_open() {
+        let config = CircuitBreakerConfig::new(2, 2, Duration::from_secs(60));
+        let breaker = CircuitBreaker::new(config);
+
+        // 触发熔断，进入 Open 状态
+        for _ in 0..2 {
+            let _ = breaker
+                .execute(|| async {
+                    Err::<(), FlowGuardError>(FlowGuardError::BanError("e".to_string()))
+                })
+                .await;
+        }
+        assert!(breaker.is_open().await);
+
+        // 直接调用 on_failure，覆盖 Open 分支
+        // 此时状态为 Open，on_failure 内的 Open 分支会打印 warn 但不做状态转换
+        let error = FlowGuardError::BanError("open-state failure".to_string());
+        breaker.on_failure(&error).await;
+
+        // 状态应仍为 Open
+        assert!(breaker.is_open().await);
     }
 }

@@ -4,7 +4,6 @@ use axum::{
     body::Body,
     http::{header::AUTHORIZATION, Request, StatusCode},
     middleware::from_fn,
-    response::IntoResponse,
     routing::{delete, get, put},
     Router,
 };

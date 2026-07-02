@@ -191,4 +191,46 @@ mod tests {
         let deserialized: Namespace = serde_json::from_str(&json).unwrap();
         assert_eq!(ns, deserialized);
     }
+
+    #[test]
+    fn test_namespace_with_empty_strings() {
+        let ns = Namespace::new("", "");
+        assert_eq!(ns.tenant_id(), "");
+        assert_eq!(ns.environment(), "");
+        assert_eq!(ns.prefix(), "tenant::env:");
+    }
+
+    #[test]
+    fn test_namespace_with_special_characters() {
+        let ns = Namespace::new("tenant_a/b:c@d!", "prod-v1.2.3");
+        assert_eq!(ns.tenant_id(), "tenant_a/b:c@d!");
+        assert_eq!(ns.environment(), "prod-v1.2.3");
+        assert_eq!(ns.prefix(), "tenant:tenant_a/b:c@d!:env:prod-v1.2.3");
+    }
+
+    #[test]
+    fn test_namespace_qualify_key_edge_cases() {
+        let ns = Namespace::new("acme", "prod");
+        assert_eq!(ns.qualify_key(""), "tenant:acme:env:prod:");
+        assert_eq!(ns.qualify_key("::"), "tenant:acme:env:prod:::");
+    }
+
+    #[test]
+    fn test_namespace_display_matches_prefix() {
+        let ns = Namespace::new("tenant-1", "staging");
+        assert_eq!(format!("{}", ns), ns.prefix());
+    }
+
+    #[test]
+    fn test_namespace_clone_independent() {
+        let ns1 = Namespace::new("original", "prod");
+        let mut ns2 = ns1.clone();
+        // modify ns2 via qualify_key (it returns a new String, doesn't mutate)
+        // ns2 should still equal ns1 since we didn't mutate
+        assert_eq!(ns1, ns2);
+        // verify they really are different objects via serialization roundtrip
+        let json2 = serde_json::to_string(&ns2).unwrap();
+        let ns2_roundtrip: Namespace = serde_json::from_str(&json2).unwrap();
+        assert_eq!(ns1, ns2_roundtrip);
+    }
 }

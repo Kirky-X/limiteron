@@ -153,4 +153,62 @@ mod tests {
 
         assert_eq!(namespace.tenant_id(), "acme-corp");
     }
+
+    #[test]
+    fn test_default_produces_default_namespace() {
+        let resolver = DefaultTenantResolver::default();
+        let ctx = RequestContext::new();
+        let namespace = resolver.resolve(&ctx).unwrap();
+
+        assert_eq!(namespace, Namespace::default());
+    }
+
+    #[test]
+    fn test_header_resolver_with_different_environments() {
+        let resolver = HeaderTenantResolver::new("X-Env", "staging");
+        let ctx = RequestContext::new().with_header("X-Env", "customer-42");
+        let ns = resolver.resolve(&ctx).unwrap();
+
+        assert_eq!(ns.tenant_id(), "customer-42");
+        assert_eq!(ns.environment(), "staging");
+    }
+
+    #[test]
+    fn test_header_resolver_non_matching_header_name() {
+        let resolver = HeaderTenantResolver::new("Authorization", "production");
+        let ctx = RequestContext::new().with_header("X-Tenant-ID", "acme");
+        let result = resolver.resolve(&ctx);
+
+        assert!(
+            result.is_none(),
+            "Authorization header should not match X-Tenant-ID"
+        );
+    }
+
+    #[test]
+    fn test_header_resolver_empty_header_value() {
+        let resolver = HeaderTenantResolver::new("X-Tenant-ID", "production");
+        let ctx = RequestContext::new().with_header("X-Tenant-ID", "");
+        let ns = resolver.resolve(&ctx).unwrap();
+
+        assert_eq!(
+            ns.tenant_id(),
+            "",
+            "tenant_id should be empty string from empty header value"
+        );
+    }
+
+    #[test]
+    fn test_header_resolver_debug_output() {
+        let resolver = HeaderTenantResolver::new("X-Tenant-ID", "production");
+        let debug = format!("{:?}", resolver);
+        assert!(
+            debug.contains("HeaderTenantResolver"),
+            "Debug output should contain type name"
+        );
+        assert!(
+            debug.contains("X-Tenant-ID") || debug.contains("x-tenant-id"),
+            "Debug output should contain header name"
+        );
+    }
 }

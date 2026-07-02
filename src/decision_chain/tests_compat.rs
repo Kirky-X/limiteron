@@ -4,4 +4,3 @@
 pub use crate::decision_chain::DecisionChain;
 pub use crate::decision_chain::DecisionChainBuilder;
 pub use crate::decision_chain::DecisionNode;
-pub use crate::decision_chain::DecisionNodeBuilder;

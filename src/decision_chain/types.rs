@@ -3,7 +3,7 @@
 use crate::error::{Decision, FlowGuardError, RejectionMetadata};
 use crate::limiters::Limiter;
 use ahash::AHashMap;
-use log::{debug, info, trace, warn};
+use log::{info, warn};
 use parking_lot::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -34,14 +34,6 @@ pub struct DecisionNode {
 }
 
 impl DecisionNode {
-    /// 使用构建器创建决策节点
-    ///
-    /// # 返回
-    /// - 决策节点构建器
-    pub(crate) fn builder() -> DecisionNodeBuilder {
-        DecisionNodeBuilder::new()
-    }
-
     /// 使用依赖注入创建决策节点
     ///
     /// # 参数
@@ -100,152 +92,6 @@ impl DecisionNode {
         self.cost = cost;
         self
     }
-
-    /// 执行限流检查（内部方法）
-    ///
-    /// # 返回
-    /// - `Ok(allowed)`: 是否允许
-    /// - `Err(_)`: 错误
-    #[allow(dead_code)]
-    async fn check_inner(&self) -> Result<bool, FlowGuardError> {
-        if !self.enabled {
-            debug!("DecisionNode {} is disabled, skipping", self.id);
-            return Ok(true);
-        }
-
-        trace!(
-            "Checking decision node: {} (cost: {})",
-            self.name,
-            self.cost
-        );
-        self.limiter.allow(self.cost).await
-    }
-}
-
-// ============================================================================
-// 决策节点构建器
-// ============================================================================
-
-/// 决策节点构建器
-///
-/// 提供流式API构建决策节点。
-pub(crate) struct DecisionNodeBuilder {
-    id: Option<String>,
-    name: Option<String>,
-    limiter: Option<Arc<dyn Limiter>>,
-    priority: u16,
-    enabled: bool,
-    short_circuit: bool,
-    cost: u64,
-}
-
-impl DecisionNodeBuilder {
-    /// 创建新的构建器
-    pub fn new() -> Self {
-        Self {
-            id: None,
-            name: None,
-            limiter: None,
-            priority: 100,
-            enabled: true,
-            short_circuit: true,
-            cost: 1,
-        }
-    }
-
-    /// 设置节点ID
-    ///
-    /// # 参数
-    /// - `id`: 节点ID
-    pub fn id(mut self, id: &str) -> Self {
-        self.id = Some(id.to_string());
-        self
-    }
-
-    /// 设置节点名称
-    ///
-    /// # 参数
-    /// - `name`: 节点名称
-    pub fn name(mut self, name: &str) -> Self {
-        self.name = Some(name.to_string());
-        self
-    }
-
-    /// 设置限流器（依赖注入）
-    ///
-    /// # 参数
-    /// - `limiter`: 限流器
-    pub fn limiter(mut self, limiter: Arc<dyn Limiter>) -> Self {
-        self.limiter = Some(limiter);
-        self
-    }
-
-    /// 设置优先级
-    ///
-    /// # 参数
-    /// - `priority`: 优先级
-    pub fn priority(mut self, priority: u16) -> Self {
-        self.priority = priority;
-        self
-    }
-
-    /// 设置是否启用
-    ///
-    /// # 参数
-    /// - `enabled`: 是否启用
-    pub fn enabled(mut self, enabled: bool) -> Self {
-        self.enabled = enabled;
-        self
-    }
-
-    /// 设置是否短路
-    ///
-    /// # 参数
-    /// - `short_circuit`: 是否短路
-    pub fn short_circuit(mut self, short_circuit: bool) -> Self {
-        self.short_circuit = short_circuit;
-        self
-    }
-
-    /// 设置成本
-    ///
-    /// # 参数
-    /// - `cost`: 成本
-    pub fn cost(mut self, cost: u64) -> Self {
-        self.cost = cost;
-        self
-    }
-
-    /// 构建决策节点
-    ///
-    /// # 返回
-    /// - 决策节点实例
-    ///
-    /// # 错误
-    /// - 如果缺少必需字段，返回错误
-    pub fn build(self) -> Result<DecisionNode, String> {
-        let id = self.id.ok_or_else(|| "id is required".to_string())?;
-        let name = self.name.ok_or_else(|| "name is required".to_string())?;
-        let limiter = self
-            .limiter
-            .ok_or_else(|| "limiter is required".to_string())?;
-
-        Ok(DecisionNode {
-            id,
-            name,
-            limiter,
-            priority: self.priority,
-            enabled: self.enabled,
-            short_circuit: self.short_circuit,
-            cost: self.cost,
-        })
-    }
-}
-
-impl Default for DecisionNodeBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 // ============================================================================
@@ -265,7 +111,7 @@ impl Default for DecisionNodeBuilder {
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::decision_chain::AtomicChainStats;
+/// use limiteron::decision_chain::types::AtomicChainStats;
 ///
 /// let stats = AtomicChainStats::new();
 /// stats.increment_total();
@@ -275,7 +121,7 @@ impl Default for DecisionNodeBuilder {
 /// assert_eq!(snapshot.total_checks, 1);
 /// assert_eq!(snapshot.allowed_count, 1);
 /// ```
-pub(crate) struct AtomicChainStats {
+pub struct AtomicChainStats {
     /// 总检查次数
     total_checks: AtomicU64,
     /// 允许次数
@@ -1853,5 +1699,179 @@ mod tests {
         // 第三次检查应该失败（没有足够的令牌）
         let decision = chain.check().await.unwrap();
         assert!(matches!(decision, Decision::Rejected(_)));
+    }
+
+    // ==================== DecisionNode::new() 测试 ====================
+
+    #[test]
+    fn test_decision_node_new_backward_compat() {
+        let limiter = Arc::new(TokenBucketLimiter::new(100, 10));
+        let node = DecisionNode::new("node1".to_string(), "new method".to_string(), limiter, 100);
+        assert_eq!(node.id, "node1");
+        assert_eq!(node.name, "new method");
+        assert_eq!(node.priority, 100);
+        assert!(node.enabled);
+        assert!(node.short_circuit);
+        assert_eq!(node.cost, 1);
+    }
+
+    // ==================== DecisionChain Builder 测试 ====================
+
+    #[test]
+    fn test_decision_chain_builder_method() {
+        let builder = DecisionChain::builder();
+        let chain = builder.build();
+        assert_eq!(chain.node_count(), 0);
+    }
+
+    #[test]
+    fn test_decision_chain_builder_default_trait() {
+        let _builder = DecisionChainBuilder::default();
+    }
+
+    // ==================== DecisionChain Error Path 测试 ====================
+
+    struct ErrorLimiter;
+
+    #[async_trait]
+    impl Limiter for ErrorLimiter {
+        async fn allow(&self, _cost: u64) -> Result<bool, FlowGuardError> {
+            Err(FlowGuardError::LimitError("limit error".to_string()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_decision_chain_check_error_path() {
+        let node = DecisionNode::with_dependencies(
+            "error_node".to_string(),
+            "Error Limiter".to_string(),
+            Arc::new(ErrorLimiter),
+            100,
+        );
+        let chain = DecisionChain::with_dependencies(vec![node]);
+        let result = chain.check().await;
+        assert!(result.is_err());
+
+        let stats = chain.stats_sync();
+        assert_eq!(stats.total_checks, 1);
+        assert_eq!(stats.error_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_decision_chain_error_path_second_node() {
+        let ok = Arc::new(TokenBucketLimiter::new(100, 10));
+        let ok_node = DecisionNode::with_dependencies("ok".to_string(), "OK".to_string(), ok, 100);
+        let err_node = DecisionNode::with_dependencies(
+            "err".to_string(),
+            "Error".to_string(),
+            Arc::new(ErrorLimiter),
+            50,
+        );
+        let chain = DecisionChain::with_dependencies(vec![ok_node, err_node]);
+        let result = chain.check().await;
+        assert!(result.is_err());
+
+        let stats = chain.stats_sync();
+        assert_eq!(stats.total_checks, 1);
+        assert_eq!(stats.error_count, 1);
+    }
+
+    // ==================== DecisionChain Non-Short-Circuit 测试 ====================
+
+    #[tokio::test]
+    async fn test_decision_chain_non_short_circuit_final() {
+        let pass = Arc::new(MockLimiter::new(true));
+        let limited = Arc::new(TokenBucketLimiter::new(3, 1));
+
+        let node1 = DecisionNode::with_dependencies(
+            "pass".to_string(),
+            "Pass Through".to_string(),
+            pass,
+            100,
+        );
+        let node2 = DecisionNode::with_dependencies(
+            "limited".to_string(),
+            "Limited".to_string(),
+            limited,
+            50,
+        )
+        .with_short_circuit(false);
+
+        let chain = DecisionChain::with_dependencies(vec![node1, node2]);
+
+        for _ in 0..3 {
+            let decision = chain.check().await.unwrap();
+            assert_eq!(decision, Decision::allowed_default());
+        }
+
+        let decision = chain.check().await.unwrap();
+        assert!(matches!(decision, Decision::Rejected(_)));
+        if let Decision::Rejected(meta) = decision {
+            assert!(meta.reason.contains("Limited"));
+        }
+
+        let stats = chain.stats_sync();
+        assert_eq!(stats.total_checks, 5);
+        assert_eq!(stats.rejected_count, 1);
+    }
+
+    // ==================== DecisionChain Node Not Found 测试 ====================
+
+    #[tokio::test]
+    async fn test_decision_chain_enable_node_not_found() {
+        let limiter = Arc::new(TokenBucketLimiter::new(10, 1));
+        let node =
+            DecisionNode::with_dependencies("node1".to_string(), "Node".to_string(), limiter, 100);
+        let mut chain = DecisionChain::with_dependencies(vec![node]);
+        assert!(!chain.enable_node("nonexistent"));
+    }
+
+    #[tokio::test]
+    async fn test_decision_chain_disable_node_not_found() {
+        let limiter = Arc::new(TokenBucketLimiter::new(10, 1));
+        let node =
+            DecisionNode::with_dependencies("node1".to_string(), "Node".to_string(), limiter, 100);
+        let mut chain = DecisionChain::with_dependencies(vec![node]);
+        assert!(!chain.disable_node("nonexistent"));
+    }
+
+    #[tokio::test]
+    async fn test_decision_chain_set_short_circuit_found() {
+        let spy = Arc::new(SpyLimiter::new());
+        let reject = Arc::new(MockLimiter::new(true));
+
+        let node1 = DecisionNode::with_dependencies(
+            "node1".to_string(),
+            "Mock".to_string(),
+            reject.clone(),
+            100,
+        );
+        let node2 = DecisionNode::with_dependencies(
+            "node2".to_string(),
+            "Spy".to_string(),
+            spy.clone(),
+            50,
+        );
+
+        let mut chain = DecisionChain::with_dependencies(vec![node1, node2]);
+
+        chain.check().await.unwrap();
+        assert_eq!(spy.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        assert!(chain.set_short_circuit("node1", true));
+
+        reject.set_allowed(false);
+        let decision = chain.check().await.unwrap();
+        assert!(matches!(decision, Decision::Rejected(_)));
+        assert_eq!(spy.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_decision_chain_set_short_circuit_not_found() {
+        let limiter = Arc::new(TokenBucketLimiter::new(10, 1));
+        let node =
+            DecisionNode::with_dependencies("node1".to_string(), "Node".to_string(), limiter, 100);
+        let mut chain = DecisionChain::with_dependencies(vec![node]);
+        assert!(!chain.set_short_circuit("nonexistent", true));
     }
 }

@@ -5,12 +5,13 @@
 //! - Sliding Window
 //! - Fixed Window
 //! - Concurrency Limiter
+//! - GCRA (Generic Cell Rate Algorithm)
 //!
 //! Run: cargo run --bin rate_limiters
 
 use limiteron::error::FlowGuardError;
 use limiteron::limiters::{
-    ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
+    ConcurrencyLimiter, FixedWindowLimiter, GcraLimiter, Limiter, ShardedSlidingWindowLimiter,
     TokenBucketLimiter,
 };
 use std::time::Duration;
@@ -23,6 +24,7 @@ async fn main() -> Result<(), FlowGuardError> {
     demo_sliding_window().await?;
     demo_fixed_window().await?;
     demo_concurrency().await?;
+    demo_gcra().await?;
 
     println!("\n=== All demos completed ===");
     Ok(())
@@ -133,6 +135,42 @@ async fn demo_concurrency() -> Result<(), FlowGuardError> {
     drop(permit_one);
     drop(permit_two);
     println!("  Released both permits\n");
+
+    Ok(())
+}
+
+async fn demo_gcra() -> Result<(), FlowGuardError> {
+    println!("--- GCRA (Generic Cell Rate Algorithm) Limiter ---");
+    println!("Capacity: 3 burst, Rate: 10 req/s (100ms interval)\n");
+
+    // GcraLimiter::with_rate(capacity, requests_per_second)
+    // capacity=3 burst, 10 req/s sustained → 100ms between tokens
+    let limiter = GcraLimiter::with_rate(3, 10);
+
+    // GCRA's check() returns a rich result (sync, not async)
+    let results: Vec<_> = (0..5)
+        .map(|_| limiter.check(1))
+        .collect();
+
+    for (i, r) in results.iter().enumerate() {
+        println!(
+            "  Request {}: allowed={}, remaining={}, retry_after_us={}",
+            i + 1,
+            r.allowed,
+            r.remaining,
+            r.retry_after_us
+        );
+    }
+    println!("  (First 3 succeed (burst), 4th-5th denied (rate-limited))\n");
+
+    println!("  Waiting 150ms for next token...");
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    let after_wait = limiter.check(1);
+    println!(
+        "  After wait: allowed={}, remaining={}, retry_after_us={}\n",
+        after_wait.allowed, after_wait.remaining, after_wait.retry_after_us
+    );
 
     Ok(())
 }

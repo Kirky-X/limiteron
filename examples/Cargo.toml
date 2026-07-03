@@ -1,6 +1,6 @@
 [package]
 name = "limiteron-examples"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Kirky.X"]
 description = "Limiteron usage examples - demonstrates rate limiting, circuit breaking, quota control, and ban management"
@@ -9,7 +9,7 @@ description = "Limiteron usage examples - demonstrates rate limiting, circuit br
 
 [dependencies]
 limiteron = { path = ".." }
-tokio = { version = "1.49", features = ["rt-multi-thread", "macros", "time", "sync"] }
+tokio = { version = "1.49", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
 async-trait = "0.1"
 ahash = "0.8.12"
 chrono = { version = "0.4", features = ["serde"] }
@@ -111,6 +111,15 @@ name = "device_geo_matching"
 path = "src/bin/device_geo_matching.rs"
 required-features = ["device-matching", "geo-matching"]
 
+[[bin]]
+name = "graceful_shutdown"
+path = "src/bin/graceful_shutdown.rs"
+
+[[bin]]
+name = "redis_storage"
+path = "src/bin/redis_storage.rs"
+required-features = ["redis-storage"]
+
 [features]
 default = []
 # 核心功能
@@ -120,6 +129,7 @@ quota-control = ["limiteron/quota-control"]
 ban-manager = ["limiteron/ban-manager"]
 # 存储后端
 postgres = ["limiteron/postgres"]
+redis-storage = ["limiteron/redis-storage"]
 cache-service = ["limiteron/cache-service"]
 # 可观测性
 telemetry = ["limiteron/telemetry"]
@@ -135,6 +145,8 @@ geo-matching = ["limiteron/geo-matching"]
 validation = ["limiteron/validation", "limiteron/ban-manager"]
 # 事件系统
 event-system = ["limiteron/event-system"]
+# 限流算法
+gcra = ["limiteron/gcra"]
 # 完整功能（包含所有示例所需的 features）
 full = [
     "macros",
@@ -142,6 +154,7 @@ full = [
     "quota-control",
     "ban-manager",
     "postgres",
+    "redis-storage",
     "cache-service",
     "telemetry",
     "monitoring",
@@ -152,6 +165,7 @@ full = [
     "geo-matching",
     "validation",
     "event-system",
+    "gcra",
 ]
 
 [dev-dependencies]

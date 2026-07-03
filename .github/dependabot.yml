@@ -1,0 +1,48 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "cargo"
+    commit-message:
+      prefix: "deps(cargo)"
+  - package-ecosystem: "cargo"
+    directory: "/examples"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "cargo"
+      - "examples"
+    commit-message:
+      prefix: "deps(examples)"
+  - package-ecosystem: "cargo"
+    directory: "/macros"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "cargo"
+      - "macros"
+    commit-message:
+      prefix: "deps(macros)"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "deps(ci)"

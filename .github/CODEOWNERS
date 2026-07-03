@@ -1,0 +1,11 @@
+# CODEOWNERS — default reviewers for PRs
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+* @Kirky-X
+
+# Specific areas (optional — uncomment and edit)
+# /src/storage/       @Kirky-X
+# /src/governor.rs    @Kirky-X
+# /src/limiters.rs    @Kirky-X
+# /.github/           @Kirky-X

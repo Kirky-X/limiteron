@@ -1,0 +1,26 @@
+# Lefthook configuration — Git hooks manager (Go binary, no runtime deps)
+# Install: brew install lefthook && lefthook install
+# Docs: https://github.com/evilmartians/lefthook
+# Mirrors .pre-commit-config.yaml core subset; both can coexist (pick one).
+
+pre-commit:
+  parallel: true
+  commands:
+    cargo-fmt:
+      run: cargo fmt --all -- --check
+      glob: "*.rs"
+    cargo-check:
+      run: cargo check --lib
+      glob: "*.rs"
+    cargo-clippy:
+      run: cargo clippy --lib -- -D warnings
+      glob: "*.rs"
+    detect-private-key:
+      run: grep -rE "BEGIN (RSA |EC |OPENSSH |DSA |)PRIVATE KEY" --include="*.rs" --include="*.toml" --include="*.yml" --include="*.yaml" src/ && exit 1 || exit 0
+
+pre-push:
+  commands:
+    cargo-test:
+      run: cargo test --lib --features full
+    cargo-deny:
+      run: cargo deny check advisories bans licenses sources

@@ -1086,7 +1086,7 @@ impl BanManager {
 mod tests {
     use super::*;
     use crate::storage::{BanHistory, BanStorage};
-    use std::collections::HashMap as StdHashMap;
+    use ahash::AHashMap as StdHashMap;
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
@@ -1122,11 +1122,13 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)]
         async fn set_behavior(&self, behavior: MockBanBehavior) {
             let mut current = self.behavior.write().await;
             *current = behavior;
         }
 
+        #[allow(dead_code)]
         async fn clear(&self) {
             let mut bans = self.bans.write().await;
             let mut history = self.history.write().await;
@@ -1300,7 +1302,8 @@ mod tests {
 
             let bans = self.bans.read().await;
             let now = chrono::Utc::now();
-            let mut records: Vec<_> = bans.values().cloned().collect();
+            #[allow(clippy::map_clone)]
+            let mut records: Vec<_> = bans.values().map(|r| r.clone()).collect();
 
             if active_only {
                 records.retain(|r| r.expires_at > now);

@@ -1092,8 +1092,8 @@ mod tests {
 
         let calls = state.lock().unwrap();
         assert_eq!(calls.len(), 2);
-        assert_eq!(calls[0], true);
-        assert_eq!(calls[1], false);
+        assert!(calls[0]);
+        assert!(!calls[1]);
     }
 
     #[tokio::test]
@@ -1112,7 +1112,7 @@ mod tests {
         {
             let calls = state.lock().unwrap();
             assert_eq!(calls.len(), 1);
-            assert_eq!(calls[0], true);
+            assert!(calls[0]);
         }
 
         // Second failure does NOT re-notify (already in island mode)
@@ -1136,7 +1136,7 @@ mod tests {
         {
             let calls = state.lock().unwrap();
             assert_eq!(calls.len(), 2);
-            assert_eq!(calls[1], false);
+            assert!(!calls[1]);
         }
         assert!(!manager.is_failed(ComponentType::Postgres).await);
     }
@@ -1178,7 +1178,7 @@ mod tests {
 
         let calls = state.lock().unwrap();
         assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0], true);
+        assert!(calls[0]);
     }
 
     #[tokio::test]

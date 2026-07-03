@@ -303,6 +303,167 @@ mod tests {
     }
 
     #[test]
+    fn test_event_type_name_all_variants() {
+        assert_eq!(
+            EventType::RateLimitTriggered {
+                key: "k".to_string(),
+                rule_id: "r".to_string(),
+                decision: "Deny".to_string(),
+            }
+            .name(),
+            "rate_limit_triggered"
+        );
+        assert_eq!(
+            EventType::BanApplied {
+                target: "t".to_string(),
+                reason: "r".to_string(),
+                duration: 1,
+            }
+            .name(),
+            "ban_applied"
+        );
+        assert_eq!(
+            EventType::BanExpired {
+                target: "t".to_string(),
+            }
+            .name(),
+            "ban_expired"
+        );
+        assert_eq!(
+            EventType::CircuitStateChanged {
+                from: "Closed".to_string(),
+                to: "Open".to_string(),
+            }
+            .name(),
+            "circuit_state_changed"
+        );
+        assert_eq!(
+            EventType::QuotaAlert {
+                user_id: "u".to_string(),
+                resource: "r".to_string(),
+                usage_percent: 50.0,
+            }
+            .name(),
+            "quota_alert"
+        );
+    }
+
+    #[test]
+    fn test_event_type_severity_all_branches() {
+        // RateLimitTriggered decision branches
+        assert_eq!(
+            EventType::RateLimitTriggered {
+                key: "k".to_string(),
+                rule_id: "r".to_string(),
+                decision: "Deny".to_string(),
+            }
+            .severity(),
+            6
+        );
+        assert_eq!(
+            EventType::RateLimitTriggered {
+                key: "k".to_string(),
+                rule_id: "r".to_string(),
+                decision: "Fallback".to_string(),
+            }
+            .severity(),
+            4
+        );
+        assert_eq!(
+            EventType::RateLimitTriggered {
+                key: "k".to_string(),
+                rule_id: "r".to_string(),
+                decision: "Allow".to_string(),
+            }
+            .severity(),
+            2
+        );
+
+        // BanApplied
+        assert_eq!(
+            EventType::BanApplied {
+                target: "t".to_string(),
+                reason: "r".to_string(),
+                duration: 60,
+            }
+            .severity(),
+            8
+        );
+
+        // BanExpired
+        assert_eq!(
+            EventType::BanExpired {
+                target: "t".to_string(),
+            }
+            .severity(),
+            1
+        );
+
+        // CircuitStateChanged to branches
+        assert_eq!(
+            EventType::CircuitStateChanged {
+                from: "Closed".to_string(),
+                to: "Open".to_string(),
+            }
+            .severity(),
+            9
+        );
+        assert_eq!(
+            EventType::CircuitStateChanged {
+                from: "Open".to_string(),
+                to: "HalfOpen".to_string(),
+            }
+            .severity(),
+            5
+        );
+        assert_eq!(
+            EventType::CircuitStateChanged {
+                from: "HalfOpen".to_string(),
+                to: "Closed".to_string(),
+            }
+            .severity(),
+            1
+        );
+        assert_eq!(
+            EventType::CircuitStateChanged {
+                from: "X".to_string(),
+                to: "Unknown".to_string(),
+            }
+            .severity(),
+            3
+        );
+
+        // QuotaAlert usage_percent branches
+        assert_eq!(
+            EventType::QuotaAlert {
+                user_id: "u".to_string(),
+                resource: "r".to_string(),
+                usage_percent: 95.0,
+            }
+            .severity(),
+            7
+        );
+        assert_eq!(
+            EventType::QuotaAlert {
+                user_id: "u".to_string(),
+                resource: "r".to_string(),
+                usage_percent: 80.0,
+            }
+            .severity(),
+            5
+        );
+        assert_eq!(
+            EventType::QuotaAlert {
+                user_id: "u".to_string(),
+                resource: "r".to_string(),
+                usage_percent: 50.0,
+            }
+            .severity(),
+            3
+        );
+    }
+
+    #[test]
     fn test_event_creation() {
         let event_type = EventType::BanApplied {
             target: "user123".to_string(),
@@ -341,10 +502,8 @@ mod tests {
             target: "user123".to_string(),
         };
 
-        let event = Event::new(event_type).add_metadata(
-            "cleanup_reason".to_string(),
-            serde_json::json!("auto_cleanup"),
-        );
+        let event = Event::new(event_type)
+            .add_metadata("cleanup_reason", serde_json::json!("auto_cleanup"));
 
         assert_eq!(event.metadata.len(), 1);
     }

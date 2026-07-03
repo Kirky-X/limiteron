@@ -219,4 +219,63 @@ mod tests {
         let extractor = CompositeExtractor::new(vec![], false).with_fallback(true);
         assert_eq!(extractor.name(), "CompositeExtractor");
     }
+
+    #[test]
+    fn test_composite_fallback_after_extractor_failure() {
+        // 第一提取器存在但不匹配（返回 None），fallback 应启用并使用 client_ip
+        let extractor = CompositeExtractor::new(
+            vec![Box::new(UserIdExtractor::from_header("X-User-Id"))],
+            true,
+        );
+        let ctx = RequestContext::new()
+            .with_header("X-Other-Header", "value")
+            .with_client_ip("10.0.0.2");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::Ip("10.0.0.2".into()))
+        );
+    }
+
+    #[test]
+    fn test_composite_no_fallback_after_extractor_failure() {
+        // fallback_to_default=false 且提取器不匹配 → 返回 None（不回退到 IP）
+        let extractor = CompositeExtractor::new(
+            vec![Box::new(UserIdExtractor::from_header("X-User-Id"))],
+            false,
+        );
+        let ctx = RequestContext::new()
+            .with_header("X-Other-Header", "value")
+            .with_client_ip("10.0.0.3");
+        assert_eq!(extractor.extract(&ctx), None);
+    }
+
+    #[test]
+    fn test_composite_first_extractor_wins() {
+        // 多个提取器：第一个成功即返回，不尝试后续
+        let extractor = CompositeExtractor::new(
+            vec![
+                Box::new(UserIdExtractor::from_header("X-User-Id")),
+                Box::new(IpExtractor::from_header("X-Forwarded-For")),
+            ],
+            false,
+        );
+        let ctx = RequestContext::new()
+            .with_header("X-User-Id", "winner")
+            .with_header("X-Forwarded-For", "1.2.3.4");
+        assert_eq!(
+            extractor.extract(&ctx),
+            Some(Identifier::UserId("winner".into()))
+        );
+    }
+
+    #[test]
+    fn test_composite_builder_default_no_fallback() {
+        // builder 默认 fallback_to_default=false
+        let extractor = CompositeExtractor::builder()
+            .add_extractor(Box::new(UserIdExtractor::from_header("X-User-Id")))
+            .build();
+        let ctx = RequestContext::new().with_client_ip("10.0.0.4");
+        // 无 header 匹配，且 fallback=false → None
+        assert_eq!(extractor.extract(&ctx), None);
+    }
 }

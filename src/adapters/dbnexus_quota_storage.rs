@@ -243,3 +243,72 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn make_model(user_id: &str, resource: &str, limit: u64, consumed: u64) -> QuotaRecordModel {
+        let window_start = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+        let window_end = window_start + ChronoDuration::hours(1);
+        QuotaRecordModel {
+            id: 1,
+            user_id: user_id.to_string(),
+            resource: resource.to_string(),
+            quota_key: create_quota_key(user_id, resource),
+            limit,
+            consumed,
+            window_start,
+            window_end,
+            created_at: window_start,
+            updated_at: window_start,
+        }
+    }
+
+    #[test]
+    fn test_model_to_info_basic() {
+        let model = make_model("user1", "api_requests", 1000, 250);
+        let info = DBNexusQuotaStorageAdapter::model_to_info(&model);
+        assert_eq!(info.consumed, 250);
+        assert_eq!(info.limit, 1000);
+        assert_eq!(info.window_start, model.window_start);
+        assert_eq!(info.window_end, model.window_end);
+    }
+
+    #[test]
+    fn test_model_to_info_zero_consumed() {
+        let model = make_model("user2", "storage_mb", 500, 0);
+        let info = DBNexusQuotaStorageAdapter::model_to_info(&model);
+        assert_eq!(info.consumed, 0);
+        assert_eq!(info.limit, 500);
+    }
+
+    #[test]
+    fn test_model_to_info_full_consumed() {
+        let model = make_model("user3", "api_calls", 100, 100);
+        let info = DBNexusQuotaStorageAdapter::model_to_info(&model);
+        assert_eq!(info.consumed, 100);
+        assert_eq!(info.limit, 100);
+    }
+
+    #[test]
+    fn test_model_to_info_preserves_window() {
+        let model = make_model("user4", "resource", 50, 25);
+        let info = DBNexusQuotaStorageAdapter::model_to_info(&model);
+        assert_eq!(info.window_start, model.window_start);
+        assert_eq!(info.window_end, model.window_end);
+    }
+
+    #[test]
+    fn test_map_err_db_error_to_storage_error() {
+        let db_err = dbnexus::DbError::new(sea_orm::DbErr::Custom("quota query error".to_string()));
+        let storage_err = DBNexusQuotaStorageAdapter::map_err(db_err);
+        match storage_err {
+            StorageError::QueryError(msg) => {
+                assert!(msg.contains("quota query error"));
+            }
+            other => panic!("expected QueryError, got {:?}", other),
+        }
+    }
+}

@@ -1,0 +1,22 @@
+[default]
+features = "full"
+timeout = "300s"
+out = ["Json", "Html"]
+output-dir = "coverage"
+fail-under = 95
+
+exclude-files = [
+    "tests/*",
+    "examples/*",
+    "benches/*",
+    "src/bin/*",
+    "macros/*",
+    # DB-dependent modules requiring external infrastructure (Redis/Postgres/MaxMind DB).
+    # Their coverage is provided by integration tests (tests/ directory, requires Docker).
+    "src/storage/redis.rs",
+    "src/adapters/dbnexus_storage.rs",
+    "src/adapters/dbnexus_ban_storage.rs",
+    "src/adapters/dbnexus_quota_storage.rs",
+    "src/adapters/storage_factory.rs",
+    "src/matchers/geo.rs",
+]

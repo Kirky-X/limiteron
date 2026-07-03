@@ -271,7 +271,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_gcra_burst() {
-        let limiter = GcraLimiter::new(10, 1000); // 10 capacity
+        // 使用大 refill_interval（1s）避免测试运行速度差异导致令牌补充
+        let limiter = GcraLimiter::new(10, 1_000_000); // 10 capacity, 1s interval
 
         // Should allow burst up to capacity
         for _ in 0..10 {

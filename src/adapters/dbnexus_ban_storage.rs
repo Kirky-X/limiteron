@@ -313,3 +313,142 @@ impl BanStorage for DBNexusBanStorageAdapter {
             .collect())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn make_model(
+        target_type: &str,
+        target_value: &str,
+        ban_times: u32,
+        duration: i64,
+        is_manual: bool,
+        reason: &str,
+    ) -> BanRecordModel {
+        let banned_at = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+        let expires_at = banned_at + chrono::Duration::seconds(duration);
+        BanRecordModel {
+            id: 1,
+            target_type: target_type.to_string(),
+            target_value: target_value.to_string(),
+            target_key: create_target_key(target_type, target_value),
+            ban_times,
+            duration,
+            banned_at,
+            expires_at,
+            is_manual,
+            reason: reason.to_string(),
+            created_at: banned_at,
+            updated_at: banned_at,
+        }
+    }
+
+    #[test]
+    fn test_target_to_key_ip() {
+        let target = BanTarget::Ip("192.168.1.1".to_string());
+        assert_eq!(
+            DBNexusBanStorageAdapter::target_to_key(&target),
+            "ip:192.168.1.1"
+        );
+    }
+
+    #[test]
+    fn test_target_to_key_user_id() {
+        let target = BanTarget::UserId("user123".to_string());
+        assert_eq!(
+            DBNexusBanStorageAdapter::target_to_key(&target),
+            "user:user123"
+        );
+    }
+
+    #[test]
+    fn test_target_to_key_mac() {
+        let target = BanTarget::Mac("aa:bb:cc:dd:ee:ff".to_string());
+        assert_eq!(
+            DBNexusBanStorageAdapter::target_to_key(&target),
+            "mac:aa:bb:cc:dd:ee:ff"
+        );
+    }
+
+    #[test]
+    fn test_target_to_type_value_ip() {
+        let target = BanTarget::Ip("192.168.1.1".to_string());
+        let (t, v) = DBNexusBanStorageAdapter::target_to_type_value(&target);
+        assert_eq!(t, "ip");
+        assert_eq!(v, "192.168.1.1");
+    }
+
+    #[test]
+    fn test_target_to_type_value_user_id() {
+        let target = BanTarget::UserId("user123".to_string());
+        let (t, v) = DBNexusBanStorageAdapter::target_to_type_value(&target);
+        assert_eq!(t, "user");
+        assert_eq!(v, "user123");
+    }
+
+    #[test]
+    fn test_target_to_type_value_mac() {
+        let target = BanTarget::Mac("aa:bb:cc:dd:ee:ff".to_string());
+        let (t, v) = DBNexusBanStorageAdapter::target_to_type_value(&target);
+        assert_eq!(t, "mac");
+        assert_eq!(v, "aa:bb:cc:dd:ee:ff");
+    }
+
+    #[test]
+    fn test_model_to_record_ip() {
+        let model = make_model("ip", "192.168.1.1", 3, 3600, true, "excessive requests");
+        let record = DBNexusBanStorageAdapter::model_to_record(&model);
+        assert_eq!(record.target, BanTarget::Ip("192.168.1.1".to_string()));
+        assert_eq!(record.ban_times, 3);
+        assert_eq!(record.duration, StdDuration::from_secs(3600));
+        assert!(record.is_manual);
+        assert_eq!(record.reason, "excessive requests");
+    }
+
+    #[test]
+    fn test_model_to_record_user() {
+        let model = make_model("user", "user123", 1, 7200, false, "abuse");
+        let record = DBNexusBanStorageAdapter::model_to_record(&model);
+        assert_eq!(record.target, BanTarget::UserId("user123".to_string()));
+        assert_eq!(record.ban_times, 1);
+        assert_eq!(record.duration, StdDuration::from_secs(7200));
+        assert!(!record.is_manual);
+        assert_eq!(record.reason, "abuse");
+    }
+
+    #[test]
+    fn test_model_to_record_unknown_type_falls_back_to_mac() {
+        // 未知 target_type 应回退到 Mac
+        let model = make_model("unknown", "aa:bb:cc:dd:ee:ff", 2, 1800, true, "test");
+        let record = DBNexusBanStorageAdapter::model_to_record(&model);
+        assert_eq!(
+            record.target,
+            BanTarget::Mac("aa:bb:cc:dd:ee:ff".to_string())
+        );
+        assert_eq!(record.ban_times, 2);
+        assert_eq!(record.duration, StdDuration::from_secs(1800));
+    }
+
+    #[test]
+    fn test_model_to_record_preserves_timestamps() {
+        let model = make_model("ip", "10.0.0.1", 1, 3600, false, "test");
+        let record = DBNexusBanStorageAdapter::model_to_record(&model);
+        assert_eq!(record.banned_at, model.banned_at);
+        assert_eq!(record.expires_at, model.expires_at);
+    }
+
+    #[test]
+    fn test_map_err_db_error_to_storage_error() {
+        // 通过构造一个 DbError 来测试 map_err
+        let db_err = dbnexus::DbError::new(sea_orm::DbErr::Custom("test query error".to_string()));
+        let storage_err = DBNexusBanStorageAdapter::map_err(db_err);
+        match storage_err {
+            StorageError::QueryError(msg) => {
+                assert!(msg.contains("test query error"));
+            }
+            other => panic!("expected QueryError, got {:?}", other),
+        }
+    }
+}

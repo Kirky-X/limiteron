@@ -167,13 +167,13 @@ mod tests {
 
     #[test]
     fn test_namespace_hash() {
-        use std::collections::HashSet;
+        use ahash::AHashSet;
 
         let ns1 = Namespace::new("tenant-1", "prod");
         let ns2 = Namespace::new("tenant-1", "prod");
         let ns3 = Namespace::new("tenant-2", "prod");
 
-        let mut set = HashSet::new();
+        let mut set = AHashSet::new();
         set.insert(ns1.clone());
         set.insert(ns2.clone());
         set.insert(ns3.clone());
@@ -224,7 +224,7 @@ mod tests {
     #[test]
     fn test_namespace_clone_independent() {
         let ns1 = Namespace::new("original", "prod");
-        let mut ns2 = ns1.clone();
+        let ns2 = ns1.clone();
         // modify ns2 via qualify_key (it returns a new String, doesn't mutate)
         // ns2 should still equal ns1 since we didn't mutate
         assert_eq!(ns1, ns2);

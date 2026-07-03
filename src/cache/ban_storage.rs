@@ -266,7 +266,6 @@ impl BanStorage for CacheBanStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::BanStorage as _;
     use oxcache::backend::memory::DashMapMemoryBackend;
     use std::time::Duration;
 

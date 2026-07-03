@@ -1415,7 +1415,7 @@ mod tests {
     }
 
     #[test]
-    fn test_default_error_classifier_storage_not_transiet() {
+    fn test_default_error_classifier_storage_not_transient() {
         let classifier = DefaultErrorClassifier;
         // NotFound is NOT transient, so it should NOT be counted as failure
         let error = FlowGuardError::StorageError(crate::error::StorageError::NotFound("nf".into()));

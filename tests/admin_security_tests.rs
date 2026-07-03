@@ -1,3 +1,5 @@
+#![cfg(feature = "admin-api")]
+
 use limiteron::admin::config::AdminApiConfig;
 
 #[test]

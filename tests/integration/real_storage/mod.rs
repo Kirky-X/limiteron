@@ -11,6 +11,7 @@
 pub mod postgres_storage;
 
 // Redis 存储测试
+// 注意：`redis-storage` feature 将在 Phase 3（v0.2.1）实现
 #[cfg(feature = "redis-storage")]
 pub mod redis_storage;
 

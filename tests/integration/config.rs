@@ -198,7 +198,7 @@ fn test_different_matcher_types() {
 /// 测试规则优先级
 #[test]
 fn test_rule_priority() {
-    let rules = vec![
+    let rules = [
         Rule {
             id: "low_priority".to_string(),
             name: "Low Priority Rule".to_string(),

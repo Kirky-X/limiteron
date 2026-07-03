@@ -2,6 +2,7 @@
 //!
 //! 测试授权模块的完整功能
 
+use ahash::AHashMap;
 #[cfg(feature = "ban-manager")]
 use limiteron::authorization::{
     AuthorizationProvider, OperationAuthorizationProvider, SimpleAuthorizationProvider,
@@ -9,7 +10,6 @@ use limiteron::authorization::{
 #[cfg(not(feature = "ban-manager"))]
 use limiteron::authorization::{AuthorizationProvider, SimpleAuthorizationProvider};
 use limiteron::error::FlowGuardError;
-use std::collections::HashMap;
 
 // ============================================================================
 // SimpleAuthorizationProvider Tests
@@ -109,7 +109,7 @@ async fn test_simple_provider_ignores_operation_and_target() {
 #[cfg(feature = "ban-manager")]
 #[tokio::test]
 async fn test_operation_provider_roles() {
-    let mut roles = HashMap::new();
+    let mut roles = AHashMap::new();
     roles.insert(
         "create_ban".to_string(),
         vec!["admin".to_string(), "mod".to_string()],
@@ -147,7 +147,7 @@ async fn test_operation_provider_roles() {
 #[cfg(feature = "ban-manager")]
 #[test]
 fn test_operation_provider_has_operation() {
-    let mut roles = HashMap::new();
+    let mut roles = AHashMap::new();
     roles.insert("create_ban".to_string(), vec!["admin".to_string()]);
     let provider = OperationAuthorizationProvider::new(roles);
     assert!(provider.has_operation("create_ban"));
@@ -157,7 +157,7 @@ fn test_operation_provider_has_operation() {
 #[cfg(feature = "ban-manager")]
 #[test]
 fn test_operation_provider_get_roles() {
-    let mut roles = HashMap::new();
+    let mut roles = AHashMap::new();
     roles.insert(
         "create_ban".to_string(),
         vec!["admin".to_string(), "mod".to_string()],

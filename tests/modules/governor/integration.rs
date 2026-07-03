@@ -19,7 +19,7 @@ use std::time::Duration;
 
 #[derive(Clone, Default)]
 struct MockStorage {
-    data: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, String>>>,
+    data: std::sync::Arc<tokio::sync::RwLock<ahash::AHashMap<String, String>>>,
 }
 
 #[async_trait]
@@ -44,13 +44,14 @@ impl Storage for MockStorage {
 
 #[derive(Clone, Default)]
 struct MockBanStorage {
-    bans: Arc<tokio::sync::RwLock<std::collections::HashMap<BanTarget, BanRecord>>>,
+    #[allow(dead_code)]
+    bans: Arc<tokio::sync::RwLock<ahash::AHashMap<BanTarget, BanRecord>>>,
 }
 
 impl MockBanStorage {
     fn new() -> Self {
         Self {
-            bans: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            bans: Arc::new(tokio::sync::RwLock::new(ahash::AHashMap::new())),
         }
     }
 }
@@ -404,7 +405,7 @@ async fn test_governor_caches_decisions_in_l1_cache() {
 
     assert!(governor.is_l1_cache_enabled());
 
-    governor.clear_l1_cache();
+    governor.clear_l1_cache().await;
     assert_eq!(governor.l1_cache_size().await, 0);
 
     let ctx = create_test_request("cache_test_user", "10.0.0.2");

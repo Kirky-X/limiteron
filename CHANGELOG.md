@@ -27,6 +27,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`.gitignore` 加固**: 添加 `*.profraw`、`coverage/`、`tarpaulin/` 规则，防止覆盖率文件污染仓库
 
+## [0.2.0] - 2026-07-03
+
+### BREAKING CHANGES
+
+- **BanManager API 变更**：
+  - `ban()` → `add_ban(BanRecord)`，使用 `BanRecord` 结构体替代多个独立参数
+  - `unban()` → `delete_ban(&target, unbanned_by: String)`，需要传入操作者标识
+  - `is_banned()` 返回 `Result<Option<BanRecord>>` 而非 `bool`，提供更完整的封禁信息
+- **限流器导入路径变更**：`use limiteron::{TokenBucketLimiter, ...}` → `use limiteron::limiters::{TokenBucketLimiter, ...}`，限流器类型统一收敛到 `limiters` 模块
+- **`QuotaType` 路径变更**：`limiteron::QuotaType` → `limiteron::quota::QuotaType`
+- **`MemoryStorage` 路径变更**：`limiteron::MemoryStorage` → `limiteron::storage::MemoryStorage`
+- **`FallbackManager::new(cache)` → `FallbackManager::new(Arc::new(cache))`**，统一使用 `Arc` 包装依赖
+
+### Added
+
+- **RedisStorage 存储后端**（`redis-storage` feature）：实现 `Storage`/`BanStorage`/`QuotaStorage` trait，支持多实例分布式场景
+- **Governor 优雅关闭**：新增 `shutdown()` / `shutdown_token()` / `is_shutdown()` 方法，支持优雅停止后台任务
+- **Governor 健康检测**：新增 `health_check()` / `health_status()` 方法，提供真实的健康状态检测
+- **ConfigLoader 环境变量覆盖**：支持 `LIMITERON_GLOBAL_STORAGE` / `LIMITERON_GLOBAL_CACHE` / `LIMITERON_GLOBAL_METRICS` 等环境变量覆盖配置
+- **CircuitBreaker `new()` 默认构造方法**：支持开箱即用模式
+- **`storage_cleanup_expired_bans` 批量删除优化**：提升过期封禁记录清理性能
+- **`redis_storage` example**：RedisStorage 使用示例
+- **`graceful_shutdown` example**：优雅关闭使用示例
+
+### Fixed
+
+- **clippy 零警告**：`src/` + `tests/` + `benches/` 全部通过 clippy 严格检查
+- **修复 `cleanup_expired_bans` 死锁风险**：避免在持有锁时执行可能阻塞的操作
+- **修复 Governor 字段 `_storage`/`_ban_storage` 下划线前缀问题**：移除不必要的下划线前缀，字段实际被使用
+
+### Documentation
+
+- **README 中英文同步**：版本徽章、特性列表、测试计数、路线图全面更新
+- **examples 覆盖 19 个使用场景**：新增 `redis_storage`、`graceful_shutdown` 等示例
+- **AGENTS.md 更新**：添加 RedisStorage 模块说明、LOC 计数、redis 依赖
+
 ## [0.1.1] - 2026-01-20
 
 ### Added
@@ -135,5 +171,6 @@ let ban_manager = BanManager::new().await.unwrap();
 - Monitoring with Prometheus metrics and OpenTelemetry tracing
 - Parallel ban checking for improved performance
 
+[0.2.0]: https://github.com/limiteron/limiteron/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/limiteron/limiteron/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/limiteron/limiteron/releases/tag/v0.1.0

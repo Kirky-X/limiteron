@@ -44,6 +44,7 @@ impl Storage for MockStorage {
 
 #[derive(Clone, Default)]
 struct MockBanStorage {
+    #[allow(dead_code)]
     bans: Arc<tokio::sync::RwLock<AHashMap<BanTarget, BanRecord>>>,
 }
 
@@ -100,6 +101,7 @@ impl BanStorage for MockBanStorage {
 }
 
 #[derive(Clone, Default)]
+#[allow(dead_code)]
 struct MockQuotaStorage {
     quotas: Arc<tokio::sync::RwLock<AHashMap<String, QuotaInfo>>>,
 }
@@ -312,7 +314,7 @@ async fn e2e_rate_limiting_independent_per_user() {
 #[allow(deprecated)]
 async fn e2e_rate_limiting_sliding_window() {
     // 注意：SlidingWindowLimiter 已弃用，但此测试验证基本限流逻辑
-    use limiteron::SlidingWindowLimiter;
+    use limiteron::limiters::SlidingWindowLimiter;
 
     let limiter = SlidingWindowLimiter::new(Duration::from_millis(200), 3);
 

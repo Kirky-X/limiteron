@@ -1,6 +1,9 @@
 //! 延迟基准测试
 //!
 //! 测试各种操作的延迟性能，包括 P50/P90/P99/P99.9 延迟测量、直方图报告和不同操作延迟对比。
+//
+// 此 benchmark 文件测试 deprecated 的 SlidingWindowLimiter 以维护历史性能基线。
+#![allow(deprecated)]
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 use limiteron::decision_chain::{DecisionChain, DecisionNode};
@@ -13,7 +16,7 @@ use limiteron::matchers::{
     Rule, RuleMatcher, UserIdExtractor,
 };
 use oxcache::Cache;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -192,7 +195,7 @@ fn bench_cache_latency_comparison(c: &mut Criterion) {
     // 预热缓存 - 创建热点键
     rt.block_on(async {
         for i in 0..100 {
-            cache
+            let _ = cache
                 .set(&format!("hot_key_{}", i), &format!("value_{}", i))
                 .await;
         }
@@ -229,7 +232,7 @@ fn bench_cache_latency_comparison(c: &mut Criterion) {
             let key = format!("key_{}", black_box(42));
             rt.block_on(async {
                 #[allow(clippy::unit_arg)]
-                black_box(cache_set.set(&key, &"value".to_string()).await);
+                let _ = black_box(cache_set.set(&key, &"value".to_string()).await);
             });
         });
     });
@@ -488,7 +491,7 @@ fn bench_decision_chain_latency(c: &mut Criterion) {
         b.iter(|| {
             rt.block_on(async {
                 let result = chain.check().await;
-                black_box(result);
+                let _ = black_box(result);
             });
         });
     });
@@ -534,7 +537,7 @@ fn bench_full_flow_latency(c: &mut Criterion) {
         b.iter(|| {
             rt.block_on(async {
                 let result = chain.check().await;
-                black_box(result);
+                let _ = black_box(result);
             });
         });
     });
@@ -547,7 +550,7 @@ fn bench_full_flow_latency(c: &mut Criterion) {
             rt.block_on(async {
                 if !matched.is_empty() {
                     let result = chain.check().await;
-                    black_box(result);
+                    let _ = black_box(result);
                 } else {
                     black_box(false);
                 }

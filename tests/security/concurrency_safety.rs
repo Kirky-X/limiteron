@@ -5,7 +5,7 @@
 //! - 死锁测试
 //! - 并发状态一致性测试
 
-use limiteron::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter, ConcurrencyLimiter};
+use limiteron::limiters::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter, ConcurrencyLimiter};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -558,7 +558,7 @@ async fn test_high_pressure_concurrent_requests() {
     let elapsed = start.elapsed();
 
     let success = success_count.load(Ordering::SeqCst);
-    
+
     // 验证不超过限制（允许 10% 误差）
     assert!(
         success <= 110000,

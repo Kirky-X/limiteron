@@ -15,8 +15,9 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
+rust-version = "1.75"
 authors = ["Kirky.X"]
 license = "Apache-2.0"
 repository = "https://github.com/Kirky-X/limiteron"
@@ -81,6 +82,9 @@ trybuild = "~1.0"
 # 数据库
 sea-orm = { version = "2.0.0-rc.37", default-features = false, features = ["macros", "with-chrono"] }
 sqlx = { version = "~0.8", features = ["postgres", "runtime-tokio-rustls"] }
+
+# Redis
+redis = { version = "~0.27", features = ["tokio-comp", "aio", "connection-manager"] }
 
 # 缓存库
 oxcache = { version = "0.3.2", default-features = false, features = ["core"] }
@@ -161,6 +165,9 @@ dbnexus = { workspace = true, optional = true }
 sea-orm = { workspace = true, optional = true }
 sqlx = { workspace = true, optional = true }
 
+# Redis 存储（可选）
+redis = { workspace = true, optional = true }
+
 # 缓存库（必需）
 oxcache.workspace = true
 
@@ -215,6 +222,8 @@ futures.workspace = true
 rand.workspace = true
 criterion.workspace = true
 proptest.workspace = true
+tower = { workspace = true, features = ["util"] }
+http-body-util = "0.1"
 
 [features]
 # ============================================
@@ -249,6 +258,11 @@ full = [
     "webhook",
     "cache-service",
     "tower-middleware",
+    "redis-storage",
+    "event-system",
+    "lua-script",
+    "multi-tenant",
+    "admin-api",
 ]
 
 default = []
@@ -258,6 +272,9 @@ default = []
 # ============================================
 # PostgreSQL 存储 - 使用 dbnexus
 postgres = ["dep:dbnexus", "dep:sqlx", "dep:sea-orm"]
+
+# Redis 存储 - 使用 redis crate
+redis-storage = ["dep:redis"]
 
 # 缓存存储 - 通过 oxcache 切换后端 (memory/redis 等)
 cache-storage = ["cache-service", "oxcache/redis"]
@@ -376,9 +393,18 @@ timeout = "300"
 out = ["Html", "Json"]
 output-dir = "coverage"
 exclude-files = [
-    "tests/*",
-    "examples/*",
-    "benches/*",
-    "src/bin/*",
+    "**/tests/**",
+    "**/examples/**",
+    "**/benches/**",
+    "**/src/bin/**",
+    "**/macros/**",
+    # 以下模块需要外部基础设施（Redis/Postgres/MaxMind DB），
+    # 其覆盖率由集成测试（tests/ 目录，需 Docker）覆盖，不在单元测试覆盖率统计内。
+    "**/storage/redis.rs",
+    "**/adapters/dbnexus_storage.rs",
+    "**/adapters/dbnexus_ban_storage.rs",
+    "**/adapters/dbnexus_quota_storage.rs",
+    "**/adapters/storage_factory.rs",
+    "**/matchers/geo.rs",
 ]
-fail-under = 80
+fail-under = 95

@@ -1076,7 +1076,7 @@ on_exceed = "reject"
 
     #[test]
     fn test_change_source_variants() {
-        let sources = vec![
+        let sources = [
             ChangeSource::Manual {
                 operator: "admin".to_string(),
             },

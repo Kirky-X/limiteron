@@ -15,6 +15,13 @@ pub mod parallel_checker;
 #[cfg(feature = "parallel-checker")]
 pub use parallel_checker::ParallelBanChecker;
 
+// Redis 存储后端（可选，需要 redis-storage 特性）
+#[cfg(feature = "redis-storage")]
+pub mod redis;
+// 重新导出 RedisStorage 以便外部使用
+#[cfg(feature = "redis-storage")]
+pub use redis::RedisStorage;
+
 use crate::error::{ConsumeResult, StorageError};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -404,23 +411,35 @@ impl BanStorage for MemoryBanStorage {
 
     async fn cleanup_expired_bans(&self) -> Result<u64, StorageError> {
         let now = Utc::now().timestamp();
-        let mut removed = 0u64;
 
-        #[allow(clippy::map_clone)]
-        let targets: Vec<_> = self
+        // 单次读锁：收集所有已过期的 target
+        let expired_targets: Vec<BanTarget> = self
             .expiration
             .read()
             .await
-            .keys()
-            .map(|x| x.clone())
-            .collect();
-        for target in targets {
-            if let Some(exp) = self.expiration.read().await.get(&target) {
+            .iter()
+            .filter_map(|(target, exp)| {
                 if *exp <= now {
-                    let _ = self.bans.write().await.remove(&target);
-                    let _ = self.expiration.write().await.remove(&target);
-                    removed += 1;
+                    Some(target.clone())
+                } else {
+                    None
                 }
+            })
+            .collect();
+
+        let removed = expired_targets.len() as u64;
+
+        if removed == 0 {
+            return Ok(0);
+        }
+
+        // 批量写锁：同时持有 bans 和 expiration 写锁，一次性删除所有过期项
+        {
+            let mut bans = self.bans.write().await;
+            let mut expiration = self.expiration.write().await;
+            for target in &expired_targets {
+                bans.remove(target);
+                expiration.remove(target);
             }
         }
 
@@ -728,7 +747,8 @@ mod tests {
             offset: u64,
             limit: u64,
         ) -> Result<Vec<BanRecord>, StorageError> {
-            let bans: Vec<_> = self.bans.read().await.values().cloned().collect();
+            #[allow(clippy::map_clone)]
+            let bans: Vec<_> = self.bans.read().await.values().map(|r| r.clone()).collect();
             let total = bans.len() as u64;
             let start = offset as usize;
             let end = (offset + limit) as usize;
@@ -1458,8 +1478,6 @@ mod memory_ban_storage_tests {
     }
 
     /// 覆盖 cleanup_expired_bans 中无过期 ban 的路径
-    /// 注意：cleanup_expired_bans 在有过期 ban 时存在死锁 bug
-    ///（持有 expiration 读锁时尝试获取写锁），此处仅测试无过期场景
     #[tokio::test]
     async fn test_memory_ban_storage_cleanup_no_expired() {
         let storage = MemoryBanStorage::new();
@@ -1479,5 +1497,148 @@ mod memory_ban_storage_tests {
         // cleanup_expired_bans 应返回 0（无过期 ban）
         let removed = BanStorage::cleanup_expired_bans(&storage).await.unwrap();
         assert_eq!(removed, 0, "should remove 0 bans");
+    }
+
+    /// 验证 cleanup_expired_bans 批量删除过期 ban 并保留 active ban
+    #[tokio::test]
+    async fn test_memory_ban_storage_cleanup_expired_batch() {
+        let storage = MemoryBanStorage::new();
+
+        // 添加 3 个已过期 + 2 个未过期
+        let expired_target_1 = BanTarget::Ip("10.0.0.1".to_string());
+        let expired_target_2 = BanTarget::Ip("10.0.0.2".to_string());
+        let expired_target_3 = BanTarget::UserId("expired_user".to_string());
+        let active_target_1 = BanTarget::Ip("10.0.0.3".to_string());
+        let active_target_2 = BanTarget::UserId("active_user".to_string());
+
+        let now = Utc::now();
+        for target in [
+            expired_target_1.clone(),
+            expired_target_2.clone(),
+            expired_target_3.clone(),
+        ] {
+            let rec = BanRecord {
+                target: target.clone(),
+                ban_times: 1,
+                duration: Duration::from_secs(60),
+                banned_at: now - chrono::Duration::seconds(120),
+                expires_at: now - chrono::Duration::seconds(60),
+                is_manual: false,
+                reason: "expired".to_string(),
+            };
+            BanStorage::save(&storage, &rec).await.unwrap();
+        }
+        for target in [active_target_1.clone(), active_target_2.clone()] {
+            let rec = BanRecord {
+                target: target.clone(),
+                ban_times: 1,
+                duration: Duration::from_secs(60),
+                banned_at: now,
+                expires_at: now + chrono::Duration::seconds(3600),
+                is_manual: false,
+                reason: "active".to_string(),
+            };
+            BanStorage::save(&storage, &rec).await.unwrap();
+        }
+
+        // 执行批量清理
+        let removed = BanStorage::cleanup_expired_bans(&storage).await.unwrap();
+        assert_eq!(removed, 3, "should remove 3 expired bans");
+
+        // 验证过期 ban 已删除
+        assert!(
+            BanStorage::is_banned(&storage, &expired_target_1)
+                .await
+                .unwrap()
+                .is_none(),
+            "expired ban 1 should be removed"
+        );
+        assert!(
+            BanStorage::is_banned(&storage, &expired_target_2)
+                .await
+                .unwrap()
+                .is_none(),
+            "expired ban 2 should be removed"
+        );
+        assert!(
+            BanStorage::is_banned(&storage, &expired_target_3)
+                .await
+                .unwrap()
+                .is_none(),
+            "expired ban 3 should be removed"
+        );
+
+        // 验证 active ban 仍存在
+        assert!(
+            BanStorage::is_banned(&storage, &active_target_1)
+                .await
+                .unwrap()
+                .is_some(),
+            "active ban 1 should remain"
+        );
+        assert!(
+            BanStorage::is_banned(&storage, &active_target_2)
+                .await
+                .unwrap()
+                .is_some(),
+            "active ban 2 should remain"
+        );
+    }
+
+    /// 验证并发 add_ban + cleanup_expired_bans 不会 hang（5s 超时）
+    #[tokio::test]
+    async fn test_cleanup_expired_bans_no_deadlock() {
+        let storage = Arc::new(MemoryBanStorage::new());
+
+        // 预填充一些已过期 ban
+        let now = Utc::now();
+        for i in 0..20 {
+            let rec = BanRecord {
+                target: BanTarget::Ip(format!("10.0.0.{}", i)),
+                ban_times: 1,
+                duration: Duration::from_secs(60),
+                banned_at: now - chrono::Duration::seconds(120),
+                expires_at: now - chrono::Duration::seconds(60),
+                is_manual: false,
+                reason: "expired".to_string(),
+            };
+            BanStorage::save(&storage, &rec).await.unwrap();
+        }
+
+        // 并发：一个任务持续 add_ban，另一个任务持续 cleanup
+        let storage_clone = Arc::clone(&storage);
+        let add_handle = tokio::spawn(async move {
+            for i in 0..50 {
+                let rec = BanRecord {
+                    target: BanTarget::UserId(format!("concurrent_user_{}", i)),
+                    ban_times: 1,
+                    duration: Duration::from_secs(60),
+                    banned_at: Utc::now(),
+                    expires_at: Utc::now() + chrono::Duration::seconds(3600),
+                    is_manual: false,
+                    reason: "concurrent".to_string(),
+                };
+                BanStorage::save(&storage_clone, &rec).await.unwrap();
+            }
+        });
+
+        let storage_clone2 = Arc::clone(&storage);
+        let cleanup_handle = tokio::spawn(async move {
+            for _ in 0..10 {
+                let _ = BanStorage::cleanup_expired_bans(&storage_clone2).await;
+            }
+        });
+
+        // 5s 超时验证无 hang
+        let result = tokio::time::timeout(
+            tokio::time::Duration::from_secs(5),
+            futures::future::join(add_handle, cleanup_handle),
+        )
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "concurrent add_ban + cleanup should not hang within 5s"
+        );
     }
 }

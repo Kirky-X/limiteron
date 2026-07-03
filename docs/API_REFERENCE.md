@@ -20,6 +20,10 @@
   - [熔断器](#熔断器)
   - [Governor](#governor)
 - [匹配器](#匹配器)
+- [存储后端](#存储后端)
+  - [RedisStorage](#redisstorage)
+- [配置加载](#配置加载)
+  - [ConfigLoader](#configloaderload_from_file_with_env)
 - [错误处理](#错误处理)
 - [类型定义](#类型定义)
 - [示例](#示例)
@@ -256,7 +260,7 @@ pub async fn with_dependencies(
 
 ```rust
 use limiteron::ban_manager::{BanManager, BanManagerConfig};
-use limiteron::storage_trait::BanStorage;
+use limiteron::storage::BanStorage;
 use std::sync::Arc;
 
 let storage: Arc<dyn BanStorage> = Arc::new(my_storage);
@@ -636,7 +640,7 @@ pub async fn new(
 ```rust
 use limiteron::{Governor, FlowControlConfig};
 use limiteron::adapters::StorageFactory;
-use limiteron::storage_trait::{Storage, BanStorage};
+use limiteron::storage::{Storage, BanStorage};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -704,6 +708,177 @@ match decision {
     Decision::Allowed(_) => println!("请求允许"),
     Decision::Rejected(reason) => println!("请求拒绝: {}", reason),
     Decision::Banned(info) => println!("请求被封禁: {}", info.reason()),
+}
+```
+
+---
+
+#### `Governor::shutdown()`
+
+触发优雅关闭，停止 Governor 的所有后台任务（如配额分配、封禁清理等）。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub async fn shutdown(&self) -> Result<(), FlowGuardError>
+```
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Result&lt;(), FlowGuardError&gt;</code> - 关闭结果</td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+// 优雅关闭 Governor
+governor.shutdown().await?;
+```
+
+---
+
+#### `Governor::shutdown_token()`
+
+获取关闭令牌，可用于在异步任务中监听关闭信号。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn shutdown_token(&self) -> CancellationToken
+```
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>CancellationToken</code> - 关闭令牌</td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+use tokio_util::sync::CancellationToken;
+
+let token = governor.shutdown_token();
+
+tokio::spawn(async move {
+    token.cancelled().await;
+    println!("Governor 正在关闭...");
+});
+```
+
+---
+
+#### `Governor::is_shutdown()`
+
+检查 Governor 是否已关闭。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn is_shutdown(&self) -> bool
+```
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>bool</code> - true 表示已关闭</td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+if governor.is_shutdown() {
+    println!("Governor 已关闭");
+}
+```
+
+---
+
+#### `Governor::health_check()`
+
+执行真实的健康检测，检查存储、封禁存储等关键依赖的可用性。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub async fn health_check(&self) -> Result<HealthStatus, FlowGuardError>
+```
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Result&lt;HealthStatus, FlowGuardError&gt;</code> - 健康状态</td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+let status = governor.health_check().await?;
+match status {
+    HealthStatus::Healthy => println!("✅ 服务健康"),
+    HealthStatus::Degraded(msg) => println!("⚠️ 服务降级: {}", msg),
+    HealthStatus::Unhealthy(msg) => println!("❌ 服务异常: {}", msg),
+}
+```
+
+---
+
+#### `Governor::health_status()`
+
+获取最近一次健康检测的状态（不触发新的检测）。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn health_status(&self) -> HealthStatus
+```
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>HealthStatus</code> - 最近一次的健康状态</td>
+</tr>
+</table>
+
+---
+
+#### `HealthStatus`
+
+健康状态枚举。
+
+```rust
+pub enum HealthStatus {
+    /// 服务健康，所有依赖正常
+    Healthy,
+    /// 服务降级，部分功能受影响
+    Degraded(String),
+    /// 服务异常，关键依赖不可用
+    Unhealthy(String),
 }
 ```
 
@@ -817,6 +992,245 @@ let extractor = IpExtractor::builder()
 
 ---
 
+## 存储后端
+
+<div align="center">
+
+#### 💾 存储后端实现
+
+</div>
+
+---
+
+#### `RedisStorage`
+
+Redis 存储后端，实现 `Storage`/`BanStorage`/`QuotaStorage` trait，适用于多实例分布式场景。需要启用 `redis-storage` feature。
+
+<table>
+<tr>
+<td width="30%"><b>类型</b></td>
+<td width="70%">
+
+```rust
+pub struct RedisStorage {
+    conn: redis::aio::ConnectionManager,
+}
+```
+
+</td>
+</tr>
+</table>
+
+---
+
+#### `RedisStorage::new()`
+
+从 Redis 连接字符串创建新的 RedisStorage。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub async fn new(url: &str) -> Result<Self, StorageError>
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `url: &str` - Redis 连接字符串（如 `redis://127.0.0.1:6379`）
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Result&lt;RedisStorage, StorageError&gt;</code></td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+use limiteron::storage::RedisStorage;
+
+let redis_storage = RedisStorage::new("redis://127.0.0.1:6379").await?;
+```
+
+---
+
+#### `RedisStorage::from_client()`
+
+从已有的 Redis 客户端创建 RedisStorage，便于复用连接池。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub async fn from_client(client: redis::Client) -> Result<Self, StorageError>
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `client: redis::Client` - 已有的 Redis 客户端
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Result&lt;RedisStorage, StorageError&gt;</code> - 新的存储实例</td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+use limiteron::storage::RedisStorage;
+use redis::Client;
+
+let client = Client::open("redis://127.0.0.1:6379")?;
+let redis_storage = RedisStorage::from_client(client).await?;
+```
+
+---
+
+#### Trait 实现
+
+`RedisStorage` 实现以下 trait，可作为 Governor 和各组件的存储后端：
+
+| Trait | 说明 | feature 要求 |
+|-------|------|-------------|
+| `Storage` | 限流数据存储（令牌桶、计数器等） | `redis-storage` |
+| `BanStorage` | 封禁记录存储 | `redis-storage` |
+| `QuotaStorage` | 配额数据存储 | `redis-storage` |
+
+**与 Governor 集成示例：**
+
+```rust
+use limiteron::storage::RedisStorage;
+use limiteron::Governor;
+use std::sync::Arc;
+
+let redis_storage = RedisStorage::new("redis://127.0.0.1:6379").await?;
+
+let governor = Governor::builder()
+    .with_storage(Arc::new(redis_storage))
+    .build()
+    .await?;
+```
+
+---
+
+## 配置加载
+
+<div align="center">
+
+#### ⚙️ ConfigLoader
+
+</div>
+
+---
+
+#### `ConfigLoader::load_from_file()`
+
+从 TOML 配置文件加载配置。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn load_from_file(path: &str) -> Result<FlowControlConfig, FlowGuardError>
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `path: &str` - 配置文件路径
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Result&lt;FlowControlConfig, FlowGuardError&gt;</code></td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+use limiteron::ConfigLoader;
+
+let config = ConfigLoader::load_from_file("config.toml")?;
+```
+
+---
+
+#### `ConfigLoader::load_from_file_with_env()`
+
+从 TOML 配置文件加载配置，并支持环境变量覆盖。环境变量前缀为 `LIMITERON_`，支持覆盖全局配置项。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn load_from_file_with_env(path: &str) -> Result<FlowControlConfig, FlowGuardError>
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `path: &str` - 配置文件路径
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Result&lt;FlowControlConfig, FlowGuardError&gt;</code></td>
+</tr>
+</table>
+
+**支持的环境变量：**
+
+| 环境变量 | 覆盖配置项 | 说明 |
+|---------|-----------|------|
+| `LIMITERON_GLOBAL_STORAGE` | `global.storage` | 存储类型：`memory` / `postgres` / `redis` |
+| `LIMITERON_GLOBAL_CACHE` | `global.cache` | 缓存类型：`memory` / `redis` |
+| `LIMITERON_GLOBAL_METRICS` | `global.metrics` | 指标类型：`prometheus` / `none` |
+
+**示例:**
+
+```rust
+use limiteron::ConfigLoader;
+
+// 先设置环境变量覆盖
+std::env::set_var("LIMITERON_GLOBAL_STORAGE", "redis");
+
+// 加载配置（环境变量会覆盖配置文件中的值）
+let config = ConfigLoader::load_from_file_with_env("config.toml")?;
+// config.global.storage 现在为 "redis"
+```
+
+---
+
 ## 错误处理
 
 <div align="center">
@@ -883,7 +1297,7 @@ match limiter.allow(1).await {
 async fn process_request() -> Result<(), FlowGuardError> {
     let limiter = TokenBucketLimiter::new(10, 1);
     limiter.allow(1).await?;
-    
+
     Ok(())
 }
 ```

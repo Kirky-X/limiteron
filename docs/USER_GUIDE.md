@@ -381,12 +381,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use limiteron::{Governor, FlowControlConfig};
     use limiteron::adapters::StorageFactory;
     use std::sync::Arc;
-    
+
     let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
     factory.initialize(None).await?;
     let storage = factory.create_storage().await?;
     let ban_storage = factory.create_ban_storage().await?;
-    
+
     let governor = Governor::builder()
         .with_storage(storage)
         .with_ban_storage(ban_storage)
@@ -1007,7 +1007,7 @@ async fn api_handler(user_id: &str) -> Result<String, FlowGuardError> {
 ### 模式 2: 分布式限流
 
 ```rust
-use limiteron::redis_storage::RedisStorage;
+use limiteron::storage::RedisStorage;
 
 let storage = RedisStorage::new("redis://localhost:6379").await?;
 let limiter = TokenBucketLimiter::with_storage(storage, 10, 1);

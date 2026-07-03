@@ -7,30 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### BREAKING Changes
+## [0.2.0] - 2026-07-04
+
+### BREAKING CHANGES
 
 - **`default = []`**: Cargo.toml 的 `default` feature 从 `["postgres"]` 改为 `[]`。用户必须显式启用 feature 才能使用对应功能。
   - 迁移示例：`cargo build --features standard`（推荐）或 `cargo build --features postgres`（仅存储）
   - 默认构建 `cargo build` 现在只包含核心限流功能，不含 PostgreSQL 存储
 - **移除死 feature flags**: `code-review` 和 `advanced-matchers` feature 从 `full` preset 和定义中移除（全仓库零 `#[cfg(feature = "...")]` 引用）
-- **oxcache 升级 0.2.0 → 0.3.0**: 适配 oxcache 0.3.0 API。oxcache 0.2.0/0.3.0 有编译 bug（security 模块无 feature gate 但引用 regex crate），启用 `core` feature 作为 workaround
-
-### Security
-
-- **SSRF 防护加固** (`src/webhook_validator.rs`): 修复 IPv4-mapped IPv6 地址绕过（如 `::ffff:10.0.0.1` 不会被私有 IP 检查捕获）、未指定地址（`0.0.0.0`/`::`）、IPv6 链路本地地址（`fe80::/10`）的检查缺失
-
-### Removed
-
-- **Dead code 清理**: 移除 11 个 dead-code 警告对应的代码（`DecisionNodeBuilder`、`MAX_REGEX_NESTING_DEPTH`、`L1Cache::island_stats` 等），基于 gitnexus 影响分析确认无外部调用
-
-### Developer Experience
-
-- **`.gitignore` 加固**: 添加 `*.profraw`、`coverage/`、`tarpaulin/` 规则，防止覆盖率文件污染仓库
-
-## [0.2.0] - 2026-07-03
-
-### BREAKING CHANGES
-
+- **oxcache 升级 0.2.0 → 0.3.2**: 适配 oxcache 0.3.x API。oxcache 0.2.0/0.3.x 有编译 bug（security 模块无 feature gate 但引用 regex crate），启用 `core` feature 作为 workaround
 - **BanManager API 变更**：
   - `ban()` → `add_ban(BanRecord)`，使用 `BanRecord` 结构体替代多个独立参数
   - `unban()` → `delete_ban(&target, unbanned_by: String)`，需要传入操作者标识
@@ -39,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`QuotaType` 路径变更**：`limiteron::QuotaType` → `limiteron::quota::QuotaType`
 - **`MemoryStorage` 路径变更**：`limiteron::MemoryStorage` → `limiteron::storage::MemoryStorage`
 - **`FallbackManager::new(cache)` → `FallbackManager::new(Arc::new(cache))`**，统一使用 `Arc` 包装依赖
+
+### Security
+
+- **SSRF 防护加固** (`src/webhook_validator.rs`): 修复 IPv4-mapped IPv6 地址绕过（如 `::ffff:10.0.0.1` 不会被私有 IP 检查捕获）、未指定地址（`0.0.0.0`/`::`）、IPv6 链路本地地址（`fe80::/10`）的检查缺失
+
+### Removed
+
+- **Dead code 清理**: 移除 11 个 dead-code 警告对应的代码（`DecisionNodeBuilder`、`MAX_REGEX_NESTING_DEPTH`、`L1Cache::island_stats` 等），基于 gitnexus 影响分析确认无外部调用
 
 ### Added
 
@@ -60,8 +53,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 - **README 中英文同步**：版本徽章、特性列表、测试计数、路线图全面更新
-- **examples 覆盖 19 个使用场景**：新增 `redis_storage`、`graceful_shutdown` 等示例
+- **examples 覆盖 20 个使用场景**：新增 `redis_storage`、`graceful_shutdown` 等示例
 - **AGENTS.md 更新**：添加 RedisStorage 模块说明、LOC 计数、redis 依赖
+
+### Developer Experience
+
+- **`.gitignore` 加固**: 添加 `*.profraw`、`coverage/`、`tarpaulin/` 规则，防止覆盖率文件污染仓库
 
 ## [0.1.1] - 2026-01-20
 
@@ -171,6 +168,6 @@ let ban_manager = BanManager::new().await.unwrap();
 - Monitoring with Prometheus metrics and OpenTelemetry tracing
 - Parallel ban checking for improved performance
 
-[0.2.0]: https://github.com/limiteron/limiteron/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/limiteron/limiteron/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/limiteron/limiteron/releases/tag/v0.1.0
+[0.2.0]: https://github.com/Kirky-X/limiteron/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/Kirky-X/limiteron/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/Kirky-X/limiteron/releases/tag/v0.1.0

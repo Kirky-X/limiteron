@@ -136,7 +136,7 @@ git --version
 ```bash
 # 添加到 Cargo.toml
 [dependencies]
-limiteron = { version = "0.1", features = ["macros"] }
+limiteron = { version = "0.2", features = ["macros"] }
 
 # 或通过命令安装
 cargo add limiteron --features macros
@@ -163,7 +163,7 @@ cargo build --release
 **启用特性**
 ```toml
 [dependencies]
-limiteron = { version = "1.0", features = ["postgres", "redis"] }
+limiteron = { version = "0.2", features = ["postgres", "redis-storage"] }
 ```
 
 **本地开发**
@@ -299,7 +299,7 @@ limiter.check("user123").await?;
 
 **示例:**
 ```rust
-use limiteron::ban_manager::{BanManager, BanManagerConfig, BanTarget, BanSource};
+use limiteron::ban::{BanManager, BanManagerConfig, BanTarget, BanSource};
 use limiteron::adapters::StorageFactory;
 use std::sync::Arc;
 use std::time::Duration;
@@ -343,17 +343,16 @@ if count > limit {
 **我们的方法**
 ```rust
 // 自动管理
-use limiteron::quota_controller::{QuotaController, QuotaConfig};
+use limiteron::quota::{QuotaController, QuotaConfig};
 
 let config = QuotaConfig {
     limit: 10000,
     window_secs: 60,
     ..Default::default()
 };
-let quota = QuotaController::with_config(config)?;
-let result = quota.consume("user123", 1).await?;
-if result.allowed {
-    println!("剩余配额: {}", result.remaining);
+let quota = QuotaController::builder().with_config(config).build()?;
+if let Err(e) = quota.consume("user123", "api_resource", 1).await {
+    println!("配额消费失败: {}", e);
 }
 ```
 
@@ -497,7 +496,7 @@ match limiter.allow(1).await {
 
 **封禁用户**
 ```rust
-use limiteron::ban_manager::{BanManager, BanManagerConfig, BanTarget, BanSource};
+use limiteron::ban::{BanManager, BanManagerConfig, BanTarget, BanSource};
 use limiteron::adapters::StorageFactory;
 use std::sync::Arc;
 use std::time::Duration;
@@ -521,18 +520,18 @@ ban_manager.create_ban(
 
 **配额消费**
 ```rust
-use limiteron::quota_controller::{QuotaController, QuotaConfig};
+use limiteron::quota::{QuotaController, QuotaConfig};
 
 let config = QuotaConfig::default();
-let quota = QuotaController::with_config(config)?;
-let result = quota.consume("user123", 1).await?;
+let quota = QuotaController::builder().with_config(config).build()?;
+quota.consume("user123", "api_resource", 1).await?;
 ```
 
 **熔断检查**
 ```rust
-use limiteron::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
+use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig};
 
-let breaker = CircuitBreaker::with_config(CircuitBreakerConfig::default());
+let breaker = CircuitBreaker::new(CircuitBreakerConfig::default());
 let state = breaker.get_state().await;
 ```
 
@@ -683,7 +682,7 @@ let governor = Governor::builder()
 **1. 使用缓存**
 
 ```rust
-use limiteron::L2Cache;
+use limiteron::L1Cache;
 
 let cache = L2Cache::new(10000, 3600)?;
 // 缓存会自动提高性能

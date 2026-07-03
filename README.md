@@ -256,7 +256,7 @@ limiteron = { version = "0.2", features = ["macros"] }
 
 ```toml
 [dependencies]
-limiteron = { version = "0.2", features = ["postgres", "redis", "macros"] }
+limiteron = { version = "0.2", features = ["postgres", "redis-storage", "macros"] }
 ```
 
 </td>
@@ -956,7 +956,6 @@ gantt
 - [x] 单元和集成测试
 - [x] 宏支持
 - [x] 通过 DBNexus 支持 PostgreSQL 存储
-- [x] Redis 存储
 - [x] RedisStorage 存储后端（v0.2.0）
 - [x] Governor 优雅关闭与健康检测（v0.2.0）
 - [x] ConfigLoader 环境变量覆盖（v0.2.0）

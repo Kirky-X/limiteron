@@ -192,6 +192,199 @@ match limiter.allow(1).await {
 
 ---
 
+#### `GcraLimiter`
+
+GCRA（Generic Cell Rate Algorithm）限流器。需要启用 `gcra` feature。
+
+<table>
+<tr>
+<td width="30%"><b>类型</b></td>
+<td width="70%">
+
+```rust
+pub struct GcraLimiter {
+    // 内部字段
+}
+```
+
+</td>
+</tr>
+</table>
+
+---
+
+#### `GcraLimiter::new()`
+
+按容量与补充间隔创建新的 GCRA 限流器。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn new(capacity: u64, refill_interval_us: u64) -> Self
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `capacity: u64` - 桶容量（最大令牌数）
+- `refill_interval_us: u64` - 每个令牌的补充间隔（微秒）
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Self</code> - 新的 GCRA 限流器</td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+use limiteron::GcraLimiter;
+
+// 容量 10，每 1_000_000 微秒（1 秒）补充 1 个令牌
+let limiter = GcraLimiter::new(10, 1_000_000);
+```
+
+---
+
+#### `GcraLimiter::with_rate()`
+
+按容量与每秒请求数创建新的 GCRA 限流器。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn with_rate(capacity: u64, requests_per_second: u64) -> Self
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `capacity: u64` - 桶容量（最大令牌数）
+- `requests_per_second: u64` - 每秒允许的请求数
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Self</code> - 新的 GCRA 限流器</td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+use limiteron::GcraLimiter;
+
+// 容量 10，每秒 100 个请求
+let limiter = GcraLimiter::with_rate(10, 100);
+```
+
+---
+
+#### `GcraLimiter::check()`
+
+检查是否允许通过指定成本，返回详细检查结果。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn check(&self, cost: u64) -> GcraCheckResult
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `cost: u64` - 请求成本
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>GcraCheckResult</code> - 检查结果，包含是否允许及等待时长等信息</td>
+</tr>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+use limiteron::GcraLimiter;
+
+let limiter = GcraLimiter::with_rate(10, 100);
+let result = limiter.check(1);
+if result.allowed {
+    println!("✅ 允许，剩余: {}", result.remaining);
+} else {
+    println!("❌ 拒绝，需等待: {:?}", result.retry_after);
+}
+```
+
+---
+
+#### `GcraLimiter::allow()`
+
+检查是否允许通过指定成本。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub async fn allow(&self, cost: u64) -> Result<bool, FlowGuardError>
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `cost: u64` - 请求成本（通常为 1）
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Result&lt;bool, FlowGuardError&gt;</code> - Ok(true) 表示允许，Ok(false) 表示被限流</td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+use limiteron::GcraLimiter;
+
+let limiter = GcraLimiter::with_rate(10, 100);
+match limiter.allow(1).await {
+    Ok(true) => println!("✅ 请求允许"),
+    Ok(false) => println!("❌ 请求被限流"),
+    Err(e) => println!("❌ 错误: {:?}", e),
+}
+```
+
+---
+
 ### 封禁管理
 
 <div align="center">
@@ -259,7 +452,7 @@ pub async fn with_dependencies(
 **示例:**
 
 ```rust
-use limiteron::ban_manager::{BanManager, BanManagerConfig};
+use limiteron::ban::{BanManager, BanManagerConfig};
 use limiteron::storage::BanStorage;
 use std::sync::Arc;
 
@@ -312,7 +505,7 @@ pub async fn create_ban(
 **示例:**
 
 ```rust
-use limiteron::ban_manager::{BanTarget, BanSource};
+use limiteron::ban::{BanTarget, BanSource};
 use std::time::Duration;
 
 let target = BanTarget::Ip("192.168.1.100".to_string());
@@ -337,7 +530,7 @@ let ban_detail = ban_manager.create_ban(
 <td width="70%">
 
 ```rust
-pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanDetail>, FlowGuardError>
+pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, FlowGuardError>
 ```
 
 </td>
@@ -352,20 +545,20 @@ pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanDetail>, F
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;Option&lt;BanDetail&gt;, FlowGuardError&gt;</code> - Some表示被封禁，None表示未封禁</td>
+<td><code>Result&lt;Option&lt;BanRecord&gt;, FlowGuardError&gt;</code> - Some表示被封禁，None表示未封禁</td>
 </tr>
 </table>
 
 **示例:**
 
 ```rust
-use limiteron::ban_manager::BanTarget;
+use limiteron::ban::BanTarget;
 
 let user_target = BanTarget::UserId("user123".to_string());
-if let Some(ban_detail) = ban_manager.is_banned(&user_target).await? {
-    println!("User is banned: {:?}", ban_detail);
-    println!("Reason: {}", ban_detail.reason);
-    println!("Expires at: {}", ban_detail.expires_at);
+if let Some(ban_record) = ban_manager.is_banned(&user_target).await? {
+    println!("User is banned: {:?}", ban_record);
+    println!("Reason: {}", ban_record.reason);
+    println!("Expires at: {}", ban_record.expires_at);
     return Err("User is banned".into());
 }
 ```
@@ -393,8 +586,6 @@ if let Some(ban_detail) = ban_manager.is_banned(&user_target).await? {
 
 ```rust
 pub struct QuotaController {
-    limit: u64,
-    window_secs: u64,
     // 内部字段
 }
 ```
@@ -405,9 +596,9 @@ pub struct QuotaController {
 
 ---
 
-#### `QuotaController::new()`
+#### `QuotaController::builder()`
 
-创建新的配额控制器。
+创建 QuotaControllerBuilder 用于链式配置。
 
 <table>
 <tr>
@@ -415,7 +606,60 @@ pub struct QuotaController {
 <td width="70%">
 
 ```rust
-pub fn new(limit: u64, window_secs: u64) -> Self
+pub fn builder() -> QuotaControllerBuilder
+```
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>QuotaControllerBuilder</code> - 用于链式配置的构建器</td>
+</tr>
+</table>
+
+`QuotaControllerBuilder` 提供以下方法：
+
+| 方法 | 说明 |
+|------|------|
+| `with_storage(storage: Arc<dyn QuotaStorage>)` | 设置配额存储后端 |
+| `with_config(config: QuotaConfig)` | 设置配额配置 |
+| `build()` | 构建并返回 `QuotaController` |
+
+**示例:**
+
+```rust
+use limiteron::quota::{QuotaController, QuotaConfig};
+use limiteron::storage::QuotaStorage;
+use std::sync::Arc;
+
+let config = QuotaConfig {
+    limit: 10000,
+    window_secs: 60,
+    ..Default::default()
+};
+
+let quota = QuotaController::builder()
+    .with_storage(storage)
+    .with_config(config)
+    .build();
+```
+
+---
+
+#### `QuotaController::with_dependencies()`
+
+使用完整依赖注入创建新的配额控制器。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn with_dependencies(
+    storage: Arc<dyn QuotaStorage>,
+    config: QuotaConfig,
+) -> Self
 ```
 
 </td>
@@ -424,8 +668,8 @@ pub fn new(limit: u64, window_secs: u64) -> Self
 <td><b>参数</b></td>
 <td>
 
-- `limit: u64` - 配额限制
-- `window_secs: u64` - 时间窗口（秒）
+- `storage: Arc<dyn QuotaStorage>` - 配额存储后端
+- `config: QuotaConfig` - 配额配置
 
 </td>
 </tr>
@@ -438,9 +682,61 @@ pub fn new(limit: u64, window_secs: u64) -> Self
 **示例:**
 
 ```rust
-use limiteron::quota_controller::QuotaController;
+use limiteron::quota::{QuotaController, QuotaConfig};
+use std::sync::Arc;
 
-let quota = QuotaController::new(10000, 60); // 10000 次/分钟
+let config = QuotaConfig {
+    limit: 10000,
+    window_secs: 60,
+    ..Default::default()
+};
+let quota = QuotaController::with_dependencies(storage, config);
+```
+
+> **注意**: 不存在 `new(limit, window_secs)` 方法，也不存在 `with_config()` 直接方法（`with_config()` 是 builder 的方法）。
+
+---
+
+#### `QuotaController::consume()`
+
+消费配额。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub async fn consume(
+    &self,
+    user_id: &str,
+    resource: &str,
+    cost: u64,
+) -> Result<(), FlowGuardError>
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `user_id: &str` - 用户标识
+- `resource: &str` - 资源名称
+- `cost: u64` - 消费成本
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Result&lt;(), FlowGuardError&gt;</code> - Ok(()) 表示消费成功，Err 表示超出配额或存储错误</td>
+</tr>
+</table>
+
+**示例:**
+
+```rust
+quota.consume("user123", "api_call", 1).await?;
 ```
 
 ---
@@ -480,7 +776,7 @@ pub struct CircuitBreaker {
 
 #### `CircuitBreaker::new()`
 
-创建新的熔断器。
+创建新的熔断器。提供两种构造形式：无参数默认构造，或传入 `CircuitBreakerConfig` 进行自定义配置。
 
 <table>
 <tr>
@@ -488,7 +784,8 @@ pub struct CircuitBreaker {
 <td width="70%">
 
 ```rust
-pub fn new(failure_threshold: u32, timeout_secs: u64) -> Self
+pub fn new() -> Self
+pub fn new(config: CircuitBreakerConfig) -> Self
 ```
 
 </td>
@@ -497,8 +794,7 @@ pub fn new(failure_threshold: u32, timeout_secs: u64) -> Self
 <td><b>参数</b></td>
 <td>
 
-- `failure_threshold: u32` - 失败阈值
-- `timeout_secs: u64` - 超时时长（秒）
+- `config: CircuitBreakerConfig` - 熔断器配置（可选，无参数时使用默认配置）
 
 </td>
 </tr>
@@ -511,10 +807,16 @@ pub fn new(failure_threshold: u32, timeout_secs: u64) -> Self
 **示例:**
 
 ```rust
-use limiteron::circuit_breaker::CircuitBreaker;
+use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig};
 
-let breaker = CircuitBreaker::new(5, 30); // 5 次失败后熔断，30秒后恢复
+// 使用默认配置
+let breaker = CircuitBreaker::new();
+
+// 或使用自定义配置
+let breaker = CircuitBreaker::new(CircuitBreakerConfig::default());
 ```
+
+> **注意**: 不存在 `new(failure_threshold, timeout_secs)` 签名，也不存在 `with_config()` 方法。如需自定义配置，请在 `new()` 中传入 `CircuitBreakerConfig`。
 
 ---
 
@@ -745,7 +1047,7 @@ governor.shutdown().await?;
 
 #### `Governor::shutdown_token()`
 
-获取关闭令牌，可用于在异步任务中监听关闭信号。
+获取关闭令牌的引用，可用于在异步任务中监听关闭信号。
 
 <table>
 <tr>
@@ -753,14 +1055,14 @@ governor.shutdown().await?;
 <td width="70%">
 
 ```rust
-pub fn shutdown_token(&self) -> CancellationToken
+pub fn shutdown_token(&self) -> &tokio_util::sync::CancellationToken
 ```
 
 </td>
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>CancellationToken</code> - 关闭令牌</td>
+<td><code>&tokio_util::sync::CancellationToken</code> - 关闭令牌的引用</td>
 </tr>
 </table>
 
@@ -769,7 +1071,8 @@ pub fn shutdown_token(&self) -> CancellationToken
 ```rust
 use tokio_util::sync::CancellationToken;
 
-let token = governor.shutdown_token();
+// shutdown_token() 返回引用，需 clone 后再 move 到异步任务
+let token = governor.shutdown_token().clone();
 
 tokio::spawn(async move {
     token.cancelled().await;
@@ -820,25 +1123,28 @@ if governor.is_shutdown() {
 <td width="70%">
 
 ```rust
-pub async fn health_check(&self) -> Result<HealthStatus, FlowGuardError>
+pub async fn health_check(&self) -> Result<(), FlowGuardError>
 ```
 
 </td>
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;HealthStatus, FlowGuardError&gt;</code> - 健康状态</td>
+<td><code>Result&lt;(), FlowGuardError&gt;</code> - Ok(()) 表示所有依赖健康，Err 表示检测失败</td>
 </tr>
 </table>
 
 **示例:**
 
 ```rust
-let status = governor.health_check().await?;
-match status {
-    HealthStatus::Healthy => println!("✅ 服务健康"),
-    HealthStatus::Degraded(msg) => println!("⚠️ 服务降级: {}", msg),
-    HealthStatus::Unhealthy(msg) => println!("❌ 服务异常: {}", msg),
+// 执行健康检测，失败时返回错误
+governor.health_check().await?;
+println!("✅ 所有依赖健康");
+
+// 如需获取详细状态字段，使用 health_status()
+let status = governor.health_status().await;
+if !status.storage_healthy {
+    println!("⚠️ 存储不可用");
 }
 ```
 
@@ -854,7 +1160,7 @@ match status {
 <td width="70%">
 
 ```rust
-pub fn health_status(&self) -> HealthStatus
+pub async fn health_status(&self) -> HealthStatus
 ```
 
 </td>
@@ -869,16 +1175,14 @@ pub fn health_status(&self) -> HealthStatus
 
 #### `HealthStatus`
 
-健康状态枚举。
+健康状态结构体。
 
 ```rust
-pub enum HealthStatus {
-    /// 服务健康，所有依赖正常
-    Healthy,
-    /// 服务降级，部分功能受影响
-    Degraded(String),
-    /// 服务异常，关键依赖不可用
-    Unhealthy(String),
+pub struct HealthStatus {
+    pub storage_healthy: bool,
+    pub ban_storage_healthy: bool,
+    pub cache_healthy: bool,
+    pub background_tasks_alive: bool,
 }
 ```
 
@@ -1406,7 +1710,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### 示例 2: 封禁管理
 
 ```rust
-use limiteron::ban_manager::{BanManager, BanManagerConfig, BanTarget, BanSource};
+use limiteron::ban::{BanManager, BanManagerConfig, BanTarget, BanSource};
 use limiteron::adapters::StorageFactory;
 use std::sync::Arc;
 use std::time::Duration;

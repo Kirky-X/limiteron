@@ -1,6 +1,9 @@
 //! 吞吐量基准测试
 //!
 //! 测试系统的吞吐量性能，包括单线程吞吐量、并发吞吐量和吞吐量扩展曲线。
+//
+// 此 benchmark 文件测试 deprecated 的 SlidingWindowLimiter 以维护历史性能基线。
+#![allow(deprecated)]
 
 use criterion::{
     black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, SamplingMode,
@@ -474,7 +477,7 @@ fn bench_cache_throughput(c: &mut Criterion) {
     // 预填充缓存
     rt.block_on(async {
         for i in 0..10_000 {
-            cache
+            let _ = cache
                 .set(&format!("key_{}", i), &format!("value_{}", i))
                 .await;
         }
@@ -508,7 +511,7 @@ fn bench_cache_throughput(c: &mut Criterion) {
                 let c = counter.fetch_add(1, Ordering::Relaxed);
                 rt.block_on(async {
                     #[allow(clippy::unit_arg)]
-                    black_box(
+                    let _ = black_box(
                         cache_write
                             .set(&format!("new_key_{}", c), &format!("value_{}", c))
                             .await,

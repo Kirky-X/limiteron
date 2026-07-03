@@ -18,6 +18,7 @@ async fn create_storage_with_cache() -> (Arc<MockStorage>, Cache<String, String>
 }
 
 /// 生成缓存键
+#[allow(dead_code)]
 fn make_cache_key(prefix: &str, key: &str) -> String {
     format!("{}:{}", prefix, key)
 }

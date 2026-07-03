@@ -5,6 +5,9 @@
 //! - 不同数据结构内存对比
 //! - 持续运行内存稳定性
 //! - 内存泄漏检测
+//
+// 此 benchmark 文件测试 deprecated 的 SlidingWindowLimiter 以维护历史性能基线。
+#![allow(deprecated)]
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 use dashmap::DashMap;
@@ -317,7 +320,7 @@ fn bench_cache_memory_usage(c: &mut Criterion) {
 
         rt.block_on(async {
             for i in 0..*count {
-                cache
+                let _ = cache
                     .set(&format!("key_{}", i), &format!("value_{}", i))
                     .await;
             }
@@ -638,7 +641,7 @@ fn bench_cache_memory_leak_detection(c: &mut Criterion) {
         // 写入和读取缓存
         rt.block_on(async {
             for i in 0..10_000 {
-                cache
+                let _ = cache
                     .set(&format!("key_{}", i), &format!("value_{}", i))
                     .await;
                 let _ = cache.get(&format!("key_{}", i)).await;

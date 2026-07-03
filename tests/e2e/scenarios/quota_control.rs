@@ -5,7 +5,7 @@
 #[cfg(feature = "quota-control")]
 use ahash::AHashMap;
 #[cfg(feature = "quota-control")]
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 #[cfg(feature = "quota-control")]
 use limiteron::error::StorageError;
 #[cfg(feature = "quota-control")]

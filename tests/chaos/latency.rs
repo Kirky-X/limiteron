@@ -9,11 +9,11 @@
 //! - `Jitter`: 带抖动的延迟 (模拟网络波动)
 
 use parking_lot::Mutex;
-use std::sync::Arc;
 use std::time::Duration;
 
 /// 延迟分布类型
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum LatencyDistribution {
     /// 固定延迟
     Constant(Duration),
@@ -106,9 +106,12 @@ impl LatencyInjector {
 
         let delay = self.calculate_delay();
 
-        let mut state = self.state.lock();
-        state.operation_count += 1;
-        state.total_injected_ns += delay.as_nanos() as u64;
+        // 先在锁内更新状态，然后释放锁再 await，避免 await_holding_lock
+        {
+            let mut state = self.state.lock();
+            state.operation_count += 1;
+            state.total_injected_ns += delay.as_nanos() as u64;
+        }
 
         if delay > Duration::ZERO {
             tokio::time::sleep(delay).await;
@@ -155,11 +158,7 @@ impl LatencyInjector {
                 let offset = rand_val % jitter_ns;
                 // 基础延迟 ± 一半抖动范围
                 let half_jitter = jitter_ns / 2;
-                let actual_jitter = if offset > half_jitter {
-                    offset - half_jitter
-                } else {
-                    half_jitter - offset
-                };
+                let actual_jitter = offset.abs_diff(half_jitter);
                 let delay_ns = base.as_nanos() as u64;
                 Duration::from_nanos(delay_ns.saturating_add(actual_jitter))
             }
@@ -190,6 +189,7 @@ impl LatencyInjector {
 
 /// 延迟统计信息
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct LatencyStats {
     /// 总操作数
     pub total_operations: u64,
@@ -219,7 +219,7 @@ fn rand_ns_to_uniform(rand_ns: u64) -> u64 {
 }
 
 /// 便捷函数: 创建常见延迟场景
-
+///
 /// 创建低延迟抖动 (1-5ms)
 pub fn low_jitter() -> LatencyInjector {
     LatencyInjector::new(LatencyDistribution::Jitter {
@@ -245,6 +245,7 @@ pub fn high_latency_network_partition() -> LatencyInjector {
 }
 
 /// 创建指数分布延迟 (平均100ms)
+#[allow(dead_code)]
 pub fn exponential_latency(mean_ms: u64) -> LatencyInjector {
     LatencyInjector::new(LatencyDistribution::Exponential {
         mean: Duration::from_millis(mean_ms),

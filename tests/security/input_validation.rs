@@ -5,7 +5,7 @@
 //! - 数值注入测试（负数消费拒绝、整数溢出保护）
 //! - 配置注入测试
 
-use limiteron::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter};
+use limiteron::limiters::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter};
 use limiteron::matchers::{IpExtractor, RequestContext};
 use limiteron::validation::{validate_ip_address, validate_user_id, validate_mac_address, validate_api_key};
 use limiteron::error::FlowGuardError;
@@ -393,7 +393,7 @@ fn test_window_size_parsing_security() {
         let result = parse_window_size(invalid);
         // 空值、无效格式、负数等应该返回错误
         if invalid.is_empty() || invalid == "invalid" || invalid.starts_with('-') {
-            assert!(result.is_err() || result.unwrap() == Duration::from_secs(0), 
+            assert!(result.is_err() || result.unwrap() == Duration::from_secs(0),
                 "Invalid window size should be rejected: {}", invalid);
         }
     }

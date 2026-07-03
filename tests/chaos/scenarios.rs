@@ -10,12 +10,12 @@
 //! 5. `CascadingFailure` - 级联故障
 
 use super::fault_injection::{FaultInjectionStorage, FaultPattern};
-use super::latency::{LatencyDistribution, LatencyInjector};
 use super::ChaosTestResult;
 use limiteron::clock::MockClock;
 use limiteron::error::StorageError;
-use limiteron::{FixedWindowLimiter, Limiter, TokenBucketLimiter};
-use limiteron::{MemoryStorage, Storage, StorageCreate};
+use limiteron::limiters::{Limiter, TokenBucketLimiter};
+use limiteron::storage::MemoryStorage;
+use limiteron::{Storage, StorageCreate};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -26,6 +26,7 @@ pub trait ChaosScenario: Send + Sync {
     fn name(&self) -> &str;
 
     /// 场景描述
+    #[allow(dead_code)]
     fn description(&self) -> &str;
 
     /// 运行场景
@@ -41,11 +42,13 @@ pub struct StorageIntermittentFailure {
     /// 请求数量
     pub request_count: usize,
     /// 限流器类型
+    #[allow(dead_code)]
     pub limiter_type: LimiterType,
 }
 
 /// 限流器类型枚举
 #[derive(Clone)]
+#[allow(dead_code)]
 pub enum LimiterType {
     TokenBucket {
         capacity: u64,

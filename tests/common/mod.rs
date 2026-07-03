@@ -7,12 +7,12 @@ use limiteron::config::{
     Matcher, MetricsBackend, Rule, StorageType,
 };
 use limiteron::error::{ConsumeResult, StorageError};
-use limiteron::Governor;
-use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage};
-use limiteron::{
+use limiteron::limiters::{
     ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
     TokenBucketLimiter,
 };
+use limiteron::Governor;
+use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage};
 use rand::Rng;
 use std::sync::Arc;
 use std::time::Duration;
@@ -102,7 +102,7 @@ impl Storage for MockQuotaStorageInner {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MockQuotaBehavior {
     fail_mode: bool,
     force_over_limit: bool,
@@ -110,7 +110,7 @@ pub struct MockQuotaBehavior {
     max_entries: Option<usize>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MockBanBehavior {
     fail_mode: bool,
     force_expired: bool,
@@ -334,7 +334,8 @@ impl BanStorage for MockBanStorage {
 
         let bans = self.bans.read().await;
         let now = chrono::Utc::now();
-        let mut records: Vec<_> = bans.values().cloned().collect();
+        #[allow(clippy::map_clone)]
+        let mut records: Vec<_> = bans.values().map(|r| r.clone()).collect();
 
         if active_only {
             records.retain(|r| r.expires_at > now);
@@ -761,17 +762,6 @@ impl MockQuotaBehavior {
     }
 }
 
-impl Default for MockQuotaBehavior {
-    fn default() -> Self {
-        Self {
-            fail_mode: false,
-            force_over_limit: false,
-            force_expired: false,
-            max_entries: None,
-        }
-    }
-}
-
 impl MockBanBehavior {
     pub fn new() -> Self {
         Self::default()
@@ -790,16 +780,6 @@ impl MockBanBehavior {
     pub fn with_max_entries(mut self, max: usize) -> Self {
         self.max_entries = Some(max);
         self
-    }
-}
-
-impl Default for MockBanBehavior {
-    fn default() -> Self {
-        Self {
-            fail_mode: false,
-            force_expired: false,
-            max_entries: None,
-        }
     }
 }
 
@@ -1105,20 +1085,8 @@ pub fn create_ip_rule(rule_id: &str, ips: &[&str], capacity: u64, refill_rate: u
 }
 
 // ==================== 封禁记录生成器 ====================
-
-#[cfg(feature = "ban-manager")]
-pub fn create_ban_record(target: BanTarget, duration_secs: u64, reason: &str) -> BanRecord {
-    let now = chrono::Utc::now();
-    BanRecord {
-        target,
-        ban_times: 1,
-        duration: Duration::from_secs(duration_secs),
-        banned_at: now,
-        expires_at: now + chrono::Duration::seconds(duration_secs as i64),
-        is_manual: false,
-        reason: reason.to_string(),
-    }
-}
+// 注意: create_ban_record 的未门控版本定义在文件上方（第 421 行），
+// 此处仅保留 create_ip_ban_record / create_user_ban_record 的 ban-manager 门控版本。
 
 #[cfg(feature = "ban-manager")]
 pub fn create_ip_ban_record(ip: &str, duration_secs: u64) -> BanRecord {

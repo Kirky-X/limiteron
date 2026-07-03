@@ -16,4 +16,5 @@ pub mod token_bucket;
 /// 属性测试配置
 ///
 /// 使用固定seed确保测试可重现
+#[allow(dead_code)]
 pub const PROPTEST_SEED: u64 = 42;

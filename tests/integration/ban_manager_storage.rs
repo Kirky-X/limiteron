@@ -4,25 +4,30 @@
 
 #[cfg(feature = "ban-manager")]
 mod ban_manager_tests {
-    use crate::common::{MockBanStorage, MockQuotaStorage};
+    use crate::common::{create_ban_record, MockBanStorage};
     use limiteron::ban::BanManager;
-    use limiteron::config::BanConfig;
-    use limiteron::{BanStorage, Storage};
+    use limiteron::BanManagerConfig;
+    use limiteron::BanStorage;
     use std::sync::Arc;
     use std::time::Duration;
 
     // ==================== 辅助函数 ====================
 
     /// 创建测试用的 BanManager
-    fn create_ban_manager() -> BanManager {
+    async fn create_ban_manager() -> BanManager {
         let storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
-        BanManager::new(storage)
+        BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap()
     }
 
     /// 创建带有自定义配置的 BanManager
-    fn create_ban_manager_with_config(config: BanConfig) -> BanManager {
+    #[allow(dead_code)]
+    async fn create_ban_manager_with_config(config: BanManagerConfig) -> BanManager {
         let storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
-        BanManager::with_storage(storage, config)
+        BanManager::with_dependencies(storage, config)
+            .await
+            .unwrap()
     }
 
     // ==================== 封禁操作测试 ====================
@@ -30,96 +35,69 @@ mod ban_manager_tests {
     /// 测试添加封禁记录 - IP 封禁
     #[tokio::test]
     async fn test_ban_ip_address() {
-        let manager = create_ban_manager();
+        let manager = create_ban_manager().await;
 
         // 添加 IP 封禁
-        let result = manager
-            .ban(
-                &limiteron::BanTarget::Ip("192.168.1.100".to_string()),
-                Duration::from_secs(3600),
-                Some("恶意请求".to_string()),
-                None,
-            )
-            .await;
+        let target = limiteron::BanTarget::Ip("192.168.1.100".to_string());
+        let record = create_ban_record(target.clone(), 3600, "恶意请求");
+        let result = manager.add_ban(record).await;
 
         assert!(result.is_ok(), "Ban IP should succeed");
 
         // 验证封禁记录
-        let is_banned = manager
-            .is_banned(&limiteron::BanTarget::Ip("192.168.1.100".to_string()))
-            .await;
+        let is_banned = manager.is_banned(&target).await.unwrap().is_some();
         assert!(is_banned, "IP should be banned");
     }
 
     /// 测试添加封禁记录 - 用户封禁
     #[tokio::test]
     async fn test_ban_user() {
-        let manager = create_ban_manager();
+        let manager = create_ban_manager().await;
 
         // 添加用户封禁
-        let result = manager
-            .ban(
-                &limiteron::BanTarget::UserId("user_12345".to_string()),
-                Duration::from_secs(7200),
-                Some("违规操作".to_string()),
-                None,
-            )
-            .await;
+        let target = limiteron::BanTarget::UserId("user_12345".to_string());
+        let record = create_ban_record(target.clone(), 7200, "违规操作");
+        let result = manager.add_ban(record).await;
 
         assert!(result.is_ok(), "Ban user should succeed");
 
         // 验证封禁记录
-        let is_banned = manager
-            .is_banned(&limiteron::BanTarget::UserId("user_12345".to_string()))
-            .await;
+        let is_banned = manager.is_banned(&target).await.unwrap().is_some();
         assert!(is_banned, "User should be banned");
     }
 
     /// 测试解封操作
     #[tokio::test]
     async fn test_unban() {
-        let manager = create_ban_manager();
+        let manager = create_ban_manager().await;
 
         // 先添加封禁
-        manager
-            .ban(
-                &limiteron::BanTarget::Ip("192.168.1.200".to_string()),
-                Duration::from_secs(3600),
-                Some("测试封禁".to_string()),
-                None,
-            )
-            .await
-            .unwrap();
+        let target = limiteron::BanTarget::Ip("192.168.1.200".to_string());
+        let record = create_ban_record(target.clone(), 3600, "测试封禁");
+        manager.add_ban(record).await.unwrap();
 
         // 验证已封禁
-        assert!(
-            manager
-                .is_banned(&limiteron::BanTarget::Ip("192.168.1.200".to_string()))
-                .await
-        );
+        assert!(manager.is_banned(&target).await.unwrap().is_some());
 
         // 解封
-        let result = manager
-            .unban(&limiteron::BanTarget::Ip("192.168.1.200".to_string()))
-            .await;
+        let result = manager.delete_ban(&target, "admin".to_string()).await;
         assert!(result.is_ok(), "Unban should succeed");
 
         // 验证已解封
-        assert!(
-            !manager
-                .is_banned(&limiteron::BanTarget::Ip("192.168.1.200".to_string()))
-                .await
-        );
+        assert!(manager.is_banned(&target).await.unwrap().is_none());
     }
 
     /// 测试解封不存在的记录
     #[tokio::test]
     async fn test_unban_nonexistent() {
-        let manager = create_ban_manager();
+        let manager = create_ban_manager().await;
 
-        // 解封不存在的记录应该成功（幂等操作）
+        // 解封不存在的记录应该成功（幂等操作，返回 Ok(false)）
         let result = manager
-            .unban(&limiteron::BanTarget::Ip("nonexistent_ip".to_string()))
+            .delete_ban(
+                &limiteron::BanTarget::Ip("nonexistent_ip".to_string()),
+                "admin".to_string(),
+            )
             .await;
         assert!(result.is_ok(), "Unban nonexistent should succeed");
     }
@@ -129,34 +107,22 @@ mod ban_manager_tests {
     /// 测试封禁过期自动解除
     #[tokio::test]
     async fn test_ban_expiration() {
-        let manager = create_ban_manager();
+        let manager = create_ban_manager().await;
 
         // 添加短期封禁（1秒）
-        manager
-            .ban(
-                &limiteron::BanTarget::Ip("192.168.1.50".to_string()),
-                Duration::from_secs(1),
-                Some("短期封禁测试".to_string()),
-                None,
-            )
-            .await
-            .unwrap();
+        let target = limiteron::BanTarget::Ip("192.168.1.50".to_string());
+        let record = create_ban_record(target.clone(), 1, "短期封禁测试");
+        manager.add_ban(record).await.unwrap();
 
         // 立即检查应该被封禁
-        assert!(
-            manager
-                .is_banned(&limiteron::BanTarget::Ip("192.168.1.50".to_string()))
-                .await
-        );
+        assert!(manager.is_banned(&target).await.unwrap().is_some());
 
         // 等待过期
         tokio::time::sleep(Duration::from_millis(1100)).await;
 
         // 过期后应该自动解除
         assert!(
-            !manager
-                .is_banned(&limiteron::BanTarget::Ip("192.168.1.50".to_string()))
-                .await,
+            manager.is_banned(&target).await.unwrap().is_none(),
             "Ban should be expired"
         );
     }
@@ -166,7 +132,7 @@ mod ban_manager_tests {
     /// 测试批量封禁
     #[tokio::test]
     async fn test_batch_ban() {
-        let manager = create_ban_manager();
+        let manager = create_ban_manager().await;
 
         let targets = vec![
             limiteron::BanTarget::Ip("192.168.1.1".to_string()),
@@ -178,27 +144,24 @@ mod ban_manager_tests {
 
         // 批量封禁
         for target in &targets {
-            let result = manager
-                .ban(
-                    target,
-                    Duration::from_secs(3600),
-                    Some("批量封禁测试".to_string()),
-                    None,
-                )
-                .await;
+            let record = create_ban_record(target.clone(), 3600, "批量封禁测试");
+            let result = manager.add_ban(record).await;
             assert!(result.is_ok(), "Batch ban should succeed");
         }
 
         // 验证所有都已封禁
         for target in &targets {
-            assert!(manager.is_banned(target).await, "Target should be banned");
+            assert!(
+                manager.is_banned(target).await.unwrap().is_some(),
+                "Target should be banned"
+            );
         }
     }
 
     /// 测试批量解封
     #[tokio::test]
     async fn test_batch_unban() {
-        let manager = create_ban_manager();
+        let manager = create_ban_manager().await;
 
         // 先批量封禁
         let targets: Vec<limiteron::BanTarget> = vec![
@@ -208,25 +171,26 @@ mod ban_manager_tests {
         ];
 
         for target in &targets {
-            manager
-                .ban(target, Duration::from_secs(3600), None, None)
-                .await
-                .unwrap();
+            let record = create_ban_record(target.clone(), 3600, "test");
+            manager.add_ban(record).await.unwrap();
         }
 
         // 验证都已封禁
         for target in &targets {
-            assert!(manager.is_banned(target).await);
+            assert!(manager.is_banned(target).await.unwrap().is_some());
         }
 
         // 批量解封
         for target in &targets {
-            manager.unban(target).await.unwrap();
+            manager
+                .delete_ban(target, "admin".to_string())
+                .await
+                .unwrap();
         }
 
         // 验证都已解封
         for target in &targets {
-            assert!(!manager.is_banned(target).await);
+            assert!(manager.is_banned(target).await.unwrap().is_none());
         }
     }
 
@@ -235,20 +199,16 @@ mod ban_manager_tests {
     /// 测试并发封禁操作
     #[tokio::test]
     async fn test_concurrent_ban_operations() {
-        let manager = Arc::new(create_ban_manager());
+        let manager = Arc::new(create_ban_manager().await);
         let mut handles = vec![];
 
         // 并发添加封禁
         for i in 0..20 {
             let mgr = Arc::clone(&manager);
             handles.push(tokio::spawn(async move {
-                mgr.ban(
-                    &limiteron::BanTarget::Ip(format!("concurrent_{}", i)),
-                    Duration::from_secs(3600),
-                    Some(format!("并发封禁 {}", i)),
-                    None,
-                )
-                .await
+                let target = limiteron::BanTarget::Ip(format!("concurrent_{}", i));
+                let record = create_ban_record(target, 3600, &format!("并发封禁 {}", i));
+                mgr.add_ban(record).await
             }));
         }
 
@@ -265,7 +225,9 @@ mod ban_manager_tests {
             assert!(
                 manager
                     .is_banned(&limiteron::BanTarget::Ip(format!("concurrent_{}", i)))
-                    .await,
+                    .await
+                    .unwrap()
+                    .is_some(),
                 "Concurrent ban {} should exist",
                 i
             );
@@ -275,26 +237,26 @@ mod ban_manager_tests {
     /// 测试并发封禁和解封
     #[tokio::test]
     async fn test_concurrent_ban_unban() {
-        let manager = Arc::new(create_ban_manager());
+        let manager = Arc::new(create_ban_manager().await);
         let mut handles = vec![];
 
         // 并发封禁和解封同一标识符
         for _ in 0..10 {
             let mgr = Arc::clone(&manager);
             handles.push(tokio::spawn(async move {
-                mgr.ban(
-                    &limiteron::BanTarget::Ip("concurrent_same".to_string()),
-                    Duration::from_secs(3600),
-                    None,
-                    None,
-                )
-                .await
+                let target = limiteron::BanTarget::Ip("concurrent_same".to_string());
+                let record = create_ban_record(target, 3600, "test");
+                mgr.add_ban(record).await
             }));
 
             let mgr = Arc::clone(&manager);
             handles.push(tokio::spawn(async move {
-                mgr.unban(&limiteron::BanTarget::Ip("concurrent_same".to_string()))
-                    .await
+                mgr.delete_ban(
+                    &limiteron::BanTarget::Ip("concurrent_same".to_string()),
+                    "admin".to_string(),
+                )
+                .await
+                .map(|_| ())
             }));
         }
 
@@ -312,74 +274,57 @@ mod ban_manager_tests {
     /// 测试与 Mock 存储的集成
     #[tokio::test]
     async fn test_mock_storage_integration() {
-        let storage = Arc::new(MockBanStorage::new());
-        let manager = BanManager::new(Arc::clone(&storage) as Arc<dyn BanStorage>);
-
-        // 添加封禁
-        manager
-            .ban(
-                &limiteron::BanTarget::Ip("storage_test".to_string()),
-                Duration::from_secs(3600),
-                None,
-                None,
-            )
+        let storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
+        let manager = BanManager::with_dependencies(storage.clone(), BanManagerConfig::default())
             .await
             .unwrap();
 
+        // 添加封禁
+        let target = limiteron::BanTarget::Ip("storage_test".to_string());
+        let record = create_ban_record(target.clone(), 3600, "test");
+        manager.add_ban(record).await.unwrap();
+
         // 验证封禁存在
-        assert!(
-            manager
-                .is_banned(&limiteron::BanTarget::Ip("storage_test".to_string()))
-                .await
-        );
+        assert!(manager.is_banned(&target).await.unwrap().is_some());
 
         // 解封
         manager
-            .unban(&limiteron::BanTarget::Ip("storage_test".to_string()))
+            .delete_ban(&target, "admin".to_string())
             .await
             .unwrap();
 
         // 验证已解封
-        assert!(
-            !manager
-                .is_banned(&limiteron::BanTarget::Ip("storage_test".to_string()))
-                .await
-        );
+        assert!(manager.is_banned(&target).await.unwrap().is_none());
     }
 
     // ==================== 清理过期封禁测试 ====================
 
     /// 测试清理过期封禁
+    ///
+    /// 注意：BanManager 没有 cleanup_expired() 方法，
+    /// 改用 storage 的 cleanup_expired_bans() 方法进行清理。
     #[tokio::test]
     async fn test_cleanup_expired_bans() {
-        let manager = create_ban_manager();
-
-        // 添加一些封禁
-        manager
-            .ban(
-                &limiteron::BanTarget::Ip("cleanup_permanent".to_string()),
-                Duration::from_secs(u64::MAX),
-                None,
-                None,
-            )
+        let storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
+        let manager = BanManager::with_dependencies(storage.clone(), BanManagerConfig::default())
             .await
             .unwrap();
 
-        manager
-            .ban(
-                &limiteron::BanTarget::Ip("cleanup_short".to_string()),
-                Duration::from_millis(100),
-                None,
-                None,
-            )
-            .await
-            .unwrap();
+        // 添加永久封禁（使用 86400 秒避免 u64::MAX 导致的 Duration 转换溢出）
+        let permanent_target = limiteron::BanTarget::Ip("cleanup_permanent".to_string());
+        let permanent_record = create_ban_record(permanent_target.clone(), 86400, "permanent");
+        manager.add_ban(permanent_record).await.unwrap();
+
+        // 添加短期封禁（0 秒，立即过期）
+        let short_target = limiteron::BanTarget::Ip("cleanup_short".to_string());
+        let short_record = create_ban_record(short_target.clone(), 0, "short");
+        manager.add_ban(short_record).await.unwrap();
 
         // 等待短期封禁过期
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        // 执行清理
-        let cleaned = manager.cleanup_expired().await;
+        // 执行清理（通过 storage 而非 manager）
+        let cleaned = storage.cleanup_expired_bans().await.unwrap();
 
         // 验证清理结果
         assert!(cleaned >= 1, "Should clean at least 1 expired ban");
@@ -387,16 +332,16 @@ mod ban_manager_tests {
         // 验证永久封禁仍然存在
         assert!(
             manager
-                .is_banned(&limiteron::BanTarget::Ip("cleanup_permanent".to_string()))
-                .await,
+                .is_banned(&permanent_target)
+                .await
+                .unwrap()
+                .is_some(),
             "Permanent ban should still exist"
         );
 
         // 验证过期封禁已删除
         assert!(
-            !manager
-                .is_banned(&limiteron::BanTarget::Ip("cleanup_short".to_string()))
-                .await,
+            manager.is_banned(&short_target).await.unwrap().is_none(),
             "Expired ban should be removed"
         );
     }

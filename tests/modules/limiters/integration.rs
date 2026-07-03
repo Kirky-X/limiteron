@@ -4,7 +4,7 @@
 //!
 //! Only uses the public allow() method - no private #[cfg(test)] methods.
 
-use limiteron::{
+use limiteron::limiters::{
     ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
     TokenBucketLimiter,
 };

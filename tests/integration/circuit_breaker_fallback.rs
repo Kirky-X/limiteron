@@ -201,7 +201,7 @@ mod fallback_tests {
     /// 创建测试用的 FallbackManager
     async fn create_fallback_manager() -> Arc<FallbackManager> {
         let cache = create_test_cache().await;
-        Arc::new(FallbackManager::new(cache))
+        Arc::new(FallbackManager::new(Arc::new(cache)))
     }
 
     /// 测试降级策略设置

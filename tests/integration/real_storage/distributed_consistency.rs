@@ -11,7 +11,7 @@
 #[cfg(feature = "redis-storage")]
 mod tests {
     use limiteron::error::StorageError;
-    use limiteron::redis::RedisStorage;
+    use limiteron::storage::RedisStorage;
     use limiteron::Storage;
     use std::sync::Arc;
     use std::time::Duration;
@@ -19,8 +19,8 @@ mod tests {
     const REDIS_URL: &str = "redis://127.0.0.1:6379/";
 
     /// 辅助函数：创建 Redis 存储
-    fn create_redis_storage() -> Result<RedisStorage, StorageError> {
-        RedisStorage::from_connection_string(REDIS_URL).map_err(|e| {
+    async fn create_redis_storage() -> Result<RedisStorage, StorageError> {
+        RedisStorage::new(REDIS_URL).await.map_err(|e| {
             StorageError::ConnectionError(format!(
                 "Failed to connect to Redis at {}: {}. Please ensure Redis is running.",
                 REDIS_URL, e
@@ -41,7 +41,9 @@ mod tests {
     #[ignore]
     async fn test_distributed_storage_consistency() {
         // 创建共享 Redis 存储
-        let redis_storage = create_redis_storage().expect("Should create Redis storage");
+        let redis_storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let storage: Arc<dyn Storage> = Arc::new(redis_storage);
 
         let test_key = "test:distributed:consistency";
@@ -85,7 +87,9 @@ mod tests {
     async fn test_distributed_concurrent_writes() {
         use std::sync::atomic::{AtomicU32, Ordering};
 
-        let redis_storage = create_redis_storage().expect("Should create Redis storage");
+        let redis_storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let storage: Arc<dyn Storage> = Arc::new(redis_storage);
 
         let test_key = "test:distributed:concurrent";
@@ -136,7 +140,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_distributed_ttl_consistency() {
-        let redis_storage = create_redis_storage().expect("Should create Redis storage");
+        let redis_storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let storage: Arc<dyn Storage> = Arc::new(redis_storage);
 
         let test_key = "test:distributed:ttl";
@@ -176,7 +182,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_network_partition_recovery() {
-        let redis_storage = create_redis_storage().expect("Should create Redis storage");
+        let redis_storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let storage: Arc<dyn Storage> = Arc::new(redis_storage);
 
         let test_key = "test:partition:recovery";
@@ -221,7 +229,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_distributed_multiple_keys_consistency() {
-        let redis_storage = create_redis_storage().expect("Should create Redis storage");
+        let redis_storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let storage: Arc<dyn Storage> = Arc::new(redis_storage);
 
         // 清理旧数据
@@ -237,7 +247,7 @@ mod tests {
             storage
                 .set(&key, &value, None)
                 .await
-                .expect(&format!("Instance A should write key {}", i));
+                .unwrap_or_else(|_| panic!("Instance A should write key {}", i));
         }
 
         // 实例 B 读取并验证所有键
@@ -247,8 +257,8 @@ mod tests {
             let result = storage
                 .get(&key)
                 .await
-                .expect(&format!("Instance B should read key {}", i))
-                .expect(&format!("Key {} should exist", i));
+                .unwrap_or_else(|_| panic!("Instance B should read key {}", i))
+                .unwrap_or_else(|| panic!("Key {} should exist", i));
 
             assert_eq!(result, expected, "Key {} value mismatch", i);
         }
@@ -267,7 +277,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_distributed_large_value_consistency() {
-        let redis_storage = create_redis_storage().expect("Should create Redis storage");
+        let redis_storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let storage: Arc<dyn Storage> = Arc::new(redis_storage);
 
         let test_key = "test:distributed:large";
@@ -300,7 +312,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_distributed_special_chars_consistency() {
-        let redis_storage = create_redis_storage().expect("Should create Redis storage");
+        let redis_storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let storage: Arc<dyn Storage> = Arc::new(redis_storage);
 
         let test_key = "test:distributed:special:chars!@#$%^&*()";

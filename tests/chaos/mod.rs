@@ -24,12 +24,11 @@ pub mod fault_injection;
 pub mod latency;
 pub mod scenarios;
 
-pub use fault_injection::{FaultInjectionStorage, FaultPattern};
-pub use latency::LatencyInjector;
-pub use scenarios::{ChaosScenario, ChaosTestRunner};
+pub use fault_injection::FaultPattern;
 
 /// 混沌测试配置
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ChaosConfig {
     /// 故障注入率 (0.0 - 1.0)
     pub failure_rate: f64,
@@ -75,6 +74,7 @@ pub struct ChaosTestResult {
 
 impl ChaosTestResult {
     /// 成功率
+    #[allow(dead_code)]
     pub fn success_rate(&self) -> f64 {
         if self.total_requests == 0 {
             return 0.0;
@@ -83,6 +83,7 @@ impl ChaosTestResult {
     }
 
     /// 失败率
+    #[allow(dead_code)]
     pub fn failure_rate(&self) -> f64 {
         1.0 - self.success_rate()
     }

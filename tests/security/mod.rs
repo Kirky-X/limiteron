@@ -18,9 +18,7 @@ mod resource_exhaustion_tests;
 mod visibility_tests;
 
 // 重新导出 common 模块中的测试工具
-mod common {
-    pub use crate::common::*;
-}
+mod common {}
 
 // ============================================================================
 // 安全测试套件概览
@@ -100,10 +98,8 @@ mod common {
 ///   - 无内部信息泄露
 ///   - 无敏感数据泄露
 ///   - 错误处理不泄露堆栈信息
-
 #[cfg(test)]
 mod tests {
-    use super::*;
 
     /// 验证所有测试模块可访问
     #[test]

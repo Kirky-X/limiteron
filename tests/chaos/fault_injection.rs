@@ -18,6 +18,7 @@ use std::time::Duration;
 
 /// 故障模式
 #[derive(Debug, Clone, Copy, Default)]
+#[allow(dead_code)]
 pub enum FaultPattern {
     /// 随机故障 - 每次操作有固定概率失败
     #[default]
@@ -76,6 +77,7 @@ pub struct FaultInjectionStorage {
     /// 故障状态 (内部可变性)
     state: Mutex<FaultState>,
     /// 随机数生成器种子 (用于可重现测试)
+    #[allow(dead_code)]
     seed: u64,
 }
 
@@ -102,6 +104,7 @@ impl FaultInjectionStorage {
     }
 
     /// 创建带有自定义种子的故障注入存储
+    #[allow(dead_code)]
     pub fn with_seed(
         inner: Arc<dyn Storage>,
         failure_rate: f64,
@@ -124,6 +127,7 @@ impl FaultInjectionStorage {
     }
 
     /// 构建器模式创建
+    #[allow(dead_code)]
     pub fn builder() -> FaultInjectionBuilder {
         FaultInjectionBuilder::default()
     }
@@ -193,6 +197,7 @@ impl FaultInjectionStorage {
     }
 
     /// 获取内部存储的引用
+    #[allow(dead_code)]
     pub fn inner(&self) -> &dyn Storage {
         self.inner.as_ref()
     }
@@ -251,6 +256,7 @@ impl Storage for FaultInjectionStorage {
 
 /// 故障注入存储构建器
 #[derive(Default)]
+#[allow(dead_code)]
 pub struct FaultInjectionBuilder {
     inner: Option<Arc<dyn Storage>>,
     failure_rate: f64,
@@ -260,6 +266,7 @@ pub struct FaultInjectionBuilder {
     seed: u64,
 }
 
+#[allow(dead_code)]
 impl FaultInjectionBuilder {
     /// 设置内部存储
     pub fn with_inner(mut self, inner: Arc<dyn Storage>) -> Self {
@@ -308,7 +315,7 @@ impl FaultInjectionBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use limiteron::MemoryStorage;
+    use limiteron::storage::MemoryStorage;
 
     #[tokio::test]
     async fn test_fault_injection_random_failures() {
@@ -334,7 +341,7 @@ mod tests {
 
         // 50% 失败率, 100次尝试应该有大约 30-70 次失败
         assert!(
-            failures >= 30 && failures <= 70,
+            (30..=70).contains(&failures),
             "Expected 30-70 failures, got {}",
             failures
         );

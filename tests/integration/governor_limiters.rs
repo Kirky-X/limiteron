@@ -8,7 +8,6 @@ use limiteron::config::{
     MetricsBackend, Rule, StorageType,
 };
 use limiteron::error::Decision;
-use limiteron::Limiter;
 use limiteron::{BanStorage, Storage};
 use std::sync::Arc;
 use std::time::Duration;
@@ -240,13 +239,13 @@ async fn test_multiple_limiters_concurrent() {
     let results: Vec<_> = futures::future::join_all(handles).await;
 
     let mut allowed = 0;
-    let mut rejected = 0;
+    let mut _rejected = 0;
 
     for result in results {
         if let Ok(Ok(decision)) = result {
             match decision {
                 Decision::Allowed(_) => allowed += 1,
-                Decision::Rejected(_) => rejected += 1,
+                Decision::Rejected(_) => _rejected += 1,
                 Decision::Banned(_) => {}
             }
         }
@@ -389,7 +388,7 @@ async fn test_governor_l1_cache_hit() {
     assert!(governor.is_l1_cache_enabled());
 
     // 清空缓存
-    governor.clear_l1_cache();
+    governor.clear_l1_cache().await;
     assert_eq!(governor.l1_cache_size().await, 0);
 
     let ctx = RequestContextBuilder::new()
@@ -399,7 +398,7 @@ async fn test_governor_l1_cache_hit() {
 
     // 第一次请求（缓存未命中）
     let result1 = governor.check(&ctx).await.unwrap();
-    let cache_size_after_first = governor.l1_cache_size().await;
+    let _cache_size_after_first = governor.l1_cache_size().await;
 
     // 第二次请求（可能缓存命中）
     let result2 = governor.check(&ctx).await.unwrap();
@@ -461,7 +460,7 @@ async fn test_governor_cache_invalidation() {
     let _ = governor.check(&ctx).await;
 
     // 使缓存失效
-    governor.invalidate_l1_cache("invalidate_user");
+    governor.invalidate_l1_cache("invalidate_user").await;
 
     // 验证缓存被清除
     // 注意：由于缓存键可能包含规则ID，我们只能验证缓存大小减少

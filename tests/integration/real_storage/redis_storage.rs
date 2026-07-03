@@ -9,15 +9,15 @@
 #[cfg(feature = "redis-storage")]
 mod tests {
     use limiteron::error::StorageError;
-    use limiteron::redis::RedisStorage;
+    use limiteron::storage::RedisStorage;
     use limiteron::Storage;
     use std::time::Duration;
 
     const REDIS_URL: &str = "redis://127.0.0.1:6379/";
 
     /// 辅助函数：创建 Redis 存储
-    fn create_redis_storage() -> Result<RedisStorage, StorageError> {
-        RedisStorage::from_connection_string(REDIS_URL).map_err(|e| {
+    async fn create_redis_storage() -> Result<RedisStorage, StorageError> {
+        RedisStorage::new(REDIS_URL).await.map_err(|e| {
             StorageError::ConnectionError(format!(
                 "Failed to connect to Redis at {}: {}. Please ensure Redis is running.",
                 REDIS_URL, e
@@ -33,7 +33,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_redis_storage_connection() {
-        let storage = create_redis_storage().expect("Should create Redis storage");
+        let storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
 
         // 测试基本连接
         let result = storage.get("test_connection").await;
@@ -48,7 +50,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_redis_storage_set_get() {
-        let storage = create_redis_storage().expect("Should create Redis storage");
+        let storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let test_key = "test:set_get";
 
         cleanup_key(&storage, test_key).await;
@@ -75,7 +79,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_redis_storage_delete() {
-        let storage = create_redis_storage().expect("Should create Redis storage");
+        let storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let test_key = "test:delete";
 
         // 设置值
@@ -95,7 +101,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_redis_storage_ttl() {
-        let storage = create_redis_storage().expect("Should create Redis storage");
+        let storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let test_key = "test:ttl";
 
         cleanup_key(&storage, test_key).await;
@@ -125,7 +133,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_redis_storage_update_value() {
-        let storage = create_redis_storage().expect("Should create Redis storage");
+        let storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let test_key = "test:update";
 
         // 设置初始值
@@ -155,7 +165,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_redis_storage_get_nonexistent() {
-        let storage = create_redis_storage().expect("Should create Redis storage");
+        let storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
 
         let result = storage
             .get("test:nonexistent_key")
@@ -170,7 +182,11 @@ mod tests {
     async fn test_redis_storage_concurrent_access() {
         use std::sync::Arc;
 
-        let storage = Arc::new(create_redis_storage().expect("Should create Redis storage"));
+        let storage = Arc::new(
+            create_redis_storage()
+                .await
+                .expect("Should create Redis storage"),
+        );
         let test_key = "test:concurrent";
 
         cleanup_key(&storage, test_key).await;
@@ -212,7 +228,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_redis_storage_special_characters() {
-        let storage = create_redis_storage().expect("Should create Redis storage");
+        let storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let test_key = "test:special:chars!@#$%^&*()";
         let test_value = "value with spaces, commas, and unicode: 你好世界";
 
@@ -239,7 +257,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_redis_storage_empty_value() {
-        let storage = create_redis_storage().expect("Should create Redis storage");
+        let storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let test_key = "test:empty_value";
 
         cleanup_key(&storage, test_key).await;
@@ -265,7 +285,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_redis_storage_large_value() {
-        let storage = create_redis_storage().expect("Should create Redis storage");
+        let storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
         let test_key = "test:large_value";
         let large_value = "x".repeat(100_000); // 100KB
 
@@ -292,7 +314,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_redis_storage_multiple_keys() {
-        let storage = create_redis_storage().expect("Should create Redis storage");
+        let storage = create_redis_storage()
+            .await
+            .expect("Should create Redis storage");
 
         // 设置多个密钥
         for i in 0..5 {

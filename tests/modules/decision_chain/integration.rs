@@ -5,7 +5,7 @@
 use async_trait::async_trait;
 use limiteron::decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
 use limiteron::error::{Decision, FlowGuardError};
-use limiteron::{Limiter, TokenBucketLimiter};
+use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use std::sync::Arc;
 
 // ==================== Mock Limiters ====================
@@ -37,6 +37,7 @@ impl SpyLimiter {
             calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
+    #[allow(dead_code)]
     fn call_count(&self) -> usize {
         self.calls.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -81,7 +82,7 @@ async fn single_node_rejected() {
 #[tokio::test]
 async fn chain_runs_all_nodes_until_rejection() {
     let spy1 = Arc::new(SpyLimiter::new());
-    let spy2 = spy1.clone();
+    let _spy2 = spy1.clone();
 
     let node1 = DecisionNode::new(
         "n1".to_string(),
@@ -113,7 +114,7 @@ async fn chain_runs_all_nodes_until_rejection() {
 
 #[tokio::test]
 async fn disabled_node_is_skipped() {
-    let spy = Arc::new(SpyLimiter::new());
+    let _spy = Arc::new(SpyLimiter::new());
 
     let mut node1 = DecisionNode::new(
         "n1".to_string(),

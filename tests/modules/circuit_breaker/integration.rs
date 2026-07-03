@@ -18,6 +18,7 @@ async fn test_circuit_breaker_module_import() {
         success_threshold: 2,
         timeout: Duration::from_secs(5),
         half_open_max_calls: 3,
+        ..Default::default()
     };
 
     #[allow(unused_variables)]

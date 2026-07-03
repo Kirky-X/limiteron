@@ -4,9 +4,11 @@
 //! - 竞争条件测试（限流器竞争条件、封禁状态竞争条件、配额消费竞争条件）
 //! - 死锁测试（多锁场景死锁检测、超时恢复验证）
 
-use crate::common::{MockBanStorage, MockQuotaStorage};
+use crate::common::{create_ban_record, MockBanStorage, MockQuotaStorage};
+use limiteron::limiters::{
+    FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter,
+};
 use limiteron::{BanStorage, QuotaStorage};
-use limiteron::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -258,13 +260,13 @@ async fn test_lock_timeout_recovery() {
     }
 
     let mut success = 0;
-    let mut timeout_count = 0;
+    let mut _timeout_count = 0;
 
     for handle in handles {
         match handle.await {
             Ok(true) => success += 1,
-            Ok(false) => timeout_count += 1,
-            Err(_) => timeout_count += 1,
+            Ok(false) => _timeout_count += 1,
+            Err(_) => _timeout_count += 1,
         }
     }
 
@@ -300,11 +302,11 @@ async fn test_ban_manager_concurrent_safety() {
         handles.push(tokio::spawn(async move {
             barrier.wait().await;
             let _ = ban_manager
-                .ban(
+                .add_ban(create_ban_record(
                     target.clone(),
-                    Duration::from_secs(60),
-                    Some(format!("Ban reason {}", i)),
-                )
+                    60,
+                    &format!("Ban reason {}", i),
+                ))
                 .await;
         }));
     }
@@ -317,7 +319,7 @@ async fn test_ban_manager_concurrent_safety() {
 
         handles.push(tokio::spawn(async move {
             barrier.wait().await;
-            let _ = ban_manager.unban(&target).await;
+            let _ = ban_manager.delete_ban(&target, "admin".to_string()).await;
         }));
     }
 

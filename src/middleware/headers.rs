@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_inject_rate_limit_headers() {
-        let mut response = Response::new(());
+        let response = Response::new(());
         let values = RateLimitHeaderValues {
             limit: 100,
             remaining: 99,
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_inject_rate_limit_headers_with_retry_after() {
-        let mut response = Response::new(());
+        let response = Response::new(());
         let values = RateLimitHeaderValues {
             limit: 100,
             remaining: 0,
@@ -165,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_inject_rate_limit_headers_empty_policy() {
-        let mut response = Response::new(());
+        let response = Response::new(());
         let values = RateLimitHeaderValues {
             limit: 50,
             remaining: 25,
@@ -178,5 +178,46 @@ mod tests {
 
         assert_eq!(response.headers().get("RateLimit-Limit").unwrap(), "50");
         assert!(response.headers().get("RateLimit-Policy").is_none());
+    }
+
+    #[test]
+    fn test_inject_rate_limit_headers_invalid_policy_skipped() {
+        // HeaderValue::from_str 拒绝非可见 ASCII 字符（如换行符），
+        // 此时 RateLimit-Policy 头应被跳过（不 panic、不注入）
+        let response = Response::new(());
+        let values = RateLimitHeaderValues {
+            limit: 10,
+            remaining: 5,
+            reset_at: 1,
+            retry_after: None,
+            policy: "bad\nvalue".to_string(),
+        };
+
+        let response = inject_rate_limit_headers(response, &values);
+
+        // 数字头仍应正常注入
+        assert_eq!(response.headers().get("RateLimit-Limit").unwrap(), "10");
+        // 无效 policy 不注入
+        assert!(response.headers().get("RateLimit-Policy").is_none());
+    }
+
+    #[test]
+    fn test_inject_rate_limit_headers_all_zero_values() {
+        // 边界值：全部为 0
+        let response = Response::new(());
+        let values = RateLimitHeaderValues {
+            limit: 0,
+            remaining: 0,
+            reset_at: 0,
+            retry_after: Some(0),
+            policy: "zero".to_string(),
+        };
+
+        let response = inject_rate_limit_headers(response, &values);
+
+        assert_eq!(response.headers().get("RateLimit-Limit").unwrap(), "0");
+        assert_eq!(response.headers().get("RateLimit-Remaining").unwrap(), "0");
+        assert_eq!(response.headers().get("RateLimit-Reset").unwrap(), "0");
+        assert_eq!(response.headers().get("Retry-After").unwrap(), "0");
     }
 }

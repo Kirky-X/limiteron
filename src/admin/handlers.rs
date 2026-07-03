@@ -273,3 +273,390 @@ pub async fn get_circuit_breaker_status(
 pub async fn get_circuit_breaker_status() -> Json<ApiResponse<()>> {
     Json(ApiResponse::error("Circuit breaker not configured"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::admin::server::AppState;
+    use crate::config::types::{
+        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule,
+    };
+    use crate::storage::{BanStorage, Storage};
+    use crate::storage::{MemoryBanStorage, MemoryStorage};
+    use crate::Governor;
+    use std::sync::Arc;
+
+    /// 构造包含至少一条规则的合法 FlowControlConfig（Governor::new() 默认配置无规则会 panic）
+    fn make_valid_config() -> FlowControlConfig {
+        FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::types::GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "test_rule".to_string(),
+                name: "Test Rule".to_string(),
+                priority: 100,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig {
+                    on_exceed: Action::Reject,
+                    ban: None,
+                },
+            }],
+        }
+    }
+
+    /// 构造可用的 Governor 实例（避免 Governor::new() 的空配置 panic）
+    async fn make_governor() -> Governor {
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+        Governor::builder()
+            .with_config(make_valid_config())
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed with valid config")
+    }
+
+    #[test]
+    fn test_api_response_ok_contains_data() {
+        let resp: ApiResponse<i32> = ApiResponse::ok(42);
+        assert!(resp.success);
+        assert_eq!(resp.message, "OK");
+        assert_eq!(resp.data, Some(42));
+    }
+
+    #[test]
+    fn test_api_response_error_has_no_data() {
+        let resp: ApiResponse<i32> = ApiResponse::error("something failed");
+        assert!(!resp.success);
+        assert_eq!(resp.message, "something failed");
+        assert_eq!(resp.data, None);
+    }
+
+    #[test]
+    fn test_api_response_error_accepts_string_and_str() {
+        let owned = String::from("owned error");
+        let resp1: ApiResponse<i32> = ApiResponse::error(owned);
+        assert_eq!(resp1.message, "owned error");
+
+        let resp2: ApiResponse<i32> = ApiResponse::error("borrowed error");
+        assert_eq!(resp2.message, "borrowed error");
+    }
+
+    // ========================================================================
+    // Handler 集成测试
+    // ========================================================================
+
+    /// 构造最小可用 AppState（仅 Governor，可选组件为 None）
+    async fn make_minimal_state() -> AppState {
+        let governor = Arc::new(make_governor().await);
+        AppState {
+            governor,
+            #[cfg(feature = "ban-manager")]
+            ban_manager: None,
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_status_empty_governor() {
+        let state = make_minimal_state().await;
+        let resp = get_status(State(state)).await;
+        assert!(resp.0.success);
+        let data = resp.0.data.unwrap();
+        assert_eq!(data.total_requests, 0);
+        assert_eq!(data.blocked_requests, 0);
+        assert_eq!(data.success_rate, 1.0);
+    }
+
+    #[tokio::test]
+    async fn test_get_limiter_status_returns_key() {
+        let state = make_minimal_state().await;
+        let (status, resp) = get_limiter_status(State(state), Path("my-key".to_string())).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(resp.0.success);
+        assert_eq!(resp.0.data.unwrap().key, "my-key");
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_delete_ban_no_manager() {
+        let state = make_minimal_state().await;
+        let req = UnbanRequest {
+            reason: None,
+            operator: None,
+        };
+        let resp = delete_ban(State(state), Path("192.168.1.1".to_string()), Json(req)).await;
+        assert!(!resp.0.success);
+        assert_eq!(resp.0.message, "Ban manager not configured");
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_delete_ban_with_manager_ip_target() {
+        use crate::BanManager;
+        let ban_manager = Arc::new(BanManager::new().await.unwrap());
+        let governor = Arc::new(make_governor().await);
+        let state = AppState {
+            governor,
+            ban_manager: Some(ban_manager),
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+        };
+        // 未封禁的 IP → Ban not found
+        let req = UnbanRequest {
+            reason: Some("test".to_string()),
+            operator: Some("tester".to_string()),
+        };
+        let resp = delete_ban(State(state), Path("192.168.1.1".to_string()), Json(req)).await;
+        assert!(!resp.0.success);
+        assert_eq!(resp.0.message, "Ban not found");
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_delete_ban_with_manager_userid_target() {
+        use crate::BanManager;
+        let ban_manager = Arc::new(BanManager::new().await.unwrap());
+        let governor = Arc::new(make_governor().await);
+        let state = AppState {
+            governor,
+            ban_manager: Some(ban_manager),
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+        };
+        // 非 IP 字符串 → UserId 目标
+        let req = UnbanRequest {
+            reason: None,
+            operator: None,
+        };
+        let resp = delete_ban(State(state), Path("user-123".to_string()), Json(req)).await;
+        assert!(!resp.0.success);
+        assert_eq!(resp.0.message, "Ban not found");
+    }
+
+    #[cfg(feature = "quota-control")]
+    #[tokio::test]
+    async fn test_update_quota_no_controller() {
+        let state = make_minimal_state().await;
+        let req = UpdateQuotaRequest {
+            resource: "api".to_string(),
+            new_limit: 0,
+            duration_secs: None,
+        };
+        let resp = update_quota(State(state), Path("tenant-1".to_string()), Json(req)).await;
+        assert!(!resp.0.success);
+        assert_eq!(resp.0.message, "Quota controller not configured");
+    }
+
+    #[cfg(feature = "quota-control")]
+    #[tokio::test]
+    async fn test_update_quota_unsupported_limit() {
+        use crate::cache::quota_storage::CacheQuotaStorage;
+        use crate::quota::QuotaConfig;
+        use crate::storage::QuotaStorage;
+        use crate::QuotaController;
+        use oxcache::backend::memory::DashMapMemoryBackend;
+        let storage: Arc<dyn QuotaStorage> = Arc::new(CacheQuotaStorage::new(Arc::new(
+            DashMapMemoryBackend::new(),
+        )));
+        let quota_controller = Arc::new(QuotaController::with_dependencies(
+            storage,
+            QuotaConfig::default(),
+        ));
+        let governor = Arc::new(make_governor().await);
+        let state = AppState {
+            governor,
+            #[cfg(feature = "ban-manager")]
+            ban_manager: None,
+            quota_controller: Some(quota_controller),
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+        };
+        // new_limit > 0 → 不支持
+        let req = UpdateQuotaRequest {
+            resource: "api".to_string(),
+            new_limit: 100,
+            duration_secs: None,
+        };
+        let resp = update_quota(State(state), Path("tenant-1".to_string()), Json(req)).await;
+        assert!(!resp.0.success);
+        assert!(resp.0.message.contains("not supported"));
+    }
+
+    #[cfg(feature = "circuit-breaker")]
+    #[tokio::test]
+    async fn test_get_circuit_breaker_status_no_cb() {
+        let state = make_minimal_state().await;
+        let resp = get_circuit_breaker_status(State(state)).await;
+        assert!(!resp.0.success);
+        assert_eq!(resp.0.message, "Circuit breaker not configured");
+    }
+
+    #[cfg(feature = "circuit-breaker")]
+    #[tokio::test]
+    async fn test_get_circuit_breaker_status_with_cb() {
+        use crate::circuit::types::{CircuitBreaker, CircuitBreakerConfig};
+        let cb = Arc::new(CircuitBreaker::with_dependencies(
+            CircuitBreakerConfig::default(),
+        ));
+        let governor = Arc::new(make_governor().await);
+        let state = AppState {
+            governor,
+            #[cfg(feature = "ban-manager")]
+            ban_manager: None,
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            circuit_breaker: Some(cb),
+        };
+        let resp = get_circuit_breaker_status(State(state)).await;
+        assert!(resp.0.success);
+        let data = resp.0.data.unwrap();
+        assert_eq!(data.failure_rate, 0.0);
+        assert_eq!(data.slow_call_rate, 0.0);
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_get_status_with_ban_manager_and_cb() {
+        use crate::circuit::types::{CircuitBreaker, CircuitBreakerConfig};
+        use crate::BanManager;
+        let ban_manager = Arc::new(BanManager::new().await.unwrap());
+        let cb = Arc::new(CircuitBreaker::with_dependencies(
+            CircuitBreakerConfig::default(),
+        ));
+        let governor = Arc::new(make_governor().await);
+        let state = AppState {
+            governor,
+            ban_manager: Some(ban_manager),
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            circuit_breaker: Some(cb),
+        };
+        let resp = get_status(State(state)).await;
+        assert!(resp.0.success);
+        let data = resp.0.data.unwrap();
+        assert_eq!(data.active_bans, 0);
+        assert!(!data.circuit_breaker.is_empty());
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_delete_ban_success() {
+        use crate::ban::BanTarget;
+        use crate::storage::BanRecord;
+        use crate::BanManager;
+        let ban_manager = Arc::new(BanManager::new().await.unwrap());
+        // 先添加一条封禁
+        let target = BanTarget::Ip("10.0.0.1".to_string());
+        let now = chrono::Utc::now();
+        ban_manager
+            .add_ban(BanRecord {
+                target: target.clone(),
+                ban_times: 1,
+                duration: std::time::Duration::from_secs(3600),
+                banned_at: now,
+                expires_at: now + chrono::Duration::seconds(3600),
+                is_manual: true,
+                reason: "test ban".to_string(),
+            })
+            .await
+            .unwrap();
+        let governor = Arc::new(make_governor().await);
+        let state = AppState {
+            governor,
+            ban_manager: Some(ban_manager),
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+        };
+        let req = UnbanRequest {
+            reason: Some("manual unban".to_string()),
+            operator: Some("admin".to_string()),
+        };
+        let resp = delete_ban(State(state), Path("10.0.0.1".to_string()), Json(req)).await;
+        assert!(resp.0.success);
+        assert_eq!(resp.0.message, "manual unban");
+    }
+
+    #[cfg(feature = "quota-control")]
+    #[tokio::test]
+    async fn test_update_quota_reset_success() {
+        use crate::cache::quota_storage::CacheQuotaStorage;
+        use crate::quota::QuotaConfig;
+        use crate::storage::QuotaStorage;
+        use crate::QuotaController;
+        use oxcache::backend::memory::DashMapMemoryBackend;
+        let storage: Arc<dyn QuotaStorage> = Arc::new(CacheQuotaStorage::new(Arc::new(
+            DashMapMemoryBackend::new(),
+        )));
+        let quota_controller = Arc::new(QuotaController::with_dependencies(
+            storage,
+            QuotaConfig::default(),
+        ));
+        let governor = Arc::new(make_governor().await);
+        let state = AppState {
+            governor,
+            #[cfg(feature = "ban-manager")]
+            ban_manager: None,
+            quota_controller: Some(quota_controller),
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+        };
+        let req = UpdateQuotaRequest {
+            resource: "api".to_string(),
+            new_limit: 0,
+            duration_secs: Some(3600),
+        };
+        let resp = update_quota(State(state), Path("tenant-1".to_string()), Json(req)).await;
+        assert!(resp.0.success);
+        let data = resp.0.data.unwrap();
+        assert!(data.expires_at.is_some());
+    }
+
+    #[cfg(feature = "circuit-breaker")]
+    #[tokio::test]
+    async fn test_get_circuit_breaker_status_with_failures() {
+        use crate::circuit::types::{CircuitBreaker, CircuitBreakerConfig};
+        use crate::error::{FlowGuardError, StorageError};
+        let cb = Arc::new(CircuitBreaker::with_dependencies(
+            CircuitBreakerConfig::default(),
+        ));
+        // 通过 execute 触发一次失败以覆盖 failure_rate > 0 分支
+        // 使用 ConnectionError（transient）才会被 DefaultErrorClassifier 计为失败
+        let _ = cb
+            .execute(|| async {
+                Err::<(), FlowGuardError>(FlowGuardError::StorageError(
+                    StorageError::ConnectionError("test".to_string()),
+                ))
+            })
+            .await;
+        let governor = Arc::new(make_governor().await);
+        let state = AppState {
+            governor,
+            #[cfg(feature = "ban-manager")]
+            ban_manager: None,
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            circuit_breaker: Some(cb),
+        };
+        let resp = get_circuit_breaker_status(State(state)).await;
+        assert!(resp.0.success);
+        let data = resp.0.data.unwrap();
+        assert!(data.failure_rate > 0.0);
+    }
+}

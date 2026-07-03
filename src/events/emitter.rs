@@ -300,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_event_emitter_builder() {
-        let emitter = EventEmitter::builder()
+        let emitter = EventEmitterBuilder::new()
             .with_channel_capacity(2048)
             .enabled(true)
             .with_logging(false)
@@ -313,7 +313,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_event_emitter_with_metadata() {
-        use std::collections::HashMap as StdHashMap;
+        use ahash::AHashMap as StdHashMap;
 
         let emitter = EventEmitter::with_default_config();
         let mut receiver = emitter.subscribe();

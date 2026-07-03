@@ -164,7 +164,7 @@ pub use error::{
 };
 #[cfg(feature = "fallback")]
 pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
-pub use governor::{Governor, GovernorStats};
+pub use governor::{Governor, GovernorStats, HealthStatus};
 pub use l1_cache::{L1Cache, L1CacheConfig, RateLimitCacheKey};
 pub use limiters::Limiter;
 #[cfg(feature = "quota-control")]
@@ -218,6 +218,10 @@ pub use storage::{
 
 #[cfg(feature = "parallel-checker")]
 pub use storage::ParallelBanChecker;
+
+// Re-export RedisStorage (feature-gated)
+#[cfg(feature = "redis-storage")]
+pub use storage::redis::RedisStorage;
 
 // Re-export CacheStorage (feature-gated)
 #[cfg(feature = "cache-storage")]

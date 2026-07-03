@@ -739,7 +739,7 @@ mod tests {
 
         // 测试告警触发
         // 故意制造高延迟请求
-        let slow_timer = monitoring.record_request_start(&format!("slow_test_1"));
+        let slow_timer = monitoring.record_request_start("slow_test_1");
         tokio::time::sleep(Duration::from_millis(200)).await;
         monitoring.record_request_success(slow_timer);
 

@@ -473,4 +473,56 @@ mod tests {
         assert!(TOKEN_BUCKET_SCRIPT.contains("HGET"));
         assert!(TOKEN_BUCKET_SCRIPT.contains("HMSET"));
     }
+
+    #[test]
+    fn test_convert_lua_error_message_format() {
+        let err = convert_lua_error("connection refused");
+        match err {
+            StorageError::QueryError(msg) => {
+                assert!(msg.contains("Lua script execution failed"));
+                assert!(msg.contains("connection refused"));
+            }
+            other => panic!("expected QueryError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_convert_lua_error_empty_message() {
+        let err = convert_lua_error("");
+        match err {
+            StorageError::QueryError(msg) => {
+                assert!(msg.contains("Lua script execution failed"));
+            }
+            other => panic!("expected QueryError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_lua_script_type_version_all_variants() {
+        assert_eq!(LuaScriptType::SlidingWindow.version(), "1.0");
+        assert_eq!(LuaScriptType::FixedWindow.version(), "1.0");
+        assert_eq!(LuaScriptType::QuotaConsume.version(), "1.0");
+        assert_eq!(LuaScriptType::QuotaReset.version(), "1.0");
+        assert_eq!(LuaScriptType::TokenBucket.version(), "1.0");
+    }
+
+    #[test]
+    fn test_oxcache_lua_manager_default() {
+        let manager = OxcacheLuaManager::default();
+        assert_eq!(manager.get_all_scripts().len(), 5);
+    }
+
+    #[test]
+    fn test_oxcache_lua_manager_get_all_scripts() {
+        let manager = OxcacheLuaManager::new();
+        let scripts = manager.get_all_scripts();
+        assert_eq!(scripts.len(), 5);
+        // 验证所有脚本类型都存在
+        let script_types: Vec<LuaScriptType> = scripts.iter().map(|s| s.script_type).collect();
+        assert!(script_types.contains(&LuaScriptType::SlidingWindow));
+        assert!(script_types.contains(&LuaScriptType::FixedWindow));
+        assert!(script_types.contains(&LuaScriptType::QuotaConsume));
+        assert!(script_types.contains(&LuaScriptType::QuotaReset));
+        assert!(script_types.contains(&LuaScriptType::TokenBucket));
+    }
 }

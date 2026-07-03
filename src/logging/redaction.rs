@@ -102,32 +102,37 @@ static SENSITIVE_PATTERNS: Mutex<Vec<(&str, Regex)>> = Mutex::new(Vec::new());
 
 #[cfg(feature = "log-redaction")]
 /// 初始化敏感字段模式
+///
+/// 模式支持三种格式：
+/// - URL/query: `password=secret123`
+/// - YAML/plain: `password: secret123`
+/// - JSON: `"password": "secret123"` 或 `"password":"secret123"`
 fn initialize_patterns() {
     let mut patterns = SENSITIVE_PATTERNS.lock();
     if patterns.is_empty() {
         patterns.push((
             "password",
-            Regex::new(r"(?i)(password[\s]*[:=][\s]*)([^\s,\}]+)").unwrap(),
+            Regex::new(r#"(?i)("?password"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#).unwrap(),
         ));
         patterns.push((
             "api_key",
-            Regex::new(r"(?i)(api[_-]?key[\s]*[:=][\s]*)([^\s,\}]+)").unwrap(),
+            Regex::new(r#"(?i)("?api[_-]?key"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#).unwrap(),
         ));
         patterns.push((
             "token",
-            Regex::new(r"(?i)(token[\s]*[:=][\s]*)([^\s,\}]+)").unwrap(),
+            Regex::new(r#"(?i)("?token"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#).unwrap(),
         ));
         patterns.push((
             "secret",
-            Regex::new(r"(?i)(secret[\s]*[:=][\s]*)([^\s,\}]+)").unwrap(),
+            Regex::new(r#"(?i)("?secret"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#).unwrap(),
         ));
         patterns.push((
             "credential",
-            Regex::new(r"(?i)(credential[\s]*[:=][\s]*)([^\s,\}]+)").unwrap(),
+            Regex::new(r#"(?i)("?credential"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#).unwrap(),
         ));
         patterns.push((
             "authorization",
-            Regex::new(r"(?i)(authorization[\s]*[:=][\s]*)([^\s,\}]+)").unwrap(),
+            Regex::new(r#"(?i)("?authorization"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#).unwrap(),
         ));
         patterns.push((
             "email",

@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_default_produces_default_namespace() {
-        let resolver = DefaultTenantResolver::default();
+        let resolver = DefaultTenantResolver;
         let ctx = RequestContext::new();
         let namespace = resolver.resolve(&ctx).unwrap();
 

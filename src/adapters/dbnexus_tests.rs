@@ -15,7 +15,6 @@
 #[cfg(test)]
 mod storage_adapter_tests {
     use crate::error::StorageError;
-    use crate::storage::Storage;
 
     #[test]
     fn test_storage_error_types() {
@@ -147,7 +146,7 @@ mod ban_storage_adapter_tests {
 
     #[test]
     fn test_ban_record_structure() {
-        use chrono::{DateTime, Utc};
+        use chrono::Utc;
 
         let now = Utc::now();
         let record = BanRecord {
@@ -168,7 +167,7 @@ mod ban_storage_adapter_tests {
 
     #[test]
     fn test_ban_history_structure() {
-        use chrono::{DateTime, Utc};
+        use chrono::Utc;
 
         let now = Utc::now();
         let history = BanHistory {
@@ -182,7 +181,7 @@ mod ban_storage_adapter_tests {
 
     #[test]
     fn test_ban_record_with_user_target() {
-        use chrono::{DateTime, Utc};
+        use chrono::Utc;
 
         let now = Utc::now();
         let record = BanRecord {
@@ -205,7 +204,7 @@ mod ban_storage_adapter_tests {
 
     #[test]
     fn test_ban_record_with_mac_target() {
-        use chrono::{DateTime, Utc};
+        use chrono::Utc;
 
         let now = Utc::now();
         let record = BanRecord {
@@ -235,7 +234,7 @@ mod quota_storage_adapter_tests {
 
     #[test]
     fn test_quota_info_structure() {
-        use chrono::{DateTime, Utc};
+        use chrono::Utc;
 
         let now = Utc::now();
         let info = QuotaInfo {
@@ -539,7 +538,6 @@ mod adapter_trait_signature_tests {
     use crate::adapters::DBNexusBanStorageAdapter;
     use crate::adapters::DBNexusQuotaStorageAdapter;
     use crate::adapters::DBNexusStorageAdapter;
-    use crate::storage::{BanStorage, QuotaStorage, Storage};
 
     #[tokio::test]
     #[ignore = "requires a real database connection"]

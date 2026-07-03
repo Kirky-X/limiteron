@@ -860,8 +860,7 @@ mod tests {
     #[test]
     fn test_match_custom_closure() {
         let cond = MatchCondition::Custom(Arc::new(|ctx| {
-            ctx.get_header("X-Feature")
-                .map_or(false, |v| v == "enabled")
+            ctx.get_header("X-Feature").is_some_and(|v| v == "enabled")
         }));
         let ctx = make_ctx(vec![("X-Feature", "enabled")], None);
         assert!(cond.evaluate(&ctx));
@@ -1188,6 +1187,54 @@ mod tests {
         let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
         assert!(matcher.matches(&ctx).is_none());
         assert!(matcher.match_all(&ctx).is_empty());
+    }
+
+    #[test]
+    fn test_rule_matcher_with_dependencies_direct() {
+        // 直接调用 with_dependencies 构造（应用容器集成路径）
+        let matcher = RuleMatcher::with_dependencies(vec![Rule {
+            id: "wd1".into(),
+            name: "WithDeps".into(),
+            priority: 100,
+            condition: Box::new(MatchCondition::User(vec!["u1".into()])),
+            enabled: true,
+        }]);
+        let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
+        let result = matcher.matches(&ctx);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().id, "wd1");
+        assert_eq!(matcher.rule_count(), 1);
+    }
+
+    #[test]
+    fn test_rule_matcher_with_dependencies_empty() {
+        // with_dependencies 接收空规则列表
+        let matcher = RuleMatcher::with_dependencies(vec![]);
+        assert_eq!(matcher.rule_count(), 0);
+        let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
+        assert!(matcher.matches(&ctx).is_none());
+    }
+
+    #[test]
+    fn test_composite_and_empty_conditions() {
+        // 空 conditions + AND 操作符：空集所有元素都满足（vacuous truth）→ true
+        let cond = CompositeCondition {
+            conditions: vec![],
+            operator: LogicalOperator::And,
+        };
+        let ctx = make_ctx(vec![], None);
+        assert!(cond.evaluate(&ctx));
+    }
+
+    #[test]
+    fn test_composite_or_empty_conditions() {
+        // 空 conditions + OR 操作符：空集没有任何元素满足 → false
+        let cond = CompositeCondition {
+            conditions: vec![],
+            operator: LogicalOperator::Or,
+        };
+        let ctx = make_ctx(vec![], None);
+        assert!(!cond.evaluate(&ctx));
     }
 
     #[test]

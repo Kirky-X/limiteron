@@ -120,12 +120,15 @@ impl EventDispatcher {
             return;
         }
 
-        let emitter = self.emitter.clone();
         let handlers = self.handlers.clone();
         let webhook_urls = self.webhook_urls.clone();
 
+        // 在 spawn 之前订阅，避免「start() 返回后立即 emit()」的竞态：
+        // 若在 spawn 的任务内才 subscribe，emit 可能在 subscribe 之前执行，
+        // 导致广播通道无接收者而丢失事件（SendError）。
+        let mut receiver = self.emitter.subscribe();
+
         let handle = tokio::spawn(async move {
-            let mut receiver = emitter.subscribe();
             info!("EventDispatcher started");
 
             loop {
@@ -310,6 +313,7 @@ mod tests {
 
         let urls = dispatcher.webhook_urls.read().await;
         assert_eq!(urls.len(), 2);
+        drop(urls); // 释放读锁，否则下方 remove_webhook_url 获取写锁会自死锁
 
         dispatcher
             .remove_webhook_url("https://example.com/hook1")
@@ -341,14 +345,22 @@ mod tests {
         });
         emitter.emit(event).await.unwrap();
 
-        // 给分发器一些时间处理
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        // 轮询等待处理器被调用（tarpaulin 插桩会显著降低执行速度，固定 sleep 不可靠）
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
+        let mut observed = 0u64;
+        while tokio::time::Instant::now() < deadline {
+            observed = call_count.load(Ordering::SeqCst);
+            if observed >= 1 {
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+        }
 
-        // 验证处理器被调用
-        assert_eq!(call_count.load(Ordering::SeqCst), 1);
-
-        // 停止分发器
+        // 始终在断言前停止分发器，避免断言失败时后台任务泄漏导致后续测试挂起
         dispatcher.stop().await;
+
+        // 验证处理器被调用恰好一次
+        assert_eq!(observed, 1, "handler should be called exactly once");
     }
 
     #[tokio::test]

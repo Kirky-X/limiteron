@@ -2117,9 +2117,9 @@ mod tests {
 
     #[test]
     fn test_identifier_hash() {
-        use std::collections::HashSet;
+        use ahash::AHashSet;
 
-        let mut set = HashSet::new();
+        let mut set = AHashSet::new();
         set.insert(Identifier::UserId("user123".to_string()));
         set.insert(Identifier::UserId("user123".to_string())); // 重复
         set.insert(Identifier::UserId("user456".to_string()));

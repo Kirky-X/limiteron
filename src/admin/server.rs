@@ -98,3 +98,162 @@ impl AdminServer {
         routes::create_router(self.state.clone(), &self.config)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::admin::config::AdminApiConfig;
+    use crate::config::types::{
+        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule,
+    };
+    use crate::storage::{BanStorage, MemoryBanStorage, MemoryStorage, Storage};
+
+    /// 构造包含至少一条规则的合法 FlowControlConfig（Governor::new() 默认配置无规则会 panic）
+    fn make_valid_config() -> FlowControlConfig {
+        FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::types::GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "test_rule".to_string(),
+                name: "Test Rule".to_string(),
+                priority: 100,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig {
+                    on_exceed: Action::Reject,
+                    ban: None,
+                },
+            }],
+        }
+    }
+
+    /// 构造可用的 Governor 实例（避免 Governor::new() 的空配置 panic）
+    async fn make_governor() -> Governor {
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+        Governor::builder()
+            .with_config(make_valid_config())
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed with valid config")
+    }
+
+    #[tokio::test]
+    async fn test_admin_server_new() {
+        let governor = Arc::new(make_governor().await);
+        let config = AdminApiConfig::new("test-api-key-16chars!!");
+        let server = AdminServer::new(governor, config);
+        // 验证 state 字段存在
+        assert!(Arc::strong_count(&server.state.governor) >= 1);
+        #[cfg(feature = "ban-manager")]
+        assert!(server.state.ban_manager.is_none());
+        #[cfg(feature = "quota-control")]
+        assert!(server.state.quota_controller.is_none());
+        #[cfg(feature = "circuit-breaker")]
+        assert!(server.state.circuit_breaker.is_none());
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_admin_server_with_ban_manager() {
+        use crate::BanManager;
+        let governor = Arc::new(make_governor().await);
+        let ban_manager = Arc::new(BanManager::new().await.unwrap());
+        let config = AdminApiConfig::new("test-api-key-16chars!!");
+        let server = AdminServer::new(governor, config).with_ban_manager(ban_manager);
+        assert!(server.state.ban_manager.is_some());
+    }
+
+    #[cfg(feature = "quota-control")]
+    #[tokio::test]
+    async fn test_admin_server_with_quota_controller() {
+        use crate::cache::quota_storage::CacheQuotaStorage;
+        use crate::quota::QuotaConfig;
+        use crate::storage::QuotaStorage;
+        use crate::QuotaController;
+        use oxcache::backend::memory::DashMapMemoryBackend;
+        let governor = Arc::new(make_governor().await);
+        let storage: Arc<dyn QuotaStorage> = Arc::new(CacheQuotaStorage::new(Arc::new(
+            DashMapMemoryBackend::new(),
+        )));
+        let quota_controller = Arc::new(QuotaController::with_dependencies(
+            storage,
+            QuotaConfig::default(),
+        ));
+        let config = AdminApiConfig::new("test-api-key-16chars!!");
+        let server = AdminServer::new(governor, config).with_quota_controller(quota_controller);
+        assert!(server.state.quota_controller.is_some());
+    }
+
+    #[cfg(feature = "circuit-breaker")]
+    #[tokio::test]
+    async fn test_admin_server_with_circuit_breaker() {
+        use crate::circuit::types::{CircuitBreaker, CircuitBreakerConfig};
+        let governor = Arc::new(make_governor().await);
+        let cb = Arc::new(CircuitBreaker::with_dependencies(
+            CircuitBreakerConfig::default(),
+        ));
+        let config = AdminApiConfig::new("test-api-key-16chars!!");
+        let server = AdminServer::new(governor, config).with_circuit_breaker(cb);
+        assert!(server.state.circuit_breaker.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_admin_server_start_disabled() {
+        let governor = Arc::new(make_governor().await);
+        // disabled = true 的配置
+        let config = AdminApiConfig::default();
+        let server = AdminServer::new(governor, config);
+        // start() 在 disabled 时应立即返回 Ok(())
+        let result = server.start().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_admin_server_into_router() {
+        let governor = Arc::new(make_governor().await);
+        let config = AdminApiConfig::new("test-api-key-16chars!!");
+        let server = AdminServer::new(governor, config);
+        // into_router 应返回一个 Router 而不启动服务器
+        let _router = server.into_router();
+        // 如果没有 panic 则说明路由创建成功
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_admin_server_chained_builders() {
+        use crate::cache::quota_storage::CacheQuotaStorage;
+        use crate::circuit::types::{CircuitBreaker, CircuitBreakerConfig};
+        use crate::quota::QuotaConfig;
+        use crate::storage::QuotaStorage;
+        use crate::{BanManager, QuotaController};
+        use oxcache::backend::memory::DashMapMemoryBackend;
+        let governor = Arc::new(make_governor().await);
+        let ban_manager = Arc::new(BanManager::new().await.unwrap());
+        let storage: Arc<dyn QuotaStorage> = Arc::new(CacheQuotaStorage::new(Arc::new(
+            DashMapMemoryBackend::new(),
+        )));
+        let quota_controller = Arc::new(QuotaController::with_dependencies(
+            storage,
+            QuotaConfig::default(),
+        ));
+        let cb = Arc::new(CircuitBreaker::with_dependencies(
+            CircuitBreakerConfig::default(),
+        ));
+        let config = AdminApiConfig::new("test-api-key-16chars!!");
+        let server = AdminServer::new(governor, config)
+            .with_ban_manager(ban_manager)
+            .with_quota_controller(quota_controller)
+            .with_circuit_breaker(cb);
+        assert!(server.state.ban_manager.is_some());
+        assert!(server.state.quota_controller.is_some());
+        assert!(server.state.circuit_breaker.is_some());
+    }
+}

@@ -190,7 +190,6 @@ impl QuotaStorage for CacheQuotaStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::QuotaStorage as _;
     use chrono::Utc;
     use oxcache::backend::memory::DashMapMemoryBackend;
     use std::sync::Arc;

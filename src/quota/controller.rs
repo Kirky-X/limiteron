@@ -1818,8 +1818,7 @@ mod tests {
             }
         }
 
-        let mut user_consumption: std::collections::HashMap<String, u64> =
-            std::collections::HashMap::new();
+        let _user_consumption: ahash::AHashMap<String, u64> = ahash::AHashMap::new();
 
         for handle in handles {
             let result = handle.await.unwrap().unwrap();

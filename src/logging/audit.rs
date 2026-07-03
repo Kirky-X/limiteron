@@ -1533,7 +1533,7 @@ mod tests {
             let mut f = std::fs::File::create(&path).unwrap();
             use std::io::Write;
             writeln!(f, "{}", json1).unwrap();
-            writeln!(f, "").unwrap();
+            writeln!(f).unwrap();
             writeln!(f, "{}", json2).unwrap();
             writeln!(f, "{{corrupted}}").unwrap();
         }

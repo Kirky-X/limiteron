@@ -462,7 +462,7 @@ mod tests {
 
         let converter = DefaultRequestContextConverter;
 
-        let mut request = Request::builder()
+        let request = Request::builder()
             .uri("/api/users")
             .method("GET")
             .header("X-User-Id", "user123")

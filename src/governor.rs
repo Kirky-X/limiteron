@@ -97,10 +97,10 @@ pub struct Governor {
     config: Arc<RwLock<FlowControlConfig>>,
 
     /// 存储后端
-    _storage: Arc<dyn Storage>,
+    storage: Arc<dyn Storage>,
 
     /// 封禁存储
-    _ban_storage: Arc<dyn BanStorage>,
+    ban_storage: Arc<dyn BanStorage>,
 
     /// 封禁管理器
     #[cfg(feature = "ban-manager")]
@@ -149,6 +149,12 @@ pub struct Governor {
     /// 事件发射器（可选，feature-gated）
     #[cfg(feature = "event-system")]
     event_emitter: Option<Arc<crate::events::EventEmitter>>,
+
+    /// 优雅关闭令牌：取消时通知所有后台任务退出
+    shutdown_token: tokio_util::sync::CancellationToken,
+
+    /// 是否已关闭（幂等性保证）
+    is_shutdown: std::sync::atomic::AtomicBool,
 }
 
 /// Governor 构建器
@@ -448,8 +454,8 @@ impl GovernorBuilder {
 
         Ok(Governor {
             config: Arc::new(tokio::sync::RwLock::new(config)),
-            _storage: storage,
-            _ban_storage: ban_storage,
+            storage,
+            ban_storage,
             #[cfg(feature = "ban-manager")]
             ban_manager,
             #[cfg(feature = "parallel-checker")]
@@ -462,9 +468,7 @@ impl GovernorBuilder {
             identifier_extractor,
             #[cfg(feature = "audit-log")]
             audit_logger,
-            config_history: Arc::new(tokio::sync::RwLock::new(
-                crate::config::types::ConfigHistory::new(100),
-            )),
+            config_history: Arc::new(tokio::sync::RwLock::new(ConfigHistory::new(100))),
             stats: StatsManager::new(),
             l1_cache,
             l1_cache_enabled: std::sync::atomic::AtomicBool::new(l1_cache_enabled),
@@ -472,6 +476,8 @@ impl GovernorBuilder {
             fallback_manager,
             #[cfg(feature = "event-system")]
             event_emitter: self.event_emitter,
+            shutdown_token: tokio_util::sync::CancellationToken::new(),
+            is_shutdown: std::sync::atomic::AtomicBool::new(false),
         })
     }
 }
@@ -562,8 +568,8 @@ impl Governor {
 
         Self {
             config,
-            _storage: storage,
-            _ban_storage: ban_storage,
+            storage,
+            ban_storage,
             #[cfg(feature = "ban-manager")]
             ban_manager,
             #[cfg(feature = "parallel-checker")]
@@ -584,6 +590,8 @@ impl Governor {
             fallback_manager: None,
             #[cfg(feature = "event-system")]
             event_emitter: None,
+            shutdown_token: tokio_util::sync::CancellationToken::new(),
+            is_shutdown: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -727,7 +735,7 @@ impl Governor {
         ban_storage: Arc<dyn BanStorage>,
     ) -> Result<Self, FlowGuardError> {
         // 使用 ConfigLoader 加载配置，支持环境变量覆盖
-        let config = crate::ConfigLoader::load_from_file(config_path)?;
+        let config = crate::ConfigLoader::load_from_file_with_env(config_path)?;
         Self::create_with_config(config, storage, ban_storage).await
     }
 
@@ -1346,38 +1354,172 @@ impl Governor {
     }
 
     /// 健康检查
+    ///
+    /// 执行真实的存储 ping、缓存可用性检查、后台任务存活检查。
+    /// 返回 `Ok(())` 表示所有关键组件健康；返回 `Err` 包含具体故障信息。
     pub async fn health_check(&self) -> Result<(), FlowGuardError> {
         info!("健康检查");
 
-        // 检查各个组件的健康状态
-        // config is guarded by RwLock, if we can read it, it's fine.
+        let status = self.health_status().await;
+
+        if status.healthy() {
+            Ok(())
+        } else {
+            let mut issues = Vec::new();
+            if !status.storage_healthy {
+                issues.push("storage".to_string());
+            }
+            if !status.ban_storage_healthy {
+                issues.push("ban_storage".to_string());
+            }
+            if !status.cache_healthy {
+                issues.push("cache".to_string());
+            }
+            if !status.background_tasks_alive {
+                issues.push("background_tasks".to_string());
+            }
+            Err(FlowGuardError::StorageError(
+                crate::error::StorageError::ConnectionError(format!(
+                    "Components unhealthy: {}",
+                    issues.join(", ")
+                )),
+            ))
+        }
+    }
+
+    /// 获取详细的健康状态
+    ///
+    /// 返回各组件的健康状况，用于监控和诊断。
+    pub async fn health_status(&self) -> HealthStatus {
+        // 检查存储后端：执行一次 probe get 操作
+        let storage_healthy = self.storage.get("__health_probe__").await.is_ok();
+
+        // 检查封禁存储：执行一次 list_bans(0, 1) 操作
+        let ban_storage_healthy = self.ban_storage.list_bans(false, 0, 1).await.is_ok();
+
+        // 检查配置锁是否可读（如果 RwLock 中毒则 panic，视为健康）
         let _config_guard = self.config.read().await;
-        let config_healthy = true;
 
-        let storage_healthy = true; // 这里需要根据具体的存储类型实现健康检查
+        // L1 缓存为内存实现，不会故障；只要 Governor 存在即视为健康
+        let cache_healthy = true;
 
+        // 检查 ban_manager（feature-gated）
         #[cfg(feature = "ban-manager")]
         {
             let _ = self.ban_manager.get_config().await;
         }
 
+        // 检查 circuit_breaker（feature-gated）
         #[cfg(feature = "circuit-breaker")]
         {
             let _ = self.circuit_breaker.get_state().await;
         }
 
+        // 检查 audit_logger（feature-gated）
         #[cfg(feature = "audit-log")]
         {
             let _ = self.audit_logger().await;
         }
 
-        if config_healthy && storage_healthy {
-            Ok(())
-        } else {
-            Err(FlowGuardError::StorageError(
-                crate::error::StorageError::ConnectionError("Storage unhealthy".to_string()),
-            ))
+        HealthStatus {
+            storage_healthy,
+            ban_storage_healthy,
+            cache_healthy,
+            background_tasks_alive: !self.is_shutdown.load(std::sync::atomic::Ordering::SeqCst),
         }
+    }
+
+    /// 优雅关闭 Governor
+    ///
+    /// 取消所有后台任务（通过 CancellationToken），标记 Governor 为已关闭。
+    /// 幂等：多次调用返回相同的 Ok 结果。
+    ///
+    /// # 返回
+    ///
+    /// * `Ok(())` - 已成功关闭（或之前已关闭）
+    ///
+    /// # 示例
+    ///
+    /// ```rust,no_run
+    /// use limiteron::Governor;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let governor = Governor::new().await;
+    ///     // ... 使用 governor 处理请求 ...
+    ///     governor.shutdown().await?; // 优雅关闭
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn shutdown(&self) -> Result<(), FlowGuardError> {
+        // 幂等性检查：使用 compare_exchange 确保只执行一次关闭逻辑
+        let already_shutdown = self
+            .is_shutdown
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            )
+            .is_err();
+
+        if already_shutdown {
+            info!("Governor 已关闭，shutdown() 幂等返回 Ok");
+            return Ok(());
+        }
+
+        info!("开始优雅关闭 Governor");
+
+        // 取消所有后台任务
+        self.shutdown_token.cancel();
+
+        // 当前无后台 JoinHandle 需要等待；未来添加后台任务时在此等待
+        // 例如：if let Some(handle) = &self.background_task_handle {
+        //     let _ = tokio::time::timeout(Duration::from_secs(30), handle).await;
+        // }
+
+        // 清空 L1 缓存
+        self.clear_l1_cache().await;
+
+        info!("Governor 优雅关闭完成");
+        Ok(())
+    }
+
+    /// 获取关闭令牌的引用（用于后台任务订阅取消信号）
+    ///
+    /// 后台任务可通过 `token.cancelled()` 等待取消信号。
+    pub fn shutdown_token(&self) -> &tokio_util::sync::CancellationToken {
+        &self.shutdown_token
+    }
+
+    /// 检查 Governor 是否已关闭
+    pub fn is_shutdown(&self) -> bool {
+        self.is_shutdown.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// Governor 健康状态
+///
+/// 描述各关键组件的健康状况，用于监控和诊断。
+#[derive(Debug, Clone)]
+pub struct HealthStatus {
+    /// 主存储后端是否健康
+    pub storage_healthy: bool,
+    /// 封禁存储后端是否健康
+    pub ban_storage_healthy: bool,
+    /// L1 缓存是否健康
+    pub cache_healthy: bool,
+    /// 后台任务是否存活
+    pub background_tasks_alive: bool,
+}
+
+impl HealthStatus {
+    /// 所有关键组件是否健康
+    pub fn healthy(&self) -> bool {
+        self.storage_healthy
+            && self.ban_storage_healthy
+            && self.cache_healthy
+            && self.background_tasks_alive
     }
 }
 
@@ -1386,12 +1528,15 @@ impl Governor {
 // ============================================================================
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod governor_construction_tests {
     use super::*;
     use crate::config::types::{
-        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule, Rule as RuleTrait,
+        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule,
     };
-    use crate::storage::{MemoryBanStorage, MemoryStorage};
+    use crate::error::StorageError;
+    use crate::storage::{BanHistory, BanRecord, BanTarget, MemoryBanStorage, MemoryStorage};
+    use async_trait::async_trait;
 
     fn create_valid_test_config() -> FlowControlConfig {
         FlowControlConfig {
@@ -1571,8 +1716,433 @@ mod governor_construction_tests {
             .await
             .expect("Governor build should succeed");
 
-        // health_check() returns () - just verify it doesn't panic
-        let _ = governor.health_check().await;
+        // 真实 health_check：MemoryStorage 应健康
+        let result = governor.health_check().await;
+        assert!(
+            result.is_ok(),
+            "health_check should succeed with healthy MemoryStorage: {:?}",
+            result.err()
+        );
+    }
+
+    /// 验证 health_status() 返回真实的组件状态（非硬编码 true）
+    #[tokio::test]
+    async fn test_governor_health_status_real() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let status = governor.health_status().await;
+
+        // MemoryStorage 的 probe get 应成功（返回 Ok(None)）
+        assert!(
+            status.storage_healthy,
+            "storage_healthy should be true for MemoryStorage"
+        );
+        // MemoryBanStorage 的 list_bans 应成功
+        assert!(
+            status.ban_storage_healthy,
+            "ban_storage_healthy should be true for MemoryBanStorage"
+        );
+        // L1 缓存为内存实现，应健康
+        assert!(status.cache_healthy, "cache_healthy should be true");
+        // 无后台任务时视为存活
+        assert!(
+            status.background_tasks_alive,
+            "background_tasks_alive should be true"
+        );
+        // 整体应健康
+        assert!(status.healthy(), "all components should be healthy");
+    }
+
+    /// 验证 shutdown() 幂等性：连续两次调用均返回 Ok
+    #[tokio::test]
+    async fn test_shutdown_idempotent() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        // 关闭前：is_shutdown 应为 false
+        assert!(
+            !governor.is_shutdown(),
+            "Governor should not be shutdown initially"
+        );
+
+        // 第一次 shutdown
+        let result1 = governor.shutdown().await;
+        assert!(
+            result1.is_ok(),
+            "first shutdown should succeed: {:?}",
+            result1.err()
+        );
+        assert!(
+            governor.is_shutdown(),
+            "Governor should be shutdown after first call"
+        );
+
+        // 第二次 shutdown（幂等）
+        let result2 = governor.shutdown().await;
+        assert!(
+            result2.is_ok(),
+            "second shutdown should be idempotent: {:?}",
+            result2.err()
+        );
+        assert!(governor.is_shutdown(), "Governor should still be shutdown");
+    }
+
+    /// 验证 shutdown 后 health_status 反映关闭状态
+    #[tokio::test]
+    async fn test_shutdown_affects_health_status() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        // 关闭前：background_tasks_alive 应为 true
+        let status_before = governor.health_status().await;
+        assert!(
+            status_before.background_tasks_alive,
+            "background_tasks_alive should be true before shutdown"
+        );
+
+        // shutdown
+        governor.shutdown().await.unwrap();
+
+        // 关闭后：background_tasks_alive 应为 false
+        let status_after = governor.health_status().await;
+        assert!(
+            !status_after.background_tasks_alive,
+            "background_tasks_alive should be false after shutdown"
+        );
+    }
+
+    /// 验证 shutdown_token 可被外部订阅
+    #[tokio::test]
+    async fn test_shutdown_token_cancellation() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let token = governor.shutdown_token();
+        assert!(
+            !token.is_cancelled(),
+            "token should not be cancelled initially"
+        );
+
+        governor.shutdown().await.unwrap();
+
+        assert!(
+            token.is_cancelled(),
+            "token should be cancelled after shutdown"
+        );
+    }
+
+    // ========================================================================
+    // Mock 存储实现（用于测试 health_check 错误路径）
+    // ========================================================================
+
+    /// 所有操作均返回 Err 的 Storage mock，用于测试 health_check 错误分支
+    struct FailingStorage;
+
+    #[async_trait]
+    impl Storage for FailingStorage {
+        async fn get(&self, _key: &str) -> Result<Option<String>, StorageError> {
+            Err(StorageError::ConnectionError(
+                "mock storage failure".to_string(),
+            ))
+        }
+        async fn set(
+            &self,
+            _key: &str,
+            _value: &str,
+            _ttl: Option<u64>,
+        ) -> Result<(), StorageError> {
+            Err(StorageError::ConnectionError(
+                "mock storage failure".to_string(),
+            ))
+        }
+        async fn delete(&self, _key: &str) -> Result<(), StorageError> {
+            Err(StorageError::ConnectionError(
+                "mock storage failure".to_string(),
+            ))
+        }
+    }
+
+    /// 所有操作均返回 Err 的 BanStorage mock，用于测试 health_check 错误分支
+    struct FailingBanStorage;
+
+    #[async_trait]
+    impl BanStorage for FailingBanStorage {
+        async fn is_banned(&self, _target: &BanTarget) -> Result<Option<BanRecord>, StorageError> {
+            Err(StorageError::ConnectionError(
+                "mock ban storage failure".to_string(),
+            ))
+        }
+        async fn save(&self, _record: &BanRecord) -> Result<(), StorageError> {
+            Err(StorageError::ConnectionError(
+                "mock ban storage failure".to_string(),
+            ))
+        }
+        async fn get_history(
+            &self,
+            _target: &BanTarget,
+        ) -> Result<Option<BanHistory>, StorageError> {
+            Err(StorageError::ConnectionError(
+                "mock ban storage failure".to_string(),
+            ))
+        }
+        async fn increment_ban_times(&self, _target: &BanTarget) -> Result<u64, StorageError> {
+            Err(StorageError::ConnectionError(
+                "mock ban storage failure".to_string(),
+            ))
+        }
+        async fn get_ban_times(&self, _target: &BanTarget) -> Result<u64, StorageError> {
+            Err(StorageError::ConnectionError(
+                "mock ban storage failure".to_string(),
+            ))
+        }
+        async fn remove_ban(&self, _target: &BanTarget) -> Result<(), StorageError> {
+            Err(StorageError::ConnectionError(
+                "mock ban storage failure".to_string(),
+            ))
+        }
+        async fn cleanup_expired_bans(&self) -> Result<u64, StorageError> {
+            Err(StorageError::ConnectionError(
+                "mock ban storage failure".to_string(),
+            ))
+        }
+        async fn list_bans(
+            &self,
+            _active_only: bool,
+            _offset: u64,
+            _limit: u64,
+        ) -> Result<Vec<BanRecord>, StorageError> {
+            Err(StorageError::ConnectionError(
+                "mock ban storage failure".to_string(),
+            ))
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    // ========================================================================
+    // health_check 错误路径测试
+    // ========================================================================
+
+    /// 验证 health_check() 在存储不可用时返回 Err
+    #[tokio::test]
+    async fn test_health_check_returns_err_when_storage_unhealthy() {
+        let storage: Arc<dyn Storage> = Arc::new(FailingStorage);
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(FailingBanStorage);
+
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let result = governor.health_check().await;
+        assert!(
+            result.is_err(),
+            "health_check should return Err when storage is unhealthy"
+        );
+    }
+
+    /// 验证 health_check() 在 shutdown 后返回 Err（background_tasks_alive = false）
+    #[tokio::test]
+    async fn test_health_check_returns_err_after_shutdown() {
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        // shutdown 前：health_check 应返回 Ok
+        let result_before = governor.health_check().await;
+        assert!(
+            result_before.is_ok(),
+            "health_check should pass before shutdown"
+        );
+
+        governor.shutdown().await.unwrap();
+
+        // shutdown 后：health_check 应返回 Err（background_tasks_alive = false）
+        let result_after = governor.health_check().await;
+        assert!(
+            result_after.is_err(),
+            "health_check should return Err after shutdown (background_tasks not alive)"
+        );
+    }
+
+    /// 验证 health_check() 错误消息包含具体不健康组件名称
+    #[tokio::test]
+    async fn test_health_check_error_message_contains_component_names() {
+        let storage: Arc<dyn Storage> = Arc::new(FailingStorage);
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(FailingBanStorage);
+
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let err = governor.health_check().await.unwrap_err();
+        let err_msg = match err {
+            FlowGuardError::StorageError(StorageError::ConnectionError(msg)) => msg,
+            other => panic!("expected StorageError::ConnectionError, got {other:?}"),
+        };
+        assert!(
+            err_msg.contains("storage"),
+            "error message should mention 'storage' component: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("ban_storage"),
+            "error message should mention 'ban_storage' component: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("Components unhealthy"),
+            "error message should have descriptive prefix: {err_msg}"
+        );
+    }
+
+    /// 验证 health_status() 正确报告各组件健康状况
+    #[tokio::test]
+    async fn test_health_status_reports_unhealthy_components() {
+        let storage: Arc<dyn Storage> = Arc::new(FailingStorage);
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(FailingBanStorage);
+
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let status = governor.health_status().await;
+        assert!(
+            !status.storage_healthy,
+            "storage_healthy should be false with FailingStorage"
+        );
+        assert!(
+            !status.ban_storage_healthy,
+            "ban_storage_healthy should be false with FailingBanStorage"
+        );
+        assert!(
+            status.cache_healthy,
+            "cache_healthy should always be true (in-memory, cannot fail)"
+        );
+        assert!(
+            status.background_tasks_alive,
+            "background_tasks_alive should be true before shutdown"
+        );
+        assert!(
+            !status.healthy(),
+            "overall healthy() should be false when any component is down"
+        );
+    }
+
+    /// 验证 HealthStatus::healthy() 在所有组件健康时返回 true
+    #[test]
+    fn test_health_status_healthy_all_true() {
+        let status = HealthStatus {
+            storage_healthy: true,
+            ban_storage_healthy: true,
+            cache_healthy: true,
+            background_tasks_alive: true,
+        };
+        assert!(status.healthy(), "all true should be healthy");
+    }
+
+    /// 验证 HealthStatus::healthy() 在任一组件不健康时返回 false
+    #[test]
+    fn test_health_status_healthy_any_false() {
+        // 测试每个字段单独为 false 的情况
+        let cases = [
+            (
+                "storage",
+                HealthStatus {
+                    storage_healthy: false,
+                    ban_storage_healthy: true,
+                    cache_healthy: true,
+                    background_tasks_alive: true,
+                },
+            ),
+            (
+                "ban_storage",
+                HealthStatus {
+                    storage_healthy: true,
+                    ban_storage_healthy: false,
+                    cache_healthy: true,
+                    background_tasks_alive: true,
+                },
+            ),
+            (
+                "cache",
+                HealthStatus {
+                    storage_healthy: true,
+                    ban_storage_healthy: true,
+                    cache_healthy: false,
+                    background_tasks_alive: true,
+                },
+            ),
+            (
+                "background_tasks",
+                HealthStatus {
+                    storage_healthy: true,
+                    ban_storage_healthy: true,
+                    cache_healthy: true,
+                    background_tasks_alive: false,
+                },
+            ),
+        ];
+        for (name, status) in cases {
+            assert!(
+                !status.healthy(),
+                "healthy() should be false when {name} is false"
+            );
+        }
     }
 
     #[tokio::test]
@@ -2714,6 +3284,7 @@ mod governor_construction_tests {
 // ============================================================================
 
 #[cfg(test)]
+#[allow(clippy::field_reassign_with_default)]
 mod governor_feature_gated_tests {
     use super::*;
     use crate::storage::{MemoryBanStorage, MemoryStorage};

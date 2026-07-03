@@ -229,7 +229,7 @@ limiteron = { version = "0.2", features = ["macros"] }
 
 ```toml
 [dependencies]
-limiteron = { version = "0.2", features = ["postgres", "macros"] }
+limiteron = { version = "0.2", features = ["postgres", "redis-storage", "macros"] }
 ```
 
 </td>
@@ -268,7 +268,7 @@ limiteron = { version = "0.2", features = ["full"] }
 **单独特性**
 ```toml
 # 存储后端
-limiteron = { version = "0.2", features = ["postgres"] }
+limiteron = { version = "0.2", features = ["postgres", "redis-storage"] }
 
 # 高级功能
 limiteron = { version = "0.2", features = ["ban-manager", "quota-control", "circuit-breaker"] }
@@ -921,7 +921,6 @@ gantt
 - [x] Unit and integration tests
 - [x] Macro support
 - [x] PostgreSQL storage via DBNexus
-- [x] Redis storage
 - [x] RedisStorage backend (v0.2.0)
 - [x] Governor graceful shutdown & health check (v0.2.0)
 - [x] ConfigLoader environment variable override (v0.2.0)

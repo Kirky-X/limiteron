@@ -226,7 +226,7 @@
 
 ```toml
 [dependencies]
-limiteron = { version = "0.1", features = ["macros"] }
+limiteron = { version = "0.2", features = ["macros"] }
 ```
 
 或使用 cargo:
@@ -561,14 +561,14 @@ use limiteron::limiters::TokenBucketLimiter;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let limiter = TokenBucketLimiter::new(10, 1);
-    
+
     // 在异步上下文中使用
     match limiter.allow(1).await {
         Ok(true) => println!("✅ 请求允许"),
         Ok(false) => println!("❌ 请求被限流"),
         Err(e) => println!("❌ 错误: {:?}", e),
     }
-    
+
     Ok(())
 }
 ```

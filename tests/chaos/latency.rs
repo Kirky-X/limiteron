@@ -171,11 +171,12 @@ impl LatencyInjector {
         LatencyStats {
             total_operations: state.operation_count,
             total_injected: Duration::from_nanos(state.total_injected_ns),
-            avg_latency: if state.operation_count == 0 {
-                Duration::ZERO
-            } else {
-                Duration::from_nanos(state.total_injected_ns / state.operation_count)
-            },
+            avg_latency: Duration::from_nanos(
+                state
+                    .total_injected_ns
+                    .checked_div(state.operation_count)
+                    .unwrap_or(0),
+            ),
         }
     }
 

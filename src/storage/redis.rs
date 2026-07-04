@@ -133,7 +133,7 @@ impl From<redis::RedisError> for StorageError {
             redis::ErrorKind::AuthenticationFailed => {
                 StorageError::AuthenticationError(e.to_string())
             }
-            redis::ErrorKind::IoError | redis::ErrorKind::ClientError => {
+            redis::ErrorKind::Io | redis::ErrorKind::Client => {
                 StorageError::ConnectionError(e.to_string())
             }
             _ => StorageError::QueryError(e.to_string()),
@@ -865,7 +865,7 @@ mod tests {
 
     #[test]
     fn test_from_redis_error_client_error_maps_to_connection_error() {
-        let err: redis::RedisError = (redis::ErrorKind::ClientError, "client bug").into();
+        let err: redis::RedisError = (redis::ErrorKind::Client, "client bug").into();
         let storage_err: StorageError = err.into();
         match storage_err {
             StorageError::ConnectionError(msg) => {
@@ -880,8 +880,8 @@ mod tests {
 
     #[test]
     fn test_from_redis_error_other_kind_maps_to_query_error() {
-        // 用 ResponseError 测试 `_` 分支
-        let err: redis::RedisError = (redis::ErrorKind::ResponseError, "bad response").into();
+        // 用 Parse 测试 `_` 分支
+        let err: redis::RedisError = (redis::ErrorKind::Parse, "bad response").into();
         let storage_err: StorageError = err.into();
         match storage_err {
             StorageError::QueryError(msg) => {
@@ -896,8 +896,9 @@ mod tests {
 
     #[test]
     fn test_from_redis_error_type_error_maps_to_query_error() {
-        // 验证非 AuthenticationFailed/IoError/ClientError 的另一种 ErrorKind 也走 QueryError
-        let err: redis::RedisError = (redis::ErrorKind::TypeError, "type mismatch").into();
+        // 验证非 AuthenticationFailed/Io/Client 的另一种 ErrorKind 也走 QueryError
+        let err: redis::RedisError =
+            (redis::ErrorKind::UnexpectedReturnType, "type mismatch").into();
         let storage_err: StorageError = err.into();
         match storage_err {
             StorageError::QueryError(msg) => {

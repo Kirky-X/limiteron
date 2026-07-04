@@ -10,7 +10,7 @@
 #[cfg(feature = "audit-log")]
 use chrono::{DateTime, Utc};
 #[cfg(feature = "audit-log")]
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 #[cfg(feature = "audit-log")]
 use log::{error, info, trace, warn};
 #[cfg(feature = "audit-log")]

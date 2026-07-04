@@ -201,7 +201,7 @@ impl BanStorage for DBNexusBanStorageAdapter {
         }
 
         // Sort by banned_at descending (most recent first)
-        records.sort_by(|a, b| b.banned_at.cmp(&a.banned_at));
+        records.sort_by_key(|r| std::cmp::Reverse(r.banned_at));
 
         let first = records.remove(0);
         Ok(Some(BanHistory {

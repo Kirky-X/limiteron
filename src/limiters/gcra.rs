@@ -113,11 +113,9 @@ impl GcraLimiter {
     /// let limiter = GcraLimiter::with_rate(100, 1000);
     /// ```
     pub fn with_rate(capacity: u64, requests_per_second: u64) -> Self {
-        let refill_interval_us = if requests_per_second > 0 {
-            1_000_000 / requests_per_second
-        } else {
-            1_000_000
-        };
+        let refill_interval_us = 1_000_000u64
+            .checked_div(requests_per_second)
+            .unwrap_or(1_000_000);
 
         Self::new(capacity, refill_interval_us)
     }

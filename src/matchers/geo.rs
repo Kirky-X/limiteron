@@ -333,9 +333,9 @@ impl GeoMatcher {
         // 验证数据库元数据
         log::info!(
             "GeoLite2数据库元数据: 版本={}, 构建日期={}, 记录数={}",
-            reader.metadata.binary_format_major_version,
-            reader.metadata.build_epoch,
-            reader.metadata.node_count
+            reader.metadata().binary_format_major_version,
+            reader.metadata().build_epoch,
+            reader.metadata().node_count
         );
 
         // 创建缓存

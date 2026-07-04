@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **依赖升级到最新版本**：`Cargo.toml` 全部 `[workspace.dependencies]` 移除 `~` 最小版本前缀，统一使用 `"X.Y"` 格式（caret 语义）。版本格式变更遵循"不指定最小版本，只指定到 major.minor"约定
+  - 主要升级：`redis` 0.27 → 1.2、`criterion` 0.5 → 0.8、`sqlx` 0.7 → 0.9、`sea-orm` 1.0 → 2.0.0-rc.42、`maxminddb` 0.24 → 0.29、`hmac` 0.12 → 0.13、`sha2` 0.10 → 0.11、`opentelemetry` 0.24 → 0.32、`reqwest` 0.11 → 0.13、`axum` 0.7 → 0.8、`tower-http` 0.5 → 0.7、`dashmap` 5.5 → 6.2、`thiserror` 1.0 → 2.0、`validator` 0.18 → 0.20、`rand` 0.8 → 0.10、`notify` 6.5 → 8.2、`secrecy` 0.8 → 0.10、`woothee` 0.11 → 0.13
+  - `redis` 锁定 `1.2`（非 1.3）：兼容 `dbnexus`/`oxcache` 依赖链的 `redis ~1.2` 约束；`1.3` 与 `oxcache 0.2` 冲突
+  - `dbnexus` 保持 `0.2`：`0.3` 依赖 `oxcache 0.2`，与本项目 `oxcache 0.3` 冲突
+  - `dashmap` 保持 `6.2`：`7.0` 仅 RC；`notify` 保持 `8.2`：`9.0` 仅 RC
+
+### Fixed
+
+- **API 兼容性修复**（依赖 MAJOR 升级）：
+  - `maxminddb 0.29`：`Reader.metadata` 字段私有化，改用 `reader.metadata()` 方法（`src/matchers/geo.rs`）
+  - `hmac 0.13`：`new_from_slice` 改为 `KeyInit` trait 方法，补充 `use hmac::KeyInit`（`src/logging/audit.rs`）
+  - `redis 0.27 → 1.2`：`ErrorKind` 变体重命名 — `IoError` → `Io`、`ClientError` → `Client`、`ResponseError` → `Parse`、`TypeError` → `UnexpectedReturnType`（`src/storage/redis.rs`）
+  - `sqlx 0.9`：组合 feature `runtime-tokio-rustls` 拆分为 `runtime-tokio` + `tls-rustls`（`Cargo.toml`）
+- **clippy 兼容性修复**（rust 1.96 新 lint）：
+  - `unnecessary_sort_by`：`sort_by(|a,b| b.x.cmp(&a.x))` → `sort_by_key(|r| Reverse(r.x))`（`src/adapters/dbnexus_ban_storage.rs`）
+  - `manual_checked_ops`：手动 `if x > 0 { y / x } else { default }` → `checked_div().unwrap_or(default)`（`src/limiters/gcra.rs`、`tests/chaos/latency.rs`）
+
+### Documentation
+
+- **`docs/FAQ.md`**：示例依赖版本 `limiteron = "0.1"` → `"0.2"`（与当前发布版本一致）
+
 ## [0.2.0] - 2026-07-04
 
 ### BREAKING CHANGES

@@ -295,7 +295,7 @@ limiteron = { version = "0.2", features = ["full"] }
 **单独特性**
 ```toml
 # 存储后端
-limiteron = { version = "0.2", features = ["postgres", "redis"] }
+limiteron = { version = "0.2", features = ["postgres", "redis-storage"] }
 
 # 高级功能
 limiteron = { version = "0.2", features = ["ban-manager", "quota-control", "circuit-breaker"] }

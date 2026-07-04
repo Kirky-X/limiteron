@@ -34,7 +34,7 @@ async fn e2e_circuit_breaker_failures_trigger_open() {
     for i in 1..=3 {
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError(
+                Err::<(), FlowGuardError>(FlowGuardError::BanError(
                     "service unavailable".to_string(),
                 ))
             })
@@ -79,7 +79,7 @@ async fn e2e_circuit_breaker_fast_fail_when_open() {
     for _ in 0..2 {
         let _ = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
+                Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
             })
             .await;
     }
@@ -135,7 +135,7 @@ async fn e2e_circuit_breaker_recovery_after_timeout() {
     for _ in 0..2 {
         let _ = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
+                Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
             })
             .await;
     }
@@ -158,9 +158,16 @@ async fn e2e_circuit_breaker_recovery_after_timeout() {
         "Circuit should be closed after successful recovery"
     );
 
-    // 验证统计信息
+    // 验证统计信息（恢复到 Closed 状态时计数器会被重置）
     let stats = breaker.get_stats().await;
-    assert_eq!(stats.success_count, 1, "Should have 1 success");
+    assert_eq!(
+        stats.success_count, 0,
+        "Success count should be reset after recovery to Closed"
+    );
+    assert_eq!(
+        stats.failure_count, 0,
+        "Failure count should be reset after recovery to Closed"
+    );
 }
 
 /// 场景 4: 半开状态下失败重新熔断
@@ -180,7 +187,7 @@ async fn e2e_circuit_breaker_reopen_on_half_open_failure() {
     for _ in 0..2 {
         let _ = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
+                Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
             })
             .await;
     }
@@ -193,7 +200,7 @@ async fn e2e_circuit_breaker_reopen_on_half_open_failure() {
     // 在半开状态下失败
     let result = breaker
         .execute(|| async {
-            Err::<(), FlowGuardError>(FlowGuardError::LimitError("still failing".to_string()))
+            Err::<(), FlowGuardError>(FlowGuardError::BanError("still failing".to_string()))
         })
         .await;
 
@@ -230,7 +237,7 @@ async fn e2e_circuit_breaker_statistics() {
     for _ in 0..2 {
         let _ = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
+                Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
             })
             .await;
     }
@@ -268,7 +275,7 @@ async fn e2e_circuit_breaker_concurrent_protection() {
                 .execute(|| async {
                     if i < 10 {
                         // 前 10 个请求失败
-                        Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
+                        Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
                     } else {
                         // 后 10 个请求成功
                         Ok::<(), FlowGuardError>(())
@@ -347,7 +354,7 @@ async fn e2e_circuit_breaker_timeout_config() {
     // 触发熔断
     let _ = breaker
         .execute(|| async {
-            Err::<(), FlowGuardError>(FlowGuardError::LimitError("error".to_string()))
+            Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
         })
         .await;
 

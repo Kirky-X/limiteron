@@ -206,7 +206,7 @@ mod ban_manager_tests {
         for i in 0..20 {
             let mgr = Arc::clone(&manager);
             handles.push(tokio::spawn(async move {
-                let target = limiteron::BanTarget::Ip(format!("concurrent_{}", i));
+                let target = limiteron::BanTarget::Ip(format!("10.{}.0.1", i));
                 let record = create_ban_record(target, 3600, &format!("并发封禁 {}", i));
                 mgr.add_ban(record).await
             }));
@@ -224,7 +224,7 @@ mod ban_manager_tests {
         for i in 0..20 {
             assert!(
                 manager
-                    .is_banned(&limiteron::BanTarget::Ip(format!("concurrent_{}", i)))
+                    .is_banned(&limiteron::BanTarget::Ip(format!("10.{}.0.1", i)))
                     .await
                     .unwrap()
                     .is_some(),
@@ -244,7 +244,7 @@ mod ban_manager_tests {
         for _ in 0..10 {
             let mgr = Arc::clone(&manager);
             handles.push(tokio::spawn(async move {
-                let target = limiteron::BanTarget::Ip("concurrent_same".to_string());
+                let target = limiteron::BanTarget::Ip("10.99.99.99".to_string());
                 let record = create_ban_record(target, 3600, "test");
                 mgr.add_ban(record).await
             }));
@@ -252,7 +252,7 @@ mod ban_manager_tests {
             let mgr = Arc::clone(&manager);
             handles.push(tokio::spawn(async move {
                 mgr.delete_ban(
-                    &limiteron::BanTarget::Ip("concurrent_same".to_string()),
+                    &limiteron::BanTarget::Ip("10.99.99.99".to_string()),
                     "admin".to_string(),
                 )
                 .await
@@ -265,7 +265,7 @@ mod ban_manager_tests {
 
         // 最终状态应该是确定的（要么封禁要么未封禁）
         let _ = manager
-            .is_banned(&limiteron::BanTarget::Ip("concurrent_same".to_string()))
+            .is_banned(&limiteron::BanTarget::Ip("10.99.99.99".to_string()))
             .await;
     }
 
@@ -280,7 +280,7 @@ mod ban_manager_tests {
             .unwrap();
 
         // 添加封禁
-        let target = limiteron::BanTarget::Ip("storage_test".to_string());
+        let target = limiteron::BanTarget::Ip("10.50.50.50".to_string());
         let record = create_ban_record(target.clone(), 3600, "test");
         manager.add_ban(record).await.unwrap();
 
@@ -303,20 +303,25 @@ mod ban_manager_tests {
     ///
     /// 注意：BanManager 没有 cleanup_expired() 方法，
     /// 改用 storage 的 cleanup_expired_bans() 方法进行清理。
+    /// 禁用 auto-unban 后台任务以避免后台清理干扰测试断言。
     #[tokio::test]
     async fn test_cleanup_expired_bans() {
         let storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
-        let manager = BanManager::with_dependencies(storage.clone(), BanManagerConfig::default())
+        let config = BanManagerConfig {
+            enable_auto_unban: false,
+            ..Default::default()
+        };
+        let manager = BanManager::with_dependencies(storage.clone(), config)
             .await
             .unwrap();
 
         // 添加永久封禁（使用 86400 秒避免 u64::MAX 导致的 Duration 转换溢出）
-        let permanent_target = limiteron::BanTarget::Ip("cleanup_permanent".to_string());
+        let permanent_target = limiteron::BanTarget::Ip("10.60.60.60".to_string());
         let permanent_record = create_ban_record(permanent_target.clone(), 86400, "permanent");
         manager.add_ban(permanent_record).await.unwrap();
 
         // 添加短期封禁（0 秒，立即过期）
-        let short_target = limiteron::BanTarget::Ip("cleanup_short".to_string());
+        let short_target = limiteron::BanTarget::Ip("10.61.61.61".to_string());
         let short_record = create_ban_record(short_target.clone(), 0, "short");
         manager.add_ban(short_record).await.unwrap();
 

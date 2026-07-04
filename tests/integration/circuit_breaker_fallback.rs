@@ -32,7 +32,7 @@ mod circuit_breaker_tests {
             let _ = breaker
                 .execute(|| async {
                     Err::<(), limiteron::error::FlowGuardError>(
-                        limiteron::error::FlowGuardError::LimitError("错误".to_string()),
+                        limiteron::error::FlowGuardError::BanError("错误".to_string()),
                     )
                 })
                 .await;
@@ -65,7 +65,7 @@ mod circuit_breaker_tests {
             let _ = breaker
                 .execute(|| async {
                     Err::<(), limiteron::error::FlowGuardError>(
-                        limiteron::error::FlowGuardError::LimitError("服务错误".to_string()),
+                        limiteron::error::FlowGuardError::BanError("服务错误".to_string()),
                     )
                 })
                 .await;
@@ -97,7 +97,7 @@ mod circuit_breaker_tests {
             let _ = breaker
                 .execute(|| async {
                     Err::<(), limiteron::error::FlowGuardError>(
-                        limiteron::error::FlowGuardError::LimitError(format!("错误 {}", i)),
+                        limiteron::error::FlowGuardError::BanError(format!("错误 {}", i)),
                     )
                 })
                 .await;
@@ -111,7 +111,7 @@ mod circuit_breaker_tests {
         let _ = breaker
             .execute(|| async {
                 Err::<(), limiteron::error::FlowGuardError>(
-                    limiteron::error::FlowGuardError::LimitError("触发熔断".to_string()),
+                    limiteron::error::FlowGuardError::BanError("触发熔断".to_string()),
                 )
             })
             .await;
@@ -133,7 +133,7 @@ mod circuit_breaker_tests {
                 let _ = breaker
                     .execute(|| async {
                         Err::<(), limiteron::error::FlowGuardError>(
-                            limiteron::error::FlowGuardError::LimitError(format!("错误 {}", cycle)),
+                            limiteron::error::FlowGuardError::BanError(format!("错误 {}", cycle)),
                         )
                     })
                     .await;
@@ -173,7 +173,7 @@ mod circuit_breaker_tests {
             let _ = breaker
                 .execute(|| async {
                     Err::<(), limiteron::error::FlowGuardError>(
-                        limiteron::error::FlowGuardError::LimitError("错误".to_string()),
+                        limiteron::error::FlowGuardError::BanError("错误".to_string()),
                     )
                 })
                 .await;

@@ -62,10 +62,12 @@ async fn test_circuit_breaker_recovers_after_timeout() {
     let circuit_breaker = CircuitBreaker::new(config);
 
     // 触发熔断器打开 - 执行失败操作
+    // 注意：DefaultErrorClassifier 不将 LimitError/CircuitBreakerError/ValidationError 计为失败，
+    // 必须使用其他错误变体（如 BanError）才能触发熔断
     for _ in 0..2 {
         let _ = circuit_breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("test error".to_string()))
+                Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
             })
             .await;
     }
@@ -96,10 +98,11 @@ async fn test_circuit_breaker_fast_fails_in_open_state() {
     let circuit_breaker = CircuitBreaker::new(config);
 
     // 触发熔断器打开
+    // 注意：DefaultErrorClassifier 不将 LimitError 计为失败，使用 BanError 触发熔断
     for _ in 0..2 {
         let _ = circuit_breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::LimitError("test error".to_string()))
+                Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
             })
             .await;
     }
@@ -112,7 +115,7 @@ async fn test_circuit_breaker_fast_fails_in_open_state() {
         .await;
     assert!(result.is_err());
 
-    // 验证错误类型
+    // 验证错误类型（熔断器打开时返回 LimitError）
     match result {
         Err(FlowGuardError::LimitError(msg)) => {
             assert!(msg.contains("熔断器打开") || msg.contains("请求被拒绝"));

@@ -463,6 +463,8 @@ impl QuotaController {
 
     /// 重置配额
     ///
+    /// 重置配额同时清除该用户/资源的告警去重状态，使告警能在新一轮消费中重新触发。
+    ///
     /// # 参数
     /// - `user_id`: 用户ID
     /// - `resource`: 资源标识
@@ -480,6 +482,10 @@ impl QuotaController {
             )
             .await
             .map_err(FlowGuardError::StorageError)?;
+
+        // 清除该用户/资源的告警去重状态，使告警能在新一轮消费中重新触发
+        let prefix = format!("{}:{}:", user_id, resource);
+        self.alert_dedup.retain(|key, _| !key.starts_with(&prefix));
 
         Ok(())
     }

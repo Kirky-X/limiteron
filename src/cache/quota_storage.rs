@@ -83,7 +83,9 @@ impl QuotaStorage for CacheQuotaStorage {
     ) -> Result<ConsumeResult, StorageError> {
         let key = quota_key(user_id, resource);
         let now = Utc::now();
-        let window_end = now + chrono::Duration::from_std(window).unwrap();
+        let window_end = now
+            + chrono::Duration::from_std(window)
+                .map_err(|e| StorageError::QueryError(format!("invalid Duration: {}", e)))?;
 
         let raw = self.backend.get(&key).await.map_err(map_error)?;
         let mut info = match raw {
@@ -167,11 +169,14 @@ impl QuotaStorage for CacheQuotaStorage {
     ) -> Result<(), StorageError> {
         let key = quota_key(user_id, resource);
         let now = Utc::now();
+        let window_end = now
+            + chrono::Duration::from_std(window)
+                .map_err(|e| StorageError::QueryError(format!("invalid Duration: {}", e)))?;
         let info = QuotaInfo {
             consumed: 0,
             limit,
             window_start: now,
-            window_end: now + chrono::Duration::from_std(window).unwrap(),
+            window_end,
         };
         let data = serde_json::to_vec(&info_to_json(&info))
             .map_err(|e| StorageError::QueryError(format!("{e}")))?;

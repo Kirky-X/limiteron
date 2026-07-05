@@ -597,25 +597,24 @@ impl CustomMatcher for TimeWindowMatcher {
         let start_hour_u64 = config["start_hour"]
             .as_u64()
             .ok_or_else(|| FlowGuardError::ConfigError("缺少 start_hour 配置".to_string()))?;
-        let start_hour: u8 = start_hour_u64 as u8;
-
-        if start_hour > 23 {
+        // 先校验范围再转换，避免 `as u8` 截断绕过校验（如 256 截断为 0）
+        if start_hour_u64 > 23 {
             return Err(FlowGuardError::ConfigError(
                 "start_hour 必须在 0-23 范围内".to_string(),
             ));
         }
+        let start_hour = start_hour_u64 as u8;
 
         // 然后获取 end_hour 并验证
         let end_hour_u64 = config["end_hour"]
             .as_u64()
             .ok_or_else(|| FlowGuardError::ConfigError("缺少 end_hour 配置".to_string()))?;
-        let end_hour: u8 = end_hour_u64 as u8;
-
-        if end_hour > 23 {
+        if end_hour_u64 > 23 {
             return Err(FlowGuardError::ConfigError(
                 "end_hour 必须在 0-23 范围内".to_string(),
             ));
         }
+        let end_hour = end_hour_u64 as u8;
 
         self.start_hour = start_hour;
         self.end_hour = end_hour;

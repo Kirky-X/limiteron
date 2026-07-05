@@ -45,7 +45,8 @@ fn record_to_json(r: &BanRecord) -> serde_json::Value {
 
 fn record_from_json(v: &serde_json::Value) -> Option<BanRecord> {
     let target: BanTarget = serde_json::from_value(v.get("target")?.clone()).ok()?;
-    let ban_times = v.get("ban_times")?.as_u64()? as u32;
+    // 显式 u32 范围检查，避免 `as u32` 静默截断（如 u64::MAX → u32 截断为 0）
+    let ban_times = u32::try_from(v.get("ban_times")?.as_u64()?).ok()?;
     let duration_secs = v.get("duration_secs")?.as_u64()?;
     let banned_at_ts = v.get("banned_at")?.as_i64()?;
     let expires_at_ts = v.get("expires_at")?.as_i64()?;
@@ -178,7 +179,10 @@ impl BanStorage for CacheBanStorage {
             Some(data) => {
                 let v: serde_json::Value = serde_json::from_slice(&data)
                     .map_err(|e| StorageError::QueryError(format!("{e}")))?;
-                let ban_times = v.get("ban_times").and_then(|n| n.as_u64()).unwrap_or(0) as u32;
+                let ban_times_u64 = v.get("ban_times").and_then(|n| n.as_u64()).unwrap_or(0);
+                let ban_times = u32::try_from(ban_times_u64).map_err(|e| {
+                    StorageError::QueryError(format!("ban_times 超出 u32 范围: {}", e))
+                })?;
                 let ts = v
                     .get("last_banned_at")
                     .and_then(|n| n.as_i64())

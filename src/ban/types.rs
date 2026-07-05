@@ -1141,6 +1141,22 @@ impl BanManager {
     }
 }
 
+/// BanManager 的 Drop 实现
+///
+/// 当 BanManager 被丢弃时，停止自动解封后台任务，防止任务泄漏。
+/// 使用 `try_write()` 而非 `write().await`，因为 `Drop::drop` 中不能使用 `.await`。
+/// 注意：BanManager 内部字段均为 `Arc`，可被 clone，Drop 只在最后一个引用被丢弃时触发。
+impl Drop for BanManager {
+    fn drop(&mut self) {
+        if let Ok(mut handle_guard) = self.auto_unban_handle.try_write() {
+            if let Some(handle) = handle_guard.take() {
+                handle.abort();
+                debug!("BanManager auto-unban task aborted on drop");
+            }
+        }
+    }
+}
+
 // ============================================================================
 // 单元测试
 // ============================================================================

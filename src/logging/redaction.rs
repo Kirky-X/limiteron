@@ -174,18 +174,16 @@ pub fn redact_advanced(value: Option<&str>, field_name: Option<&str>) -> String 
         }
     }
 
-    // 应用正则模式脱敏
-    let mut result = value.to_string();
-
+    // 应用正则模式脱敏：任何 regex 命中即完全脱敏（修复 result 被丢弃的逻辑缺陷）
     initialize_patterns();
     for (pattern_name, regex) in SENSITIVE_PATTERNS.lock().iter() {
-        if *pattern_name == "email"
+        if (*pattern_name == "email"
             || *pattern_name == "phone"
             || *pattern_name == "id_card"
-            || *pattern_name == "credit_card"
+            || *pattern_name == "credit_card")
+            && regex.is_match(value)
         {
-            // 直接脱敏敏感信息类型
-            result = regex.replace_all(&result, "***").to_string();
+            return "***".to_string();
         }
     }
 
@@ -534,28 +532,24 @@ mod tests {
 
         #[test]
         fn test_redact_advanced_applies_regex_then_basic_redact() {
-            // The regex patterns run but the final output uses basic prefix/suffix
-            // on the ORIGINAL value (not the regex-replaced result).
-            // This is the current implementation behavior.
+            // 任何 regex 命中即完全脱敏（修复 result 被丢弃的逻辑缺陷：
+            // 原实现 regex 替换结果 result 被丢弃，最终输出基于原始 value 的 prefix/suffix）
             assert_eq!(
                 redact_advanced(Some("contact me at test@example.com"), None),
-                "co***om"
+                "***"
             );
-            assert_eq!(redact_advanced(Some("phone: 13800138000"), None), "ph***00");
-            assert_eq!(
-                redact_advanced(Some("id: 110101199001011234"), None),
-                "id***34"
-            );
+            assert_eq!(redact_advanced(Some("phone: 13800138000"), None), "***");
+            assert_eq!(redact_advanced(Some("id: 110101199001011234"), None), "***");
             assert_eq!(
                 redact_advanced(Some("card: 1234-5678-9012-3456"), None),
-                "ca***56"
+                "***"
             );
         }
 
         #[test]
         fn test_redact_advanced_credit_card_no_separator() {
             let result = redact_advanced(Some("card: 1234567890123456"), None);
-            assert_eq!(result, "ca***56");
+            assert_eq!(result, "***");
         }
 
         #[test]

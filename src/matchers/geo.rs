@@ -267,9 +267,7 @@ impl GeoMatcher {
         log::info!(target: "geo", "加载GeoLite2数据库: {}", db_path.display());
 
         // 获取文件元数据
-        let metadata = tokio::fs::metadata(db_path)
-            .await
-            .map_err(FlowGuardError::IoError)?;
+        let metadata = std::fs::metadata(db_path).map_err(FlowGuardError::IoError)?;
 
         // 验证文件大小（GeoLite2-City.mmdb 通常大于 50MB）
         const MIN_DB_SIZE: u64 = 50 * 1024 * 1024; // 50MB
@@ -292,10 +290,8 @@ impl GeoMatcher {
             );
         }
 
-        // 异步读取数据库文件
-        let db_content = tokio::fs::read(db_path)
-            .await
-            .map_err(FlowGuardError::IoError)?;
+        // 读取数据库文件
+        let db_content = std::fs::read(db_path).map_err(FlowGuardError::IoError)?;
 
         // 验证文件大小一致性
         if db_content.len() as u64 != file_size {
@@ -790,12 +786,27 @@ mod tests {
         assert_eq!(cache_stats.hit_rate, 0.0);
     }
 
-    // 集成测试需要在有GeoLite2数据库时运行
     #[tokio::test]
-    #[ignore] // 需要GeoLite2数据库文件
     async fn test_geo_matcher_lookup() {
-        // 这个测试需要真实的GeoLite2数据库文件
-        // 在CI/CD环境中应该跳过或使用mock
+        let db_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("data")
+            .join("GeoLite2-City.mmdb");
+        if !db_path.exists() {
+            eprintln!("GeoLite2-City.mmdb 不存在于 {}，跳过", db_path.display());
+            return;
+        }
+
+        let matcher = GeoMatcher::new(&db_path).await.unwrap();
+
+        let result = matcher.lookup("8.8.8.8".parse().unwrap()).await.unwrap();
+        assert_eq!(result.country_code.as_deref(), Some("US"));
+        assert_eq!(result.country_name.as_deref(), Some("United States"));
+
+        let result = matcher
+            .lookup("114.114.114.114".parse().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(result.country_code.as_deref(), Some("CN"));
     }
 
     #[test]

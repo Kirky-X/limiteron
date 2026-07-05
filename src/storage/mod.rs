@@ -15,13 +15,6 @@ pub mod parallel_checker;
 #[cfg(feature = "parallel-checker")]
 pub use parallel_checker::ParallelBanChecker;
 
-// Redis 存储后端（可选，需要 redis-storage 特性）
-#[cfg(feature = "redis-storage")]
-pub mod redis;
-// 重新导出 RedisStorage 以便外部使用
-#[cfg(feature = "redis-storage")]
-pub use redis::RedisStorage;
-
 use crate::error::{ConsumeResult, StorageError};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -98,6 +91,9 @@ pub enum BanTarget {
     /// MAC地址封禁
     #[serde(rename = "mac")]
     Mac(String),
+    /// 地理位置封禁（国家代码，ISO 3166-1 alpha-2）
+    #[serde(rename = "geo")]
+    Geo { country_code: String },
 }
 
 /// 封禁记录
@@ -585,6 +581,62 @@ mod tests {
     use super::*;
     use ahash::AHashMap as HashMap;
     use tokio::sync::RwLock;
+
+    #[test]
+    fn test_ban_target_geo_serialization() {
+        let geo = BanTarget::Geo {
+            country_code: "CN".to_string(),
+        };
+        let json = serde_json::to_string(&geo).unwrap();
+        assert_eq!(json, r#"{"type":"geo","value":{"country_code":"CN"}}"#);
+    }
+
+    #[test]
+    fn test_ban_target_geo_deserialization() {
+        let json = r#"{"type":"geo","value":{"country_code":"CN"}}"#;
+        let target: BanTarget = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            target,
+            BanTarget::Geo {
+                country_code: "CN".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_ban_target_geo_roundtrip() {
+        let original = BanTarget::Geo {
+            country_code: "US".to_string(),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let deserialized: BanTarget = serde_json::from_str(&json).unwrap();
+        assert_eq!(original, deserialized);
+    }
+
+    #[test]
+    fn test_ban_target_geo_equality() {
+        let a = BanTarget::Geo {
+            country_code: "CN".to_string(),
+        };
+        let b = BanTarget::Geo {
+            country_code: "CN".to_string(),
+        };
+        let c = BanTarget::Geo {
+            country_code: "US".to_string(),
+        };
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn test_ban_target_geo_hash() {
+        let mut map: HashMap<BanTarget, i32> = HashMap::new();
+        let geo = BanTarget::Geo {
+            country_code: "CN".to_string(),
+        };
+        map.insert(geo.clone(), 1);
+        assert_eq!(map.get(&geo), Some(&1));
+    }
 
     struct TestStorage {
         data: RwLock<HashMap<String, String>>,

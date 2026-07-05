@@ -313,7 +313,33 @@ pub fn validate_ban_target(target: &BanTarget) -> Result<(), FlowGuardError> {
         BanTarget::Ip(ip) => validate_ip_address(ip),
         BanTarget::UserId(user_id) => validate_user_id(user_id),
         BanTarget::Mac(mac) => validate_mac_address(mac),
+        BanTarget::Geo { country_code } => validate_geo_country_code(country_code),
     }
+}
+
+/// 验证地理位置国家代码（ISO 3166-1 alpha-2）
+///
+/// 格式要求：2 字母大写，如 "CN", "US", "JP"
+pub fn validate_geo_country_code(code: &str) -> Result<(), FlowGuardError> {
+    if code.is_empty() {
+        return Err(FlowGuardError::ValidationError(
+            "国家代码不能为空".to_string(),
+        ));
+    }
+    if code.len() != 2 {
+        return Err(FlowGuardError::ValidationError(format!(
+            "国家代码必须是 2 字母（ISO 3166-1 alpha-2），got {} 字符: {}",
+            code.len(),
+            code
+        )));
+    }
+    if !code.chars().all(|c| c.is_ascii_uppercase()) {
+        return Err(FlowGuardError::ValidationError(format!(
+            "国家代码必须是大写字母: {}",
+            code
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -527,6 +553,79 @@ mod tests {
         // 无效的 MAC 地址
         let invalid_mac = BanTarget::Mac("invalid".to_string());
         assert!(validate_ban_target(&invalid_mac).is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "ban-manager")]
+    fn test_validate_ban_target_geo() {
+        use crate::storage::BanTarget;
+
+        // 有效的国家代码（ISO 3166-1 alpha-2，2 字母大写）
+        assert!(validate_ban_target(&BanTarget::Geo {
+            country_code: "CN".to_string()
+        })
+        .is_ok());
+        assert!(validate_ban_target(&BanTarget::Geo {
+            country_code: "US".to_string()
+        })
+        .is_ok());
+        assert!(validate_ban_target(&BanTarget::Geo {
+            country_code: "JP".to_string()
+        })
+        .is_ok());
+
+        // 无效：小写
+        assert!(validate_ban_target(&BanTarget::Geo {
+            country_code: "cn".to_string()
+        })
+        .is_err());
+        // 无效：3 字符
+        assert!(validate_ban_target(&BanTarget::Geo {
+            country_code: "CHN".to_string()
+        })
+        .is_err());
+        // 无效：空
+        assert!(validate_ban_target(&BanTarget::Geo {
+            country_code: "".to_string()
+        })
+        .is_err());
+        // 无效：数字
+        assert!(validate_ban_target(&BanTarget::Geo {
+            country_code: "12".to_string()
+        })
+        .is_err());
+        // 无效：1 字符
+        assert!(validate_ban_target(&BanTarget::Geo {
+            country_code: "C".to_string()
+        })
+        .is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "ban-manager")]
+    fn test_validate_geo_country_code_direct() {
+        // 直接测试 validate_geo_country_code 函数
+        assert!(validate_geo_country_code("CN").is_ok());
+        assert!(validate_geo_country_code("US").is_ok());
+        assert!(validate_geo_country_code("JP").is_ok());
+        assert!(validate_geo_country_code("DE").is_ok());
+
+        // 边界：空
+        assert!(validate_geo_country_code("").is_err());
+        // 边界：1 字符
+        assert!(validate_geo_country_code("C").is_err());
+        // 边界：3 字符
+        assert!(validate_geo_country_code("CHN").is_err());
+        // 边界：小写
+        assert!(validate_geo_country_code("cn").is_err());
+        // 边界：混合大小写
+        assert!(validate_geo_country_code("Cn").is_err());
+        // 边界：数字
+        assert!(validate_geo_country_code("12").is_err());
+        // 边界：特殊字符
+        assert!(validate_geo_country_code("C!").is_err());
+        // 边界：含空格
+        assert!(validate_geo_country_code("C ").is_err());
     }
 
     // ==================== IP 地址长度边界测试 ====================

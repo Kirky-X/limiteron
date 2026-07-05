@@ -115,11 +115,6 @@ required-features = ["device-matching", "geo-matching"]
 name = "graceful_shutdown"
 path = "src/bin/graceful_shutdown.rs"
 
-[[bin]]
-name = "redis_storage"
-path = "src/bin/redis_storage.rs"
-required-features = ["redis-storage"]
-
 [features]
 default = []
 # 核心功能
@@ -129,7 +124,6 @@ quota-control = ["limiteron/quota-control"]
 ban-manager = ["limiteron/ban-manager"]
 # 存储后端
 postgres = ["limiteron/postgres"]
-redis-storage = ["limiteron/redis-storage"]
 cache-service = ["limiteron/cache-service"]
 # 可观测性
 telemetry = ["limiteron/telemetry"]
@@ -154,7 +148,6 @@ full = [
     "quota-control",
     "ban-manager",
     "postgres",
-    "redis-storage",
     "cache-service",
     "telemetry",
     "monitoring",

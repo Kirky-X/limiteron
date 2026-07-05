@@ -54,6 +54,7 @@ impl DBNexusBanStorageAdapter {
             BanTarget::Ip(ip) => create_target_key("ip", ip),
             BanTarget::UserId(user_id) => create_target_key("user", user_id),
             BanTarget::Mac(mac) => create_target_key("mac", mac),
+            BanTarget::Geo { country_code } => create_target_key("geo", country_code),
         }
     }
 
@@ -63,6 +64,7 @@ impl DBNexusBanStorageAdapter {
             BanTarget::Ip(ip) => ("ip".to_string(), ip.clone()),
             BanTarget::UserId(user_id) => ("user".to_string(), user_id.clone()),
             BanTarget::Mac(mac) => ("mac".to_string(), mac.clone()),
+            BanTarget::Geo { country_code } => ("geo".to_string(), country_code.clone()),
         }
     }
 
@@ -75,6 +77,12 @@ impl DBNexusBanStorageAdapter {
             ),
             "user" => (
                 BanTarget::UserId(model.target_value.clone()),
+                model.target_value.clone(),
+            ),
+            "geo" => (
+                BanTarget::Geo {
+                    country_code: model.target_value.clone(),
+                },
                 model.target_value.clone(),
             ),
             _ => (

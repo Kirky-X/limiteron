@@ -150,6 +150,14 @@ pub struct Governor {
     #[cfg(feature = "event-system")]
     event_emitter: Option<Arc<crate::events::EventEmitter>>,
 
+    /// 指标收集器（可选，feature-gated）
+    #[cfg(feature = "monitoring")]
+    metrics: Option<Arc<Metrics>>,
+
+    /// 追踪器（可选，feature-gated）
+    #[cfg(feature = "telemetry")]
+    tracer: Option<Arc<Tracer>>,
+
     /// 优雅关闭令牌：取消时通知所有后台任务退出
     shutdown_token: tokio_util::sync::CancellationToken,
 
@@ -475,6 +483,10 @@ impl GovernorBuilder {
             fallback_manager,
             #[cfg(feature = "event-system")]
             event_emitter: self.event_emitter,
+            #[cfg(feature = "monitoring")]
+            metrics: self.metrics,
+            #[cfg(feature = "telemetry")]
+            tracer: self.tracer,
             shutdown_token: tokio_util::sync::CancellationToken::new(),
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
         })
@@ -589,6 +601,10 @@ impl Governor {
             fallback_manager: None,
             #[cfg(feature = "event-system")]
             event_emitter: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
+            #[cfg(feature = "telemetry")]
+            tracer: None,
             shutdown_token: tokio_util::sync::CancellationToken::new(),
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
         }
@@ -628,7 +644,6 @@ impl Governor {
     ///         .await;
     /// }
     /// ```
-    #[allow(unused_variables)]
     pub async fn with_storage(
         config: FlowControlConfig,
         storage: Arc<dyn Storage>,
@@ -637,7 +652,7 @@ impl Governor {
         #[cfg(feature = "telemetry")] tracer: Option<Arc<Tracer>>,
     ) -> Result<Self, FlowGuardError> {
         // 使用 builder 模式创建 Governor
-        Governor::builder()
+        let builder = Governor::builder()
             .with_config(config)
             .with_storage(storage)
             .with_ban_storage(ban_storage)
@@ -651,9 +666,24 @@ impl Governor {
                         "X-API-Key",
                     )))
                     .build(),
-            ))
-            .build()
-            .await
+            ));
+
+        // 转发可选的 metrics/tracer（之前被静默丢弃）
+        #[cfg(feature = "monitoring")]
+        let builder = if let Some(m) = metrics {
+            builder.with_metrics(m)
+        } else {
+            builder
+        };
+
+        #[cfg(feature = "telemetry")]
+        let builder = if let Some(t) = tracer {
+            builder.with_tracer(t)
+        } else {
+            builder
+        };
+
+        builder.build().await
     }
 
     /// 从配置文件创建 Governor 实例
@@ -771,6 +801,37 @@ impl Governor {
     ///
     /// 当启用了 FallbackManager 时，会在存储层故障时自动降级。
     pub async fn check(&self, context: &RequestContext) -> Result<Decision, FlowGuardError> {
+        let start_time = std::time::Instant::now();
+
+        #[cfg(feature = "telemetry")]
+        let span = self.tracer.as_ref().map(|t| t.start_span("governor_check"));
+
+        let result = self.check_inner(context).await;
+
+        // 记录指标（Rule 12：失败必须显性化 — 错误也记录）
+        #[cfg(feature = "monitoring")]
+        if let Some(ref metrics) = self.metrics {
+            let duration = start_time.elapsed();
+            let allowed = matches!(&result, Ok(Decision::Allowed(_)));
+            metrics.record_check(duration, allowed);
+            if matches!(&result, Ok(Decision::Banned(_))) {
+                metrics.record_ban();
+            }
+            if result.is_err() {
+                metrics.record_error("check_error");
+            }
+        }
+
+        #[cfg(feature = "telemetry")]
+        if let Some(s) = span {
+            s.finish();
+        }
+
+        result
+    }
+
+    /// 内部检查分发（不含 metrics/tracer 包装，由 check() 统一处理）
+    async fn check_inner(&self, context: &RequestContext) -> Result<Decision, FlowGuardError> {
         // 如果启用了 FallbackManager，使用降级包装的检查逻辑
         #[cfg(feature = "fallback")]
         if let Some(ref fallback_mgr) = self.fallback_manager {
@@ -3365,13 +3426,23 @@ mod governor_feature_gated_tests {
             .with_config(create_valid_test_config())
             .with_storage(Arc::new(MemoryStorage::new()))
             .with_ban_storage(Arc::new(MemoryBanStorage::new()))
-            .with_metrics(metrics)
+            .with_metrics(metrics.clone())
             .build()
             .await
             .expect("build with metrics should succeed");
 
-        let stats = governor.stats().await;
-        assert_eq!(stats.total_requests, 0);
+        // check() 前计数器应为 0
+        assert_eq!(metrics.requests_total.get(), 0.0);
+
+        let mut ctx = RequestContext::default();
+        ctx.user_id = Some("test_user".to_string());
+        let _ = governor.check(&ctx).await;
+
+        // check() 后 requests_total 应被记录（Rule 9：验证有意义的副作用）
+        assert!(
+            metrics.requests_total.get() >= 1.0,
+            "metrics.requests_total should be recorded after check()"
+        );
     }
 
     #[cfg(feature = "telemetry")]
@@ -3384,13 +3455,49 @@ mod governor_feature_gated_tests {
             .with_config(create_valid_test_config())
             .with_storage(Arc::new(MemoryStorage::new()))
             .with_ban_storage(Arc::new(MemoryBanStorage::new()))
-            .with_tracer(tracer)
+            .with_tracer(tracer.clone())
             .build()
             .await
             .expect("build with tracer should succeed");
 
-        let stats = governor.stats().await;
-        assert_eq!(stats.total_requests, 0);
+        // 验证 tracer 被存储且启用
+        assert!(tracer.is_enabled());
+
+        let mut ctx = RequestContext::default();
+        ctx.user_id = Some("test_user".to_string());
+        // check() 应正常完成（tracer span start/finish 不 panic）
+        let _ = governor.check(&ctx).await;
+    }
+
+    /// 验证 with_storage() 转发 metrics 参数到 Governor（之前被 #[allow(unused_variables)] 静默丢弃）
+    #[cfg(feature = "monitoring")]
+    #[tokio::test]
+    async fn test_with_storage_forwards_metrics() {
+        use crate::telemetry::Metrics;
+
+        let metrics = Arc::new(Metrics::new());
+        #[cfg(feature = "telemetry")]
+        let tracer: Option<Arc<crate::telemetry::Tracer>> = None;
+
+        let governor = Governor::with_storage(
+            create_valid_test_config(),
+            Arc::new(MemoryStorage::new()),
+            Arc::new(MemoryBanStorage::new()),
+            Some(metrics.clone()),
+            #[cfg(feature = "telemetry")]
+            tracer,
+        )
+        .await
+        .expect("with_storage should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.user_id = Some("test_user".to_string());
+        let _ = governor.check(&ctx).await;
+
+        assert!(
+            metrics.requests_total.get() >= 1.0,
+            "with_storage should forward metrics to Governor (was silently dropped before fix)"
+        );
     }
 
     #[cfg(feature = "fallback")]

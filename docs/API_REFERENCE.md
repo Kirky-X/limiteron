@@ -392,7 +392,7 @@ match limiter.allow(1).await {
 
 #### ⚠️ 已弃用：`SlidingWindowLimiter`
 
-> **v0.3.0 起**，`SlidingWindowLimiter` 不再通过 `limiteron::` 顶层导出。推荐使用 [`ShardedSlidingWindowLimiter`](#)（`limiteron::limiters::ShardedSlidingWindowLimiter`）替代，提供更好的并发性能。
+> **v0.2.1 起**，`SlidingWindowLimiter` 不再通过 `limiteron::` 顶层导出。推荐使用 [`ShardedSlidingWindowLimiter`](#)（`limiteron::limiters::ShardedSlidingWindowLimiter`）替代，提供更好的并发性能。
 >
 > 仍可通过全路径 `limiteron::limiters::sliding_window::SlidingWindowLimiter` 访问（模块标注 `#[allow(deprecated)]`），但不推荐新代码使用。
 
@@ -507,7 +507,7 @@ pub async fn create_ban(
 - `metadata: serde_json::Value` - 附加元数据
 - `duration: Option<StdDuration>` - 封禁时长，None表示使用指数退避算法自动计算
 
-> **`BanTarget` 变体**（v0.3.0 新增 `Geo`）：`Ip(String)` / `UserId(String)` / `Mac(String)` / `Geo { country_code: String }`。`country_code` 必须是大写 2 字母 ISO 3166-1 alpha-2 格式。
+> **`BanTarget` 变体**（v0.2.1 新增 `Geo`）：`Ip(String)` / `UserId(String)` / `Mac(String)` / `Geo { country_code: String }`。`country_code` 必须是大写 2 字母 ISO 3166-1 alpha-2 格式。
 
 </td>
 </tr>
@@ -533,7 +533,7 @@ let ban_detail = ban_manager.create_ban(
     Some(Duration::from_secs(3600)),
 ).await?;
 
-// Geo 地区封禁（v0.3.0+，country_code 必须大写 2 字母）
+// Geo 地区封禁（v0.2.1+，country_code 必须大写 2 字母）
 let geo_target = BanTarget::Geo { country_code: "CN".to_string() };
 ban_manager.create_ban(
     geo_target,
@@ -1351,7 +1351,7 @@ pub struct MemoryStorage {
 </tr>
 </table>
 
-> **注意**: v0.3.0 移除了 `RedisStorage` 与 `redis-storage` feature。所有缓存通过 oxcache 统一管理（启用 `cache-storage` feature 可接入 Redis 缓存后端）。`StorageCreate`/`BanStorageCreate` trait 也已移除，改用 `MemoryStorage::create_storage()` 固有方法。
+> **注意**: v0.2.1 移除了 `RedisStorage` 与 `redis-storage` feature。所有缓存通过 oxcache 统一管理（启用 `cache-storage` feature 可接入 Redis 缓存后端）。`StorageCreate`/`BanStorageCreate` trait 也已移除，改用 `MemoryStorage::create_storage()` 固有方法。
 
 ---
 

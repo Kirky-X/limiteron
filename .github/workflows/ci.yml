@@ -223,7 +223,7 @@ jobs:
           verbose: true
 
       - name: Upload coverage artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage/
@@ -289,7 +289,7 @@ jobs:
         run: cargo build --features ${{ matrix.feature-set }} --release --verbose
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-${{ matrix.feature-set }}
           path: target/release/liblimiteron.rlib

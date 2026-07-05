@@ -84,7 +84,7 @@ sqlx = { version = "0.9", features = ["postgres", "runtime-tokio", "tls-rustls"]
 oxcache = { version = "0.3", default-features = false, features = ["core"] }
 
 # 数据库抽象层 — dbnexus 0.3 依赖 oxcache 0.2（与本项目 oxcache 0.3 冲突），暂保持 0.2
-dbnexus = { version = "0.2", default-features = false, features = ["postgres", "macros", "sql-parser", "permission"] }
+dbnexus = { version = "0.3", default-features = false, features = ["postgres", "macros", "sql-parser", "permission"] }
 
 # 宏
 limiteron-macros = { path = "macros" }

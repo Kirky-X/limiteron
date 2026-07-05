@@ -469,12 +469,12 @@ impl BanStorage for MemoryBanStorage {
         let total = filtered.len() as u64;
         let start = offset as usize;
         let end = (offset + limit) as usize;
+        // 防止 offset > total 时的整数下溢（debug panic / release wraparound）
+        let take_count = end
+            .saturating_sub(start)
+            .min(total.saturating_sub(offset) as usize);
 
-        Ok(filtered
-            .into_iter()
-            .skip(start)
-            .take(end.saturating_sub(start).min((total - offset) as usize))
-            .collect())
+        Ok(filtered.into_iter().skip(start).take(take_count).collect())
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

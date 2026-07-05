@@ -530,6 +530,19 @@ impl QuotaController {
         // 计算窗口跨越情况
         let window_duration = Duration::seconds(self.config.window_size as i64);
         let elapsed = now.signed_duration_since(state.window_start);
+
+        // 时钟回退防护：NTP 回退或容器时钟漂移导致 now < window_start 时，
+        // elapsed 为负，as u64 会 wraparound 成巨大值，导致窗口永久不重置。
+        // 此时直接以 now 为新窗口起点重置，避免配额永久失效。
+        if elapsed.num_seconds() < 0 {
+            let new_window_end = now + window_duration;
+            return Ok(QuotaState {
+                consumed: 0,
+                window_start: now,
+                window_end: new_window_end,
+            });
+        }
+
         let windows_passed = (elapsed.num_seconds() / window_duration.num_seconds()) as u64;
 
         // 计算新窗口时间（使用 checked_mul 防止整数溢出）

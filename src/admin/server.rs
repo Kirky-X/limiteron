@@ -77,6 +77,9 @@ impl AdminServer {
             return Ok(());
         }
 
+        // 启动前强制校验配置（api_key 非空、长度 ≥16），防止以空 key 暴露管理 API
+        self.config.validate()?;
+
         let router = routes::create_router(self.state.clone(), &self.config);
 
         let listener = TcpListener::bind(&self.config.address()).await?;

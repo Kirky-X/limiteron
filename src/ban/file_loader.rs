@@ -107,6 +107,24 @@ impl BanFileLoader {
     /// - `Ok(LoadResult)`: 加载完成（可能含部分失败）
     /// - `Err(FlowGuardError)`: 文件读取或 YAML 解析失败
     pub async fn load_once(&self, manager: &BanManager) -> Result<LoadResult, FlowGuardError> {
+        // 文件大小预检查：防止 YAML 炸弹（billion laughs attack）导致 OOM
+        const MAX_BAN_FILE_SIZE: u64 = 2 * 1024 * 1024; // 2 MB
+        let file_meta = std::fs::metadata(&self.path).map_err(|e| {
+            FlowGuardError::ConfigError(format!(
+                "读取封禁文件元数据失败 {}: {}",
+                self.path.display(),
+                e
+            ))
+        })?;
+        if file_meta.len() > MAX_BAN_FILE_SIZE {
+            return Err(FlowGuardError::ConfigError(format!(
+                "封禁文件过大: {} ({} bytes, 上限 {} bytes)",
+                self.path.display(),
+                file_meta.len(),
+                MAX_BAN_FILE_SIZE
+            )));
+        }
+
         let content = std::fs::read_to_string(&self.path).map_err(|e| {
             FlowGuardError::ConfigError(format!("读取封禁文件失败 {}: {}", self.path.display(), e))
         })?;
@@ -403,7 +421,12 @@ bans:
         let result = loader.load_once(&manager).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("读取封禁文件失败"), "错误信息: {}", err);
+        // 文件不存在时 metadata 检查先失败
+        assert!(
+            err.contains("读取封禁文件元数据失败") || err.contains("读取封禁文件失败"),
+            "错误信息: {}",
+            err
+        );
     }
 
     #[tokio::test]

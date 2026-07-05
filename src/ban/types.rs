@@ -552,6 +552,15 @@ impl BanManager {
         authorization_provider: Option<Arc<dyn AuthorizationProvider>>,
         #[cfg(feature = "event-system")] event_emitter: Option<Arc<crate::events::EventEmitter>>,
     ) -> Result<Self, FlowGuardError> {
+        // 显式警告：未配置授权 provider 时，所有手动封禁操作将跳过细粒度授权检查
+        // （Rule 12: 失败必须显性化 — 禁止静默跳过授权链路）
+        if authorization_provider.is_none() {
+            log::warn!(
+                "BanManager 创建时未配置 authorization_provider，\
+                 所有手动封禁操作将跳过细粒度授权检查（仅依赖 admin API key 认证）"
+            );
+        }
+
         let config = Arc::new(RwLock::new(config));
 
         let ban_manager = Self {
@@ -674,11 +683,21 @@ impl BanManager {
         duration: Option<StdDuration>,
     ) -> Result<BanDetail, FlowGuardError> {
         // 授权检查：仅对手动封禁进行检查
-        if let (Some(provider), BanSource::Manual { ref operator }) =
-            (&self.authorization_provider, &source)
-        {
-            self.check_authorization(provider, "create_ban", operator, &target)
-                .await?;
+        // 未配置 provider 时显式警告（Rule 12: 禁止静默跳过授权链路）
+        match (&self.authorization_provider, &source) {
+            (Some(provider), BanSource::Manual { ref operator }) => {
+                self.check_authorization(provider, "create_ban", operator, &target)
+                    .await?;
+            }
+            (None, BanSource::Manual { ref operator }) => {
+                log::warn!(
+                    "手动封禁跳过授权检查（未配置 authorization_provider）: \
+                     operator={}, target={:?}",
+                    operator,
+                    target
+                );
+            }
+            _ => {}
         }
 
         // 输入验证

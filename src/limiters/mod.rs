@@ -39,8 +39,6 @@ pub mod quota_limiter;
 pub use concurrency::ConcurrencyLimiter;
 pub use fixed_window::FixedWindowLimiter;
 pub use sharded_sliding_window::ShardedSlidingWindowLimiter;
-#[allow(deprecated)]
-pub use sliding_window::SlidingWindowLimiter;
 pub use token_bucket::TokenBucketLimiter;
 pub use traits::Limiter;
 

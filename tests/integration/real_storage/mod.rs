@@ -9,12 +9,3 @@
 // PostgreSQL 存储测试（包含 Storage、BanStorage、QuotaStorage 测试）
 #[cfg(feature = "postgres")]
 pub mod postgres_storage;
-
-// Redis 存储测试
-// 注意：`redis-storage` feature 将在 Phase 3（v0.2.1）实现
-#[cfg(feature = "redis-storage")]
-pub mod redis_storage;
-
-// 分布式一致性测试
-#[cfg(feature = "redis-storage")]
-pub mod distributed_consistency;

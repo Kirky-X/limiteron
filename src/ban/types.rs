@@ -64,6 +64,8 @@ pub enum BanPriority {
     DeviceId = 4,
     /// API Key封禁
     ApiKey = 5,
+    /// 地理位置封禁（最低优先级，粗粒度）
+    Geo = 6,
 }
 
 impl BanPriority {
@@ -73,6 +75,7 @@ impl BanPriority {
             BanTarget::Ip(_) => BanPriority::Ip,
             BanTarget::UserId(_) => BanPriority::UserId,
             BanTarget::Mac(_) => BanPriority::Mac,
+            BanTarget::Geo { .. } => BanPriority::Geo,
         }
     }
 }
@@ -349,6 +352,9 @@ fn validate_ban_target(target: &BanTarget) -> Result<(), FlowGuardError> {
         BanTarget::Ip(ip) => crate::validation::validate_ip_address(ip),
         BanTarget::UserId(user_id) => crate::validation::validate_user_id(user_id),
         BanTarget::Mac(mac) => crate::validation::validate_mac_address(mac),
+        BanTarget::Geo { country_code } => {
+            crate::validation::validate_geo_country_code(country_code)
+        }
     }
 }
 
@@ -689,6 +695,7 @@ impl BanManager {
                     BanTarget::Ip(ref ip) => ip.clone(),
                     BanTarget::UserId(ref uid) => uid.clone(),
                     BanTarget::Mac(ref mac) => mac.clone(),
+                    BanTarget::Geo { ref country_code } => country_code.clone(),
                 };
                 let event = crate::events::Event::new(crate::events::EventType::BanApplied {
                     target: target_str,
@@ -868,6 +875,7 @@ impl BanManager {
                         BanTarget::Ip(ip) => ip.contains(target_value),
                         BanTarget::UserId(uid) => uid.contains(target_value),
                         BanTarget::Mac(mac) => mac.contains(target_value),
+                        BanTarget::Geo { country_code } => country_code.contains(target_value),
                     };
                     if !value_matches {
                         return false;
@@ -1066,6 +1074,7 @@ impl BanManager {
             BanTarget::Ip(ip) => ip.clone(),
             BanTarget::UserId(user_id) => user_id.clone(),
             BanTarget::Mac(mac) => mac.clone(),
+            BanTarget::Geo { country_code } => country_code.clone(),
         };
         provider
             .check_authorization(action, operator, &target_str)
@@ -1089,6 +1098,48 @@ mod tests {
     use ahash::AHashMap as StdHashMap;
     use std::sync::Arc;
     use tokio::sync::RwLock;
+
+    #[test]
+    fn test_ban_priority_geo_value() {
+        assert_eq!(BanPriority::Geo as u8, 6);
+    }
+
+    #[test]
+    fn test_ban_priority_geo_is_lowest() {
+        assert!(BanPriority::Geo > BanPriority::ApiKey);
+        assert!(BanPriority::Geo > BanPriority::Ip);
+        assert!(BanPriority::Geo > BanPriority::Mac);
+        assert!(BanPriority::Geo > BanPriority::UserId);
+        assert!(BanPriority::Geo > BanPriority::DeviceId);
+        assert_eq!(BanPriority::Geo, BanPriority::Geo);
+    }
+
+    #[test]
+    fn test_ban_priority_from_geo_target() {
+        let target = BanTarget::Geo {
+            country_code: "CN".to_string(),
+        };
+        assert_eq!(BanPriority::from_target(&target), BanPriority::Geo);
+    }
+
+    #[test]
+    fn test_ban_priority_ordering_complete() {
+        let priorities = [
+            BanPriority::Ip,
+            BanPriority::UserId,
+            BanPriority::Mac,
+            BanPriority::DeviceId,
+            BanPriority::ApiKey,
+            BanPriority::Geo,
+        ];
+        for i in 0..priorities.len() - 1 {
+            assert!(
+                priorities[i] < priorities[i + 1],
+                "ordering failed at index {}",
+                i
+            );
+        }
+    }
 
     // ========================================================================
     // 功能完整的 MockBanStorage 实现

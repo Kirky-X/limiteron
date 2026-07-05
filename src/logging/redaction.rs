@@ -294,6 +294,9 @@ pub fn redact_ban_target(target: &crate::storage::BanTarget) -> String {
         crate::storage::BanTarget::Ip(ip) => redact_ip(Some(ip)),
         crate::storage::BanTarget::UserId(user_id) => redact_user_id(Some(user_id)),
         crate::storage::BanTarget::Mac(mac) => redact_basic(Some(mac)),
+        crate::storage::BanTarget::Geo { country_code } => {
+            format!("Geo({})", redact_basic(Some(country_code)))
+        }
     }
 }
 
@@ -443,6 +446,12 @@ mod tests {
 
         let mac_target = BanTarget::Mac("00:1a:2b:3c:4d:5e".to_string());
         assert_eq!(redact_ban_target(&mac_target), "00***5e");
+
+        // Geo 国家代码为 2 字母，redact_basic 对 <4 字符返回 "***"
+        let geo_target = BanTarget::Geo {
+            country_code: "CN".to_string(),
+        };
+        assert_eq!(redact_ban_target(&geo_target), "Geo(***)");
     }
 
     #[cfg(feature = "ban-manager")]
@@ -473,6 +482,13 @@ mod tests {
         assert_eq!(
             redact_ban_target(&BanTarget::Mac("".to_string())),
             "unknown"
+        );
+        // Geo 空国家代码 → redact_basic 返回 "unknown"
+        assert_eq!(
+            redact_ban_target(&BanTarget::Geo {
+                country_code: "".to_string()
+            }),
+            "Geo(unknown)"
         );
     }
 

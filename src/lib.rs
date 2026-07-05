@@ -219,10 +219,6 @@ pub use storage::{
 #[cfg(feature = "parallel-checker")]
 pub use storage::ParallelBanChecker;
 
-// Re-export RedisStorage (feature-gated)
-#[cfg(feature = "redis-storage")]
-pub use storage::redis::RedisStorage;
-
 // Re-export CacheStorage (feature-gated)
 #[cfg(feature = "cache-storage")]
 pub use cache::ban_storage::CacheBanStorage;

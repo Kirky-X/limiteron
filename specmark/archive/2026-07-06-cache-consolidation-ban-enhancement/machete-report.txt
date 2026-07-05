@@ -1,0 +1,64 @@
+# Cargo Machete 报告 — T001
+
+**运行命令：** `cargo machete`
+**运行时间：** 2026-07-06
+**退出码：** 0
+
+## 原始输出
+
+```
+limiteron-macros -- ./macros/Cargo.toml:
+        darling
+limiteron -- ./Cargo.toml:
+        anyhow
+        crc32fast
+        lazy_static
+        notify
+        opentelemetry
+        opentelemetry-jaeger
+        opentelemetry_sdk
+        proc-macro2
+        quote
+        sqlx
+        syn
+        tokio-stream
+        tower-http
+        tracing
+        tracing-opentelemetry
+        validator
+```
+
+## 分类分析
+
+cargo-machete 基于文本扫描，对 feature-gated 依赖会误报。逐项核实：
+
+### 真正可能未使用（需进一步验证）
+
+| 依赖 | 位置 | 验证方式 | 结论 |
+|------|------|----------|------|
+| `darling` | macros/Cargo.toml | grep "darling" macros/src/ | 待验证 |
+| `anyhow` | Cargo.toml | grep "anyhow" src/ | 待验证 |
+| `crc32fast` | Cargo.toml | grep "crc32fast" src/ | 待验证 |
+| `lazy_static` | Cargo.toml | grep "lazy_static" src/ | 待验证（可能被 once_cell 替代） |
+| `validator` | Cargo.toml | grep "validator" src/ | 待验证 |
+| `tracing` | Cargo.toml | grep "tracing::" src/ | 待验证（可能通过宏使用） |
+
+### Feature-gated 误报（实际在 feature 启用时使用）
+
+| 依赖 | 对应 feature | 说明 |
+|------|-------------|------|
+| `notify` | config-watcher | 文件监听 |
+| `opentelemetry` | telemetry | OpenTelemetry 集成 |
+| `opentelemetry-jaeger` | telemetry | Jaeger exporter |
+| `opentelemetry_sdk` | telemetry | SDK |
+| `tracing-opentelemetry` | telemetry | tracing 桥接 |
+| `proc-macro2` | macros | 宏依赖 |
+| `quote` | macros | 宏依赖 |
+| `syn` | macros | 宏依赖 |
+| `sqlx` | postgres | Postgres 驱动 |
+| `tokio-stream` | event-system | 事件流 |
+| `tower-http` | admin-api | HTTP 中间件 |
+
+## 处置方案
+
+T002 阶段对"真正可能未使用"项逐个 grep 验证，确认后移除。

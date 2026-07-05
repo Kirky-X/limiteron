@@ -28,8 +28,10 @@ data/
 # Coverage
 *.profraw
 coverage/
-tarpaulin/
+# Tarpaulin reports (large HTML/JSON files, kept locally only)
 tarpaulin-report.html
+tarpaulin-report.json
+tarpaulin/
 cobertura.xml
 
 # Test
@@ -54,9 +56,9 @@ di.md
 .worktrees/
 .qoder/
 openspec/
-specmark/
+# specmark: 忽略活动变更目录，但保留归档和主 specs 用于可追溯性
+specmark/changes/
 IFLOW.md
 TEST_SUMMARY_2026_01_17.md
 AGENTS.md
-tarpaulin-report.json
 .gitnexus

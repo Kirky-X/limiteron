@@ -1,7 +1,7 @@
 //! HTTP处理器
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
@@ -132,14 +132,27 @@ pub struct UnbanRequest {
     pub operator: Option<String>,
 }
 
+/// DELETE /api/v1/ban/{target} 的 query 参数
+///
+/// - `?type=ip|user|mac|geo`：显式指定目标类型，用于解封通过 API 创建的 MAC/Geo 封禁
+/// - 未提供时按原有行为自动推断（IP 优先，回退 UserId）
+#[derive(Deserialize, Default)]
+pub struct BanTargetQuery {
+    /// 目标类型：ip | user | mac | geo
+    #[serde(rename = "type")]
+    pub target_type: Option<String>,
+}
+
 /// DELETE /api/v1/ban/{target}
 ///
-/// 路径 `target` 优先尝试解析为 IP，否则视为 UserId。
-/// 状态码：200=成功, 404=未找到, 503=未配置, 500=内部错误
+/// 路径 `target` 默认按 IP 解析，回退为 UserId；通过 `?type=` 可显式指定
+/// ip/user/mac/geo 之一，以解封非 IP/UserId 目标。
+/// 状态码：200=成功, 400=不支持的 type, 404=未找到, 503=未配置, 500=内部错误
 #[cfg(feature = "ban-manager")]
 pub async fn delete_ban(
     State(state): State<AppState>,
     Path(target): Path<String>,
+    Query(query): Query<BanTargetQuery>,
     Json(req): Json<UnbanRequest>,
 ) -> (StatusCode, Json<ApiResponse<()>>) {
     let Some(ref ban_manager) = state.ban_manager else {
@@ -148,11 +161,30 @@ pub async fn delete_ban(
             Json(ApiResponse::error("Ban manager not configured")),
         );
     };
-    // 路径 target 优先按 IP 解析，回退为 UserId
-    let ban_target = if target.parse::<std::net::IpAddr>().is_ok() {
-        BanTarget::Ip(target)
-    } else {
-        BanTarget::UserId(target)
+    let ban_target = match query.target_type.as_deref() {
+        Some("ip") => BanTarget::Ip(target),
+        Some("user") => BanTarget::UserId(target),
+        Some("mac") => BanTarget::Mac(target),
+        Some("geo") => BanTarget::Geo {
+            country_code: target,
+        },
+        Some(other) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiResponse::error(format!(
+                    "unsupported target type: {}",
+                    other
+                ))),
+            );
+        }
+        None => {
+            // 自动推断：IP 优先，回退 UserId
+            if target.parse::<std::net::IpAddr>().is_ok() {
+                BanTarget::Ip(target)
+            } else {
+                BanTarget::UserId(target)
+            }
+        }
     };
     let operator = req.operator.unwrap_or_else(|| "admin-api".to_string());
     match ban_manager.delete_ban(&ban_target, operator).await {
@@ -177,7 +209,10 @@ pub async fn delete_ban(
 
 /// DELETE /api/v1/ban/{target} (无ban-manager特性)
 #[cfg(not(feature = "ban-manager"))]
-pub async fn delete_ban(Path(_target): Path<String>) -> (StatusCode, Json<ApiResponse<()>>) {
+pub async fn delete_ban(
+    Path(_target): Path<String>,
+    Query(_query): Query<BanTargetQuery>,
+) -> (StatusCode, Json<ApiResponse<()>>) {
     (
         StatusCode::SERVICE_UNAVAILABLE,
         Json(ApiResponse::error("Ban manager not configured")),
@@ -407,50 +442,8 @@ pub async fn get_circuit_breaker_status() -> (StatusCode, Json<ApiResponse<()>>)
 mod tests {
     use super::*;
     use crate::admin::server::AppState;
-    use crate::config::types::{
-        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule,
-    };
-    use crate::storage::{BanStorage, Storage};
-    use crate::storage::{MemoryBanStorage, MemoryStorage};
-    use crate::Governor;
+    use crate::admin::test_support::{make_governor, make_state};
     use std::sync::Arc;
-
-    /// 构造包含至少一条规则的合法 FlowControlConfig（Governor::new() 默认配置无规则会 panic）
-    fn make_valid_config() -> FlowControlConfig {
-        FlowControlConfig {
-            version: "0.1.0".to_string(),
-            global: crate::config::types::GlobalConfig::default(),
-            rules: vec![Rule {
-                id: "test_rule".to_string(),
-                name: "Test Rule".to_string(),
-                priority: 100,
-                matchers: vec![Matcher::User {
-                    user_ids: vec!["*".to_string()],
-                }],
-                limiters: vec![LimiterConfig::TokenBucket {
-                    capacity: 100,
-                    refill_rate: 10,
-                }],
-                action: ActionConfig {
-                    on_exceed: Action::Reject,
-                    ban: None,
-                },
-            }],
-        }
-    }
-
-    /// 构造可用的 Governor 实例（避免 Governor::new() 的空配置 panic）
-    async fn make_governor() -> Governor {
-        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
-        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
-        Governor::builder()
-            .with_config(make_valid_config())
-            .with_storage(storage)
-            .with_ban_storage(ban_storage)
-            .build()
-            .await
-            .expect("Governor build should succeed with valid config")
-    }
 
     #[test]
     fn test_api_response_ok_contains_data() {
@@ -482,23 +475,9 @@ mod tests {
     // Handler 集成测试
     // ========================================================================
 
-    /// 构造最小可用 AppState（仅 Governor，可选组件为 None）
-    async fn make_minimal_state() -> AppState {
-        let governor = Arc::new(make_governor().await);
-        AppState {
-            governor,
-            #[cfg(feature = "ban-manager")]
-            ban_manager: None,
-            #[cfg(feature = "quota-control")]
-            quota_controller: None,
-            #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: None,
-        }
-    }
-
     #[tokio::test]
     async fn test_get_status_empty_governor() {
-        let state = make_minimal_state().await;
+        let state = make_state().await;
         let resp = get_status(State(state)).await;
         assert!(resp.0.success);
         let data = resp.0.data.unwrap();
@@ -509,7 +488,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_limiter_status_returns_key() {
-        let state = make_minimal_state().await;
+        let state = make_state().await;
         let (status, resp) = get_limiter_status(State(state), Path("my-key".to_string())).await;
         // 端点尚未实现，返回 501
         assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
@@ -519,12 +498,18 @@ mod tests {
     #[cfg(feature = "ban-manager")]
     #[tokio::test]
     async fn test_delete_ban_no_manager() {
-        let state = make_minimal_state().await;
+        let state = make_state().await;
         let req = UnbanRequest {
             reason: None,
             operator: None,
         };
-        let resp = delete_ban(State(state), Path("192.168.1.1".to_string()), Json(req)).await;
+        let resp = delete_ban(
+            State(state),
+            Path("192.168.1.1".to_string()),
+            Query(Default::default()),
+            Json(req),
+        )
+        .await;
         assert!(!resp.1 .0.success);
         assert_eq!(resp.1 .0.message, "Ban manager not configured");
     }
@@ -548,7 +533,13 @@ mod tests {
             reason: Some("test".to_string()),
             operator: Some("tester".to_string()),
         };
-        let resp = delete_ban(State(state), Path("192.168.1.1".to_string()), Json(req)).await;
+        let resp = delete_ban(
+            State(state),
+            Path("192.168.1.1".to_string()),
+            Query(Default::default()),
+            Json(req),
+        )
+        .await;
         assert!(!resp.1 .0.success);
         assert_eq!(resp.1 .0.message, "Ban not found");
     }
@@ -572,7 +563,13 @@ mod tests {
             reason: None,
             operator: None,
         };
-        let resp = delete_ban(State(state), Path("user-123".to_string()), Json(req)).await;
+        let resp = delete_ban(
+            State(state),
+            Path("user-123".to_string()),
+            Query(Default::default()),
+            Json(req),
+        )
+        .await;
         assert!(!resp.1 .0.success);
         assert_eq!(resp.1 .0.message, "Ban not found");
     }
@@ -580,7 +577,7 @@ mod tests {
     #[cfg(feature = "quota-control")]
     #[tokio::test]
     async fn test_update_quota_no_controller() {
-        let state = make_minimal_state().await;
+        let state = make_state().await;
         let req = UpdateQuotaRequest {
             resource: "api".to_string(),
             new_limit: 0,
@@ -629,7 +626,7 @@ mod tests {
     #[cfg(feature = "circuit-breaker")]
     #[tokio::test]
     async fn test_get_circuit_breaker_status_no_cb() {
-        let state = make_minimal_state().await;
+        let state = make_state().await;
         let resp = get_circuit_breaker_status(State(state)).await;
         assert!(!resp.1 .0.success);
         assert_eq!(resp.1 .0.message, "Circuit breaker not configured");
@@ -717,9 +714,188 @@ mod tests {
             reason: Some("manual unban".to_string()),
             operator: Some("admin".to_string()),
         };
-        let resp = delete_ban(State(state), Path("10.0.0.1".to_string()), Json(req)).await;
+        let resp = delete_ban(
+            State(state),
+            Path("10.0.0.1".to_string()),
+            Query(Default::default()),
+            Json(req),
+        )
+        .await;
         assert!(resp.1 .0.success);
         assert_eq!(resp.1 .0.message, "manual unban");
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_delete_ban_mac_with_explicit_type() {
+        use crate::ban::BanTarget;
+        use crate::storage::BanRecord;
+        use crate::BanManager;
+        let ban_manager = Arc::new(BanManager::new().await.unwrap());
+        // 通过 API 创建的 MAC 封禁，仅能通过 ?type=mac 解封
+        let target = BanTarget::Mac("00:1a:2b:3c:4d:5e".to_string());
+        let now = chrono::Utc::now();
+        ban_manager
+            .add_ban(BanRecord {
+                target: target.clone(),
+                ban_times: 1,
+                duration: std::time::Duration::from_secs(3600),
+                banned_at: now,
+                expires_at: now + chrono::Duration::seconds(3600),
+                is_manual: true,
+                reason: "mac ban".to_string(),
+            })
+            .await
+            .unwrap();
+        let governor = Arc::new(make_governor().await);
+        let state = AppState {
+            governor,
+            ban_manager: Some(ban_manager),
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+        };
+        // ?type=mac 显式指定 → 成功解封
+        let req = UnbanRequest {
+            reason: Some("mac unban".to_string()),
+            operator: Some("admin".to_string()),
+        };
+        let query = Query(BanTargetQuery {
+            target_type: Some("mac".to_string()),
+        });
+        let resp = delete_ban(
+            State(state),
+            Path("00:1a:2b:3c:4d:5e".to_string()),
+            query,
+            Json(req),
+        )
+        .await;
+        assert!(resp.1 .0.success);
+        assert_eq!(resp.1 .0.message, "mac unban");
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_delete_ban_geo_with_explicit_type() {
+        use crate::ban::BanTarget;
+        use crate::storage::BanRecord;
+        use crate::BanManager;
+        let ban_manager = Arc::new(BanManager::new().await.unwrap());
+        // 通过 API 创建的 Geo 封禁，仅能通过 ?type=geo 解封
+        let target = BanTarget::Geo {
+            country_code: "CN".to_string(),
+        };
+        let now = chrono::Utc::now();
+        ban_manager
+            .add_ban(BanRecord {
+                target: target.clone(),
+                ban_times: 1,
+                duration: std::time::Duration::from_secs(3600),
+                banned_at: now,
+                expires_at: now + chrono::Duration::seconds(3600),
+                is_manual: true,
+                reason: "geo ban".to_string(),
+            })
+            .await
+            .unwrap();
+        let governor = Arc::new(make_governor().await);
+        let state = AppState {
+            governor,
+            ban_manager: Some(ban_manager),
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+        };
+        // ?type=geo 显式指定 → 成功解封
+        let req = UnbanRequest {
+            reason: Some("geo unban".to_string()),
+            operator: Some("admin".to_string()),
+        };
+        let query = Query(BanTargetQuery {
+            target_type: Some("geo".to_string()),
+        });
+        let resp = delete_ban(State(state), Path("CN".to_string()), query, Json(req)).await;
+        assert!(resp.1 .0.success);
+        assert_eq!(resp.1 .0.message, "geo unban");
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_delete_ban_unsupported_target_type_returns_400() {
+        use crate::BanManager;
+        let ban_manager = Arc::new(BanManager::new().await.unwrap());
+        let governor = Arc::new(make_governor().await);
+        let state = AppState {
+            governor,
+            ban_manager: Some(ban_manager),
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+        };
+        // ?type=foo 不支持 → 400 BAD_REQUEST
+        let req = UnbanRequest {
+            reason: None,
+            operator: None,
+        };
+        let query = Query(BanTargetQuery {
+            target_type: Some("foo".to_string()),
+        });
+        let (status, resp) =
+            delete_ban(State(state), Path("1.2.3.4".to_string()), query, Json(req)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(!resp.0.success);
+        assert!(resp.0.message.contains("unsupported target type: foo"));
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_delete_ban_mac_without_type_falls_back_to_userid() {
+        use crate::ban::BanTarget;
+        use crate::storage::BanRecord;
+        use crate::BanManager;
+        let ban_manager = Arc::new(BanManager::new().await.unwrap());
+        // 创建 MAC 封禁
+        let target = BanTarget::Mac("aa:bb:cc:dd:ee:ff".to_string());
+        let now = chrono::Utc::now();
+        ban_manager
+            .add_ban(BanRecord {
+                target: target.clone(),
+                ban_times: 1,
+                duration: std::time::Duration::from_secs(3600),
+                banned_at: now,
+                expires_at: now + chrono::Duration::seconds(3600),
+                is_manual: true,
+                reason: "mac ban".to_string(),
+            })
+            .await
+            .unwrap();
+        let governor = Arc::new(make_governor().await);
+        let state = AppState {
+            governor,
+            ban_manager: Some(ban_manager),
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+        };
+        // 不指定 type → 自动推断为 UserId（MAC 字符串不是合法 IP）→ 404 NOT_FOUND
+        // 这验证了 ?type=mac 是解封 MAC 的必要条件（修复前的 bug 复现）
+        let req = UnbanRequest {
+            reason: None,
+            operator: None,
+        };
+        let (status, resp) = delete_ban(
+            State(state),
+            Path("aa:bb:cc:dd:ee:ff".to_string()),
+            Query(Default::default()),
+            Json(req),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(resp.0.message, "Ban not found");
     }
 
     #[cfg(feature = "quota-control")]

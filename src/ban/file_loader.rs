@@ -220,6 +220,20 @@ impl BanFileLoader {
             let loader = BanFileLoader::new(loader_path);
 
             while rx.recv().await.is_some() {
+                // debounce: 收集 500ms 窗口内的所有事件，只触发一次重载
+                // 编辑器原子写入（写临时文件 + 重命名）会短时间内触发多个事件，
+                // 防抖避免每次事件都同步读文件 + 解析 YAML + 写存储造成的性能抖动
+                let debounce = tokio::time::sleep(Duration::from_millis(500));
+                tokio::pin!(debounce);
+                loop {
+                    tokio::select! {
+                        _ = &mut debounce => break,
+                        recv = rx.recv() => match recv {
+                            Some(_) => continue,
+                            None => break,
+                        },
+                    }
+                }
                 log::info!("封禁文件变更，触发重载: {}", loader.path().display());
                 match loader.load_once(&manager_clone).await {
                     Ok(r) => {
@@ -262,7 +276,7 @@ impl Drop for BanFileLoader {
 mod tests {
     use super::*;
     use crate::ban::BanManagerConfig;
-    use crate::storage::{BanStorageCreate, MemoryBanStorage};
+    use crate::storage::MemoryBanStorage;
     use std::io::Write;
 
     /// 创建临时 YAML 文件

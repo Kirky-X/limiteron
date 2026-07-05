@@ -212,10 +212,7 @@ pub use oxcache_lua::{
 };
 
 // Re-export storage traits for compatibility (internal implementations are pub(crate))
-pub use storage::{
-    BanHistory, BanRecord, BanStorage, BanStorageCreate, BanTarget, QuotaInfo, QuotaStorage,
-    Storage, StorageCreate,
-};
+pub use storage::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage};
 
 #[cfg(feature = "parallel-checker")]
 pub use storage::ParallelBanChecker;

@@ -106,47 +106,7 @@ impl AdminServer {
 mod tests {
     use super::*;
     use crate::admin::config::AdminApiConfig;
-    use crate::config::types::{
-        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule,
-    };
-    use crate::storage::{BanStorage, MemoryBanStorage, MemoryStorage, Storage};
-
-    /// 构造包含至少一条规则的合法 FlowControlConfig（Governor::new() 默认配置无规则会 panic）
-    fn make_valid_config() -> FlowControlConfig {
-        FlowControlConfig {
-            version: "0.1.0".to_string(),
-            global: crate::config::types::GlobalConfig::default(),
-            rules: vec![Rule {
-                id: "test_rule".to_string(),
-                name: "Test Rule".to_string(),
-                priority: 100,
-                matchers: vec![Matcher::User {
-                    user_ids: vec!["*".to_string()],
-                }],
-                limiters: vec![LimiterConfig::TokenBucket {
-                    capacity: 100,
-                    refill_rate: 10,
-                }],
-                action: ActionConfig {
-                    on_exceed: Action::Reject,
-                    ban: None,
-                },
-            }],
-        }
-    }
-
-    /// 构造可用的 Governor 实例（避免 Governor::new() 的空配置 panic）
-    async fn make_governor() -> Governor {
-        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
-        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
-        Governor::builder()
-            .with_config(make_valid_config())
-            .with_storage(storage)
-            .with_ban_storage(ban_storage)
-            .build()
-            .await
-            .expect("Governor build should succeed with valid config")
-    }
+    use crate::admin::test_support::make_governor;
 
     #[tokio::test]
     async fn test_admin_server_new() {

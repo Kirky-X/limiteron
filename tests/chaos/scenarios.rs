@@ -15,7 +15,7 @@ use limiteron::clock::MockClock;
 use limiteron::error::StorageError;
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use limiteron::storage::MemoryStorage;
-use limiteron::{Storage, StorageCreate};
+use limiteron::Storage;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

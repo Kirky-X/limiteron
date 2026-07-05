@@ -293,7 +293,7 @@ impl BanManagerBuilder {
     /// ```rust
     /// use limiteron::ban::BanManager;
     /// use limiteron::authorization::SimpleAuthorizationProvider;
-    /// use limiteron::storage::{MemoryBanStorage, BanStorageCreate};
+    /// use limiteron::storage::MemoryBanStorage;
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
@@ -496,7 +496,7 @@ impl BanManager {
     /// # 示例
     /// ```rust
     /// use limiteron::{BanManager, BanManagerConfig};
-    /// use limiteron::storage::{BanStorage, MemoryBanStorage, BanStorageCreate};
+    /// use limiteron::storage::{BanStorage, MemoryBanStorage};
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
@@ -531,7 +531,7 @@ impl BanManager {
     /// ```rust
     /// use limiteron::{BanManager, BanManagerConfig};
     /// use limiteron::authorization::SimpleAuthorizationProvider;
-    /// use limiteron::storage::{BanStorage, MemoryBanStorage, BanStorageCreate};
+    /// use limiteron::storage::{BanStorage, MemoryBanStorage};
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]

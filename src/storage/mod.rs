@@ -184,37 +184,6 @@ pub trait BanStorage: Send + Sync {
 // These implementations are provided for the "out-of-the-box" pattern (new())
 // where components need default dependencies without external configuration.
 
-/// Trait for creating Storage instances with default configuration
-///
-/// This trait enables the "out-of-the-box" pattern where components
-/// can create default storage dependencies without external configuration.
-pub trait StorageCreate: Send + Sync {
-    /// Creates a new Storage instance with default configuration
-    fn create_storage() -> Arc<dyn Storage>
-    where
-        Self: Sized,
-    {
-        Arc::new(MemoryStorage::new())
-    }
-}
-
-/// Trait for creating BanStorage instances with default configuration
-///
-/// This trait enables the "out-of-the-box" pattern where components
-/// can create default ban storage dependencies without external configuration.
-pub trait BanStorageCreate: Send + Sync {
-    /// Creates a new BanStorage instance with default configuration
-    fn create_ban_storage() -> Arc<dyn BanStorage>
-    where
-        Self: Sized,
-    {
-        Arc::new(MemoryBanStorage::new())
-    }
-}
-
-impl StorageCreate for MemoryStorage {}
-impl BanStorageCreate for MemoryBanStorage {}
-
 use ahash::AHashMap as HashMap;
 use tokio::sync::RwLock;
 
@@ -247,6 +216,13 @@ impl MemoryStorage {
             data: RwLock::new(HashMap::with_capacity(capacity)),
             expiration: RwLock::new(HashMap::with_capacity(capacity)),
         }
+    }
+
+    /// 创建默认 Storage 实例（out-of-the-box 模式）
+    ///
+    /// 返回 `Arc<dyn Storage>` 以便直接注入到需要存储依赖的组件中。
+    pub fn create_storage() -> Arc<dyn Storage> {
+        Arc::new(MemoryStorage::new())
     }
 }
 
@@ -334,6 +310,13 @@ impl MemoryBanStorage {
             bans: RwLock::new(HashMap::with_capacity(capacity)),
             expiration: RwLock::new(HashMap::with_capacity(capacity)),
         }
+    }
+
+    /// 创建默认 BanStorage 实例（out-of-the-box 模式）
+    ///
+    /// 返回 `Arc<dyn BanStorage>` 以便直接注入到需要封禁存储依赖的组件中。
+    pub fn create_ban_storage() -> Arc<dyn BanStorage> {
+        Arc::new(MemoryBanStorage::new())
     }
 }
 

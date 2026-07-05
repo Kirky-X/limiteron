@@ -90,7 +90,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MemoryStorage and MemoryBanStorage**: In-memory storage implementations for `Storage` and `BanStorage` traits. These enable the "out-of-the-box" pattern for quick prototyping and testing.
 - **Governor::new()**: New zero-argument constructor for `Governor` that uses default memory storage. Enables quick start without external dependencies.
 - **BanManager::new()**: New zero-argument constructor for `BanManager` that uses default memory storage.
-- **StorageCreate and BanStorageCreate traits**: Factory traits for creating default storage instances.
 - **Feature Components Construction Patterns**: Documentation table in AGENTS.md showing which patterns each component supports.
 
 ### Changed

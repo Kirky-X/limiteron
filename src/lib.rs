@@ -134,7 +134,8 @@ pub use authorization::{AllowAllAuthorizationProvider, DenyAllAuthorizationProvi
 pub use authorization::{AuthorizationProvider, SimpleAuthorizationProvider};
 #[cfg(feature = "ban-manager")]
 pub use ban::{
-    BackoffConfig, BanDetail, BanFilter, BanManager, BanManagerConfig, BanPriority, BanSource,
+    BackoffConfig, BanDetail, BanFile, BanFileEntry, BanFileLoader, BanFilter, BanLoadError,
+    BanManager, BanManagerBuilder, BanManagerConfig, BanPriority, BanSource, LoadResult,
 };
 #[cfg(feature = "circuit-breaker")]
 pub use circuit::{CircuitBreaker, CircuitBreakerConfig};

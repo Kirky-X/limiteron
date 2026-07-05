@@ -48,3 +48,6 @@ pub use types::{
     FIRST_BAN_DURATION_SECS, FOURTH_BAN_DURATION_SECS, MAX_BAN_DURATION_SECS, MAX_PAGINATION_LIMIT,
     SECOND_BAN_DURATION_SECS, THIRD_BAN_DURATION_SECS,
 };
+
+pub mod file_loader;
+pub use file_loader::{BanFile, BanFileEntry, BanFileLoader, BanLoadError, LoadResult};

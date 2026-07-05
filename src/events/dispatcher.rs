@@ -197,6 +197,21 @@ impl EventDispatcher {
     }
 }
 
+/// EventDispatcher 的 Drop 实现
+///
+/// 当 EventDispatcher 被丢弃时，停止分发后台任务，防止任务泄漏。
+/// 使用 `try_write()` 而非 `write().await`，因为 `Drop::drop` 中不能使用 `.await`。
+impl Drop for EventDispatcher {
+    fn drop(&mut self) {
+        if let Ok(mut handle_guard) = self.dispatch_handle.try_write() {
+            if let Some(handle) = handle_guard.take() {
+                handle.abort();
+                debug!("EventDispatcher dispatch task aborted on drop");
+            }
+        }
+    }
+}
+
 /// 发送事件到 Webhook
 ///
 /// 当 webhook feature 启用时，使用 reqwest 发送 POST 请求。

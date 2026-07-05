@@ -157,9 +157,14 @@ impl Clone for QuotaController {
     }
 }
 
+/// QuotaController 的 Drop 实现
+///
+/// 当 QuotaController 被丢弃时，取消后台清理任务的 `CancellationToken`，
+/// 让后台任务的 `select! { _ = token.cancelled() => ... }` 分支触发，优雅退出。
+/// 注意：`CancellationToken::cancel()` 是同步方法，可在 `Drop::drop` 中安全调用。
+#[cfg(feature = "quota-control")]
 impl Drop for QuotaController {
     fn drop(&mut self) {
-        // 停止后台清理任务
         self.cleanup_token.cancel();
         debug!("QuotaController 已停止后台清理任务");
     }

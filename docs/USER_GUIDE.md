@@ -94,7 +94,7 @@
 - 🔧 支持 Rust 的 IDE
 - 🔧 Docker（用于容器化部署）
 - 🔧 PostgreSQL（用于持久化存储）
-- 🔧 Redis（用于缓存和分布式限流）
+- 🔧 Redis（用于缓存，通过 oxcache 集成）
 
 </td>
 </tr>
@@ -136,7 +136,7 @@ git --version
 ```bash
 # 添加到 Cargo.toml
 [dependencies]
-limiteron = { version = "0.2", features = ["macros"] }
+limiteron = { version = "0.3", features = ["macros"] }
 
 # 或通过命令安装
 cargo add limiteron --features macros
@@ -163,7 +163,7 @@ cargo build --release
 **启用特性**
 ```toml
 [dependencies]
-limiteron = { version = "0.2", features = ["postgres", "redis-storage"] }
+limiteron = { version = "0.3", features = ["postgres", "ban-manager"] }
 ```
 
 **本地开发**
@@ -294,8 +294,11 @@ limiter.check("user123").await?;
 **关键特性:**
 - ✅ IP 封禁
 - ✅ 用户封禁
+- ✅ MAC 封禁
+- ✅ Geo 地理位置封禁（按国家代码，ISO 3166-1 alpha-2）
 - ✅ 自动封禁
 - ✅ 封禁优先级
+- ✅ 从 YAML 文件批量加载（支持热重载）
 
 **示例:**
 ```rust
@@ -309,6 +312,7 @@ factory.initialize(None).await?;
 let ban_storage = factory.create_ban_storage().await?;
 let ban_manager = BanManager::with_dependencies(ban_storage, BanManagerConfig::default()).await?;
 
+// IP 封禁
 let ip_target = BanTarget::Ip("192.168.1.100".to_string());
 ban_manager.create_ban(
     ip_target,
@@ -317,7 +321,33 @@ ban_manager.create_ban(
     serde_json::json!({}),
     Some(Duration::from_secs(3600)),
 ).await?;
+
+// Geo 地理位置封禁（按国家代码）
+let geo_target = BanTarget::Geo { country_code: "CN".to_string() };
+ban_manager.create_ban(
+    geo_target,
+    "地区封禁".to_string(),
+    BanSource::Manual { operator: "admin".to_string() },
+    serde_json::json!({}),
+    None, // 使用退避算法自动计算时长
+).await?;
 ```
+
+<details>
+<summary><b>📚 BanTarget 类型详解</b></summary>
+
+`BanTarget` 支持 4 种封禁目标类型，serde 序列化格式为 `{"type":"...","value":...}`：
+
+| 变体 | serde type | value 格式 | 示例 |
+|------|-----------|-----------|------|
+| `Ip(String)` | `"ip"` | IP 字符串 | `{"type":"ip","value":"192.168.1.1"}` |
+| `UserId(String)` | `"user"` | 用户 ID | `{"type":"user","value":"user123"}` |
+| `Mac(String)` | `"mac"` | MAC 地址 | `{"type":"mac","value":"00:1a:2b:3c:4d:5e"}` |
+| `Geo { country_code }` | `"geo"` | 对象 | `{"type":"geo","value":{"country_code":"CN"}}` |
+
+> **注意**: Geo 的 `country_code` 必须是大写 2 字母 ISO 3166-1 alpha-2 格式（如 `"CN"`、`"US"`），小写或非 2 字母会触发 `ValidationError`。
+
+</details>
 
 ### 3️⃣ 配额控制
 
@@ -1003,14 +1033,51 @@ async fn api_handler(user_id: &str) -> Result<String, FlowGuardError> {
 }
 ```
 
-### 模式 2: 分布式限流
+### 模式 2: 从 YAML 文件批量加载封禁（BanFileLoader）
 
 ```rust
-use limiteron::storage::RedisStorage;
+use limiteron::ban::{BanFileLoader, BanManager};
 
-let storage = RedisStorage::new("redis://localhost:6379").await?;
-let limiter = TokenBucketLimiter::with_storage(storage, 10, 1);
+let ban_manager = BanManager::new().await?;
+let loader = BanFileLoader::new("config/bans.yaml");
+
+// 一次性加载（单条失败不中断整体加载）
+let result = loader.load_once(&ban_manager).await?;
+println!("加载成功 {} 条，失败 {} 条", result.success_count, result.failure_count);
+for err in &result.errors {
+    eprintln!("失败: {} - {}", err.target_desc, err.error);
+}
+
+// 启用文件变更热重载（需要 `config-watcher` feature，500ms debounce）
+loader.start_watching(ban_manager.clone()).await?;
+
+// 停止监听（也可通过 Drop 自动停止）
+loader.stop_watching().await;
 ```
+
+**YAML 文件格式** (`config/bans.yaml`)：
+
+```yaml
+bans:
+  - target:
+      type: ip
+      value: "192.168.1.1"
+    reason: "恶意请求"
+    duration_secs: 3600  # 可选，null = 使用退避算法
+  - target:
+      type: geo
+      value:
+        country_code: "CN"
+    reason: "地区封禁"
+    # duration_secs 省略 = 使用退避算法自动计算
+  - target:
+      type: user
+      value: "abuser123"
+    reason: "滥用行为"
+    duration_secs: null
+```
+
+> **安全提示**: BanFileLoader 内置 YAML 炸弹防护，文件大小上限 2MB，超限返回 `ConfigError`。
 
 ### 模式 3: 多级限流
 
@@ -1024,6 +1091,43 @@ let chain = DecisionChain::new()
 
 let decision = chain.check(key).await?;
 ```
+
+### 模式 4: 通过 Admin REST API 管理封禁
+
+启用 `admin-api` feature 后，可通过 HTTP 端点管理封禁。所有端点需要 `Authorization: Bearer <api_key>` 头部认证。
+
+**创建封禁** (`POST /api/v1/ban`)：
+
+```bash
+curl -X POST http://localhost:8080/api/v1/ban \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": {"type": "geo", "value": {"country_code": "CN"}},
+    "reason": "地区封禁",
+    "operator": "admin-alice",
+    "duration_secs": 3600
+  }'
+# 成功返回 201 Created，body 包含 {id, ban_times, expires_at, is_manual}
+```
+
+支持的 target 类型：`ip` / `user` / `mac` / `geo`。`operator` 和 `duration_secs` 可选（省略时 `operator="admin-api"`，`duration_secs` 使用退避算法）。
+
+**解除封禁** (`DELETE /api/v1/ban/{target}`)：
+
+```bash
+# 显式指定 type 解封 MAC/Geo 目标
+curl -X DELETE "http://localhost:8080/api/v1/ban/CN?type=geo" \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"reason": "解封", "operator": "admin-alice"}'
+
+# 不指定 type 时自动推断（IP 优先，回退 UserId）
+curl -X DELETE "http://localhost:8080/api/v1/ban/192.168.1.1" \
+  -H "Authorization: Bearer your-api-key"
+```
+
+`?type=` 支持 `ip` / `user` / `mac` / `geo`；未提供时按 IP 优先自动推断。
 
 ---
 

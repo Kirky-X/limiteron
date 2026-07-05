@@ -20,6 +20,12 @@ oxcache = { version = "0.3", default-features = false, features = ["core"] }
 # http/tower 用于 tower_middleware 的 Tower Service/Layer 集成
 http = "1.4"
 tower = "0.5"
+# reqwest 用于 ban_http_api 示例向 AdminServer 发送 HTTP 请求
+reqwest = { version = "0.13", features = ["json"] }
+# tempfile 用于 ban_file_loader 示例创建临时 YAML 文件
+tempfile = "3.27"
+# axum 用于 ban_http_api 示例后台运行 AdminServer（axum::serve）
+axum = "0.8"
 
 [[bin]]
 name = "simple_rate_limit"
@@ -47,6 +53,16 @@ required-features = ["quota-control"]
 name = "ban_manager"
 path = "src/bin/ban_manager.rs"
 required-features = ["ban-manager"]
+
+[[bin]]
+name = "ban_file_loader"
+path = "src/bin/ban_file_loader.rs"
+required-features = ["ban-manager", "config-watcher"]
+
+[[bin]]
+name = "ban_http_api"
+path = "src/bin/ban_http_api.rs"
+required-features = ["ban-manager", "admin-api"]
 
 # ============================================================================
 # Part 1: 核心 API 示例（无 feature 依赖）
@@ -141,6 +157,10 @@ validation = ["limiteron/validation", "limiteron/ban-manager"]
 event-system = ["limiteron/event-system"]
 # 限流算法
 gcra = ["limiteron/gcra"]
+# 管理 API（AdminServer）
+admin-api = ["limiteron/admin-api"]
+# 配置/封禁文件热重载（notify crate）
+config-watcher = ["limiteron/config-watcher"]
 # 完整功能（包含所有示例所需的 features）
 full = [
     "macros",
@@ -159,6 +179,8 @@ full = [
     "validation",
     "event-system",
     "gcra",
+    "admin-api",
+    "config-watcher",
 ]
 
 [dev-dependencies]

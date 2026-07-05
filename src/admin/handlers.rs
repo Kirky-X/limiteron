@@ -170,6 +170,94 @@ pub async fn delete_ban(Path(_target): Path<String>) -> Json<ApiResponse<()>> {
     Json(ApiResponse::error("Ban manager not configured"))
 }
 
+/// 创建封禁请求
+#[derive(Deserialize)]
+#[cfg(feature = "ban-manager")]
+pub struct CreateBanRequest {
+    /// 封禁目标（与 BanTarget serde 格式一致：{"type":"ip","value":"1.2.3.4"}）
+    pub target: crate::storage::BanTarget,
+    /// 封禁原因
+    pub reason: String,
+    /// 操作者标识（用于授权检查与审计），默认 "admin-api"
+    #[serde(default)]
+    pub operator: Option<String>,
+    /// 封禁时长（秒），None = 使用退避算法自动计算
+    #[serde(default)]
+    pub duration_secs: Option<u64>,
+}
+
+/// 创建封禁响应
+#[derive(Serialize)]
+#[cfg(feature = "ban-manager")]
+pub struct BanResponse {
+    pub id: String,
+    pub ban_times: u32,
+    pub expires_at: i64,
+    pub is_manual: bool,
+}
+
+/// POST /api/v1/ban
+///
+/// 创建封禁。支持 ip/user/mac/geo 四种 target 类型。
+/// 错误映射：ValidationError→400, AuthorizationError→403, 其他→500。
+#[cfg(feature = "ban-manager")]
+pub async fn create_ban(
+    State(state): State<AppState>,
+    Json(req): Json<CreateBanRequest>,
+) -> (StatusCode, Json<ApiResponse<BanResponse>>) {
+    use crate::ban::BanSource;
+    use std::time::Duration;
+
+    let Some(ref ban_manager) = state.ban_manager else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiResponse::error("Ban manager not configured")),
+        );
+    };
+
+    let operator = req.operator.unwrap_or_else(|| "admin-api".to_string());
+    let source = BanSource::Manual { operator };
+    let duration = req.duration_secs.map(Duration::from_secs);
+
+    match ban_manager
+        .create_ban(
+            req.target,
+            req.reason,
+            source,
+            serde_json::json!({"source": "http-api"}),
+            duration,
+        )
+        .await
+    {
+        Ok(detail) => (
+            StatusCode::CREATED,
+            Json(ApiResponse::ok(BanResponse {
+                id: detail.id,
+                ban_times: detail.ban_times,
+                expires_at: detail.expires_at.timestamp(),
+                is_manual: detail.is_manual,
+            })),
+        ),
+        Err(e) => {
+            let status = match &e {
+                crate::error::FlowGuardError::ValidationError(_) => StatusCode::BAD_REQUEST,
+                crate::error::FlowGuardError::AuthorizationError(_) => StatusCode::FORBIDDEN,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (status, Json(ApiResponse::error(format!("{}", e))))
+        }
+    }
+}
+
+/// POST /api/v1/ban (无ban-manager特性)
+#[cfg(not(feature = "ban-manager"))]
+pub async fn create_ban() -> (StatusCode, Json<ApiResponse<()>>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(ApiResponse::error("Ban manager not configured")),
+    )
+}
+
 // ==================== 配额管理 ====================
 
 /// 更新配额请求

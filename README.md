@@ -5,7 +5,7 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.3.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.2.1-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust Version">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License">
   <a href="https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml"><img src="https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -631,7 +631,7 @@ Limiteron 支持多种存储后端，通过 trait 抽象实现可插拔：
 | **MemoryStorage** | `src/storage/mod.rs` | （始终可用） | 内存存储，适用于单实例开发和测试 |
 | **DBNexusStorageAdapter** | `src/adapters/dbnexus_storage.rs` | `postgres` | 通过 DBNexus 支持 PostgreSQL，生产级持久化 |
 
-> **注意**: v0.3.0 移除了 `RedisStorage` 与 `redis-storage` feature。如需 Redis 缓存，通过 `cache-storage` feature 启用 oxcache 的 Redis 后端统一管理。
+> **注意**: v0.2.1 移除了 `RedisStorage` 与 `redis-storage` feature。如需 Redis 缓存，通过 `cache-storage` feature 启用 oxcache 的 Redis 后端统一管理。
 
 **MemoryStorage 使用示例：**
 
@@ -977,13 +977,13 @@ gantt
 - [x] pangu 工业级 harness 完整（v0.2.0）
 - [x] diting 全维度代码审查（v0.2.0）
 - [x] 文档完善与 20 个示例（v0.2.0）
-- [x] **移除 RedisStorage**，缓存统一由 oxcache 管理（v0.3.0）
-- [x] **BanTarget::Geo** 地理位置封禁（v0.3.0）
-- [x] **BanFileLoader** YAML 文件批量加载 + 热重载（v0.3.0）
-- [x] **POST /api/v1/ban** HTTP 端点（v0.3.0）
-- [x] **DELETE /api/v1/ban/{target}?type=** 支持 MAC/Geo 解封（v0.3.0）
-- [x] YAML 炸弹防护、Drop impl、告警背压等安全加固（v0.3.0）
-- [x] 96.16% 行覆盖率（v0.3.0）
+- [x] **移除 RedisStorage**，缓存统一由 oxcache 管理（v0.2.1）
+- [x] **BanTarget::Geo** 地理位置封禁（v0.2.1）
+- [x] **BanFileLoader** YAML 文件批量加载 + 热重载（v0.2.1）
+- [x] **POST /api/v1/ban** HTTP 端点（v0.2.1）
+- [x] **DELETE /api/v1/ban/{target}?type=** 支持 MAC/Geo 解封（v0.2.1）
+- [x] YAML 炸弹防护、Drop impl、告警背压等安全加固（v0.2.1）
+- [x] 96.16% 行覆盖率（v0.2.1）
 
 </td>
 <td width="50%">

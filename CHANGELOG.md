@@ -7,14 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **依赖升级到最新版本**：`Cargo.toml` 全部 `[workspace.dependencies]` 移除 `~` 最小版本前缀，统一使用 `"X.Y"` 格式（caret 语义）。版本格式变更遵循"不指定最小版本，只指定到 major.minor"约定
-  - 主要升级：`criterion` 0.5 → 0.8、`sqlx` 0.7 → 0.9、`sea-orm` 1.0 → 2.0.0-rc.42、`maxminddb` 0.24 → 0.29、`hmac` 0.12 → 0.13、`sha2` 0.10 → 0.11、`opentelemetry` 0.24 → 0.32、`reqwest` 0.11 → 0.13、`axum` 0.7 → 0.8、`tower-http` 0.5 → 0.7、`dashmap` 5.5 → 6.2、`thiserror` 1.0 → 2.0、`validator` 0.18 → 0.20、`rand` 0.8 → 0.10、`notify` 6.5 → 8.2、`secrecy` 0.8 → 0.10、`woothee` 0.11 → 0.13
-  - `dbnexus` 保持 `0.2`：`0.3` 依赖 `oxcache 0.2`，与本项目 `oxcache 0.3` 冲突
-  - `dashmap` 保持 `6.2`：`7.0` 仅 RC；`notify` 保持 `8.2`：`9.0` 仅 RC
-
-## [0.3.0] - 2026-07-06
+## [0.2.1] - 2026-07-06
 
 ### Breaking Changes
 
@@ -54,10 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 测试辅助函数集中到 test_support.rs 消除 3x 重复
 - GovernorBuilder 移除 #[allow(dead_code)]
 - config TODO 模块状态文档明确
+- **GovernorBuilder metrics/tracer 修复**：`with_metrics()`/`with_tracer()` 的值之前在 `build()` 中被静默丢弃（`#[allow(unused_variables)]` 掩盖），现在正确存储到 Governor 并在 `check()` 中消费（`record_check`/`record_ban`/`record_error` + `tracer.start_span`）
+- **依赖版本格式统一**：`Cargo.toml` 全部 `[workspace.dependencies]` 移除 `~` 最小版本前缀，统一使用 `"X.Y"` 格式（caret 语义）
+  - 主要升级：`criterion` 0.5 → 0.8、`sqlx` 0.7 → 0.9、`sea-orm` 1.0 → 2.0.0-rc.42、`maxminddb` 0.24 → 0.29、`hmac` 0.12 → 0.13、`sha2` 0.10 → 0.11、`opentelemetry` 0.24 → 0.32、`reqwest` 0.11 → 0.13、`axum` 0.7 → 0.8、`tower-http` 0.5 → 0.7、`dashmap` 5.5 → 6.2、`thiserror` 1.0 → 2.0、`validator` 0.18 → 0.20、`rand` 0.8 → 0.10、`notify` 6.5 → 8.2、`secrecy` 0.8 → 0.10、`woothee` 0.11 → 0.13
+  - `dbnexus` 保持 `0.2`：`0.3` 依赖 `oxcache 0.2`，与本项目 `oxcache 0.3` 冲突
 
 ### Test Coverage
 
-- 1892 unit tests passing (0 failed)
+- 1893 unit tests passing (0 failed)
 - 96.16% line coverage (5781/6012 lines)
 
 ### Fixed
@@ -234,7 +231,7 @@ let ban_manager = BanManager::new().await.unwrap();
 - Monitoring with Prometheus metrics and OpenTelemetry tracing
 - Parallel ban checking for improved performance
 
-[0.3.0]: https://github.com/Kirky-X/limiteron/compare/v0.2.0...v0.3.0
+[0.2.1]: https://github.com/Kirky-X/limiteron/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Kirky-X/limiteron/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Kirky-X/limiteron/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Kirky-X/limiteron/releases/tag/v0.1.0

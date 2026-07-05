@@ -108,19 +108,18 @@ pub struct LimiterStatus {
 }
 
 /// GET /api/v1/status/limiter/{key}
+///
+/// 注意：此端点尚未实现真实存储查询，返回 501 Not Implemented。
+/// 禁止用 200 OK 掩盖未完成功能（Rule 12: 失败必须显性化）。
 pub async fn get_limiter_status(
     State(_state): State<AppState>,
     Path(key): Path<String>,
 ) -> (StatusCode, Json<ApiResponse<LimiterStatus>>) {
-    // TODO: 实现从存储中获取限流状态
-    let status = LimiterStatus {
-        key: key.clone(),
-        limit: 0,
-        remaining: 0,
-        reset_at: 0,
-    };
-
-    (StatusCode::OK, Json(ApiResponse::ok(status)))
+    let _ = key;
+    (
+        StatusCode::NOT_IMPLEMENTED,
+        Json(ApiResponse::error("limiter status query not implemented")),
+    )
 }
 
 // ==================== 封禁管理 ====================
@@ -136,38 +135,53 @@ pub struct UnbanRequest {
 /// DELETE /api/v1/ban/{target}
 ///
 /// 路径 `target` 优先尝试解析为 IP，否则视为 UserId。
+/// 状态码：200=成功, 404=未找到, 503=未配置, 500=内部错误
 #[cfg(feature = "ban-manager")]
 pub async fn delete_ban(
     State(state): State<AppState>,
     Path(target): Path<String>,
     Json(req): Json<UnbanRequest>,
-) -> Json<ApiResponse<()>> {
-    if let Some(ref ban_manager) = state.ban_manager {
-        // 路径 target 优先按 IP 解析，回退为 UserId
-        let ban_target = if target.parse::<std::net::IpAddr>().is_ok() {
-            BanTarget::Ip(target)
-        } else {
-            BanTarget::UserId(target)
-        };
-        let operator = req.operator.unwrap_or_else(|| "admin-api".to_string());
-        match ban_manager.delete_ban(&ban_target, operator).await {
-            Ok(true) => Json(ApiResponse {
+) -> (StatusCode, Json<ApiResponse<()>>) {
+    let Some(ref ban_manager) = state.ban_manager else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiResponse::error("Ban manager not configured")),
+        );
+    };
+    // 路径 target 优先按 IP 解析，回退为 UserId
+    let ban_target = if target.parse::<std::net::IpAddr>().is_ok() {
+        BanTarget::Ip(target)
+    } else {
+        BanTarget::UserId(target)
+    };
+    let operator = req.operator.unwrap_or_else(|| "admin-api".to_string());
+    match ban_manager.delete_ban(&ban_target, operator).await {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(ApiResponse {
                 success: true,
                 message: req.reason.unwrap_or_else(|| "Ban removed".to_string()),
                 data: Some(()),
             }),
-            Ok(false) => Json(ApiResponse::error("Ban not found")),
-            Err(e) => Json(ApiResponse::error(format!("Failed to remove ban: {}", e))),
-        }
-    } else {
-        Json(ApiResponse::error("Ban manager not configured"))
+        ),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(ApiResponse::error("Ban not found")),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiResponse::error(format!("Failed to remove ban: {}", e))),
+        ),
     }
 }
 
 /// DELETE /api/v1/ban/{target} (无ban-manager特性)
 #[cfg(not(feature = "ban-manager"))]
-pub async fn delete_ban(Path(_target): Path<String>) -> Json<ApiResponse<()>> {
-    Json(ApiResponse::error("Ban manager not configured"))
+pub async fn delete_ban(Path(_target): Path<String>) -> (StatusCode, Json<ApiResponse<()>>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(ApiResponse::error("Ban manager not configured")),
+    )
 }
 
 /// 创建封禁请求
@@ -277,22 +291,31 @@ pub struct UpdateQuotaResponse {
 }
 
 /// PUT /api/v1/quota/{tenant_id}
+///
+/// 状态码：200=成功, 400=不支持的操作, 503=未配置, 500=内部错误
 #[cfg(feature = "quota-control")]
 pub async fn update_quota(
     State(state): State<AppState>,
     Path(tenant_id): Path<String>,
     Json(req): Json<UpdateQuotaRequest>,
-) -> Json<ApiResponse<UpdateQuotaResponse>> {
-    if let Some(ref quota_controller) = state.quota_controller {
-        // QuotaController 当前不支持 per-tenant 配额上限更新（配额上限为全局 QuotaConfig）
-        // 提供重置配额使用量作为最接近的操作
-        if req.new_limit == 0 {
-            // new_limit=0 视为重置信号
-            match quota_controller
-                .reset_quota(&tenant_id, &req.resource)
-                .await
-            {
-                Ok(_) => Json(ApiResponse::ok(UpdateQuotaResponse {
+) -> (StatusCode, Json<ApiResponse<UpdateQuotaResponse>>) {
+    let Some(ref quota_controller) = state.quota_controller else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiResponse::error("Quota controller not configured")),
+        );
+    };
+    // QuotaController 当前不支持 per-tenant 配额上限更新（配额上限为全局 QuotaConfig）
+    // 提供重置配额使用量作为最接近的操作
+    if req.new_limit == 0 {
+        // new_limit=0 视为重置信号
+        match quota_controller
+            .reset_quota(&tenant_id, &req.resource)
+            .await
+        {
+            Ok(_) => (
+                StatusCode::OK,
+                Json(ApiResponse::ok(UpdateQuotaResponse {
                     success: true,
                     expires_at: req.duration_secs.map(|d| {
                         use std::time::{SystemTime, UNIX_EPOCH};
@@ -302,15 +325,19 @@ pub async fn update_quota(
                             .unwrap_or(0)
                     }),
                 })),
-                Err(e) => Json(ApiResponse::error(format!("Failed to reset quota: {}", e))),
-            }
-        } else {
-            Json(ApiResponse::error(
-                "Per-tenant quota limit update is not supported; use global QuotaConfig update_config instead",
-            ))
+            ),
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiResponse::error(format!("Failed to reset quota: {}", e))),
+            ),
         }
     } else {
-        Json(ApiResponse::error("Quota controller not configured"))
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error(
+                "Per-tenant quota limit update is not supported; use global QuotaConfig update_config instead",
+            )),
+        )
     }
 }
 
@@ -318,8 +345,11 @@ pub async fn update_quota(
 #[cfg(not(feature = "quota-control"))]
 pub async fn update_quota(
     Path(_tenant_id): Path<String>,
-) -> Json<ApiResponse<UpdateQuotaResponse>> {
-    Json(ApiResponse::error("Quota controller not configured"))
+) -> (StatusCode, Json<ApiResponse<UpdateQuotaResponse>>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(ApiResponse::error("Quota controller not configured")),
+    )
 }
 
 // ==================== 熔断器状态 ====================
@@ -333,10 +363,12 @@ pub struct CircuitBreakerStatus {
 }
 
 /// GET /api/v1/status/circuit-breaker
+///
+/// 状态码：200=成功, 503=未配置
 #[cfg(feature = "circuit-breaker")]
 pub async fn get_circuit_breaker_status(
     State(state): State<AppState>,
-) -> Json<ApiResponse<CircuitBreakerStatus>> {
+) -> (StatusCode, Json<ApiResponse<CircuitBreakerStatus>>) {
     if let Some(ref cb) = state.circuit_breaker {
         let stats = cb.get_stats().await;
         let total = stats.total_calls as f64;
@@ -346,20 +378,29 @@ pub async fn get_circuit_breaker_status(
         } else {
             0.0
         };
-        Json(ApiResponse::ok(CircuitBreakerStatus {
-            state: stats.state.to_string(),
-            failure_rate,
-            slow_call_rate: 0.0,
-        }))
+        (
+            StatusCode::OK,
+            Json(ApiResponse::ok(CircuitBreakerStatus {
+                state: stats.state.to_string(),
+                failure_rate,
+                slow_call_rate: 0.0,
+            })),
+        )
     } else {
-        Json(ApiResponse::error("Circuit breaker not configured"))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ApiResponse::error("Circuit breaker not configured")),
+        )
     }
 }
 
 /// GET /api/v1/status/circuit-breaker (无circuit-breaker特性)
 #[cfg(not(feature = "circuit-breaker"))]
-pub async fn get_circuit_breaker_status() -> Json<ApiResponse<()>> {
-    Json(ApiResponse::error("Circuit breaker not configured"))
+pub async fn get_circuit_breaker_status() -> (StatusCode, Json<ApiResponse<()>>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(ApiResponse::error("Circuit breaker not configured")),
+    )
 }
 
 #[cfg(test)]
@@ -470,9 +511,9 @@ mod tests {
     async fn test_get_limiter_status_returns_key() {
         let state = make_minimal_state().await;
         let (status, resp) = get_limiter_status(State(state), Path("my-key".to_string())).await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(resp.0.success);
-        assert_eq!(resp.0.data.unwrap().key, "my-key");
+        // 端点尚未实现，返回 501
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+        assert!(!resp.0.success);
     }
 
     #[cfg(feature = "ban-manager")]
@@ -484,8 +525,8 @@ mod tests {
             operator: None,
         };
         let resp = delete_ban(State(state), Path("192.168.1.1".to_string()), Json(req)).await;
-        assert!(!resp.0.success);
-        assert_eq!(resp.0.message, "Ban manager not configured");
+        assert!(!resp.1 .0.success);
+        assert_eq!(resp.1 .0.message, "Ban manager not configured");
     }
 
     #[cfg(feature = "ban-manager")]
@@ -508,8 +549,8 @@ mod tests {
             operator: Some("tester".to_string()),
         };
         let resp = delete_ban(State(state), Path("192.168.1.1".to_string()), Json(req)).await;
-        assert!(!resp.0.success);
-        assert_eq!(resp.0.message, "Ban not found");
+        assert!(!resp.1 .0.success);
+        assert_eq!(resp.1 .0.message, "Ban not found");
     }
 
     #[cfg(feature = "ban-manager")]
@@ -532,8 +573,8 @@ mod tests {
             operator: None,
         };
         let resp = delete_ban(State(state), Path("user-123".to_string()), Json(req)).await;
-        assert!(!resp.0.success);
-        assert_eq!(resp.0.message, "Ban not found");
+        assert!(!resp.1 .0.success);
+        assert_eq!(resp.1 .0.message, "Ban not found");
     }
 
     #[cfg(feature = "quota-control")]
@@ -546,8 +587,8 @@ mod tests {
             duration_secs: None,
         };
         let resp = update_quota(State(state), Path("tenant-1".to_string()), Json(req)).await;
-        assert!(!resp.0.success);
-        assert_eq!(resp.0.message, "Quota controller not configured");
+        assert!(!resp.1 .0.success);
+        assert_eq!(resp.1 .0.message, "Quota controller not configured");
     }
 
     #[cfg(feature = "quota-control")]
@@ -581,8 +622,8 @@ mod tests {
             duration_secs: None,
         };
         let resp = update_quota(State(state), Path("tenant-1".to_string()), Json(req)).await;
-        assert!(!resp.0.success);
-        assert!(resp.0.message.contains("not supported"));
+        assert!(!resp.1 .0.success);
+        assert!(resp.1 .0.message.contains("not supported"));
     }
 
     #[cfg(feature = "circuit-breaker")]
@@ -590,8 +631,8 @@ mod tests {
     async fn test_get_circuit_breaker_status_no_cb() {
         let state = make_minimal_state().await;
         let resp = get_circuit_breaker_status(State(state)).await;
-        assert!(!resp.0.success);
-        assert_eq!(resp.0.message, "Circuit breaker not configured");
+        assert!(!resp.1 .0.success);
+        assert_eq!(resp.1 .0.message, "Circuit breaker not configured");
     }
 
     #[cfg(feature = "circuit-breaker")]
@@ -611,8 +652,8 @@ mod tests {
             circuit_breaker: Some(cb),
         };
         let resp = get_circuit_breaker_status(State(state)).await;
-        assert!(resp.0.success);
-        let data = resp.0.data.unwrap();
+        assert!(resp.1 .0.success);
+        let data = resp.1 .0.data.unwrap();
         assert_eq!(data.failure_rate, 0.0);
         assert_eq!(data.slow_call_rate, 0.0);
     }
@@ -677,8 +718,8 @@ mod tests {
             operator: Some("admin".to_string()),
         };
         let resp = delete_ban(State(state), Path("10.0.0.1".to_string()), Json(req)).await;
-        assert!(resp.0.success);
-        assert_eq!(resp.0.message, "manual unban");
+        assert!(resp.1 .0.success);
+        assert_eq!(resp.1 .0.message, "manual unban");
     }
 
     #[cfg(feature = "quota-control")]
@@ -711,8 +752,8 @@ mod tests {
             duration_secs: Some(3600),
         };
         let resp = update_quota(State(state), Path("tenant-1".to_string()), Json(req)).await;
-        assert!(resp.0.success);
-        let data = resp.0.data.unwrap();
+        assert!(resp.1 .0.success);
+        let data = resp.1 .0.data.unwrap();
         assert!(data.expires_at.is_some());
     }
 
@@ -743,8 +784,8 @@ mod tests {
             circuit_breaker: Some(cb),
         };
         let resp = get_circuit_breaker_status(State(state)).await;
-        assert!(resp.0.success);
-        let data = resp.0.data.unwrap();
+        assert!(resp.1 .0.success);
+        let data = resp.1 .0.data.unwrap();
         assert!(data.failure_rate > 0.0);
     }
 }

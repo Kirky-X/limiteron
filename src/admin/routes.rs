@@ -275,10 +275,11 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
+        // 端点尚未实现，返回 501 Not Implemented
+        assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["data"]["key"].as_str().unwrap(), "my-test-key");
+        assert!(!json["success"].as_bool().unwrap());
     }
 
     #[tokio::test]
@@ -293,7 +294,8 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK);
+        // circuit_breaker=None → 503 SERVICE_UNAVAILABLE
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(!json["success"].as_bool().unwrap());

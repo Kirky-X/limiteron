@@ -38,6 +38,7 @@ use crate::storage::{BanRecord, BanStorage};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio::sync::RwLock;
@@ -225,6 +226,8 @@ pub struct BanManager {
     /// 事件发射器（可选，feature-gated）
     #[cfg(feature = "event-system")]
     event_emitter: Option<Arc<crate::events::EventEmitter>>,
+    /// 文件加载器（可选，启用 with_file_loader 时存在）
+    file_loader: Option<Arc<crate::ban::file_loader::BanFileLoader>>,
 }
 
 /// BanManager 构建器
@@ -251,6 +254,7 @@ pub struct BanManagerBuilder {
     authorization_provider: Option<Arc<dyn AuthorizationProvider>>,
     #[cfg(feature = "event-system")]
     event_emitter: Option<Arc<crate::events::EventEmitter>>,
+    file_loader_path: Option<PathBuf>,
 }
 
 impl BanManagerBuilder {
@@ -262,6 +266,7 @@ impl BanManagerBuilder {
             authorization_provider: None,
             #[cfg(feature = "event-system")]
             event_emitter: None,
+            file_loader_path: None,
         }
     }
 
@@ -318,6 +323,32 @@ impl BanManagerBuilder {
         self
     }
 
+    /// 设置文件封禁加载器路径
+    ///
+    /// 启用后，`build()` 会从指定 YAML 文件加载封禁规则到 BanManager。
+    /// 若启用 `config-watcher` feature，还会监听文件变更自动重载。
+    ///
+    /// # 参数
+    /// - `path`: YAML 封禁文件路径
+    ///
+    /// # 示例
+    ///
+    /// ```rust,no_run
+    /// use limiteron::ban::BanManager;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let ban_manager = BanManager::builder()
+    ///     .with_file_loader("/etc/limiteron/bans.yaml")
+    ///     .build()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn with_file_loader(mut self, path: impl Into<PathBuf>) -> Self {
+        self.file_loader_path = Some(path.into());
+        self
+    }
+
     /// 构建 BanManager 实例
     ///
     /// 如果未提供 storage，将使用内存存储作为默认依赖。
@@ -333,14 +364,36 @@ impl BanManagerBuilder {
         };
         let config = self.config.unwrap_or_default();
 
-        BanManager::with_dependencies_and_auth(
+        let mut manager = BanManager::with_dependencies_and_auth(
             storage,
             config,
             self.authorization_provider,
             #[cfg(feature = "event-system")]
             self.event_emitter,
         )
-        .await
+        .await?;
+
+        // 文件封禁加载器：加载初始规则 + 启动热重载
+        if let Some(path) = self.file_loader_path {
+            let loader = Arc::new(crate::ban::file_loader::BanFileLoader::new(path));
+            let result = loader.load_once(&manager).await?;
+            if result.failure_count > 0 {
+                log::warn!(
+                    "文件封禁加载存在失败: 成功 {} 条, 失败 {} 条",
+                    result.success_count,
+                    result.failure_count
+                );
+            } else {
+                log::info!("文件封禁加载完成: {} 条", result.success_count);
+            }
+            #[cfg(feature = "config-watcher")]
+            {
+                loader.start_watching(manager.clone()).await?;
+            }
+            manager.file_loader = Some(loader);
+        }
+
+        Ok(manager)
     }
 }
 
@@ -508,6 +561,7 @@ impl BanManager {
             authorization_provider,
             #[cfg(feature = "event-system")]
             event_emitter,
+            file_loader: None,
         };
 
         // 启动自动解封任务

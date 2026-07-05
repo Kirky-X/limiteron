@@ -314,7 +314,7 @@ async fn e2e_rate_limiting_independent_per_user() {
 #[allow(deprecated)]
 async fn e2e_rate_limiting_sliding_window() {
     // 注意：SlidingWindowLimiter 已弃用，但此测试验证基本限流逻辑
-    use limiteron::limiters::SlidingWindowLimiter;
+    use limiteron::limiters::sliding_window::SlidingWindowLimiter;
 
     let limiter = SlidingWindowLimiter::new(Duration::from_millis(200), 3);
 

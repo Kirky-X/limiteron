@@ -489,7 +489,7 @@ impl Default for DecisionChainBuilder {
 mod tests {
     use super::*;
     use crate::limiters::{
-        ConcurrencyLimiter, FixedWindowLimiter, SlidingWindowLimiter, TokenBucketLimiter,
+        ConcurrencyLimiter, FixedWindowLimiter, ShardedSlidingWindowLimiter, TokenBucketLimiter,
     };
     use async_trait::async_trait;
     use std::time::Duration;
@@ -608,7 +608,7 @@ mod tests {
     #[tokio::test]
     async fn test_decision_chain_multiple_nodes() {
         let limiter1 = Arc::new(TokenBucketLimiter::new(5, 1));
-        let limiter2 = Arc::new(SlidingWindowLimiter::new(Duration::from_secs(1), 10));
+        let limiter2 = Arc::new(ShardedSlidingWindowLimiter::new(Duration::from_secs(1), 10));
 
         let node1 = DecisionNode::with_dependencies(
             "node1".to_string(),
@@ -995,7 +995,10 @@ mod tests {
     #[test]
     fn test_decision_chain_builder() {
         let limiter1 = Arc::new(TokenBucketLimiter::new(100, 10));
-        let limiter2 = Arc::new(SlidingWindowLimiter::new(Duration::from_secs(1), 100));
+        let limiter2 = Arc::new(ShardedSlidingWindowLimiter::new(
+            Duration::from_secs(1),
+            100,
+        ));
 
         let node1 = DecisionNode::with_dependencies(
             "node1".to_string(),
@@ -1022,7 +1025,7 @@ mod tests {
     #[tokio::test]
     async fn test_decision_chain_mixed_limiters() {
         let limiter1 = Arc::new(TokenBucketLimiter::new(10, 1));
-        let limiter2 = Arc::new(SlidingWindowLimiter::new(Duration::from_secs(1), 5));
+        let limiter2 = Arc::new(ShardedSlidingWindowLimiter::new(Duration::from_secs(1), 5));
         let limiter3 = Arc::new(FixedWindowLimiter::new(Duration::from_secs(1), 3));
         let limiter4 = Arc::new(ConcurrencyLimiter::new(2));
 
@@ -1460,7 +1463,10 @@ mod tests {
     #[tokio::test]
     async fn test_multi_node_chain_concurrent_safety() {
         let limiter1 = Arc::new(TokenBucketLimiter::new(5000, 100));
-        let limiter2 = Arc::new(SlidingWindowLimiter::new(Duration::from_secs(1), 5000));
+        let limiter2 = Arc::new(ShardedSlidingWindowLimiter::new(
+            Duration::from_secs(1),
+            5000,
+        ));
         let limiter3 = Arc::new(FixedWindowLimiter::new(Duration::from_secs(10), 5000));
 
         let node1 = DecisionNode::with_dependencies(

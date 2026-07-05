@@ -9,9 +9,12 @@
 // 子模块声明
 pub(crate) mod loader;
 pub(crate) mod types;
-// TODO: watcher and security modules need to be implemented
+// config-watcher 模块尚未实现：BanFileLoader::start_watching 已提供文件级热重载能力，
+// 配置级热重载计划在 v0.4.0 实现（见 roadmap）。
 // #[cfg(feature = "config-watcher")]
 // pub mod watcher;
+// config-security 模块尚未实现：当前依赖 AdminApiConfig::validate() 进行基本校验，
+// 完整配置安全审计计划在 v0.4.0 实现（见 roadmap）。
 // #[cfg(feature = "config-security")]
 // pub mod security;
 
@@ -29,11 +32,13 @@ pub use Matcher as ConfigMatcher;
 pub use crate::config::loader::ConfigLoader;
 
 // Re-export config watcher (requires config-watcher feature)
-// TODO: implement config-watcher module
+// config-watcher 模块尚未实现：BanFileLoader::start_watching 已提供文件级热重载能力，
+// 配置级热重载计划在 v0.4.0 实现（见 roadmap）。
 // #[cfg(feature = "config-watcher")]
 // pub use crate::config::watcher::{ConfigChangeCallback, ConfigWatcher, WatchMode};
 
 // Re-export config security (requires config-security feature)
-// TODO: implement config-security module
+// config-security 模块尚未实现：当前依赖 AdminApiConfig::validate() 进行基本校验，
+// 完整配置安全审计计划在 v0.4.0 实现（见 roadmap）。
 // #[cfg(feature = "config-security")]
 // pub use crate::config::security::{ConfigSecurityReport, ConfigSecurityValidator};

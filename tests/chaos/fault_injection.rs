@@ -10,7 +10,7 @@
 
 use async_trait::async_trait;
 use limiteron::error::StorageError;
-use limiteron::{Storage, StorageCreate};
+use limiteron::Storage;
 use parking_lot::Mutex;
 use std::ops::Range;
 use std::sync::Arc;

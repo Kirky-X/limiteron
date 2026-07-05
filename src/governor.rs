@@ -165,7 +165,7 @@ pub struct Governor {
 ///
 /// ```rust,no_run
 /// use limiteron::Governor;
-/// use limiteron::storage::{MemoryStorage, MemoryBanStorage, StorageCreate, BanStorageCreate};
+/// use limiteron::storage::{MemoryStorage, MemoryBanStorage};
 /// use std::sync::Arc;
 ///
 /// #[tokio::main]
@@ -183,7 +183,6 @@ pub struct Governor {
 /// }
 /// ```
 #[derive(Clone, Default)]
-#[allow(dead_code)]
 #[allow(clippy::type_complexity)]
 pub struct GovernorBuilder {
     config: Option<FlowControlConfig>,
@@ -668,7 +667,7 @@ impl Governor {
     ///
     /// ```rust,no_run
     /// use limiteron::Governor;
-    /// use limiteron::storage::{MemoryStorage, MemoryBanStorage, StorageCreate, BanStorageCreate};
+    /// use limiteron::storage::{MemoryStorage, MemoryBanStorage};
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]
@@ -709,7 +708,7 @@ impl Governor {
     ///
     /// ```rust,no_run
     /// use limiteron::Governor;
-    /// use limiteron::storage::{MemoryStorage, MemoryBanStorage, StorageCreate, BanStorageCreate};
+    /// use limiteron::storage::{MemoryStorage, MemoryBanStorage};
     /// use std::sync::Arc;
     ///
     /// #[tokio::main]

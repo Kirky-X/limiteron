@@ -72,16 +72,10 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
 mod tests {
     use super::*;
     use crate::admin::config::AdminApiConfig;
-    use crate::admin::server::AppState;
-    use crate::config::types::{
-        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule,
-    };
-    use crate::storage::{BanStorage, MemoryBanStorage, MemoryStorage, Storage};
-    use crate::Governor;
+    use crate::admin::test_support::{make_state, make_state_with_ban_manager};
     use axum::body::Body;
     use axum::http::{header::AUTHORIZATION, Request, StatusCode};
     use http_body_util::BodyExt;
-    use std::sync::Arc;
     use tower::ServiceExt;
 
     fn constant_time_eq(a: &str, b: &str) -> bool {
@@ -93,77 +87,6 @@ mod tests {
             result |= x ^ y;
         }
         result == 0
-    }
-
-    /// 构造包含至少一条规则的合法 FlowControlConfig（Governor::new() 默认配置无规则会 panic）
-    fn make_valid_config() -> FlowControlConfig {
-        FlowControlConfig {
-            version: "0.1.0".to_string(),
-            global: crate::config::types::GlobalConfig::default(),
-            rules: vec![Rule {
-                id: "test_rule".to_string(),
-                name: "Test Rule".to_string(),
-                priority: 100,
-                matchers: vec![Matcher::User {
-                    user_ids: vec!["*".to_string()],
-                }],
-                limiters: vec![LimiterConfig::TokenBucket {
-                    capacity: 100,
-                    refill_rate: 10,
-                }],
-                action: ActionConfig {
-                    on_exceed: Action::Reject,
-                    ban: None,
-                },
-            }],
-        }
-    }
-
-    /// 构造可用的 Governor 实例（避免 Governor::new() 的空配置 panic）
-    async fn make_governor() -> Governor {
-        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
-        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
-        Governor::builder()
-            .with_config(make_valid_config())
-            .with_storage(storage)
-            .with_ban_storage(ban_storage)
-            .build()
-            .await
-            .expect("Governor build should succeed with valid config")
-    }
-
-    async fn make_state() -> AppState {
-        let governor = Arc::new(make_governor().await);
-        AppState {
-            governor,
-            #[cfg(feature = "ban-manager")]
-            ban_manager: None,
-            #[cfg(feature = "quota-control")]
-            quota_controller: None,
-            #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: None,
-        }
-    }
-
-    /// 构造带 BanManager 的 AppState（用于 create_ban 测试）
-    #[cfg(feature = "ban-manager")]
-    async fn make_state_with_ban_manager() -> AppState {
-        use crate::BanManager;
-        let governor = Arc::new(make_governor().await);
-        let ban_manager = Arc::new(
-            BanManager::new()
-                .await
-                .expect("BanManager::new should succeed"),
-        );
-        AppState {
-            governor,
-            #[cfg(feature = "ban-manager")]
-            ban_manager: Some(ban_manager),
-            #[cfg(feature = "quota-control")]
-            quota_controller: None,
-            #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: None,
-        }
     }
 
     /// 构造 POST /api/v1/ban 请求

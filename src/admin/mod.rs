@@ -24,6 +24,8 @@ pub mod handlers;
 pub mod routes;
 #[cfg(feature = "admin-api")]
 pub mod server;
+#[cfg(all(feature = "admin-api", test))]
+mod test_support;
 
 #[cfg(feature = "admin-api")]
 pub use config::AdminApiConfig;

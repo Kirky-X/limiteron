@@ -22,6 +22,12 @@ pub const DEFAULT_OVERDRAFT_LIMIT_PERCENT: u8 = 20;
 /// 默认告警去重缓存清理间隔（5分钟）
 pub const DEFAULT_DEDUP_CLEANUP_INTERVAL_SECS: u64 = 300;
 
+/// 默认告警并发上限
+///
+/// 限制 `send_alert` 通过 `tokio::spawn` 派发的并发告警任务数，
+/// 防止 Webhook 慢/挂时内存与连接无限增长导致 OOM。
+pub const DEFAULT_ALERT_CONCURRENCY: usize = 8;
+
 use crate::config::types::QuotaType;
 use crate::error::{ConsumeResult, FlowGuardError};
 use crate::storage::QuotaStorage;
@@ -33,6 +39,7 @@ use log::debug;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 /// 配额配置
@@ -142,6 +149,9 @@ pub struct QuotaController {
     config: QuotaConfig,
     /// 告警去重缓存（key: user_id:resource:threshold, value: last_alert_time）
     alert_dedup: Arc<DashMap<String, DateTime<Utc>>>,
+    /// 告警并发信号量：限制 send_alert 派发的并发告警任务数，
+    /// 防止 Webhook 慢/挂时 spawn-fire-and-forget 导致内存与连接无限增长
+    alert_semaphore: Arc<Semaphore>,
     /// 后台清理任务停止信号
     cleanup_token: CancellationToken,
 }
@@ -152,6 +162,7 @@ impl Clone for QuotaController {
             storage: self.storage.clone(),
             config: self.config.clone(),
             alert_dedup: self.alert_dedup.clone(),
+            alert_semaphore: self.alert_semaphore.clone(),
             cleanup_token: self.cleanup_token.clone(),
         }
     }
@@ -292,6 +303,7 @@ impl QuotaController {
     /// ```
     pub fn with_dependencies(storage: Arc<dyn QuotaStorage>, config: QuotaConfig) -> Self {
         let alert_dedup = Arc::new(DashMap::new());
+        let alert_semaphore = Arc::new(Semaphore::new(DEFAULT_ALERT_CONCURRENCY));
         let cleanup_token = CancellationToken::new();
 
         // 启动后台清理任务
@@ -333,6 +345,7 @@ impl QuotaController {
             storage,
             config,
             alert_dedup,
+            alert_semaphore,
             cleanup_token,
         }
     }
@@ -669,13 +682,36 @@ impl QuotaController {
     }
 
     /// 发送告警
+    ///
+    /// 通过 `tokio::spawn` 异步发送告警以避免阻塞主流程，同时使用
+    /// `alert_semaphore` 限制并发告警任务数（默认 8）。当并发已达上限时，
+    /// 新告警会被跳过并记录警告日志，从而对慢/挂的 Webhook 形成背压，
+    /// 防止内存与连接无限增长导致 OOM。
     async fn send_alert(&self, alert_info: AlertInfo) {
         for channel in &self.config.alert_config.channels {
             let channel = channel.clone();
             let alert_info = alert_info.clone();
+            let semaphore = self.alert_semaphore.clone();
 
-            // 使用 tokio::spawn 异步发送告警，不阻塞主流程
+            // 使用 tokio::spawn 异步发送告警，不阻塞主流程；
+            // 通过 semaphore 限制并发，避免 spawn-fire-and-forget 无背压
             tokio::spawn(async move {
+                // try_acquire_owned 不阻塞等待：拿不到 permit 立即跳过，
+                // 避免在 spawn 内部无限排队导致任务积压
+                let _permit = match semaphore.try_acquire_owned() {
+                    Ok(p) => p,
+                    Err(_) => {
+                        log::warn!(
+                            "告警并发上限已达 {}，跳过本次告警: \
+                            user_id={}, resource={}, threshold={}%",
+                            DEFAULT_ALERT_CONCURRENCY,
+                            alert_info.user_id,
+                            alert_info.resource,
+                            alert_info.threshold
+                        );
+                        return;
+                    }
+                };
                 match channel {
                     AlertChannel::Log => {
                         log::warn!(

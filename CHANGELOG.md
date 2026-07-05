@@ -10,17 +10,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **依赖升级到最新版本**：`Cargo.toml` 全部 `[workspace.dependencies]` 移除 `~` 最小版本前缀，统一使用 `"X.Y"` 格式（caret 语义）。版本格式变更遵循"不指定最小版本，只指定到 major.minor"约定
-  - 主要升级：`redis` 0.27 → 1.2、`criterion` 0.5 → 0.8、`sqlx` 0.7 → 0.9、`sea-orm` 1.0 → 2.0.0-rc.42、`maxminddb` 0.24 → 0.29、`hmac` 0.12 → 0.13、`sha2` 0.10 → 0.11、`opentelemetry` 0.24 → 0.32、`reqwest` 0.11 → 0.13、`axum` 0.7 → 0.8、`tower-http` 0.5 → 0.7、`dashmap` 5.5 → 6.2、`thiserror` 1.0 → 2.0、`validator` 0.18 → 0.20、`rand` 0.8 → 0.10、`notify` 6.5 → 8.2、`secrecy` 0.8 → 0.10、`woothee` 0.11 → 0.13
-  - `redis` 锁定 `1.2`（非 1.3）：兼容 `dbnexus`/`oxcache` 依赖链的 `redis ~1.2` 约束；`1.3` 与 `oxcache 0.2` 冲突
+  - 主要升级：`criterion` 0.5 → 0.8、`sqlx` 0.7 → 0.9、`sea-orm` 1.0 → 2.0.0-rc.42、`maxminddb` 0.24 → 0.29、`hmac` 0.12 → 0.13、`sha2` 0.10 → 0.11、`opentelemetry` 0.24 → 0.32、`reqwest` 0.11 → 0.13、`axum` 0.7 → 0.8、`tower-http` 0.5 → 0.7、`dashmap` 5.5 → 6.2、`thiserror` 1.0 → 2.0、`validator` 0.18 → 0.20、`rand` 0.8 → 0.10、`notify` 6.5 → 8.2、`secrecy` 0.8 → 0.10、`woothee` 0.11 → 0.13
   - `dbnexus` 保持 `0.2`：`0.3` 依赖 `oxcache 0.2`，与本项目 `oxcache 0.3` 冲突
   - `dashmap` 保持 `6.2`：`7.0` 仅 RC；`notify` 保持 `8.2`：`9.0` 仅 RC
+
+## [0.3.0] - 2026-07-06
+
+### Breaking Changes
+
+- **移除 RedisStorage**: 完全删除 Redis 存储后端实现及 `redis-storage` feature
+  - 删除 `src/storage/redis.rs`
+  - 删除 `examples/src/bin/redis_storage.rs`
+  - 移除 `redis` crate 依赖
+  - 所有缓存通过 oxcache 统一管理
+- **移除 StorageCreate/BanStorageCreate trait**: 改为 `MemoryStorage::create_storage()` 固有方法
+- **移除 SlidingWindowLimiter 公开导出**: 使用 `ShardedSlidingWindowLimiter` 替代
+  - 仍可通过 `limiteron::limiters::sliding_window::SlidingWindowLimiter` 全路径访问（已废弃）
+
+### New Features
+
+- **BanTarget::Geo**: 新增地理位置封禁，支持按国家代码（ISO 3166-1 alpha-2）封禁
+- **BanFileLoader**: 从 YAML 文件加载封禁规则，支持文件变更热重载（500ms debounce）
+- **POST /api/v1/ban**: 新增 HTTP 端点创建封禁，支持 ip/user/mac/geo 4 种 target 类型
+- **DELETE /api/v1/ban/{target}?type=**: 扩展支持 MAC/Geo 目标解封
+
+### Security Fixes
+
+- YAML 炸弹防护：封禁文件大小限制 2MB
+- AdminServer::start() 强制调用 config.validate()
+- 热重载 debounce 防止 DoS
+- 告警 spawn-fire-and-forget 添加 Semaphore(8) 背压
+- BanManager/EventDispatcher 添加 Drop impl 防止任务泄漏
+- 授权链路显性化：未配置 provider 时记录警告日志
+- 整数下溢防护（list_bans 分页）
+- 时钟回退防护（配额窗口重置）
+- `as u32`/`as u8` 截断修复
+- redact_advanced 正则脱敏逻辑修复
+
+### Improvements
+
+- handler 错误响应状态码统一（200/400/403/404/422/500/501/503）
+- get_limiter_status 改为 501 Not Implemented（不再返回假数据）
+- 测试辅助函数集中到 test_support.rs 消除 3x 重复
+- GovernorBuilder 移除 #[allow(dead_code)]
+- config TODO 模块状态文档明确
+
+### Test Coverage
+
+- 1892 unit tests passing (0 failed)
+- 96.16% line coverage (5781/6012 lines)
 
 ### Fixed
 
 - **API 兼容性修复**（依赖 MAJOR 升级）：
   - `maxminddb 0.29`：`Reader.metadata` 字段私有化，改用 `reader.metadata()` 方法（`src/matchers/geo.rs`）
   - `hmac 0.13`：`new_from_slice` 改为 `KeyInit` trait 方法，补充 `use hmac::KeyInit`（`src/logging/audit.rs`）
-  - `redis 0.27 → 1.2`：`ErrorKind` 变体重命名 — `IoError` → `Io`、`ClientError` → `Client`、`ResponseError` → `Parse`、`TypeError` → `UnexpectedReturnType`（`src/storage/redis.rs`）
   - `sqlx 0.9`：组合 feature `runtime-tokio-rustls` 拆分为 `runtime-tokio` + `tls-rustls`（`Cargo.toml`）
 - **clippy 兼容性修复**（rust 1.96 新 lint）：
   - `unnecessary_sort_by`：`sort_by(|a,b| b.x.cmp(&a.x))` → `sort_by_key(|r| Reverse(r.x))`（`src/adapters/dbnexus_ban_storage.rs`）
@@ -190,6 +234,7 @@ let ban_manager = BanManager::new().await.unwrap();
 - Monitoring with Prometheus metrics and OpenTelemetry tracing
 - Parallel ban checking for improved performance
 
+[0.3.0]: https://github.com/Kirky-X/limiteron/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Kirky-X/limiteron/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Kirky-X/limiteron/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Kirky-X/limiteron/releases/tag/v0.1.0

@@ -5,7 +5,7 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.2.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.3.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust Version">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License">
   <a href="https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml"><img src="https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -69,7 +69,7 @@
 ### 🎯 核心特性
 
 - ✅ **多种限流算法** - 令牌桶、固定窗口、滑动窗口、并发控制
-- ✅ **封禁管理** - IP 封禁、自动封禁、封禁优先级
+- ✅ **封禁管理** - IP/User/MAC/Geo 封禁、自动封禁、封禁优先级、文件批量加载
 - ✅ **配额控制** - 配额分配、配额预警、配额透支
 - ✅ **熔断器** - 自动故障转移、状态恢复、降级策略
 
@@ -79,9 +79,9 @@
 ### ⚡ 高级特性
 
 - 🚀 **高性能** - P99 延迟 < 200μs
-- 🔐 **安全可靠** - 内存安全、SQL 注入防护
-- 🌐 **多存储支持** - 通过 DBNexus 支持 PostgreSQL、内存存储；支持 Redis 存储
-- 📦 **易于使用** - 宏支持、简洁 API
+- 🔐 **安全可靠** - 内存安全、SQL 注入防护、YAML 炸弹防护
+- 🌐 **多存储支持** - 通过 DBNexus 支持 PostgreSQL、内存存储；缓存通过 oxcache 统一管理
+- 📦 **易于使用** - 宏支持、简洁 API、Admin REST API
 
 </td>
 </tr>
@@ -246,7 +246,7 @@ async fn web_app_test() -> Result<(), Box<dyn std::error::Error>> {
 
 ```toml
 [dependencies]
-limiteron = { version = "0.2", features = ["macros"] }
+limiteron = { version = "0.3", features = ["macros"] }
 ```
 
 </td>
@@ -256,7 +256,7 @@ limiteron = { version = "0.2", features = ["macros"] }
 
 ```toml
 [dependencies]
-limiteron = { version = "0.2", features = ["postgres", "redis-storage", "macros"] }
+limiteron = { version = "0.3", features = ["postgres", "ban-manager", "macros"] }
 ```
 
 </td>
@@ -280,13 +280,13 @@ Limiteron 使用 feature flags 来控制功能启用，默认只启用内存存�
 **预定义组合**
 ```toml
 # 最小化：仅核心限流
-limiteron = { version = "0.2", features = ["minimal"] }
+limiteron = { version = "0.3", features = ["minimal"] }
 
 # 标准：核心 + 基础高级功能
-limiteron = { version = "0.2", features = ["standard"] }
+limiteron = { version = "0.3", features = ["standard"] }
 
 # 完整：所有功能
-limiteron = { version = "0.2", features = ["full"] }
+limiteron = { version = "0.3", features = ["full"] }
 ```
 
 </td>
@@ -295,13 +295,13 @@ limiteron = { version = "0.2", features = ["full"] }
 **单独特性**
 ```toml
 # 存储后端
-limiteron = { version = "0.2", features = ["postgres", "redis-storage"] }
+limiteron = { version = "0.3", features = ["postgres"] }
 
 # 高级功能
-limiteron = { version = "0.2", features = ["ban-manager", "quota-control", "circuit-breaker"] }
+limiteron = { version = "0.3", features = ["ban-manager", "quota-control", "circuit-breaker"] }
 
 # 宏支持
-limiteron = { version = "0.2", features = ["macros"] }
+limiteron = { version = "0.3", features = ["macros"] }
 ```
 
 </td>
@@ -316,7 +316,6 @@ limiteron = { version = "0.2", features = ["macros"] }
 | 特性 | 描述 | 默认 |
 |------|------|------|
 | `postgres` | PostgreSQL 存储（DBNexus） | ❌ |
-| `redis-storage` | RedisStorage 存储后端（Storage/BanStorage/QuotaStorage） | ❌ |
 | `ban-manager` | 封禁管理 | ❌ |
 | `quota-control` | 配额控制 | ❌ |
 | `circuit-breaker` | 熔断器 | ❌ |
@@ -362,7 +361,7 @@ limiteron = { version = "0.2", features = ["macros"] }
 
 ```toml
 [dependencies]
-limiteron = { version = "0.2", features = ["macros"] }
+limiteron = { version = "0.3", features = ["macros"] }
 ```
 
 </td>
@@ -583,8 +582,7 @@ graph TB
     I --> K
     K --> L[存储层]
     L --> M[PostgreSQL via DBNexus]
-    L --> N[Redis]
-    L --> O[内存存储]
+    L --> N[内存存储]
 
     style A fill:#e1f5ff
     style B fill:#b3e5fc
@@ -600,7 +598,6 @@ graph TB
     style L fill:#0277bd
     style M fill:#01579b
     style N fill:#01579b
-    style O fill:#01579b
 ```
 
 <details>
@@ -613,11 +610,12 @@ graph TB
 | **Governor** | 主控制器，端到端流量控制 | ✅ 稳定 |
 | **Matchers** | 标识符提取（IP、用户 ID、设备 ID 等） | ✅ 稳定 |
 | **Limiters** | 多种限流算法 | ✅ 稳定 |
-| **封禁管理** | IP 封禁、自动封禁 | ✅ 稳定 |
+| **封禁管理** | IP/User/MAC/Geo 封禁、文件批量加载、热重载 | ✅ 稳定 |
 | **配额控制** | 配额分配、配额预警 | ✅ 稳定 |
 | **熔断器** | 自动故障转移、状态恢复 | ✅ 稳定 |
-| **缓存** | L2/L3 缓存支持 | ✅ 稳定 |
-| **存储层** | PostgreSQL via DBNexus、Redis、内存 | ✅ 稳定 |
+| **缓存** | L2/L3 缓存支持（oxcache 统一管理） | ✅ 稳定 |
+| **存储层** | PostgreSQL via DBNexus、内存 | ✅ 稳定 |
+| **Admin API** | REST 管理端点（封禁/配额/状态） | ✅ 稳定 |
 
 </details>
 
@@ -632,23 +630,39 @@ Limiteron 支持多种存储后端，通过 trait 抽象实现可插拔：
 |---------|------|------|------|
 | **MemoryStorage** | `src/storage/mod.rs` | （始终可用） | 内存存储，适用于单实例开发和测试 |
 | **DBNexusStorageAdapter** | `src/adapters/dbnexus_storage.rs` | `postgres` | 通过 DBNexus 支持 PostgreSQL，生产级持久化 |
-| **RedisStorage** | `src/storage/redis.rs` | `redis-storage` | Redis 存储后端，实现 `Storage`/`BanStorage`/`QuotaStorage` trait，适用于多实例分布式场景 |
 
-**RedisStorage 使用示例：**
+> **注意**: v0.3.0 移除了 `RedisStorage` 与 `redis-storage` feature。如需 Redis 缓存，通过 `cache-storage` feature 启用 oxcache 的 Redis 后端统一管理。
+
+**MemoryStorage 使用示例：**
 
 ```rust
-use limiteron::storage::RedisStorage;
-use limiteron::storage::Storage;
+use limiteron::storage::MemoryStorage;
+use limiteron::Governor;
 
-let redis_storage = RedisStorage::new("redis://127.0.0.1:6379").await?;
-// 或从已有 client 创建
-// let redis_storage = RedisStorage::from_client(client);
-
-// RedisStorage 实现 Storage / BanStorage / QuotaStorage trait
+// 内存存储开箱即用
+let governor = Governor::new().await;
+// 或通过 builder 显式注入
+let storage = MemoryStorage::create_storage();
 let governor = Governor::builder()
-    .with_storage(Arc::new(redis_storage))
+    .with_storage(storage)
     .build()
     .await?;
+```
+
+**BanFileLoader 从 YAML 文件批量加载封禁规则：**
+
+```rust
+use limiteron::ban::{BanFileLoader, BanManager};
+
+let ban_manager = BanManager::new().await?;
+let loader = BanFileLoader::new("bans.yaml");
+
+// 一次性加载
+let result = loader.load_once(&ban_manager).await?;
+println!("加载成功 {} 条，失败 {} 条", result.success_count, result.failure_count);
+
+// 启用热重载（需要 `config-watcher` feature，500ms debounce）
+loader.start_watching(ban_manager.clone()).await?;
 ```
 
 </details>
@@ -704,7 +718,7 @@ on_exceed = "reject"
 
 ```bash
 # 覆盖全局存储
-export LIMITERON_GLOBAL_STORAGE=redis
+export LIMITERON_GLOBAL_STORAGE=postgres
 ```
 
 **加载配置**
@@ -727,8 +741,8 @@ let config = ConfigLoader::load_from_file("config.toml")?;
 | 选项 | 类型 | 默认值 | 描述 |
 |------|------|--------|------|
 | `version` | String | "0.1.0" | 配置版本 |
-| `global.storage` | String | "memory" | 存储类型: postgres (通过 DBNexus) / redis / memory |
-| `global.cache` | String | "memory" | 缓存类型: memory/redis |
+| `global.storage` | String | "memory" | 存储类型: postgres (通过 DBNexus) / memory |
+| `global.cache` | String | "memory" | 缓存类型: memory/redis（通过 oxcache） |
 | `global.metrics` | String | "prometheus" | 指标类型 |
 | `rules[].id` | String | - | 规则标识符 |
 | `rules[].name` | String | - | 规则名称 |
@@ -956,7 +970,6 @@ gantt
 - [x] 单元和集成测试
 - [x] 宏支持
 - [x] 通过 DBNexus 支持 PostgreSQL 存储
-- [x] RedisStorage 存储后端（v0.2.0）
 - [x] Governor 优雅关闭与健康检测（v0.2.0）
 - [x] ConfigLoader 环境变量覆盖（v0.2.0）
 - [x] CircuitBreaker `new()` 默认构造（v0.2.0）
@@ -964,6 +977,13 @@ gantt
 - [x] pangu 工业级 harness 完整（v0.2.0）
 - [x] diting 全维度代码审查（v0.2.0）
 - [x] 文档完善与 20 个示例（v0.2.0）
+- [x] **移除 RedisStorage**，缓存统一由 oxcache 管理（v0.3.0）
+- [x] **BanTarget::Geo** 地理位置封禁（v0.3.0）
+- [x] **BanFileLoader** YAML 文件批量加载 + 热重载（v0.3.0）
+- [x] **POST /api/v1/ban** HTTP 端点（v0.3.0）
+- [x] **DELETE /api/v1/ban/{target}?type=** 支持 MAC/Geo 解封（v0.3.0）
+- [x] YAML 炸弹防护、Drop impl、告警背压等安全加固（v0.3.0）
+- [x] 96.16% 行覆盖率（v0.3.0）
 
 </td>
 <td width="50%">
@@ -978,7 +998,7 @@ gantt
 <tr>
 <td width="50%">
 
-### 🔜 v0.2.1 计划
+### 🔜 v0.3.1 计划
 
 - [ ] Tower 中间件集成完善
 - [ ] 事件系统增强
@@ -988,9 +1008,9 @@ gantt
 </td>
 <td width="50%">
 
-### 🎯 v0.3.0 计划
+### 🎯 v0.4.0 计划
 
-- [ ] 分布式限流（跨实例 Redis Lua 协调）
+- [ ] 分布式限流（跨实例 Lua 协调）
 - [ ] Governor shutdown 完整实现（后台任务等待/状态刷新/连接释放/Drop trait）
 - [ ] MySQL/SQLite 存储支持（待 DBNexus 支持）
 - [ ] HTB 分层令牌桶
@@ -1141,7 +1161,7 @@ gantt
   - [tokio](https://tokio.rs/) - 异步运行时
   - [sqlx](https://github.com/launchbadge/sqlx) - 异步 SQL 工具包
   - [dbnexus](https://github.com/) - 数据库抽象层
-  - [redis](https://github.com/redis-rs/redis-rs) - Redis 客户端
+  - [oxcache](https://github.com/) - 缓存抽象层（统一管理 memory/redis 等后端）
   - [dashmap](https://github.com/xacrimon/dashmap) - 并发 HashMap
   - [lru](https://github.com/jeromefroe/lru-rs) - LRU 缓存
 

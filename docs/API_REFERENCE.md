@@ -21,7 +21,12 @@
   - [Governor](#governor)
 - [匹配器](#匹配器)
 - [存储后端](#存储后端)
-  - [RedisStorage](#redisstorage)
+  - [MemoryStorage](#memorystorage)
+- [文件封禁加载](#文件封禁加载)
+  - [BanFileLoader](#banfileloader)
+- [Admin REST API](#admin-rest-api)
+  - [POST /api/v1/ban](#post-apiv1ban)
+  - [DELETE /api/v1/ban/{target}](#delete-apiv1bantarget)
 - [配置加载](#配置加载)
   - [ConfigLoader](#configloaderload_from_file_with_env)
 - [错误处理](#错误处理)
@@ -385,6 +390,14 @@ match limiter.allow(1).await {
 
 ---
 
+#### ⚠️ 已弃用：`SlidingWindowLimiter`
+
+> **v0.3.0 起**，`SlidingWindowLimiter` 不再通过 `limiteron::` 顶层导出。推荐使用 [`ShardedSlidingWindowLimiter`](#)（`limiteron::limiters::ShardedSlidingWindowLimiter`）替代，提供更好的并发性能。
+>
+> 仍可通过全路径 `limiteron::limiters::sliding_window::SlidingWindowLimiter` 访问（模块标注 `#[allow(deprecated)]`），但不推荐新代码使用。
+
+---
+
 ### 封禁管理
 
 <div align="center">
@@ -488,11 +501,13 @@ pub async fn create_ban(
 <td><b>参数</b></td>
 <td>
 
-- `target: BanTarget` - 封禁目标（IP、用户ID等）
+- `target: BanTarget` - 封禁目标（`Ip` / `UserId` / `Mac` / `Geo { country_code }`）
 - `reason: String` - 封禁原因
 - `source: BanSource` - 封禁来源（`BanSource::Auto` 或 `BanSource::Manual { operator }`）
 - `metadata: serde_json::Value` - 附加元数据
 - `duration: Option<StdDuration>` - 封禁时长，None表示使用指数退避算法自动计算
+
+> **`BanTarget` 变体**（v0.3.0 新增 `Geo`）：`Ip(String)` / `UserId(String)` / `Mac(String)` / `Geo { country_code: String }`。`country_code` 必须是大写 2 字母 ISO 3166-1 alpha-2 格式。
 
 </td>
 </tr>
@@ -508,6 +523,7 @@ pub async fn create_ban(
 use limiteron::ban::{BanTarget, BanSource};
 use std::time::Duration;
 
+// IP 封禁
 let target = BanTarget::Ip("192.168.1.100".to_string());
 let ban_detail = ban_manager.create_ban(
     target,
@@ -515,6 +531,16 @@ let ban_detail = ban_manager.create_ban(
     BanSource::Manual { operator: "admin".to_string() },
     serde_json::json!({}),
     Some(Duration::from_secs(3600)),
+).await?;
+
+// Geo 地区封禁（v0.3.0+，country_code 必须大写 2 字母）
+let geo_target = BanTarget::Geo { country_code: "CN".to_string() };
+ban_manager.create_ban(
+    geo_target,
+    "地区封禁".to_string(),
+    BanSource::Manual { operator: "admin".to_string() },
+    serde_json::json!({}),
+    None, // 使用退避算法自动计算时长
 ).await?;
 ```
 
@@ -1306,9 +1332,9 @@ let extractor = IpExtractor::builder()
 
 ---
 
-#### `RedisStorage`
+#### `MemoryStorage`
 
-Redis 存储后端，实现 `Storage`/`BanStorage`/`QuotaStorage` trait，适用于多实例分布式场景。需要启用 `redis-storage` feature。
+内存存储后端，实现 `Storage`/`BanStorage`/`QuotaStorage` trait，适用于单实例开发、测试和快速原型。始终可用（无需 feature flag）。
 
 <table>
 <tr>
@@ -1316,8 +1342,8 @@ Redis 存储后端，实现 `Storage`/`BanStorage`/`QuotaStorage` trait，适用
 <td width="70%">
 
 ```rust
-pub struct RedisStorage {
-    conn: redis::aio::ConnectionManager,
+pub struct MemoryStorage {
+    // 内部字段（HashMap + RwLock）
 }
 ```
 
@@ -1325,11 +1351,13 @@ pub struct RedisStorage {
 </tr>
 </table>
 
+> **注意**: v0.3.0 移除了 `RedisStorage` 与 `redis-storage` feature。所有缓存通过 oxcache 统一管理（启用 `cache-storage` feature 可接入 Redis 缓存后端）。`StorageCreate`/`BanStorageCreate` trait 也已移除，改用 `MemoryStorage::create_storage()` 固有方法。
+
 ---
 
-#### `RedisStorage::new()`
+#### `MemoryStorage::new()`
 
-从 Redis 连接字符串创建新的 RedisStorage。
+创建新的 MemoryStorage 实例。
 
 <table>
 <tr>
@@ -1337,38 +1365,22 @@ pub struct RedisStorage {
 <td width="70%">
 
 ```rust
-pub async fn new(url: &str) -> Result<Self, StorageError>
+pub fn new() -> Self
 ```
-
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `url: &str` - Redis 连接字符串（如 `redis://127.0.0.1:6379`）
 
 </td>
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;RedisStorage, StorageError&gt;</code></td>
+<td><code>Self</code> - 新的内存存储实例</td>
 </tr>
 </table>
 
-**示例:**
-
-```rust
-use limiteron::storage::RedisStorage;
-
-let redis_storage = RedisStorage::new("redis://127.0.0.1:6379").await?;
-```
-
 ---
 
-#### `RedisStorage::from_client()`
+#### `MemoryStorage::create_storage()`
 
-从已有的 Redis 客户端创建 RedisStorage，便于复用连接池。
+创建 `Arc<dyn Storage>` 的便捷方法（替代已移除的 `StorageCreate` trait）。
 
 <table>
 <tr>
@@ -1376,60 +1388,381 @@ let redis_storage = RedisStorage::new("redis://127.0.0.1:6379").await?;
 <td width="70%">
 
 ```rust
-pub async fn from_client(client: redis::Client) -> Result<Self, StorageError>
+pub fn create_storage() -> Arc<dyn Storage>
 ```
 
 </td>
 </tr>
 <tr>
-<td><b>参数</b></td>
-<td>
-
-- `client: redis::Client` - 已有的 Redis 客户端
-
-</td>
-</tr>
-<tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;RedisStorage, StorageError&gt;</code> - 新的存储实例</td>
+<td><code>Arc&lt;dyn Storage&gt;</code> - 装箱好的存储 trait 对象</td>
 </tr>
 </table>
 
 **示例:**
 
 ```rust
-use limiteron::storage::RedisStorage;
-use redis::Client;
+use limiteron::storage::MemoryStorage;
+use limiteron::Governor;
 
-let client = Client::open("redis://127.0.0.1:6379")?;
-let redis_storage = RedisStorage::from_client(client).await?;
+// 便捷构造
+let storage = MemoryStorage::create_storage();
+let governor = Governor::builder()
+    .with_storage(storage)
+    .build()
+    .await?;
 ```
 
 ---
 
 #### Trait 实现
 
-`RedisStorage` 实现以下 trait，可作为 Governor 和各组件的存储后端：
+`MemoryStorage` 实现以下 trait，可作为 Governor 和各组件的存储后端：
 
-| Trait | 说明 | feature 要求 |
-|-------|------|-------------|
-| `Storage` | 限流数据存储（令牌桶、计数器等） | `redis-storage` |
-| `BanStorage` | 封禁记录存储 | `redis-storage` |
-| `QuotaStorage` | 配额数据存储 | `redis-storage` |
+| Trait | 说明 |
+|-------|------|
+| `Storage` | 限流数据存储（令牌桶、计数器等） |
+| `BanStorage` | 封禁记录存储 |
+| `QuotaStorage` | 配额数据存储 |
 
-**与 Governor 集成示例：**
+---
+
+## 文件封禁加载
+
+<div align="center">
+
+#### 📄 BanFileLoader
+
+</div>
+
+---
+
+#### `BanFileLoader`
+
+从 YAML 文件批量加载封禁规则到 `BanManager`，可选支持文件变更热重载。需要启用 `ban-manager` feature；热重载需要额外启用 `config-watcher` feature。
+
+<table>
+<tr>
+<td width="30%"><b>类型</b></td>
+<td width="70%">
 
 ```rust
-use limiteron::storage::RedisStorage;
-use limiteron::Governor;
-use std::sync::Arc;
+pub struct BanFileLoader {
+    path: PathBuf,
+    #[cfg(feature = "config-watcher")]
+    watch_handle: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
+}
+```
 
-let redis_storage = RedisStorage::new("redis://127.0.0.1:6379").await?;
+</td>
+</tr>
+</table>
 
-let governor = Governor::builder()
-    .with_storage(Arc::new(redis_storage))
-    .build()
-    .await?;
+**YAML 文件格式：**
+
+```yaml
+bans:
+  - target:
+      type: ip              # ip | user | mac | geo
+      value: "192.168.1.1"  # geo 时为 {country_code: "CN"}
+    reason: "恶意请求"
+    duration_secs: 3600     # 可选，null/省略 = 使用退避算法
+```
+
+---
+
+#### `BanFileLoader::new()`
+
+创建新的文件加载器。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub fn new(path: impl Into<PathBuf>) -> Self
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `path: impl Into<PathBuf>` - YAML 文件路径
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Self</code> - 新的加载器实例</td>
+</tr>
+</table>
+
+---
+
+#### `BanFileLoader::load_once()`
+
+一次性加载文件中的所有封禁规则到 BanManager。单条加载失败不会中断整体加载，失败详情记录在 `LoadResult.errors` 中。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub async fn load_once(&self, manager: &BanManager) -> Result<LoadResult, FlowGuardError>
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `manager: &BanManager` - 目标封禁管理器
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td>
+<code>Result&lt;LoadResult, FlowGuardError&gt;</code><br>
+<code>Ok</code> = 加载完成（可能含部分失败）；<code>Err</code> = 文件读取或 YAML 解析失败
+</td>
+</tr>
+<tr>
+<td><b>安全</b></td>
+<td>内置 YAML 炸弹防护：文件大小上限 2MB，超限返回 <code>ConfigError</code></td>
+</tr>
+</table>
+
+**`LoadResult` 结构：**
+
+```rust
+pub struct LoadResult {
+    pub success_count: usize,
+    pub failure_count: usize,
+    pub errors: Vec<BanLoadError>,
+}
+```
+
+**示例:**
+
+```rust
+use limiteron::ban::{BanFileLoader, BanManager};
+
+let ban_manager = BanManager::new().await?;
+let loader = BanFileLoader::new("config/bans.yaml");
+let result = loader.load_once(&ban_manager).await?;
+println!("成功 {} 条，失败 {} 条", result.success_count, result.failure_count);
+```
+
+---
+
+#### `BanFileLoader::start_watching()`
+
+启动文件变更热重载，文件修改后自动重新加载（500ms debounce 防止 DoS）。需要 `config-watcher` feature。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub async fn start_watching(&self, manager: BanManager) -> Result<(), FlowGuardError>
+```
+
+</td>
+</tr>
+<tr>
+<td><b>参数</b></td>
+<td>
+
+- `manager: BanManager` - 目标封禁管理器（clone 传入，热重载时调用）
+
+</td>
+</tr>
+<tr>
+<td><b>返回</b></td>
+<td><code>Result&lt;(), FlowGuardError&gt;</code> - 启动结果</td>
+</tr>
+<tr>
+<td><b>特性</b></td>
+<td><code>config-watcher</code></td>
+</tr>
+</table>
+
+---
+
+#### `BanFileLoader::stop_watching()`
+
+停止文件监听。`BanFileLoader` 的 `Drop` impl 也会自动调用此方法，防止任务泄漏。
+
+<table>
+<tr>
+<td width="30%"><b>签名</b></td>
+<td width="70%">
+
+```rust
+pub async fn stop_watching(&self)
+```
+
+</td>
+</tr>
+</table>
+
+**完整示例:**
+
+```rust
+use limiteron::ban::{BanFileLoader, BanManager};
+
+let ban_manager = BanManager::new().await?;
+let loader = BanFileLoader::new("config/bans.yaml");
+
+// 首次加载
+let result = loader.load_once(&ban_manager).await?;
+
+// 启动热重载（需要 config-watcher feature）
+loader.start_watching(ban_manager.clone()).await?;
+
+// loader drop 时自动停止监听
+```
+
+---
+
+## Admin REST API
+
+<div align="center">
+
+#### 🌐 HTTP 管理端点
+
+</div>
+
+启用 `admin-api` feature 后，Limiteron 提供 REST 端点管理封禁、配额和状态。所有端点要求 `Authorization: Bearer <api_key>` 头部认证（使用恒定时间比较防止时序攻击）。
+
+---
+
+#### `POST /api/v1/ban`
+
+创建封禁记录。支持 `ip`/`user`/`mac`/`geo` 四种 target 类型。需要 `ban-manager` feature。
+
+**请求体：**
+
+```rust
+pub struct CreateBanRequest {
+    pub target: BanTarget,           // serde: {"type":"...","value":...}
+    pub reason: String,
+    pub operator: Option<String>,    // 默认 "admin-api"
+    pub duration_secs: Option<u64>,  // None = 退避算法自动计算
+}
+```
+
+**BanTarget serde 格式：**
+
+| 类型 | type 字段 | value 格式 |
+|------|----------|-----------|
+| `Ip(String)` | `"ip"` | IP 字符串 |
+| `UserId(String)` | `"user"` | 用户 ID |
+| `Mac(String)` | `"mac"` | MAC 地址 |
+| `Geo { country_code }` | `"geo"` | `{"country_code":"CN"}`（大写 2 字母 ISO 3166-1 alpha-2） |
+
+**响应状态码：**
+
+| 状态码 | 含义 |
+|--------|------|
+| `201 Created` | 封禁创建成功，返回 `{id, ban_times, expires_at, is_manual}` |
+| `400 Bad Request` | JSON 语法错误或 `ValidationError`（如无效 IP、小写国家码） |
+| `401 Unauthorized` | 缺少或错误的 `Authorization` 头部 |
+| `403 Forbidden` | `AuthorizationError`（授权拒绝） |
+| `422 Unprocessable Entity` | JSON 合法但缺少必填字段（如 `reason`） |
+| `503 Service Unavailable` | 未配置 ban_manager |
+| `500 Internal Server Error` | 其他内部错误 |
+
+**示例:**
+
+```bash
+# IP 封禁
+curl -X POST http://localhost:8080/api/v1/ban \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"target":{"type":"ip","value":"192.168.1.100"},"reason":"恶意请求"}'
+
+# Geo 地区封禁
+curl -X POST http://localhost:8080/api/v1/ban \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"target":{"type":"geo","value":{"country_code":"CN"}},"reason":"地区封禁","duration_secs":3600}'
+```
+
+**成功响应：**
+
+```json
+{
+  "success": true,
+  "message": "OK",
+  "data": {
+    "id": "ban-uuid",
+    "ban_times": 1,
+    "expires_at": 1783290000,
+    "is_manual": true
+  }
+}
+```
+
+---
+
+#### `DELETE /api/v1/ban/{target}`
+
+解除封禁。通过 `?type=` query 参数显式指定目标类型，未提供时按 IP 优先自动推断（合法 IP → `Ip`，否则 → `UserId`）。需要 `ban-manager` feature。
+
+**路径参数：**
+
+- `target` - 封禁目标标识（IP/用户 ID/MAC/国家代码）
+
+**Query 参数：**
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| `type` | `ip` / `user` / `mac` / `geo` | 显式指定目标类型。未提供时自动推断（IP 优先，回退 UserId） |
+
+**请求体（可选）：**
+
+```rust
+pub struct UnbanRequest {
+    pub reason: Option<String>,
+    pub operator: Option<String>,
+}
+```
+
+**响应状态码：**
+
+| 状态码 | 含义 |
+|--------|------|
+| `200 OK` | 解封成功 |
+| `400 Bad Request` | 不支持的 `type` 值 |
+| `401 Unauthorized` | 缺少或错误的 `Authorization` 头部 |
+| `404 Not Found` | 目标未被封禁 |
+| `503 Service Unavailable` | 未配置 ban_manager |
+| `500 Internal Server Error` | 其他内部错误 |
+
+**示例:**
+
+```bash
+# 解封 Geo 目标（必须显式指定 type=geo）
+curl -X DELETE "http://localhost:8080/api/v1/ban/CN?type=geo" \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"解封","operator":"admin-alice"}'
+
+# 解封 IP（type 可省略，自动推断）
+curl -X DELETE "http://localhost:8080/api/v1/ban/192.168.1.100" \
+  -H "Authorization: Bearer your-api-key"
+
+# 解封 MAC（必须显式指定 type=mac）
+curl -X DELETE "http://localhost:8080/api/v1/ban/00:1a:2b:3c:4d:5e?type=mac" \
+  -H "Authorization: Bearer your-api-key"
 ```
 
 ---
@@ -1516,8 +1849,8 @@ pub fn load_from_file_with_env(path: &str) -> Result<FlowControlConfig, FlowGuar
 
 | 环境变量 | 覆盖配置项 | 说明 |
 |---------|-----------|------|
-| `LIMITERON_GLOBAL_STORAGE` | `global.storage` | 存储类型：`memory` / `postgres` / `redis` |
-| `LIMITERON_GLOBAL_CACHE` | `global.cache` | 缓存类型：`memory` / `redis` |
+| `LIMITERON_GLOBAL_STORAGE` | `global.storage` | 存储类型：`memory` / `postgres` |
+| `LIMITERON_GLOBAL_CACHE` | `global.cache` | 缓存类型：`memory` / `redis`（通过 oxcache） |
 | `LIMITERON_GLOBAL_METRICS` | `global.metrics` | 指标类型：`prometheus` / `none` |
 
 **示例:**
@@ -1526,11 +1859,11 @@ pub fn load_from_file_with_env(path: &str) -> Result<FlowControlConfig, FlowGuar
 use limiteron::ConfigLoader;
 
 // 先设置环境变量覆盖
-std::env::set_var("LIMITERON_GLOBAL_STORAGE", "redis");
+std::env::set_var("LIMITERON_GLOBAL_STORAGE", "postgres");
 
 // 加载配置（环境变量会覆盖配置文件中的值）
 let config = ConfigLoader::load_from_file_with_env("config.toml")?;
-// config.global.storage 现在为 "redis"
+// config.global.storage 现在为 "postgres"
 ```
 
 ---

@@ -543,6 +543,8 @@ impl BanManager {
     ///         storage,
     ///         config,
     ///         Some(auth_provider),
+    /// # #[cfg(feature = "event-system")]
+    ///         None,
     ///     ).await.unwrap();
     /// }
     /// ```

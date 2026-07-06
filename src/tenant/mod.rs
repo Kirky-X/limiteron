@@ -10,4 +10,4 @@ pub mod config;
 pub mod resolver;
 
 pub use config::Namespace;
-pub use resolver::TenantResolver;
+pub use resolver::{DefaultTenantResolver, HeaderTenantResolver, TenantResolver};

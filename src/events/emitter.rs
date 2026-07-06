@@ -77,6 +77,24 @@ impl EventEmitter {
         Self::new(EventConfig::default())
     }
 
+    /// 创建事件发射器构建器
+    ///
+    /// 返回 [`EventEmitterBuilder`]，用于链式配置事件发射器。
+    ///
+    /// # 示例
+    ///
+    /// ```rust
+    /// use limiteron::events::EventEmitter;
+    ///
+    /// let emitter = EventEmitter::builder()
+    ///     .with_channel_capacity(2048)
+    ///     .with_webhook_urls(vec!["http://example.com/hook".to_string()])
+    ///     .build();
+    /// ```
+    pub fn builder() -> EventEmitterBuilder {
+        EventEmitterBuilder::new()
+    }
+
     /// 发射事件
     ///
     /// # 参数

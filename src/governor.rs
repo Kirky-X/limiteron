@@ -801,6 +801,7 @@ impl Governor {
     ///
     /// 当启用了 FallbackManager 时，会在存储层故障时自动降级。
     pub async fn check(&self, context: &RequestContext) -> Result<Decision, FlowGuardError> {
+        #[cfg(feature = "monitoring")]
         let start_time = std::time::Instant::now();
 
         #[cfg(feature = "telemetry")]

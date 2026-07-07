@@ -87,7 +87,7 @@ oxcache = { version = "0.3", default-features = false, features = ["core"] }
 dbnexus = { version = "0.2", default-features = false, features = ["postgres", "macros", "sql-parser", "permission"] }
 
 # 宏
-limiteron-macros = { path = "macros" }
+limiteron-macros = { path = "macros", version = "0.2.1" }
 
 # 监控
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -197,6 +197,17 @@ woothee = { workspace = true, optional = true }
 tower = { workspace = true, optional = true }
 tower-layer = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
+
+# trait-kit integration (optional, feature-gated via `kit`).
+# Uses path until trait-kit 0.2.2 is published to crates.io; the version
+# constraint is kept so the published artifact resolves the same.
+# Mirrors oxcache's pattern (Phase 2 of trait-kit-async-integration).
+[dependencies.trait-kit]
+version = "0.2.2"
+path = "../trait-kit"
+features = ["async"]
+optional = true
+default-features = false
 
 # 其他
 
@@ -347,6 +358,14 @@ legacy_tests = []
 
 # 混沌测试特性 - 启用故障注入和延迟注入测试
 chaos-testing = []
+
+# ============================================
+# External Integrations (外部集成)
+# ============================================
+# trait-kit 0.2.2 AsyncKit integration (LimiteronModule). Pulls in trait-kit
+# with the `async` feature only — default features are disabled (Rule 6).
+# Mirrors oxcache's `kit` feature (Phase 2 of trait-kit-async-integration).
+kit = ["dep:trait-kit"]
 
 [[bench]]
 name = "throughput"

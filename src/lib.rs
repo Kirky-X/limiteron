@@ -122,6 +122,12 @@ pub mod validation;
 #[cfg(feature = "webhook")]
 pub(crate) mod webhook_validator;
 
+// External integrations (feature-gated). Each integration lives under
+// `integrations/` and is gated by its own feature so the core limiteron
+// library stays dependency-free when integrations are not needed.
+#[cfg(feature = "kit")]
+pub mod integrations;
+
 // Tower 中间件层 (feature-gated)
 #[cfg(feature = "tower-middleware")]
 pub mod middleware;

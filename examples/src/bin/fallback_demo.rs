@@ -19,9 +19,7 @@
 //! cargo run --bin fallback_demo --features fallback
 //! ```
 
-use limiteron::fallback::{
-    ComponentType, FallbackConfig, FallbackManager, FallbackStrategy,
-};
+use limiteron::fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
 use limiteron::FlowGuardError;
 use oxcache::Cache;
 use std::sync::Arc;
@@ -96,8 +94,14 @@ async fn demo_strategy_config() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n  After customization:");
     let redis = manager.get_strategy(ComponentType::Redis).await.unwrap();
     let postgres = manager.get_strategy(ComponentType::Postgres).await.unwrap();
-    println!("    Redis:    strategy={:?}, timeout={:?}, retries={}", redis.strategy, redis.timeout, redis.max_retries);
-    println!("    Postgres: strategy={:?}, timeout={:?}, retries={}", postgres.strategy, postgres.timeout, postgres.max_retries);
+    println!(
+        "    Redis:    strategy={:?}, timeout={:?}, retries={}",
+        redis.strategy, redis.timeout, redis.max_retries
+    );
+    println!(
+        "    Postgres: strategy={:?}, timeout={:?}, retries={}",
+        postgres.strategy, postgres.timeout, postgres.max_retries
+    );
     println!();
     Ok(())
 }
@@ -109,15 +113,27 @@ async fn demo_failure_injection() -> Result<(), Box<dyn std::error::Error>> {
     let manager = create_manager().await;
 
     println!("  Initial state:");
-    println!("    Redis failed: {}", manager.is_failed(ComponentType::Redis).await);
-    println!("    Redis failure count: {}", manager.get_failure_count(ComponentType::Redis).await);
+    println!(
+        "    Redis failed: {}",
+        manager.is_failed(ComponentType::Redis).await
+    );
+    println!(
+        "    Redis failure count: {}",
+        manager.get_failure_count(ComponentType::Redis).await
+    );
 
     // 注入故障
     manager.inject_failure(ComponentType::Redis).await;
     manager.inject_failure(ComponentType::Postgres).await;
     println!("\n  After inject_failure(Redis, Postgres):");
-    println!("    Redis failed: {}", manager.is_failed(ComponentType::Redis).await);
-    println!("    Postgres failed: {}", manager.is_failed(ComponentType::Postgres).await);
+    println!(
+        "    Redis failed: {}",
+        manager.is_failed(ComponentType::Redis).await
+    );
+    println!(
+        "    Postgres failed: {}",
+        manager.is_failed(ComponentType::Postgres).await
+    );
 
     // 获取所有故障
     let failures = manager.get_all_failures().await;
@@ -134,7 +150,10 @@ async fn demo_failure_injection() -> Result<(), Box<dyn std::error::Error>> {
     // 恢复故障
     manager.recover_failure(ComponentType::Redis).await;
     println!("\n  After recover_failure(Redis):");
-    println!("    Redis failed: {}", manager.is_failed(ComponentType::Redis).await);
+    println!(
+        "    Redis failed: {}",
+        manager.is_failed(ComponentType::Redis).await
+    );
     let failures = manager.get_all_failures().await;
     println!("    Remaining failures: {:?}", failures);
 
@@ -230,12 +249,18 @@ async fn demo_island_mode() -> Result<(), Box<dyn std::error::Error>> {
     // 注入故障触发孤岛模式
     manager.inject_failure(ComponentType::Redis).await;
     println!("  After inject_failure(Redis):");
-    println!("    callback invocations: {}", callback_count.load(std::sync::atomic::Ordering::SeqCst));
+    println!(
+        "    callback invocations: {}",
+        callback_count.load(std::sync::atomic::Ordering::SeqCst)
+    );
 
     // 恢复故障
     manager.recover_failure(ComponentType::Redis).await;
     println!("\n  After recover_failure(Redis):");
-    println!("    callback invocations: {}", callback_count.load(std::sync::atomic::Ordering::SeqCst));
+    println!(
+        "    callback invocations: {}",
+        callback_count.load(std::sync::atomic::Ordering::SeqCst)
+    );
     println!();
     Ok(())
 }

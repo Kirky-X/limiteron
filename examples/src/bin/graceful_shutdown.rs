@@ -6,7 +6,9 @@
 //! - 收到信号后调用 shutdown() 优雅关闭
 //! - 验证 shutdown() 的幂等性
 
-use limiteron::config::{Action, ActionConfig, FlowControlConfig, GlobalConfig, LimiterConfig, Matcher, Rule};
+use limiteron::config::{
+    Action, ActionConfig, FlowControlConfig, GlobalConfig, LimiterConfig, Matcher, Rule,
+};
 use limiteron::storage::{MemoryBanStorage, MemoryStorage};
 use limiteron::{Governor, RequestContext};
 use std::sync::Arc;

@@ -42,7 +42,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn demo_ip_validation() {
     println!("--- 1. IP Address Validation ---\n");
 
-    let valid_ipv4 = ["192.168.1.1", "10.0.0.1", "127.0.0.1:8080", "255.255.255.255"];
+    let valid_ipv4 = [
+        "192.168.1.1",
+        "10.0.0.1",
+        "127.0.0.1:8080",
+        "255.255.255.255",
+    ];
     let valid_ipv6 = [
         "::1",
         "2001:db8::1",
@@ -75,7 +80,12 @@ fn demo_ip_validation() {
 fn demo_user_id_validation() {
     println!("--- 2. User ID Validation ---\n");
 
-    let valid_ids = ["user123", "user-name_123", "user@example.com", "first.last@domain.com"];
+    let valid_ids = [
+        "user123",
+        "user-name_123",
+        "user@example.com",
+        "first.last@domain.com",
+    ];
     let invalid_ids = ["", "user name", "user@#$%", "user/flag"];
 
     println!("  Valid user IDs:");
@@ -103,7 +113,12 @@ fn demo_mac_validation() {
         "001A2B3C4D5E",
         "aa:bb:cc:dd:ee:ff",
     ];
-    let invalid_macs = ["", "00:1A:2B:3C:4D", "00:1A:2B:3C:4D:5E:6F", "00:1A:2B:3C:4D:GG"];
+    let invalid_macs = [
+        "",
+        "00:1A:2B:3C:4D",
+        "00:1A:2B:3C:4D:5E:6F",
+        "00:1A:2B:3C:4D:GG",
+    ];
 
     println!("  Valid MAC addresses:");
     for mac in &valid_macs {
@@ -127,30 +142,48 @@ fn demo_length_based_validations() {
     let r1 = validate_length("hello", 10, "test field");
     let r2 = validate_length("this is too long", 5, "short field");
     println!("  validate_length('hello', max=10): {}", format_result(&r1));
-    println!("  validate_length('this is too long', max=5): {}", format_result(&r2));
+    println!(
+        "  validate_length('this is too long', max=5): {}",
+        format_result(&r2)
+    );
 
     // validate_ban_reason: 最大长度 500
     let r3 = validate_ban_reason("Spam behavior detected");
     let r4 = validate_ban_reason(&"x".repeat(501));
-    println!("\n  validate_ban_reason('Spam behavior'): {}", format_result(&r3));
+    println!(
+        "\n  validate_ban_reason('Spam behavior'): {}",
+        format_result(&r3)
+    );
     println!("  validate_ban_reason(501 chars): {}", format_result(&r4));
 
     // validate_api_key: 最大长度 512
     let r5 = validate_api_key("sk-abc123xyz");
     let r6 = validate_api_key(&"a".repeat(513));
-    println!("\n  validate_api_key('sk-abc123xyz'): {}", format_result(&r5));
+    println!(
+        "\n  validate_api_key('sk-abc123xyz'): {}",
+        format_result(&r5)
+    );
     println!("  validate_api_key(513 chars): {}", format_result(&r6));
 
     // validate_header_value: 最大长度 8192
     let r7 = validate_header_value("application/json; charset=utf-8");
     let r8 = validate_header_value(&"x".repeat(8193));
-    println!("\n  validate_header_value('application/json'): {}", format_result(&r7));
-    println!("  validate_header_value(8193 chars): {}", format_result(&r8));
+    println!(
+        "\n  validate_header_value('application/json'): {}",
+        format_result(&r7)
+    );
+    println!(
+        "  validate_header_value(8193 chars): {}",
+        format_result(&r8)
+    );
 
     // validate_path: 最大长度 2048
     let r9 = validate_path("/api/v1/users/12345");
     let r10 = validate_path(&format!("/{}", "x".repeat(2048)));
-    println!("\n  validate_path('/api/v1/users/12345'): {}", format_result(&r9));
+    println!(
+        "\n  validate_path('/api/v1/users/12345'): {}",
+        format_result(&r9)
+    );
     println!("  validate_path(2049 chars): {}", format_result(&r10));
     println!();
 }
@@ -175,13 +208,21 @@ fn demo_ban_target_validation() {
     println!("  Valid BanTargets:");
     for target in &targets {
         let result = validate_ban_target(target);
-        println!("    {:<35} -> {}", format!("{:?}", target), format_result(&result));
+        println!(
+            "    {:<35} -> {}",
+            format!("{:?}", target),
+            format_result(&result)
+        );
     }
 
     println!("\n  Invalid BanTargets:");
     for target in &invalid_targets {
         let result = validate_ban_target(target);
-        println!("    {:<35} -> {}", format!("{:?}", target), format_result(&result));
+        println!(
+            "    {:<35} -> {}",
+            format!("{:?}", target),
+            format_result(&result)
+        );
     }
     println!();
 }

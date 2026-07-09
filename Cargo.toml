@@ -2,6 +2,7 @@
 members = [
     ".",
     "macros",
+    "examples",
 ]
 resolver = "2"
 exclude = [
@@ -15,7 +16,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.75"
 authors = ["Kirky.X"]
@@ -87,7 +88,7 @@ oxcache = { version = "0.3", default-features = false, features = ["core"] }
 dbnexus = { version = "0.2", default-features = false, features = ["postgres", "macros", "sql-parser", "permission"] }
 
 # 宏
-limiteron-macros = { path = "macros", version = "0.2.1" }
+limiteron-macros = { path = "macros", version = "0.2.2" }
 
 # 监控
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -203,7 +204,7 @@ http = { workspace = true, optional = true }
 # constraint is kept so the published artifact resolves the same.
 # Mirrors oxcache's pattern (Phase 2 of trait-kit-async-integration).
 [dependencies.trait-kit]
-version = "0.2.2"
+version = "0.2.3"
 path = "../trait-kit"
 features = ["async"]
 optional = true

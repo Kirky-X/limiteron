@@ -16,9 +16,7 @@
 //! ```
 
 use async_trait::async_trait;
-use limiteron::authorization::{
-    AuthorizationProvider, SimpleAuthorizationProvider,
-};
+use limiteron::authorization::{AuthorizationProvider, SimpleAuthorizationProvider};
 use limiteron::error::FlowGuardError;
 use std::sync::Arc;
 
@@ -39,10 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn demo_simple_provider() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- 1. SimpleAuthorizationProvider ---\n");
 
-    let provider = SimpleAuthorizationProvider::new(vec![
-        "admin".to_string(),
-        "moderator".to_string(),
-    ]);
+    let provider =
+        SimpleAuthorizationProvider::new(vec!["admin".to_string(), "moderator".to_string()]);
 
     println!("  Authorized roles: {:?}", provider.authorized_roles());
 
@@ -80,16 +76,31 @@ fn demo_role_management() -> Result<(), Box<dyn std::error::Error>> {
     provider.add_role("auditor".to_string());
     // 重复添加不会生效
     provider.add_role("superuser".to_string());
-    println!("\n  After add_role(superuser, auditor): {:?}", provider.authorized_roles());
+    println!(
+        "\n  After add_role(superuser, auditor): {:?}",
+        provider.authorized_roles()
+    );
 
-    println!("  is_authorized('admin')={}", provider.is_authorized("admin"));
-    println!("  is_authorized('superuser')={}", provider.is_authorized("superuser"));
-    println!("  is_authorized('guest')={}", provider.is_authorized("guest"));
+    println!(
+        "  is_authorized('admin')={}",
+        provider.is_authorized("admin")
+    );
+    println!(
+        "  is_authorized('superuser')={}",
+        provider.is_authorized("superuser")
+    );
+    println!(
+        "  is_authorized('guest')={}",
+        provider.is_authorized("guest")
+    );
 
     // 移除角色
     let removed = provider.remove_role("auditor");
     println!("\n  remove_role('auditor')={}", removed);
-    println!("  remove_role('nonexistent')={}", provider.remove_role("nonexistent"));
+    println!(
+        "  remove_role('nonexistent')={}",
+        provider.remove_role("nonexistent")
+    );
     println!("  Final roles: {:?}", provider.authorized_roles());
     println!();
     Ok(())
@@ -109,7 +120,10 @@ async fn demo_custom_provider() -> Result<(), Box<dyn std::error::Error>> {
             let mut rules = ahash::AHashMap::new();
             rules.insert("create_ban".to_string(), vec!["admin".to_string()]);
             rules.insert("remove_ban".to_string(), vec!["admin".to_string()]);
-            rules.insert("view_ban".to_string(), vec!["admin".to_string(), "auditor".to_string()]);
+            rules.insert(
+                "view_ban".to_string(),
+                vec!["admin".to_string(), "auditor".to_string()],
+            );
             Self { rules }
         }
     }
@@ -138,10 +152,18 @@ async fn demo_custom_provider() -> Result<(), Box<dyn std::error::Error>> {
 
     let provider = OperationRoleProvider::new();
 
-    let r1 = provider.check_authorization("create_ban", "admin", "ip-1").await;
-    let r2 = provider.check_authorization("view_ban", "auditor", "ip-2").await;
-    let r3 = provider.check_authorization("create_ban", "auditor", "ip-3").await;
-    let r4 = provider.check_authorization("delete_all", "admin", "ip-4").await;
+    let r1 = provider
+        .check_authorization("create_ban", "admin", "ip-1")
+        .await;
+    let r2 = provider
+        .check_authorization("view_ban", "auditor", "ip-2")
+        .await;
+    let r3 = provider
+        .check_authorization("create_ban", "auditor", "ip-3")
+        .await;
+    let r4 = provider
+        .check_authorization("delete_all", "admin", "ip-4")
+        .await;
 
     println!("  admin create_ban:  {}", format_result(&r1));
     println!("  auditor view_ban:  {}", format_result(&r2));
@@ -156,9 +178,10 @@ async fn demo_dependency_injection() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- 4. Dependency Injection ---\n");
 
     // 使用 trait 对象实现多态
-    let provider: Arc<dyn AuthorizationProvider> = Arc::new(SimpleAuthorizationProvider::from_roles([
-        "admin".to_string(),
-    ]));
+    let provider: Arc<dyn AuthorizationProvider> =
+        Arc::new(SimpleAuthorizationProvider::from_roles([
+            "admin".to_string()
+        ]));
 
     // 模拟一个服务，注入授权提供者
     let ban_service = BanService { auth: provider };

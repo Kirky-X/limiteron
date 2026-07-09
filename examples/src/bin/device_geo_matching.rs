@@ -32,8 +32,7 @@
 //! - 若 GeoLite2 数据库不存在，GeoMatcher 部分将跳过实际 IP 查询演示
 
 use limiteron::matchers::device::{
-    DeviceCacheStats, DeviceCondition, DeviceInfo, DeviceMatcher, DeviceMatcherBuilder,
-    DeviceType,
+    DeviceCacheStats, DeviceCondition, DeviceInfo, DeviceMatcher, DeviceMatcherBuilder, DeviceType,
 };
 use limiteron::matchers::geo::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
 use std::net::IpAddr;
@@ -74,10 +73,7 @@ fn demo_device_type_enum() {
         "parse('mobile')={:?}, parse('desktop')={:?}, parse('tablet')={:?}",
         mobile, desktop, tablet
     );
-    println!(
-        "parse('api')={:?}, parse('invalid')={:?}",
-        api, unknown
-    );
+    println!("parse('api')={:?}, parse('invalid')={:?}", api, unknown);
 
     // as_str 转换为字符串
     println!(
@@ -197,8 +193,7 @@ fn demo_device_condition() {
     println!("device_types([Mobile, Tablet]) 匹配 Mobile: true, Desktop: false");
 
     // browsers 条件
-    let browser_cond =
-        DeviceCondition::browsers(vec!["Safari".to_string(), "Chrome".to_string()]);
+    let browser_cond = DeviceCondition::browsers(vec!["Safari".to_string(), "Chrome".to_string()]);
     let safari_info = DeviceInfo {
         device_type: DeviceType::Mobile,
         browser: Some("Safari".to_string()),
@@ -244,7 +239,10 @@ fn demo_device_condition() {
     // Default trait
     let default_cond = DeviceCondition::default();
     assert!(default_cond.is_empty());
-    println!("DeviceCondition::default() is_empty={}", default_cond.is_empty());
+    println!(
+        "DeviceCondition::default() is_empty={}",
+        default_cond.is_empty()
+    );
 
     println!();
 }
@@ -269,10 +267,7 @@ async fn demo_device_matcher() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n单条解析:");
     for ua in &user_agents {
         let info = matcher.parse(ua).await?;
-        println!(
-            "  UA: {}",
-            if ua.len() > 60 { &ua[..60] } else { ua }
-        );
+        println!("  UA: {}", if ua.len() > 60 { &ua[..60] } else { ua });
         println!(
             "    -> type={:?}, browser={:?}, os={:?}, desc='{}'",
             info.device_type,
@@ -575,7 +570,10 @@ async fn demo_geo_matcher() -> Result<(), Box<dyn std::error::Error>> {
         let result = GeoMatcher::new("nonexistent.mmdb").await;
         match result {
             Ok(_) => println!("意外: 不存在的文件路径创建成功"),
-            Err(e) => println!("GeoMatcher::new('nonexistent.mmdb') 返回错误（符合预期）: {}", e),
+            Err(e) => println!(
+                "GeoMatcher::new('nonexistent.mmdb') 返回错误（符合预期）: {}",
+                e
+            ),
         }
 
         // 仍然演示静态方法 matches
@@ -614,7 +612,9 @@ async fn demo_geo_matcher() -> Result<(), Box<dyn std::error::Error>> {
     let info = matcher.lookup(ip).await?;
     println!(
         "lookup(114.114.114.114): country={:?}, city={:?}, desc='{}'",
-        info.country_code, info.city, info.description()
+        info.country_code,
+        info.city,
+        info.description()
     );
 
     // batch_lookup 批量查询
@@ -627,10 +627,7 @@ async fn demo_geo_matcher() -> Result<(), Box<dyn std::error::Error>> {
     println!("批量查询 {} 个 IP:", results.len());
     for (i, result) in results.iter().enumerate() {
         match result {
-            Ok(info) => println!(
-                "  [{}] {} -> {}",
-                i, ips[i], info.description()
-            ),
+            Ok(info) => println!("  [{}] {} -> {}", i, ips[i], info.description()),
             Err(e) => println!("  [{}] {} -> 错误: {}", i, ips[i], e),
         }
     }

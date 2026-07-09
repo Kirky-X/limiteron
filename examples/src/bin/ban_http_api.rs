@@ -198,10 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "operator": "demo-admin",
             "reason": "示例解封"
         });
-        let url = format!(
-            "{}/api/v1/ban/{}?type={}",
-            base_url, value, target_type
-        );
+        let url = format!("{}/api/v1/ban/{}?type={}", base_url, value, target_type);
         let resp = client
             .delete(&url)
             .bearer_auth(API_KEY)

@@ -106,10 +106,7 @@ async fn demo_init_telemetry() -> Result<(), Box<dyn std::error::Error>> {
         .with_sampling_rate(0.1)
         .with_jaeger("http://localhost:14268/api/traces");
     let (_metrics2, tracer2) = init_telemetry(&tracing_config).await?;
-    println!(
-        "启用追踪后: tracer_enabled={}",
-        tracer2.is_enabled()
-    );
+    println!("启用追踪后: tracer_enabled={}", tracer2.is_enabled());
     assert!(tracer2.is_enabled(), "启用追踪后 tracer 应为 enabled");
 
     // 验证 Metrics 可用

@@ -1321,9 +1321,9 @@ mod mock_storage_tests {
         let record = BanRecord {
             target: target.clone(),
             ban_times: 1,
-            duration: Duration::from_millis(100),
+            duration: Duration::from_millis(1000),
             banned_at: chrono::Utc::now(),
-            expires_at: chrono::Utc::now() + chrono::Duration::milliseconds(100),
+            expires_at: chrono::Utc::now() + chrono::Duration::milliseconds(1000),
             is_manual: false,
             reason: "test".to_string(),
         };
@@ -1334,7 +1334,7 @@ mod mock_storage_tests {
         assert!(banned.is_some());
 
         // 等待过期
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        tokio::time::sleep(Duration::from_millis(1100)).await;
 
         let banned = storage.is_banned(&target).await.unwrap();
         assert!(banned.is_none());

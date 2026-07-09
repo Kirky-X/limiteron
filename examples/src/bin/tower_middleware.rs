@@ -72,8 +72,14 @@ fn demo_config_builder() {
     // 默认配置
     let default_config = RateLimitConfig::default();
     println!("\n  Default config:");
-    println!("    return_429_on_reject: {}", default_config.return_429_on_reject);
-    println!("    health_check_paths:   {:?}", default_config.health_check_paths);
+    println!(
+        "    return_429_on_reject: {}",
+        default_config.return_429_on_reject
+    );
+    println!(
+        "    health_check_paths:   {:?}",
+        default_config.health_check_paths
+    );
     println!();
 }
 
@@ -89,8 +95,7 @@ async fn demo_layer_creation() {
     println!("  Layer created with new() (default converter)");
 
     // 方式 2：使用自定义转换器
-    let layer_with_converter =
-        RateLimitLayer::with_converter(governor, config, CustomConverter);
+    let layer_with_converter = RateLimitLayer::with_converter(governor, config, CustomConverter);
     println!("  Layer created with with_converter() (custom converter)");
     let _ = layer_with_converter;
     let _ = layer;
@@ -203,12 +208,10 @@ impl<B> Service<Request<B>> for OkService {
 
     fn call(&mut self, req: Request<B>) -> Self::Future {
         let path = req.uri().path().to_string();
-        std::future::ready(Ok(
-            Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", "text/plain")
-                .body(format!("OK: {}", path))
-                .expect("response should build"),
-        ))
+        std::future::ready(Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header("Content-Type", "text/plain")
+            .body(format!("OK: {}", path))
+            .expect("response should build")))
     }
 }

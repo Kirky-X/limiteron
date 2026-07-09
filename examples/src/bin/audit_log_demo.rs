@@ -123,7 +123,10 @@ async fn demo_event_types() {
         .log_config_change(
             "v1.0.0".to_string(),
             "v1.1.0".to_string(),
-            vec!["updated rate limit".to_string(), "added new rule".to_string()],
+            vec![
+                "updated rate limit".to_string(),
+                "added new rule".to_string(),
+            ],
             Some("admin@example.com".to_string()),
         )
         .await;
@@ -207,7 +210,10 @@ fn demo_signature_verification() -> Result<(), Box<dyn std::error::Error>> {
     let signed_entry = AuditLogEntry::with_signature(event.clone(), signing_key);
     println!("\n  Signed entry:");
     println!("    has signature: {}", signed_entry.signature.is_some());
-    println!("    signature version: {:?}", signed_entry.signature_version);
+    println!(
+        "    signature version: {:?}",
+        signed_entry.signature_version
+    );
 
     // 验证签名
     let verify_result = signed_entry.verify(signing_key);
@@ -268,7 +274,10 @@ async fn demo_stats() {
     println!("    Batch writes:          {}", stats.batch_writes());
     println!("    Write failures:        {}", stats.write_failures());
     println!("    Signature failures:    {}", stats.signature_failures());
-    println!("    Verification failures: {}", stats.verification_failures());
+    println!(
+        "    Verification failures: {}",
+        stats.verification_failures()
+    );
 
     // 重置统计
     stats.reset();

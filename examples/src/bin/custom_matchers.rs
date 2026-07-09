@@ -40,11 +40,9 @@ async fn demo_builtin_matchers() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- 1. Built-in HeaderMatcher & TimeWindowMatcher ---\n");
 
     // HeaderMatcher：匹配 X-Api-Version 头的值
-    let header_matcher = HeaderMatcher::new(
-        "X-Api-Version",
-        vec!["v1".to_string(), "v2".to_string()],
-    )?
-    .with_case_sensitive(false);
+    let header_matcher =
+        HeaderMatcher::new("X-Api-Version", vec!["v1".to_string(), "v2".to_string()])?
+            .with_case_sensitive(false);
 
     let ctx_v1 = RequestContext::new().with_header("X-Api-Version", "v1");
     let ctx_v3 = RequestContext::new().with_header("X-Api-Version", "v3");
@@ -52,7 +50,11 @@ async fn demo_builtin_matchers() -> Result<(), Box<dyn std::error::Error>> {
     let m1 = header_matcher.matches(&ctx_v1).await?;
     let m2 = header_matcher.matches(&ctx_v3).await?;
     println!("  HeaderMatcher: 'v1' matches={}, 'v3' matches={}", m1, m2);
-    println!("    header_name={}, allowed={:?}", header_matcher.header_name(), header_matcher.allowed_values());
+    println!(
+        "    header_name={}, allowed={:?}",
+        header_matcher.header_name(),
+        header_matcher.allowed_values()
+    );
 
     // HeaderMatcher Builder 模式
     let built = HeaderMatcher::builder()
@@ -151,10 +153,8 @@ async fn demo_registry_management() -> Result<(), Box<dyn std::error::Error>> {
     let registry = CustomMatcherRegistry::new();
 
     // 注册 HeaderMatcher
-    let header_matcher = HeaderMatcher::new(
-        "X-Role",
-        vec!["admin".to_string(), "superuser".to_string()],
-    )?;
+    let header_matcher =
+        HeaderMatcher::new("X-Role", vec!["admin".to_string(), "superuser".to_string()])?;
     registry
         .register("role-check".to_string(), Box::new(header_matcher))
         .await?;
@@ -167,8 +167,14 @@ async fn demo_registry_management() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("  Registered matchers: {:?}", registry.list().await);
     println!("  Registry count: {}", registry.count().await);
-    println!("  Contains 'role-check': {}", registry.contains("role-check").await);
-    println!("  Contains 'unknown': {}", registry.contains("unknown").await);
+    println!(
+        "  Contains 'role-check': {}",
+        registry.contains("role-check").await
+    );
+    println!(
+        "  Contains 'unknown': {}",
+        registry.contains("unknown").await
+    );
 
     // 使用 match_with 执行匹配
     let ctx = RequestContext::new()

@@ -112,7 +112,10 @@ async fn demo_short_circuit() -> Result<(), Box<dyn std::error::Error>> {
         match &decision {
             limiteron::Decision::Allowed(_) => println!("  Request {}: ✅ Allowed", i),
             limiteron::Decision::Rejected(m) => {
-                println!("  Request {}: ❌ Rejected ({} - short-circuited)", i, m.reason);
+                println!(
+                    "  Request {}: ❌ Rejected ({} - short-circuited)",
+                    i, m.reason
+                );
             }
             limiteron::Decision::Banned(_) => println!("  Request {}: 🚫 Banned", i),
         }
@@ -150,7 +153,11 @@ async fn demo_dynamic_control() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut chain = DecisionChain::with_dependencies(vec![strict_node, loose_node]);
 
-    println!("  Initial: {} nodes, {} enabled", chain.node_count(), chain.enabled_node_count());
+    println!(
+        "  Initial: {} nodes, {} enabled",
+        chain.node_count(),
+        chain.enabled_node_count()
+    );
 
     // 禁用 strict 节点
     let disabled = chain.disable_node("strict");
@@ -173,7 +180,10 @@ async fn demo_dynamic_control() -> Result<(), Box<dyn std::error::Error>> {
 
     // 关闭 strict 节点的短路行为
     let short_circuit_set = chain.set_short_circuit("strict", false);
-    println!("  Set 'strict' short_circuit=false: success={}", short_circuit_set);
+    println!(
+        "  Set 'strict' short_circuit=false: success={}",
+        short_circuit_set
+    );
 
     let stats = chain.stats_sync();
     println!("\n  Stats: total_checks={}", stats.total_checks);
@@ -201,7 +211,10 @@ async fn demo_chain_stats() -> Result<(), Box<dyn std::error::Error>> {
     )
     .with_cost(1);
 
-    let chain = DecisionChain::builder().add_node(node1).add_node(node2).build();
+    let chain = DecisionChain::builder()
+        .add_node(node1)
+        .add_node(node2)
+        .build();
 
     // 发送 5 个请求
     for _ in 0..5 {

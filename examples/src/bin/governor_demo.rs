@@ -102,11 +102,7 @@ async fn demo_builder_pattern() -> Result<(), Box<dyn std::error::Error>> {
 
     for i in 0..7 {
         let decision = governor.check(&context).await?;
-        println!(
-            "  Request {}: {}",
-            i,
-            format_decision(&decision)
-        );
+        println!("  Request {}: {}", i, format_decision(&decision));
     }
     println!();
     Ok(())
@@ -131,7 +127,10 @@ async fn demo_decision_parsing() -> Result<(), Box<dyn std::error::Error>> {
 
     match &decision {
         Decision::Allowed(metadata) => {
-            println!("  Allowed: limit={}, remaining={}", metadata.limit, metadata.remaining);
+            println!(
+                "  Allowed: limit={}, remaining={}",
+                metadata.limit, metadata.remaining
+            );
         }
         Decision::Rejected(metadata) => {
             println!(

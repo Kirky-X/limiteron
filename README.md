@@ -5,7 +5,7 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.2.1-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.2.2-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust Version">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License">
   <a href="https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml"><img src="https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -555,6 +555,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 **[📂 查看所有示例 →](examples/)**
 
 </div>
+
+> **注意**：`limiteron-examples` 已设为 `publish = false` 并纳入 workspace 管理。
 
 ---
 

@@ -11,5 +11,6 @@ pub mod circuit_breaker_fallback;
 pub mod config;
 pub mod governor_limiters;
 pub mod matcher_limiter;
+#[cfg(feature = "quota-control")]
 pub mod quota_alert;
 pub mod real_storage;

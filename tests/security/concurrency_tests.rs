@@ -4,6 +4,7 @@
 //! - 竞争条件测试（限流器竞争条件、封禁状态竞争条件、配额消费竞争条件）
 //! - 死锁测试（多锁场景死锁检测、超时恢复验证）
 
+#[allow(unused_imports)]
 use crate::common::{create_ban_record, MockBanStorage, MockQuotaStorage};
 use limiteron::limiters::{
     FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter,

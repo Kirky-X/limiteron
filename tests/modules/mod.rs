@@ -34,6 +34,7 @@ pub mod l1_cache;
 pub mod limiters;
 #[allow(unused_imports)]
 pub mod matchers;
+#[cfg(feature = "quota-control")]
 #[allow(unused_imports)]
 pub mod quota;
 #[allow(unused_imports)]
@@ -71,6 +72,7 @@ pub use l1_cache::*;
 pub use limiters::*;
 #[allow(unused_imports)]
 pub use matchers::*;
+#[cfg(feature = "quota-control")]
 #[allow(unused_imports)]
 pub use quota::*;
 #[allow(unused_imports)]

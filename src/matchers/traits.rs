@@ -243,6 +243,7 @@ pub trait IdentifierExtractor: Send + Sync {
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
 
     #[cfg(feature = "ban-manager")]

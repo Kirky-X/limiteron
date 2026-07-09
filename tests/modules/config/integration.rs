@@ -714,6 +714,7 @@ async fn test_modify_clone_without_affecting_original() {
 // 测试 23: 嵌套结构深度克隆
 // ============================================================================
 
+#[cfg(feature = "quota-control")]
 #[tokio::test]
 async fn test_deep_clone_nested_structures() {
     let original = FlowControlConfig {

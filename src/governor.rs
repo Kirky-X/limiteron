@@ -3345,7 +3345,7 @@ mod governor_construction_tests {
 // ============================================================================
 
 #[cfg(test)]
-#[allow(clippy::field_reassign_with_default)]
+#[allow(clippy::field_reassign_with_default, dead_code, unused_imports)]
 mod governor_feature_gated_tests {
     use super::*;
     use crate::storage::{MemoryBanStorage, MemoryStorage};

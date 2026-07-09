@@ -786,7 +786,7 @@ impl Governor {
         }
         #[cfg(all(not(feature = "monitoring"), feature = "telemetry"))]
         {
-            Self::with_storage(config, storage, ban_storage, None, None).await
+            Self::with_storage(config, storage, ban_storage, None).await
         }
         #[cfg(all(not(feature = "monitoring"), not(feature = "telemetry")))]
         {
@@ -1182,7 +1182,7 @@ impl Governor {
                 )));
             }
 
-            return Ok(Decision::allowed_default());
+            Ok(Decision::allowed_default())
         }
 
         #[cfg(not(feature = "ban-manager"))]
@@ -3983,6 +3983,7 @@ mod governor_feature_gated_tests {
 
     /// 覆盖 update_stats_for_decision 中 Banned 分支 (line 1050)
     /// 通过在 L1 缓存中手动放入 Banned 决策，然后调用 check_l1_cache_only 触发
+    #[cfg(feature = "fallback")]
     #[tokio::test]
     async fn test_check_l1_cache_only_cached_banned_updates_stats() {
         use crate::error::BanInfo;

@@ -25,9 +25,11 @@
 use crate::ban::{BanManager, BanSource};
 use crate::error::FlowGuardError;
 use crate::storage::BanTarget;
+#[cfg(feature = "config-watcher")]
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+#[cfg(feature = "config-watcher")]
 use std::sync::Arc;
 use std::time::Duration;
 

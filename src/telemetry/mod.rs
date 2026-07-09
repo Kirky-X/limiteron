@@ -40,7 +40,9 @@ pub use monitoring::{
     AlertConfig, AlertLevel, AlertThresholdF64, AlertThresholdU64, MetricsSnapshot,
 };
 
-use log::{error, info, warn};
+#[cfg(feature = "monitoring")]
+use log::error;
+use log::{info, warn};
 #[cfg(feature = "monitoring")]
 use prometheus::{Counter, Encoder, Gauge, Histogram, HistogramOpts, Registry, TextEncoder};
 use std::sync::Arc;
@@ -114,6 +116,7 @@ pub struct Metrics {
 }
 
 /// 全局指标实例
+#[cfg(feature = "monitoring")]
 static GLOBAL_METRICS: std::sync::OnceLock<Arc<Metrics>> = std::sync::OnceLock::new();
 
 /// 设置全局指标实例

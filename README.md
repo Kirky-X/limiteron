@@ -209,12 +209,12 @@ async fn web_app() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 use limiteron::ban_manager::{BanManager, BanTarget};
-use limiteron::storage::MockBanStorage;
+use limiteron::storage::MemoryBanStorage;
 use std::sync::Arc;
 
 async fn web_app_test() -> Result<(), Box<dyn std::error::Error>> {
     // 创建存储和封禁管理器
-    let storage = Arc::new(MockBanStorage::default());
+    let storage = Arc::new(MemoryBanStorage::default());
     let ban_manager = BanManager::new().await?;
 
     // 检查用户是否被封禁
@@ -246,7 +246,7 @@ async fn web_app_test() -> Result<(), Box<dyn std::error::Error>> {
 
 ```toml
 [dependencies]
-limiteron = { version = "0.3", features = ["macros"] }
+limiteron = { version = "0.2.2", features = ["macros"] }
 ```
 
 </td>
@@ -256,7 +256,7 @@ limiteron = { version = "0.3", features = ["macros"] }
 
 ```toml
 [dependencies]
-limiteron = { version = "0.3", features = ["postgres", "ban-manager", "macros"] }
+limiteron = { version = "0.2.2", features = ["postgres", "ban-manager", "macros"] }
 ```
 
 </td>
@@ -280,13 +280,13 @@ Limiteron 使用 feature flags 来控制功能启用，默认只启用内存存�
 **预定义组合**
 ```toml
 # 最小化：仅核心限流
-limiteron = { version = "0.3", features = ["minimal"] }
+limiteron = { version = "0.2.2", features = ["minimal"] }
 
 # 标准：核心 + 基础高级功能
-limiteron = { version = "0.3", features = ["standard"] }
+limiteron = { version = "0.2.2", features = ["standard"] }
 
 # 完整：所有功能
-limiteron = { version = "0.3", features = ["full"] }
+limiteron = { version = "0.2.2", features = ["full"] }
 ```
 
 </td>
@@ -295,13 +295,13 @@ limiteron = { version = "0.3", features = ["full"] }
 **单独特性**
 ```toml
 # 存储后端
-limiteron = { version = "0.3", features = ["postgres"] }
+limiteron = { version = "0.2.2", features = ["postgres"] }
 
 # 高级功能
-limiteron = { version = "0.3", features = ["ban-manager", "quota-control", "circuit-breaker"] }
+limiteron = { version = "0.2.2", features = ["ban-manager", "quota-control", "circuit-breaker"] }
 
 # 宏支持
-limiteron = { version = "0.3", features = ["macros"] }
+limiteron = { version = "0.2.2", features = ["macros"] }
 ```
 
 </td>
@@ -361,7 +361,7 @@ limiteron = { version = "0.3", features = ["macros"] }
 
 ```toml
 [dependencies]
-limiteron = { version = "0.3", features = ["macros"] }
+limiteron = { version = "0.2.2", features = ["macros"] }
 ```
 
 </td>
@@ -764,7 +764,7 @@ let config = ConfigLoader::load_from_file("config.toml")?;
 **ConfigBuilder（编程方式）**
 
 ```rust
-use limiteron::ConfigBuilder;
+use limiteron::config::ConfigBuilder;
 
 let config = ConfigBuilder::new()
     .with_storage("memory")
@@ -784,7 +784,7 @@ let config = ConfigBuilder::new()
 | 测试类型 | 测试数量 | 状态 |
 |---------|---------|------|
 | 单元测试 | 1700+ | ✅ 通过 |
-| 集成测试 | 161 | ✅ 通过 |
+| 集成测试 | 328 | ✅ 通过 |
 | 文档测试 | 145+ | ✅ 通过 |
 
 ```bash

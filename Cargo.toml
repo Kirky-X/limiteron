@@ -324,7 +324,7 @@ telemetry = [
     "dep:tracing-opentelemetry",
     "dep:scopeguard",
 ]
-monitoring = ["dep:prometheus"]
+monitoring = ["dep:prometheus", "dep:scopeguard"]
 # metrics 特性传递给 dbnexus 以启用 record_metric 方法
 metrics = ["dbnexus/metrics"]
 audit-log = ["telemetry", "dep:hmac", "dep:sha2", "dep:hex"]

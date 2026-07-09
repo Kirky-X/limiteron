@@ -148,9 +148,7 @@ async fn demo_gcra() -> Result<(), FlowGuardError> {
     let limiter = GcraLimiter::with_rate(3, 10);
 
     // GCRA's check() returns a rich result (sync, not async)
-    let results: Vec<_> = (0..5)
-        .map(|_| limiter.check(1))
-        .collect();
+    let results: Vec<_> = (0..5).map(|_| limiter.check(1)).collect();
 
     for (i, r) in results.iter().enumerate() {
         println!(

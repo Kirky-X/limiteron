@@ -45,8 +45,7 @@ fn demo_config_builders() {
     println!("--- 1. StorageFactoryConfig Builders ---\n");
 
     // Postgres 配置
-    let pg_config =
-        StorageFactoryConfig::postgres("postgres://user:pass@localhost:5432/limiteron");
+    let pg_config = StorageFactoryConfig::postgres("postgres://user:pass@localhost:5432/limiteron");
     println!("  Postgres config:");
     println!("    type: {:?}", StorageType::DBNexusPostgres);
     println!("    connection_string: {}", pg_config.connection_string);
@@ -60,7 +59,10 @@ fn demo_config_builders() {
     println!("\n  MySQL config (customized):");
     println!("    connection_string: {}", mysql_config.connection_string);
     println!("    pool_size: {}", mysql_config.pool_size);
-    println!("    connection_timeout: {}s", mysql_config.connection_timeout);
+    println!(
+        "    connection_timeout: {}s",
+        mysql_config.connection_timeout
+    );
     println!("    idle_timeout: {}s", mysql_config.idle_timeout);
 
     // SQLite 配置
@@ -72,12 +74,18 @@ fn demo_config_builders() {
     let default_config = StorageFactoryConfig::default();
     println!("\n  Default config:");
     println!("    pool_size: {}", default_config.pool_size);
-    println!("    connection_timeout: {}s", default_config.connection_timeout);
+    println!(
+        "    connection_timeout: {}s",
+        default_config.connection_timeout
+    );
     println!("    idle_timeout: {}s", default_config.idle_timeout);
 
     // StorageType 枚举方法
     println!("\n  StorageType methods:");
-    println!("    DBNexusPostgres.as_str() = {:?}", StorageType::DBNexusPostgres.as_str());
+    println!(
+        "    DBNexusPostgres.as_str() = {:?}",
+        StorageType::DBNexusPostgres.as_str()
+    );
     println!(
         "    StorageType::parse('postgres') = {:?}",
         StorageType::parse("postgres")
@@ -103,8 +111,7 @@ async fn demo_factory_creation() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- 2. StorageFactory Creation & Initialization ---\n");
 
     // 方式 1：从配置创建
-    let config =
-        StorageFactoryConfig::postgres("postgres://user:pass@localhost:5432/limiteron");
+    let config = StorageFactoryConfig::postgres("postgres://user:pass@localhost:5432/limiteron");
     let mut factory = StorageFactory::new(config);
     println!("  Factory created from config");
     println!("    is_initialized: {}", factory.is_initialized());
@@ -118,10 +125,7 @@ async fn demo_factory_creation() -> Result<(), Box<dyn std::error::Error>> {
         "    config connection: {}",
         factory_from_dsn.config().connection_string
     );
-    println!(
-        "    is_initialized: {}",
-        factory_from_dsn.is_initialized()
-    );
+    println!("    is_initialized: {}", factory_from_dsn.is_initialized());
 
     // 尝试初始化（需要真实数据库，此处预期失败）
     let init_result = factory.initialize(None).await;
@@ -143,9 +147,7 @@ async fn demo_factory_creation() -> Result<(), Box<dyn std::error::Error>> {
         // create_all 一次性创建所有存储
         match factory.create_all().await {
             Ok((storage, ban_storage, quota_storage)) => {
-                println!(
-                    "  create_all: ✅ created storage + ban_storage + quota_storage"
-                );
+                println!("  create_all: ✅ created storage + ban_storage + quota_storage");
                 let _ = (storage, ban_storage, quota_storage);
             }
             Err(e) => println!("  create_all: ❌ {}", e),

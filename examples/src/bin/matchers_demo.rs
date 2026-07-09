@@ -46,8 +46,14 @@ fn demo_extractors() -> Result<(), Box<dyn std::error::Error>> {
     // UserIdExtractor：从 X-User-Id 头提取
     let user_extractor = UserIdExtractor::from_header("X-User-Id");
     let ctx = RequestContext::new().with_header("X-User-Id", "user-001");
-    let identifier = user_extractor.extract(&ctx).expect("should extract user id");
-    println!("  UserIdExtractor: {} = {}", identifier.type_name(), identifier.as_str());
+    let identifier = user_extractor
+        .extract(&ctx)
+        .expect("should extract user id");
+    println!(
+        "  UserIdExtractor: {} = {}",
+        identifier.type_name(),
+        identifier.as_str()
+    );
     println!("  Composite key: {}", identifier.key());
 
     // IpExtractor：从 X-Forwarded-For 头提取
@@ -56,25 +62,40 @@ fn demo_extractors() -> Result<(), Box<dyn std::error::Error>> {
         .with_header("X-Forwarded-For", "203.0.113.50")
         .with_client_ip("203.0.113.50");
     let identifier = ip_extractor.extract(&ctx).expect("should extract ip");
-    println!("\n  IpExtractor: {} = {}", identifier.type_name(), identifier.as_str());
+    println!(
+        "\n  IpExtractor: {} = {}",
+        identifier.type_name(),
+        identifier.as_str()
+    );
 
     // ApiKeyExtractor：从 Authorization 头提取（自动剥离 Bearer 前缀）
     let api_key_extractor = ApiKeyExtractor::from_authorization_header();
     let ctx = RequestContext::new().with_header("Authorization", "Bearer abc123secret");
-    let identifier = api_key_extractor.extract(&ctx).expect("should extract api key");
-    println!("\n  ApiKeyExtractor: {} = {}", identifier.type_name(), identifier.as_str());
+    let identifier = api_key_extractor
+        .extract(&ctx)
+        .expect("should extract api key");
+    println!(
+        "\n  ApiKeyExtractor: {} = {}",
+        identifier.type_name(),
+        identifier.as_str()
+    );
 
     // MacExtractor：从 X-Mac-Address 头提取（带格式验证）
     let mac_extractor = MacExtractor::from_header("X-Mac-Address");
     let ctx = RequestContext::new().with_header("X-Mac-Address", "00:1A:2B:3C:4D:5E");
     let identifier = mac_extractor.extract(&ctx).expect("should extract mac");
-    println!("\n  MacExtractor: {} = {}", identifier.type_name(), identifier.as_str());
+    println!(
+        "\n  MacExtractor: {} = {}",
+        identifier.type_name(),
+        identifier.as_str()
+    );
 
     // DeviceIdExtractor：从 X-Device-Id 头提取
-    let device_extractor =
-        limiteron::matchers::DeviceIdExtractor::from_header("X-Device-Id");
+    let device_extractor = limiteron::matchers::DeviceIdExtractor::from_header("X-Device-Id");
     let ctx = RequestContext::new().with_header("X-Device-Id", "device-abc-123");
-    let identifier = device_extractor.extract(&ctx).expect("should extract device id");
+    let identifier = device_extractor
+        .extract(&ctx)
+        .expect("should extract device id");
     println!(
         "\n  DeviceIdExtractor: {} = {}",
         identifier.type_name(),
@@ -157,7 +178,9 @@ fn demo_rule_matcher() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Rule count: {}", matcher.rule_count());
 
     // 测试 1：匹配 admin 路径
-    let ctx = RequestContext::new().with_path("/admin/settings").with_method("GET");
+    let ctx = RequestContext::new()
+        .with_path("/admin/settings")
+        .with_method("GET");
     let matched = matcher.matches(&ctx);
     println!(
         "\n  Path '/admin/settings' matched rule: {:?}",
@@ -221,6 +244,9 @@ fn demo_matcher_stats() {
     // 重置统计
     matcher.reset_stats();
     let after_reset = matcher.stats();
-    println!("\n  After reset: matches={}, mismatches={}", after_reset.total_matches, after_reset.total_mismatches);
+    println!(
+        "\n  After reset: matches={}, mismatches={}",
+        after_reset.total_matches, after_reset.total_mismatches
+    );
     println!();
 }

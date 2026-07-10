@@ -122,6 +122,11 @@ pub mod validation;
 #[cfg(feature = "webhook")]
 pub(crate) mod webhook_validator;
 
+// ICU4X 国际化格式化 (feature-gated). 提供 locale 感知的限流消息/数字/日期/复数/排序格式化。
+// Mirrors trait-kit/oxcache i18n pattern.
+#[cfg(feature = "i18n")]
+pub mod i18n;
+
 // External integrations (feature-gated). Each integration lives under
 // `integrations/` and is gated by its own feature so the core limiteron
 // library stays dependency-free when integrations are not needed.

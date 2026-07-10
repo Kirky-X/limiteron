@@ -26,3 +26,18 @@ pub use redaction::{
 
 #[cfg(feature = "ban-manager")]
 pub use redaction::redact_ban_target;
+
+#[cfg(test)]
+mod tests {
+    /// Smoke test: when the `inklog` feature is disabled, the bare `log` and
+    /// `tracing` macros must still compile and execute without panic. This
+    /// guards against accidental breakage of the default logging path.
+    #[test]
+    fn log_and_tracing_macros_work_without_inklog() {
+        log::info!("default log path");
+        log::warn!("default log warn");
+        log::error!("default log error");
+        tracing::info!(target: "limiteron", "default tracing path");
+        tracing::warn!(target: "limiteron", "default tracing warn");
+    }
+}

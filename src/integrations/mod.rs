@@ -3,5 +3,8 @@
 //! Integrations are feature-gated so the core limiteron library stays
 //! dependency-free when integrations are not needed.
 
+#[cfg(feature = "inklog")]
+pub mod inklog;
+
 #[cfg(feature = "kit")]
 pub mod kit;

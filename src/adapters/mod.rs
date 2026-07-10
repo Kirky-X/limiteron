@@ -14,7 +14,7 @@
 //! - **Complete trait implementations** - Storage, BanStorage, QuotaStorage
 //! - **DBNexus integration** - Uses DBNexus entities and connection pooling
 //! - **Async/await** - All operations are asynchronous
-//! - **Thread-safe** - Uses Arc<dyn Trait> pattern for thread safety
+//! - **Thread-safe** - Uses `Arc<dyn Trait>` pattern for thread safety
 //!
 //! # Usage
 //!

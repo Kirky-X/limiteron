@@ -203,7 +203,7 @@ http = { workspace = true, optional = true }
 # trait-kit 0.2.3 is published to crates.io.
 # Mirrors oxcache's pattern (Phase 2 of trait-kit-async-integration).
 [dependencies.trait-kit]
-version = "0.2.3"
+version = "0.2.2"
 features = ["async"]
 optional = true
 default-features = false

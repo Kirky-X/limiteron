@@ -17,10 +17,10 @@ exclude = [
 
 [workspace.package]
 version = "0.2.2"
-edition = "2021"
-rust-version = "1.75"
+edition = "2024"
+rust-version = "1.85"
 authors = ["Kirky.X"]
-license = "Apache-2.0"
+license = "MIT"
 repository = "https://github.com/Kirky-X/limiteron"
 
 [workspace.dependencies]

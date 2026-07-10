@@ -8,7 +8,7 @@
 //! This entity is used by DBNexusStorageAdapter to store key-value pairs
 //! with optional TTL support.
 //!
-//! Note: No #[db_entity] attribute because the primary key is String (not i64, which #[db_entity] requires).
+//! Note: No #\[db_entity\] attribute because the primary key is String (not i64, which #\[db_entity\] requires).
 //! The storage adapter uses session.connection() directly for sea-orm operations.
 
 use sea_orm::entity::prelude::DateTimeUtc;

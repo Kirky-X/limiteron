@@ -137,10 +137,10 @@ mod tests {
     #[cfg(feature = "quota-control")]
     #[tokio::test]
     async fn test_admin_server_with_quota_controller() {
+        use crate::QuotaController;
         use crate::cache::quota_storage::CacheQuotaStorage;
         use crate::quota::QuotaConfig;
         use crate::storage::QuotaStorage;
-        use crate::QuotaController;
         use oxcache::backend::memory::DashMapMemoryBackend;
         let governor = Arc::new(make_governor().await);
         let storage: Arc<dyn QuotaStorage> = Arc::new(CacheQuotaStorage::new(Arc::new(

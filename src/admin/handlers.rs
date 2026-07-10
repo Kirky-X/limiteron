@@ -1,9 +1,9 @@
 //! HTTP处理器
 
 use axum::{
+    Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    Json,
 };
 use serde::{Deserialize, Serialize};
 
@@ -510,8 +510,8 @@ mod tests {
             Json(req),
         )
         .await;
-        assert!(!resp.1 .0.success);
-        assert_eq!(resp.1 .0.message, "Ban manager not configured");
+        assert!(!resp.1.0.success);
+        assert_eq!(resp.1.0.message, "Ban manager not configured");
     }
 
     #[cfg(feature = "ban-manager")]
@@ -540,8 +540,8 @@ mod tests {
             Json(req),
         )
         .await;
-        assert!(!resp.1 .0.success);
-        assert_eq!(resp.1 .0.message, "Ban not found");
+        assert!(!resp.1.0.success);
+        assert_eq!(resp.1.0.message, "Ban not found");
     }
 
     #[cfg(feature = "ban-manager")]
@@ -570,8 +570,8 @@ mod tests {
             Json(req),
         )
         .await;
-        assert!(!resp.1 .0.success);
-        assert_eq!(resp.1 .0.message, "Ban not found");
+        assert!(!resp.1.0.success);
+        assert_eq!(resp.1.0.message, "Ban not found");
     }
 
     #[cfg(feature = "quota-control")]
@@ -584,17 +584,17 @@ mod tests {
             duration_secs: None,
         };
         let resp = update_quota(State(state), Path("tenant-1".to_string()), Json(req)).await;
-        assert!(!resp.1 .0.success);
-        assert_eq!(resp.1 .0.message, "Quota controller not configured");
+        assert!(!resp.1.0.success);
+        assert_eq!(resp.1.0.message, "Quota controller not configured");
     }
 
     #[cfg(feature = "quota-control")]
     #[tokio::test]
     async fn test_update_quota_unsupported_limit() {
+        use crate::QuotaController;
         use crate::cache::quota_storage::CacheQuotaStorage;
         use crate::quota::QuotaConfig;
         use crate::storage::QuotaStorage;
-        use crate::QuotaController;
         use oxcache::backend::memory::DashMapMemoryBackend;
         let storage: Arc<dyn QuotaStorage> = Arc::new(CacheQuotaStorage::new(Arc::new(
             DashMapMemoryBackend::new(),
@@ -619,8 +619,8 @@ mod tests {
             duration_secs: None,
         };
         let resp = update_quota(State(state), Path("tenant-1".to_string()), Json(req)).await;
-        assert!(!resp.1 .0.success);
-        assert!(resp.1 .0.message.contains("not supported"));
+        assert!(!resp.1.0.success);
+        assert!(resp.1.0.message.contains("not supported"));
     }
 
     #[cfg(feature = "circuit-breaker")]
@@ -628,8 +628,8 @@ mod tests {
     async fn test_get_circuit_breaker_status_no_cb() {
         let state = make_state().await;
         let resp = get_circuit_breaker_status(State(state)).await;
-        assert!(!resp.1 .0.success);
-        assert_eq!(resp.1 .0.message, "Circuit breaker not configured");
+        assert!(!resp.1.0.success);
+        assert_eq!(resp.1.0.message, "Circuit breaker not configured");
     }
 
     #[cfg(feature = "circuit-breaker")]
@@ -649,8 +649,8 @@ mod tests {
             circuit_breaker: Some(cb),
         };
         let resp = get_circuit_breaker_status(State(state)).await;
-        assert!(resp.1 .0.success);
-        let data = resp.1 .0.data.unwrap();
+        assert!(resp.1.0.success);
+        let data = resp.1.0.data.unwrap();
         assert_eq!(data.failure_rate, 0.0);
         assert_eq!(data.slow_call_rate, 0.0);
     }
@@ -658,8 +658,8 @@ mod tests {
     #[cfg(feature = "ban-manager")]
     #[tokio::test]
     async fn test_get_status_with_ban_manager_and_cb() {
-        use crate::circuit::types::{CircuitBreaker, CircuitBreakerConfig};
         use crate::BanManager;
+        use crate::circuit::types::{CircuitBreaker, CircuitBreakerConfig};
         let ban_manager = Arc::new(BanManager::new().await.unwrap());
         let cb = Arc::new(CircuitBreaker::with_dependencies(
             CircuitBreakerConfig::default(),
@@ -682,9 +682,9 @@ mod tests {
     #[cfg(feature = "ban-manager")]
     #[tokio::test]
     async fn test_delete_ban_success() {
+        use crate::BanManager;
         use crate::ban::BanTarget;
         use crate::storage::BanRecord;
-        use crate::BanManager;
         let ban_manager = Arc::new(BanManager::new().await.unwrap());
         // 先添加一条封禁
         let target = BanTarget::Ip("10.0.0.1".to_string());
@@ -721,16 +721,16 @@ mod tests {
             Json(req),
         )
         .await;
-        assert!(resp.1 .0.success);
-        assert_eq!(resp.1 .0.message, "manual unban");
+        assert!(resp.1.0.success);
+        assert_eq!(resp.1.0.message, "manual unban");
     }
 
     #[cfg(feature = "ban-manager")]
     #[tokio::test]
     async fn test_delete_ban_mac_with_explicit_type() {
+        use crate::BanManager;
         use crate::ban::BanTarget;
         use crate::storage::BanRecord;
-        use crate::BanManager;
         let ban_manager = Arc::new(BanManager::new().await.unwrap());
         // 通过 API 创建的 MAC 封禁，仅能通过 ?type=mac 解封
         let target = BanTarget::Mac("00:1a:2b:3c:4d:5e".to_string());
@@ -771,16 +771,16 @@ mod tests {
             Json(req),
         )
         .await;
-        assert!(resp.1 .0.success);
-        assert_eq!(resp.1 .0.message, "mac unban");
+        assert!(resp.1.0.success);
+        assert_eq!(resp.1.0.message, "mac unban");
     }
 
     #[cfg(feature = "ban-manager")]
     #[tokio::test]
     async fn test_delete_ban_geo_with_explicit_type() {
+        use crate::BanManager;
         use crate::ban::BanTarget;
         use crate::storage::BanRecord;
-        use crate::BanManager;
         let ban_manager = Arc::new(BanManager::new().await.unwrap());
         // 通过 API 创建的 Geo 封禁，仅能通过 ?type=geo 解封
         let target = BanTarget::Geo {
@@ -817,8 +817,8 @@ mod tests {
             target_type: Some("geo".to_string()),
         });
         let resp = delete_ban(State(state), Path("CN".to_string()), query, Json(req)).await;
-        assert!(resp.1 .0.success);
-        assert_eq!(resp.1 .0.message, "geo unban");
+        assert!(resp.1.0.success);
+        assert_eq!(resp.1.0.message, "geo unban");
     }
 
     #[cfg(feature = "ban-manager")]
@@ -853,9 +853,9 @@ mod tests {
     #[cfg(feature = "ban-manager")]
     #[tokio::test]
     async fn test_delete_ban_mac_without_type_falls_back_to_userid() {
+        use crate::BanManager;
         use crate::ban::BanTarget;
         use crate::storage::BanRecord;
-        use crate::BanManager;
         let ban_manager = Arc::new(BanManager::new().await.unwrap());
         // 创建 MAC 封禁
         let target = BanTarget::Mac("aa:bb:cc:dd:ee:ff".to_string());
@@ -901,10 +901,10 @@ mod tests {
     #[cfg(feature = "quota-control")]
     #[tokio::test]
     async fn test_update_quota_reset_success() {
+        use crate::QuotaController;
         use crate::cache::quota_storage::CacheQuotaStorage;
         use crate::quota::QuotaConfig;
         use crate::storage::QuotaStorage;
-        use crate::QuotaController;
         use oxcache::backend::memory::DashMapMemoryBackend;
         let storage: Arc<dyn QuotaStorage> = Arc::new(CacheQuotaStorage::new(Arc::new(
             DashMapMemoryBackend::new(),
@@ -928,8 +928,8 @@ mod tests {
             duration_secs: Some(3600),
         };
         let resp = update_quota(State(state), Path("tenant-1".to_string()), Json(req)).await;
-        assert!(resp.1 .0.success);
-        let data = resp.1 .0.data.unwrap();
+        assert!(resp.1.0.success);
+        let data = resp.1.0.data.unwrap();
         assert!(data.expires_at.is_some());
     }
 
@@ -960,8 +960,8 @@ mod tests {
             circuit_breaker: Some(cb),
         };
         let resp = get_circuit_breaker_status(State(state)).await;
-        assert!(resp.1 .0.success);
-        let data = resp.1 .0.data.unwrap();
+        assert!(resp.1.0.success);
+        let data = resp.1.0.data.unwrap();
         assert!(data.failure_rate > 0.0);
     }
 }

@@ -18,7 +18,7 @@ use std::task::{Context, Poll};
 use tower::Service;
 use tower_layer::Layer;
 
-use super::headers::{inject_rate_limit_headers, RateLimitHeaderValues};
+use super::headers::{RateLimitHeaderValues, inject_rate_limit_headers};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 

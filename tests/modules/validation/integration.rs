@@ -322,7 +322,7 @@ mod ban_reason_tests {
         assert!(validate_ban_reason("Spam").is_ok());
         assert!(validate_ban_reason("Abuse").is_ok());
         assert!(validate_ban_reason("").is_ok()); // empty is allowed by validate_length
-                                                  // Max length (500 chars)
+        // Max length (500 chars)
         assert!(validate_ban_reason(&"a".repeat(MAX_BAN_REASON_LENGTH)).is_ok());
     }
 
@@ -423,9 +423,9 @@ mod validate_length_tests {
 
 #[cfg(feature = "ban-manager")]
 mod ban_target_tests {
+    use limiteron::BanTarget;
     use limiteron::error::FlowGuardError;
     use limiteron::validation::validate_ban_target;
-    use limiteron::BanTarget;
 
     #[test]
     fn test_ban_target_valid_user_id() {

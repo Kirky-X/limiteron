@@ -687,11 +687,11 @@ impl BanManager {
         // 授权检查：仅对手动封禁进行检查
         // 未配置 provider 时显式警告（Rule 12: 禁止静默跳过授权链路）
         match (&self.authorization_provider, &source) {
-            (Some(provider), BanSource::Manual { ref operator }) => {
+            (Some(provider), BanSource::Manual { operator }) => {
                 self.check_authorization(provider, "create_ban", operator, &target)
                     .await?;
             }
-            (None, BanSource::Manual { ref operator }) => {
+            (None, BanSource::Manual { operator }) => {
                 log::warn!(
                     "手动封禁跳过授权检查（未配置 authorization_provider）: \
                      operator={}, target={:?}",

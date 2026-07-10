@@ -6,12 +6,12 @@
 //!
 //! 使用令牌桶算法实现速率限制。
 
-use super::traits::{validate_cost, Limiter};
+use super::traits::{Limiter, validate_cost};
 use crate::clock::{Clock, SystemClock};
 use crate::error::FlowGuardError;
 use async_trait::async_trait;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// 令牌桶限流器
 ///

@@ -38,8 +38,8 @@ use crate::error::FlowGuardError;
 use log::{debug, info};
 use oxcache::Cache;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use woothee::parser::Parser;
 
 // ============================================================================

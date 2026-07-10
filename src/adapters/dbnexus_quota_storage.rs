@@ -9,16 +9,16 @@
 //! for all quota management operations.
 
 use crate::dbnexus_entities::quota_record::{
-    create_quota_key, ActiveModel as QuotaRecordActiveModel, Column as QuotaColumn,
-    Model as QuotaRecordModel,
+    ActiveModel as QuotaRecordActiveModel, Column as QuotaColumn, Model as QuotaRecordModel,
+    create_quota_key,
 };
 use crate::error::{ConsumeResult, StorageError};
 use crate::storage::{QuotaInfo, QuotaStorage};
 use async_trait::async_trait;
 use chrono::{Duration as ChronoDuration, Utc};
 use dbnexus::{Condition, DbPool, Session};
-use sea_orm::entity::prelude::*;
 use sea_orm::Set;
+use sea_orm::entity::prelude::*;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 

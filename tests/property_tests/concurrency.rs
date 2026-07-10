@@ -8,8 +8,8 @@
 use limiteron::clock::MockClock;
 use limiteron::limiters::{FixedWindowLimiter, Limiter, TokenBucketLimiter};
 use proptest::prelude::*;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::Barrier;
 

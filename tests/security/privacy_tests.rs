@@ -10,7 +10,7 @@
 
 #[cfg(feature = "log-redaction")]
 use limiteron::logging::{
-    contains_sensitive_info, redact_advanced, redact_http_content, RedactionConfig,
+    RedactionConfig, contains_sensitive_info, redact_advanced, redact_http_content,
 };
 use limiteron::logging::{redact_basic, redact_email, redact_ip, redact_user_id};
 use limiteron::matchers::{Identifier, IdentifierExtractor, IpExtractor, RequestContext};

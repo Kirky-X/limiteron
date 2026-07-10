@@ -437,15 +437,21 @@ mod tests {
     #[test]
     fn test_get_script_content() {
         let manager = OxcacheLuaManager::new();
-        assert!(manager
-            .get_script_content(LuaScriptType::SlidingWindow)
-            .is_some());
-        assert!(manager
-            .get_script_content(LuaScriptType::FixedWindow)
-            .is_some());
-        assert!(manager
-            .get_script_content(LuaScriptType::TokenBucket)
-            .is_some());
+        assert!(
+            manager
+                .get_script_content(LuaScriptType::SlidingWindow)
+                .is_some()
+        );
+        assert!(
+            manager
+                .get_script_content(LuaScriptType::FixedWindow)
+                .is_some()
+        );
+        assert!(
+            manager
+                .get_script_content(LuaScriptType::TokenBucket)
+                .is_some()
+        );
     }
 
     #[test]

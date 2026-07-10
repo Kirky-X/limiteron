@@ -2,7 +2,7 @@
 //!
 //! 测试规则匹配器与限流器的集成，验证规则匹配与限流联动。
 
-use crate::common::{create_governor, MockQuotaStorage, RequestContextBuilder};
+use crate::common::{MockQuotaStorage, RequestContextBuilder, create_governor};
 use limiteron::config::{
     Action, ActionConfig, CacheBackend, ConfigMatcher as Matcher, FlowControlConfig, LimiterConfig,
     MetricsBackend, Rule, StorageType,

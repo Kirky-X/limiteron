@@ -53,5 +53,5 @@ mod headers;
 mod tower_middleware;
 
 // 重新导出公共类型
-pub use headers::{inject_rate_limit_headers, RateLimitHeaderValues};
+pub use headers::{RateLimitHeaderValues, inject_rate_limit_headers};
 pub use tower_middleware::{IntoRequestContext, RateLimitConfig, RateLimitLayer, RateLimitService};

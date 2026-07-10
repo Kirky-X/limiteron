@@ -9,7 +9,7 @@
 // 此 benchmark 文件测试 deprecated 的 SlidingWindowLimiter 以维护历史性能基线。
 #![allow(deprecated)]
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
+use criterion::{BenchmarkId, Criterion, SamplingMode, black_box, criterion_group, criterion_main};
 use dashmap::DashMap;
 use limiteron::limiters::{
     FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, SlidingWindowLimiter,
@@ -18,8 +18,8 @@ use limiteron::limiters::{
 use limiteron::matchers::{ConditionEvaluator, MatchCondition, RequestContext, Rule, RuleMatcher};
 use oxcache::Cache;
 use std::alloc::{GlobalAlloc, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::runtime::Runtime;
 

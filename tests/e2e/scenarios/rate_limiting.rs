@@ -3,14 +3,14 @@
 //! 测试用户请求超过限流配置后被拒绝的完整流程
 
 use ahash::AHashMap;
+use limiteron::Governor;
+use limiteron::Limiter;
 use limiteron::config::{
     Action, ActionConfig, CacheBackend, ConfigMatcher as Matcher, FlowControlConfig, LimiterConfig,
     MetricsBackend, Rule, StorageType,
 };
 use limiteron::error::{Decision, StorageError};
 use limiteron::matchers::RequestContext;
-use limiteron::Governor;
-use limiteron::Limiter;
 use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage};
 use std::sync::Arc;
 use std::time::Duration;

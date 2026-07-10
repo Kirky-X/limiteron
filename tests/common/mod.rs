@@ -2,6 +2,7 @@
 #![allow(unused_imports)]
 
 use ahash::AHashMap;
+use limiteron::Governor;
 use limiteron::config::{
     Action, ActionConfig, CacheBackend, FlowControlConfig as GovernorConfig, LimiterConfig,
     Matcher, MetricsBackend, Rule, StorageType,
@@ -11,7 +12,6 @@ use limiteron::limiters::{
     ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
     TokenBucketLimiter,
 };
-use limiteron::Governor;
 use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage};
 use rand::Rng;
 use std::sync::Arc;

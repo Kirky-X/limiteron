@@ -17,10 +17,10 @@ use super::{
     ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
     TokenBucketLimiter,
 };
-use crate::config::types::parse_window_size;
+use crate::config::LimiterConfig;
 #[cfg(test)]
 use crate::config::types::QuotaType;
-use crate::config::LimiterConfig;
+use crate::config::types::parse_window_size;
 use crate::error::FlowGuardError;
 use std::sync::Arc;
 

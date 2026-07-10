@@ -17,8 +17,8 @@
 //!
 //! - [IETF Draft: HTTP RateLimit Header Fields](https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/)
 
-use http::header::HeaderValue;
 use http::Response;
+use http::header::HeaderValue;
 
 /// 限流响应头值
 #[derive(Debug, Clone)]

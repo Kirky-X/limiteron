@@ -412,7 +412,7 @@ impl FallbackManager {
         let states = self.failure_states.read().await;
         states
             .iter()
-            .filter(|(_, &failed)| failed)
+            .filter(|&(_, &failed)| failed)
             .map(|(component, _)| component.clone())
             .collect()
     }
@@ -660,10 +660,12 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("服务降级，但允许请求通过"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("服务降级，但允许请求通过")
+        );
     }
 
     #[tokio::test]
@@ -693,10 +695,12 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("服务降级，拒绝请求"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("服务降级，拒绝请求")
+        );
     }
 
     #[tokio::test]

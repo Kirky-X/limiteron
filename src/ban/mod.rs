@@ -43,9 +43,9 @@ pub mod types;
 
 pub use crate::storage::BanTarget;
 pub use types::{
-    BackoffConfig, BanDetail, BanFilter, BanManager, BanManagerBuilder, BanManagerConfig,
-    BanPriority, BanSource, AUTO_UNBAN_INTERVAL_SECS, DEFAULT_PAGINATION_LIMIT,
-    FIRST_BAN_DURATION_SECS, FOURTH_BAN_DURATION_SECS, MAX_BAN_DURATION_SECS, MAX_PAGINATION_LIMIT,
+    AUTO_UNBAN_INTERVAL_SECS, BackoffConfig, BanDetail, BanFilter, BanManager, BanManagerBuilder,
+    BanManagerConfig, BanPriority, BanSource, DEFAULT_PAGINATION_LIMIT, FIRST_BAN_DURATION_SECS,
+    FOURTH_BAN_DURATION_SECS, MAX_BAN_DURATION_SECS, MAX_PAGINATION_LIMIT,
     SECOND_BAN_DURATION_SECS, THIRD_BAN_DURATION_SECS,
 };
 

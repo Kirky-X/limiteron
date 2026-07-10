@@ -18,14 +18,18 @@ use limiteron::error::FlowGuardError;
 #[tokio::test]
 async fn test_simple_provider_authorized() {
     let provider = SimpleAuthorizationProvider::new(vec!["admin".to_string(), "mod".to_string()]);
-    assert!(provider
-        .check_authorization("create_ban", "admin", "192.168.1.1")
-        .await
-        .is_ok());
-    assert!(provider
-        .check_authorization("create_ban", "mod", "10.0.0.1")
-        .await
-        .is_ok());
+    assert!(
+        provider
+            .check_authorization("create_ban", "admin", "192.168.1.1")
+            .await
+            .is_ok()
+    );
+    assert!(
+        provider
+            .check_authorization("create_ban", "mod", "10.0.0.1")
+            .await
+            .is_ok()
+    );
 }
 
 #[tokio::test]
@@ -92,14 +96,18 @@ fn test_simple_provider_remove_role() {
 async fn test_simple_provider_ignores_operation_and_target() {
     let provider = SimpleAuthorizationProvider::new(vec!["admin".to_string()]);
     // operation and target don't affect authorization decision
-    assert!(provider
-        .check_authorization("remove_ban", "admin", "any_target")
-        .await
-        .is_ok());
-    assert!(provider
-        .check_authorization("unknown_op", "admin", "any_target")
-        .await
-        .is_ok());
+    assert!(
+        provider
+            .check_authorization("remove_ban", "admin", "any_target")
+            .await
+            .is_ok()
+    );
+    assert!(
+        provider
+            .check_authorization("unknown_op", "admin", "any_target")
+            .await
+            .is_ok()
+    );
 }
 
 // ============================================================================
@@ -119,29 +127,39 @@ async fn test_operation_provider_roles() {
     let provider = OperationAuthorizationProvider::new(roles);
 
     // mod can create ban
-    assert!(provider
-        .check_authorization("create_ban", "mod", "192.168.1.1")
-        .await
-        .is_ok());
+    assert!(
+        provider
+            .check_authorization("create_ban", "mod", "192.168.1.1")
+            .await
+            .is_ok()
+    );
     // mod cannot remove ban
-    assert!(provider
-        .check_authorization("remove_ban", "mod", "192.168.1.1")
-        .await
-        .is_err());
+    assert!(
+        provider
+            .check_authorization("remove_ban", "mod", "192.168.1.1")
+            .await
+            .is_err()
+    );
     // admin can do both
-    assert!(provider
-        .check_authorization("create_ban", "admin", "10.0.0.1")
-        .await
-        .is_ok());
-    assert!(provider
-        .check_authorization("remove_ban", "admin", "10.0.0.1")
-        .await
-        .is_ok());
+    assert!(
+        provider
+            .check_authorization("create_ban", "admin", "10.0.0.1")
+            .await
+            .is_ok()
+    );
+    assert!(
+        provider
+            .check_authorization("remove_ban", "admin", "10.0.0.1")
+            .await
+            .is_ok()
+    );
     // unknown operation
-    assert!(provider
-        .check_authorization("unknown_op", "admin", "target")
-        .await
-        .is_err());
+    assert!(
+        provider
+            .check_authorization("unknown_op", "admin", "target")
+            .await
+            .is_err()
+    );
 }
 
 #[cfg(feature = "ban-manager")]
@@ -193,12 +211,16 @@ async fn test_trait_object_dynamic_dispatch() {
         ])),
     ];
 
-    assert!(providers[0]
-        .check_authorization("op", "admin", "target")
-        .await
-        .is_ok());
-    assert!(providers[1]
-        .check_authorization("op", "guest", "target")
-        .await
-        .is_ok());
+    assert!(
+        providers[0]
+            .check_authorization("op", "admin", "target")
+            .await
+            .is_ok()
+    );
+    assert!(
+        providers[1]
+            .check_authorization("op", "guest", "target")
+            .await
+            .is_ok()
+    );
 }

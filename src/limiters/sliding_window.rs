@@ -6,7 +6,7 @@
 //!
 //! 使用滑动窗口算法实现速率限制。
 
-use super::traits::{validate_cost, Limiter};
+use super::traits::{Limiter, validate_cost};
 use crate::error::FlowGuardError;
 use async_trait::async_trait;
 use parking_lot::Mutex;

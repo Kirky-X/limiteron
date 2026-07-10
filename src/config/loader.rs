@@ -4,8 +4,8 @@
 //!
 //! 配置加载器 - 使用 serde 从文件加载配置
 
-use crate::config::FlowControlConfig;
 use crate::FlowGuardError;
+use crate::config::FlowControlConfig;
 use std::fs;
 use std::path::Path;
 

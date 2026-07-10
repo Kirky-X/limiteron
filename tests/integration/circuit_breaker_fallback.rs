@@ -241,14 +241,18 @@ mod fallback_tests {
             .await;
 
         // 验证两个组件都有策略
-        assert!(fallback_manager
-            .get_strategy(ComponentType::Redis)
-            .await
-            .is_some());
-        assert!(fallback_manager
-            .get_strategy(ComponentType::Postgres)
-            .await
-            .is_some());
+        assert!(
+            fallback_manager
+                .get_strategy(ComponentType::Redis)
+                .await
+                .is_some()
+        );
+        assert!(
+            fallback_manager
+                .get_strategy(ComponentType::Postgres)
+                .await
+                .is_some()
+        );
     }
 
     /// 测试故障注入与恢复

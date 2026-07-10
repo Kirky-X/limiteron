@@ -5,22 +5,22 @@
 //! - 死锁测试（多锁场景死锁检测、超时恢复验证）
 
 #[allow(unused_imports)]
-use crate::common::{create_ban_record, MockBanStorage, MockQuotaStorage};
+use crate::common::{MockBanStorage, MockQuotaStorage, create_ban_record};
 use limiteron::limiters::{
     FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter,
 };
 use limiteron::{BanStorage, QuotaStorage};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::sync::Barrier;
 use tokio::time::timeout;
 
 use limiteron::error::ConsumeResult;
 
+use limiteron::BanTarget;
 #[cfg(feature = "ban-manager")]
 use limiteron::ban::BanManager;
-use limiteron::BanTarget;
 
 // ============================================================================
 // 限流器竞争条件测试

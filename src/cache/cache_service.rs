@@ -62,7 +62,7 @@ pub trait CacheService: Send + Sync {
     /// * `Ok(())` on success
     /// * `Err(StorageError)` if an error occurred
     async fn set_with_ttl(&self, key: &str, value: &str, ttl: Duration)
-        -> Result<(), StorageError>;
+    -> Result<(), StorageError>;
 }
 
 #[cfg(test)]
@@ -108,9 +108,11 @@ mod tests {
         assert!(cache.get("test").await.is_ok());
         assert!(cache.set("test", "value", None).await.is_ok());
         assert!(cache.delete("test").await.is_ok());
-        assert!(cache
-            .set_with_ttl("test", "value", Duration::from_secs(60))
-            .await
-            .is_ok());
+        assert!(
+            cache
+                .set_with_ttl("test", "value", Duration::from_secs(60))
+                .await
+                .is_ok()
+        );
     }
 }

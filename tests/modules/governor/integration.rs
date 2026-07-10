@@ -3,6 +3,7 @@
 //! 测试控制器模块的基本功能
 
 use async_trait::async_trait;
+use limiteron::Limiter;
 use limiteron::config::{
     Action, ActionConfig, CacheBackend, ConfigMatcher as Matcher, FlowControlConfig, LimiterConfig,
     MetricsBackend, Rule, StorageType,
@@ -10,7 +11,6 @@ use limiteron::config::{
 use limiteron::error::{ConsumeResult, Decision, FlowGuardError, StorageError};
 use limiteron::governor::GovernorStats;
 use limiteron::matchers::RequestContext;
-use limiteron::Limiter;
 use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, Storage};
 use std::sync::Arc;
 use std::time::Duration;

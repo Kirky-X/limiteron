@@ -9,7 +9,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, quote_spanned};
-use syn::{parse_macro_input, ItemFn};
+use syn::{ItemFn, parse_macro_input};
 
 /// 流量控制属性宏
 #[proc_macro_attribute]
@@ -43,9 +43,9 @@ struct FlowControlConfig {
 
 impl FlowControlConfig {
     fn parse(tokens: &proc_macro2::TokenStream) -> Result<Self, String> {
+        use syn::Token;
         use syn::parse::Parser;
         use syn::punctuated::Punctuated;
-        use syn::Token;
 
         let parsed = Punctuated::<syn::Meta, Token![,]>::parse_terminated
             .parse2(tokens.clone())

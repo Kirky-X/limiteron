@@ -3,9 +3,9 @@
 //! 测试封禁管理模块的基本功能
 
 #[cfg(feature = "ban-manager")]
-use limiteron::ban::{BackoffConfig, BanManager, BanManagerConfig, BanSource, BanTarget};
-#[cfg(feature = "ban-manager")]
 use limiteron::BanStorage;
+#[cfg(feature = "ban-manager")]
+use limiteron::ban::{BackoffConfig, BanManager, BanManagerConfig, BanSource, BanTarget};
 #[cfg(feature = "ban-manager")]
 use std::sync::Arc;
 #[cfg(feature = "ban-manager")]

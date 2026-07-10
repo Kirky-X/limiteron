@@ -9,13 +9,13 @@
 //! 4. `ClockSkew` - 时钟偏移
 //! 5. `CascadingFailure` - 级联故障
 
-use super::fault_injection::{FaultInjectionStorage, FaultPattern};
 use super::ChaosTestResult;
+use super::fault_injection::{FaultInjectionStorage, FaultPattern};
+use limiteron::Storage;
 use limiteron::clock::MockClock;
 use limiteron::error::StorageError;
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use limiteron::storage::MemoryStorage;
-use limiteron::Storage;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -574,7 +574,7 @@ mod tests {
         let result = scenario.run().await;
 
         assert_eq!(result.total_requests, 20); // 两轮各10个
-                                               // 第一轮消耗10个, 第二轮时钟跳跃后补充,应该全部允许
+        // 第一轮消耗10个, 第二轮时钟跳跃后补充,应该全部允许
         assert!(result.successful_requests >= 10);
     }
 

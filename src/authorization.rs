@@ -534,14 +534,18 @@ mod tests {
         let provider = AllowAllAuthorizationProvider;
 
         // 所有操作都应该通过
-        assert!(provider
-            .check_authorization("create_ban", "anyone", "anything")
-            .await
-            .is_ok());
-        assert!(provider
-            .check_authorization("remove_ban", "anyone", "anything")
-            .await
-            .is_ok());
+        assert!(
+            provider
+                .check_authorization("create_ban", "anyone", "anything")
+                .await
+                .is_ok()
+        );
+        assert!(
+            provider
+                .check_authorization("remove_ban", "anyone", "anything")
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]
@@ -549,14 +553,18 @@ mod tests {
         let provider = DenyAllAuthorizationProvider;
 
         // 所有操作都应该被拒绝
-        assert!(provider
-            .check_authorization("create_ban", "admin", "anything")
-            .await
-            .is_err());
-        assert!(provider
-            .check_authorization("remove_ban", "admin", "anything")
-            .await
-            .is_err());
+        assert!(
+            provider
+                .check_authorization("create_ban", "admin", "anything")
+                .await
+                .is_err()
+        );
+        assert!(
+            provider
+                .check_authorization("remove_ban", "admin", "anything")
+                .await
+                .is_err()
+        );
     }
 
     #[cfg(feature = "ban-manager")]
@@ -572,28 +580,36 @@ mod tests {
         let provider = OperationAuthorizationProvider::new(operation_roles);
 
         // moderator 可以创建封禁
-        assert!(provider
-            .check_authorization("create_ban", "moderator", "user123")
-            .await
-            .is_ok());
+        assert!(
+            provider
+                .check_authorization("create_ban", "moderator", "user123")
+                .await
+                .is_ok()
+        );
 
         // moderator 不能删除封禁
-        assert!(provider
-            .check_authorization("remove_ban", "moderator", "user123")
-            .await
-            .is_err());
+        assert!(
+            provider
+                .check_authorization("remove_ban", "moderator", "user123")
+                .await
+                .is_err()
+        );
 
         // admin 可以删除封禁
-        assert!(provider
-            .check_authorization("remove_ban", "admin", "user123")
-            .await
-            .is_ok());
+        assert!(
+            provider
+                .check_authorization("remove_ban", "admin", "user123")
+                .await
+                .is_ok()
+        );
 
         // 未知操作应该被拒绝
-        assert!(provider
-            .check_authorization("unknown_op", "admin", "user123")
-            .await
-            .is_err());
+        assert!(
+            provider
+                .check_authorization("unknown_op", "admin", "user123")
+                .await
+                .is_err()
+        );
     }
 
     #[cfg(feature = "ban-manager")]

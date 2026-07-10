@@ -21,7 +21,7 @@ pub use redaction::{redact_basic, redact_email, redact_ip, redact_user_id};
 
 #[cfg(feature = "log-redaction")]
 pub use redaction::{
-    contains_sensitive_info, redact_advanced, redact_http_content, RedactionConfig,
+    RedactionConfig, contains_sensitive_info, redact_advanced, redact_http_content,
 };
 
 #[cfg(feature = "ban-manager")]

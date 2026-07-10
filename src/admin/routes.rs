@@ -1,11 +1,11 @@
 //! Route definitions
 
 use axum::{
+    Router,
     body::Body,
-    http::{header::AUTHORIZATION, Request, StatusCode},
+    http::{Request, StatusCode, header::AUTHORIZATION},
     middleware::from_fn,
     routing::{delete, get, post, put},
-    Router,
 };
 
 use super::{config::AdminApiConfig, handlers, server::AppState};
@@ -74,7 +74,7 @@ mod tests {
     use crate::admin::config::AdminApiConfig;
     use crate::admin::test_support::{make_state, make_state_with_ban_manager};
     use axum::body::Body;
-    use axum::http::{header::AUTHORIZATION, Request, StatusCode};
+    use axum::http::{Request, StatusCode, header::AUTHORIZATION};
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 

@@ -9,8 +9,8 @@
 //! - `Bursty`: 突发性故障,短时间内大量失败
 
 use async_trait::async_trait;
-use limiteron::error::StorageError;
 use limiteron::Storage;
+use limiteron::error::StorageError;
 use parking_lot::Mutex;
 use std::ops::Range;
 use std::sync::Arc;

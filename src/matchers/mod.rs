@@ -1583,9 +1583,9 @@ mod tests {
             id: "ip_range".to_string(),
             name: "IP Range".to_string(),
             priority: 100,
-            condition: Box::new(MatchCondition::Ip(vec!["172.16.0.1-172.16.0.100"
-                .parse()
-                .unwrap()])),
+            condition: Box::new(MatchCondition::Ip(vec![
+                "172.16.0.1-172.16.0.100".parse().unwrap(),
+            ])),
             enabled: true,
         };
 

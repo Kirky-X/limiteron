@@ -9,8 +9,8 @@
 //! for all ban management operations.
 
 use crate::dbnexus_entities::ban_record::{
-    create_target_key, ActiveModel as BanRecordActiveModel, Column as BanColumn,
-    Entity as BanRecordEntity, Model as BanRecordModel,
+    ActiveModel as BanRecordActiveModel, Column as BanColumn, Entity as BanRecordEntity,
+    Model as BanRecordModel, create_target_key,
 };
 use crate::error::StorageError;
 use crate::storage::{BanHistory, BanRecord, BanStorage, BanTarget};

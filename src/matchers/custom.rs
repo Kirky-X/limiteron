@@ -923,10 +923,12 @@ mod tests {
         let registry = CustomMatcherRegistry::new();
         let matcher = TimeWindowMatcher::new(9, 18);
 
-        assert!(registry
-            .register("time_window".to_string(), Box::new(matcher))
-            .await
-            .is_ok());
+        assert!(
+            registry
+                .register("time_window".to_string(), Box::new(matcher))
+                .await
+                .is_ok()
+        );
         assert_eq!(registry.count().await, 1);
         assert!(registry.contains("time_window").await);
     }
@@ -936,10 +938,12 @@ mod tests {
         let registry = CustomMatcherRegistry::new();
         let matcher = TimeWindowMatcher::new(9, 18);
 
-        assert!(registry
-            .register("time_window".to_string(), Box::new(matcher))
-            .await
-            .is_ok());
+        assert!(
+            registry
+                .register("time_window".to_string(), Box::new(matcher))
+                .await
+                .is_ok()
+        );
 
         let result = registry
             .register(

@@ -13,8 +13,8 @@ use crate::constants::{
 };
 use crate::error::{CircuitBreakerStats, CircuitState, FlowGuardError};
 use log::{info, trace, warn};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
@@ -450,8 +450,7 @@ impl CircuitBreaker {
                 } else {
                     trace!(
                         "操作成功（半开状态）: {}/{}",
-                        success_count,
-                        self.config.success_threshold
+                        success_count, self.config.success_threshold
                     );
                 }
             }
@@ -487,8 +486,7 @@ impl CircuitBreaker {
                 } else {
                     trace!(
                         "操作失败（关闭状态）: {}/{}",
-                        failure_count,
-                        self.config.failure_threshold
+                        failure_count, self.config.failure_threshold
                     );
                 }
             }
@@ -515,10 +513,7 @@ impl CircuitBreaker {
 
             trace!(
                 "慢调用检测: elapsed={:?}, threshold={:?}, slow_calls={}/{}",
-                elapsed,
-                self.config.slow_call_duration_threshold,
-                slow_calls,
-                total_calls
+                elapsed, self.config.slow_call_duration_threshold, slow_calls, total_calls
             );
 
             // 检查慢调用率是否超过阈值
@@ -971,10 +966,12 @@ mod tests {
             .execute(|| async { Ok::<(), FlowGuardError>(()) })
             .await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("半开状态调用次数已达上限"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("半开状态调用次数已达上限")
+        );
     }
 
     #[tokio::test]

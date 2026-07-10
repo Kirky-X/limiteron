@@ -30,8 +30,8 @@ mod tests {
     }
 
     /// 辅助函数：创建所有存储适配器
-    async fn create_all_storages(
-    ) -> Result<(Arc<dyn Storage>, Arc<dyn BanStorage>, Arc<dyn QuotaStorage>), StorageError> {
+    async fn create_all_storages()
+    -> Result<(Arc<dyn Storage>, Arc<dyn BanStorage>, Arc<dyn QuotaStorage>), StorageError> {
         let factory = create_storage_factory().await?;
         let storage = factory.create_storage().await?;
         let ban_storage = factory.create_ban_storage().await?;

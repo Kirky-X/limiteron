@@ -6,12 +6,12 @@
 //!
 //! 使用分片计数实现 O(1) 时间复杂度的限流检查。
 
-use super::traits::{validate_cost, Limiter};
+use super::traits::{Limiter, validate_cost};
 use crate::clock::{Clock, SystemClock};
 use crate::error::FlowGuardError;
 use async_trait::async_trait;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 /// 默认分片数量（每秒一个分片，支持60秒窗口）

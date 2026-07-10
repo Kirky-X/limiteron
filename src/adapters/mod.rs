@@ -51,6 +51,6 @@ pub use dbnexus_storage::DBNexusStorageAdapter;
 
 // Re-export factory and related types
 pub use storage_factory::{
-    create_ban_storage_from_dsn, create_quota_storage_from_dsn, create_storage_from_dsn,
-    StorageFactory, StorageFactoryConfig, StorageType,
+    StorageFactory, StorageFactoryConfig, StorageType, create_ban_storage_from_dsn,
+    create_quota_storage_from_dsn, create_storage_from_dsn,
 };

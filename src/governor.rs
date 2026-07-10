@@ -43,6 +43,8 @@ use tokio::sync::RwLock;
 
 // Conditional imports for optional features
 #[cfg(feature = "ban-manager")]
+use crate::BanSource;
+#[cfg(feature = "ban-manager")]
 use crate::ban::BanManager;
 #[cfg(feature = "circuit-breaker")]
 use crate::circuit::CircuitBreaker;
@@ -54,8 +56,6 @@ use crate::matchers::Identifier;
 use crate::telemetry::Metrics;
 #[cfg(feature = "telemetry")]
 use crate::telemetry::Tracer;
-#[cfg(feature = "ban-manager")]
-use crate::BanSource;
 
 /// Governor 统计信息
 ///

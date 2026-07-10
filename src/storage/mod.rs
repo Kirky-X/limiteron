@@ -1506,10 +1506,12 @@ mod memory_ban_storage_tests {
         let found = BanStorage::is_banned(&bs, &rec.target).await.unwrap();
         assert!(found.is_some());
         BanStorage::remove_ban(&bs, &rec.target).await.unwrap();
-        assert!(BanStorage::is_banned(&bs, &rec.target)
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            BanStorage::is_banned(&bs, &rec.target)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     /// 覆盖 cleanup_expired_bans 中无过期 ban 的路径

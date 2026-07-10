@@ -2,7 +2,7 @@
 //!
 //! 测试 Governor 与各种限流器的集成，验证完整决策流程和多限流器协作。
 
-use crate::common::{create_governor, MockBanStorage, MockQuotaStorage, RequestContextBuilder};
+use crate::common::{MockBanStorage, MockQuotaStorage, RequestContextBuilder, create_governor};
 use limiteron::config::{
     Action, ActionConfig, CacheBackend, ConfigMatcher as Matcher, FlowControlConfig, LimiterConfig,
     MetricsBackend, Rule, StorageType,

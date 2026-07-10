@@ -17,7 +17,7 @@
 //! - If current time >= TAT - (capacity - 1) * interval, allow
 //! - Update TAT = max(TAT, current_time) + cost * interval
 
-use super::traits::{validate_cost, Limiter};
+use super::traits::{Limiter, validate_cost};
 use crate::error::FlowGuardError;
 use async_trait::async_trait;
 use parking_lot::RwLock;
@@ -353,7 +353,7 @@ mod tests {
     async fn test_gcra_check_denied_path() {
         // Exhaust the limiter, then check() should return denied with retry_after
         let limiter = GcraLimiter::new(2, 100_000); // 100ms interval
-                                                    // Use up capacity
+        // Use up capacity
         assert!(limiter.allow(1).await.unwrap());
         assert!(limiter.allow(1).await.unwrap());
         // Now check should be denied

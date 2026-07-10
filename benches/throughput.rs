@@ -6,16 +6,16 @@
 #![allow(deprecated)]
 
 use criterion::{
-    black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, SamplingMode,
-    Throughput,
+    BatchSize, BenchmarkId, Criterion, SamplingMode, Throughput, black_box, criterion_group,
+    criterion_main,
 };
 use limiteron::limiters::{
     FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, SlidingWindowLimiter,
     TokenBucketLimiter,
 };
 use oxcache::Cache;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::runtime::Runtime;
 

@@ -4,10 +4,10 @@
 
 #[cfg(feature = "ban-manager")]
 mod ban_manager_tests {
-    use crate::common::{create_ban_record, MockBanStorage};
-    use limiteron::ban::BanManager;
+    use crate::common::{MockBanStorage, create_ban_record};
     use limiteron::BanManagerConfig;
     use limiteron::BanStorage;
+    use limiteron::ban::BanManager;
     use std::sync::Arc;
     use std::time::Duration;
 

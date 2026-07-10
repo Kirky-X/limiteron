@@ -8,7 +8,7 @@
 // 此 benchmark 文件测试 deprecated 的 SlidingWindowLimiter 以维护历史性能基线。
 #![allow(deprecated)]
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
+use criterion::{BenchmarkId, Criterion, SamplingMode, black_box, criterion_group, criterion_main};
 use limiteron::limiters::{
     FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, SlidingWindowLimiter,
     TokenBucketLimiter,

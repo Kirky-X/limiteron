@@ -80,9 +80,9 @@ pub mod adapters;
 // DBNexus Storage Adapters (requires postgres feature)
 #[cfg(feature = "postgres")]
 pub use adapters::{
-    create_ban_storage_from_dsn, create_quota_storage_from_dsn, create_storage_from_dsn,
     DBNexusBanStorageAdapter, DBNexusQuotaStorageAdapter, DBNexusStorageAdapter, StorageFactory,
-    StorageFactoryConfig, StorageType,
+    StorageFactoryConfig, StorageType, create_ban_storage_from_dsn, create_quota_storage_from_dsn,
+    create_storage_from_dsn,
 };
 
 #[cfg(feature = "cache-service")]
@@ -154,7 +154,7 @@ pub use circuit::{CircuitBreaker, CircuitBreakerConfig};
 pub use logging::audit::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
 // 导出配置相关类型
 #[cfg(feature = "cache-service")]
-pub use cache::{cache_service::CacheService, Cache, CacheKey};
+pub use cache::{Cache, CacheKey, cache_service::CacheService};
 pub use config::ConfigLoader;
 pub use config::{
     ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, ConfigMatcher,
@@ -183,8 +183,8 @@ pub use limiters::Limiter;
 pub use limiters::QuotaLimiter;
 #[cfg(feature = "macros")]
 pub use macros::{
-    flow_control, parse_quota_limit, parse_rate_limit, FlowControlConfig as MacroFlowControlConfig,
-    QuotaLimit, RateLimit,
+    FlowControlConfig as MacroFlowControlConfig, QuotaLimit, RateLimit, flow_control,
+    parse_quota_limit, parse_rate_limit,
 };
 pub use matchers::custom::{
     CustomMatcher, CustomMatcherRegistry, CustomMatcherRegistryBuilder, HeaderMatcher,
@@ -205,10 +205,10 @@ pub use matchers::{
 pub use matchers::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
 #[cfg(feature = "quota-control")]
 pub use quota::QuotaController;
-#[cfg(feature = "telemetry")]
-pub use telemetry::{init_telemetry, TelemetryConfig, Tracer};
 #[cfg(feature = "monitoring")]
-pub use telemetry::{set_global_metrics, try_global, Metrics};
+pub use telemetry::{Metrics, set_global_metrics, try_global};
+#[cfg(feature = "telemetry")]
+pub use telemetry::{TelemetryConfig, Tracer, init_telemetry};
 #[cfg(feature = "validation")]
 pub use validation::{
     validate_api_key, validate_ban_reason, validate_ban_target, validate_header_value,
@@ -217,9 +217,9 @@ pub use validation::{
 
 #[cfg(feature = "lua-script")]
 pub use oxcache_lua::{
-    execute_cached_script, execute_lua_script, load_script, LuaScriptInfo, LuaScriptType,
-    OxcacheLuaManager, FIXED_WINDOW_SCRIPT, QUOTA_CONSUME_SCRIPT, QUOTA_RESET_SCRIPT,
-    SLIDING_WINDOW_SCRIPT, TOKEN_BUCKET_SCRIPT,
+    FIXED_WINDOW_SCRIPT, LuaScriptInfo, LuaScriptType, OxcacheLuaManager, QUOTA_CONSUME_SCRIPT,
+    QUOTA_RESET_SCRIPT, SLIDING_WINDOW_SCRIPT, TOKEN_BUCKET_SCRIPT, execute_cached_script,
+    execute_lua_script, load_script,
 };
 
 // Re-export storage traits for compatibility (internal implementations are pub(crate))
@@ -244,7 +244,7 @@ pub use limiters::GcraLimiter;
 pub use logging::{redact_basic, redact_email, redact_ip, redact_user_id};
 
 #[cfg(feature = "log-redaction")]
-pub use logging::{contains_sensitive_info, redact_advanced, redact_http_content, RedactionConfig};
+pub use logging::{RedactionConfig, contains_sensitive_info, redact_advanced, redact_http_content};
 
 // Re-export rule builder
 pub use rules::RuleBuilder;
@@ -262,6 +262,6 @@ pub use tenant::{Namespace, TenantResolver};
 // Re-export middleware types (feature-gated)
 #[cfg(feature = "tower-middleware")]
 pub use middleware::{
-    inject_rate_limit_headers, IntoRequestContext, RateLimitConfig, RateLimitHeaderValues,
-    RateLimitLayer, RateLimitService,
+    IntoRequestContext, RateLimitConfig, RateLimitHeaderValues, RateLimitLayer, RateLimitService,
+    inject_rate_limit_headers,
 };

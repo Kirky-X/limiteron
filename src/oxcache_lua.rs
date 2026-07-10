@@ -52,7 +52,7 @@ impl LuaScriptType {
 /// Sliding window Lua script
 ///
 /// Uses Redis Sorted Set for sliding window algorithm
-/// Parameters: KEYS[1] - key, ARGV[1] - window_size (ms), ARGV[2] - max_requests, ARGV[3] - current_timestamp
+/// Parameters: KEYS\[1\] - key, ARGV\[1\] - window_size (ms), ARGV\[2\] - max_requests, ARGV\[3\] - current_timestamp
 /// Returns: (allowed: bool, current_count: int, reset_time: int)
 pub const SLIDING_WINDOW_SCRIPT: &str = r#"
 -- 获取参数
@@ -88,7 +88,7 @@ return {allowed and 1 or 0, current_count, reset_time}
 /// Fixed window Lua script
 ///
 /// Uses Redis String + TTL for fixed window algorithm
-/// Parameters: KEYS[1] - key, ARGV[1] - window_size (ms), ARGV[2] - max_requests, ARGV[3] - current_timestamp
+/// Parameters: KEYS\[1\] - key, ARGV\[1\] - window_size (ms), ARGV\[2\] - max_requests, ARGV\[3\] - current_timestamp
 /// Returns: (allowed: bool, current_count: int, reset_time: int)
 pub const FIXED_WINDOW_SCRIPT: &str = r#"
 -- 获取参数
@@ -124,7 +124,7 @@ return {allowed and 1 or 0, current_count, reset_time}
 /// Quota consumption Lua script
 ///
 /// Uses Redis Hash for quota storage with overdraft support
-/// Parameters: KEYS[1] - key, ARGV[1] - cost, ARGV[2] - limit, ARGV[3] - overdraft_limit, ARGV[4] - window_start, ARGV[5] - window_end, ARGV[6] - consumed_field, ARGV[7] - limit_field, ARGV[8] - window_start_field, ARGV[9] - window_end_field
+/// Parameters: KEYS\[1\] - key, ARGV\[1\] - cost, ARGV\[2\] - limit, ARGV\[3\] - overdraft_limit, ARGV\[4\] - window_start, ARGV\[5\] - window_end, ARGV\[6\] - consumed_field, ARGV\[7\] - limit_field, ARGV\[8\] - window_start_field, ARGV\[9\] - window_end_field
 /// Returns: (allowed: bool, remaining: int, consumed: int)
 pub const QUOTA_CONSUME_SCRIPT: &str = r#"
 -- 获取参数
@@ -178,7 +178,7 @@ return {allowed and 1 or 0, remaining, consumed}
 /// Quota reset Lua script
 ///
 /// Resets quota counter
-/// Parameters: KEYS[1] - key, ARGV[1] - window_start, ARGV[2] - window_end, ARGV[3] - consumed_field, ARGV[4] - window_start_field, ARGV[5] - window_end_field
+/// Parameters: KEYS\[1\] - key, ARGV\[1\] - window_start, ARGV\[2\] - window_end, ARGV\[3\] - consumed_field, ARGV\[4\] - window_start_field, ARGV\[5\] - window_end_field
 /// Returns: success (1) or fail (0)
 pub const QUOTA_RESET_SCRIPT: &str = r#"
 -- 获取参数
@@ -200,7 +200,7 @@ return 1
 /// Token bucket Lua script
 ///
 /// Uses Redis Hash for token bucket algorithm
-/// Parameters: KEYS[1] - key, ARGV[1] - capacity, ARGV[2] - refill_rate (tokens/ms), ARGV[3] - current_timestamp, ARGV[4] - tokens_requested
+/// Parameters: KEYS\[1\] - key, ARGV\[1\] - capacity, ARGV\[2\] - refill_rate (tokens/ms), ARGV\[3\] - current_timestamp, ARGV\[4\] - tokens_requested
 /// Returns: (allowed: bool, tokens_remaining: int, refill_time: int)
 pub const TOKEN_BUCKET_SCRIPT: &str = r#"
 -- 获取参数

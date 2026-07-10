@@ -199,6 +199,12 @@ tower = { workspace = true, optional = true }
 tower-layer = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 
+# 国际化 (optional, feature-gated via `i18n`).
+# ICU4X 2.x 提供 locale 感知的数字/日期/复数/排序格式化。
+# Mirrors trait-kit/oxcache i18n pattern.
+icu = { version = "2.2", optional = true }
+writeable = { version = "0.6", optional = true }
+
 # trait-kit integration (optional, feature-gated via `kit`).
 # trait-kit 0.2.3 is published to crates.io.
 # Mirrors oxcache's pattern (Phase 2 of trait-kit-async-integration).
@@ -365,6 +371,10 @@ chaos-testing = []
 # with the `async` feature only — default features are disabled (Rule 6).
 # Mirrors oxcache's `kit` feature (Phase 2 of trait-kit-async-integration).
 kit = ["dep:trait-kit"]
+
+# ICU4X 国际化能力 (locale 感知的数字/日期/复数/排序格式化).
+# Mirrors trait-kit/oxcache `i18n` feature.
+i18n = ["dep:icu", "dep:writeable"]
 
 [[bench]]
 name = "throughput"

@@ -2,9 +2,9 @@
 //!
 //! 测试配额控制模块的基本功能
 
+use limiteron::QuotaStorage;
 #[cfg(feature = "quota-control")]
 use limiteron::quota::{QuotaConfig, QuotaController, QuotaType};
-use limiteron::QuotaStorage;
 use std::sync::Arc;
 use std::time::Duration;
 

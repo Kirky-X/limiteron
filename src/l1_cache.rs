@@ -10,9 +10,9 @@
 use crate::error::{BanInfo, Decision, RateLimitMetadata, RejectionMetadata};
 use oxcache::{Cache, CacheError};
 use parking_lot::RwLock;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 /// 可缓存的决策结果

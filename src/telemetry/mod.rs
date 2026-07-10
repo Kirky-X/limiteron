@@ -736,11 +736,11 @@ fn init_console_tracer(config: &TelemetryConfig) -> Result<(), String> {
 /// - `Err(_)`: 服务器启动失败
 #[cfg(feature = "monitoring")]
 pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result<(), String> {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
-    use tokio::time::{timeout, Duration};
+    use tokio::time::{Duration, timeout};
 
     // 并发连接限制
     const MAX_CONCURRENT_CONNECTIONS: usize = 100;

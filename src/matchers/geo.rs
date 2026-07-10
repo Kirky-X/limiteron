@@ -36,13 +36,13 @@
 
 #[cfg(feature = "geo-matching")]
 use crate::error::FlowGuardError;
-use maxminddb::{geoip2, Reader};
+use maxminddb::{Reader, geoip2};
 use oxcache::Cache;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 // ============================================================================

@@ -20,9 +20,9 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "audit-log")]
 use sha2::Sha256;
 #[cfg(feature = "audit-log")]
-use std::sync::atomic::{AtomicU64, Ordering};
-#[cfg(feature = "audit-log")]
 use std::sync::Arc;
+#[cfg(feature = "audit-log")]
+use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(feature = "audit-log")]
 use std::time::Duration;
 #[cfg(feature = "audit-log")]

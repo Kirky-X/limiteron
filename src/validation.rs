@@ -393,7 +393,7 @@ mod tests {
         assert!(validate_ip_address("::").is_ok()); // 未指定地址（全零）
         assert!(validate_ip_address("fe80::1").is_ok()); // 链路本地地址
         assert!(validate_ip_address("::ffff:0:0").is_ok()); // IPv4 映射地址基础
-                                                            // 开头压缩
+        // 开头压缩
         assert!(validate_ip_address("::1:2:3:4:5:6:7").is_ok());
         // 结尾压缩
         assert!(validate_ip_address("1:2:3:4:5:6:7::").is_ok());
@@ -445,7 +445,7 @@ mod tests {
         assert!(validate_ip_address("1:2:3:4:5:6").is_err()); // 过少的块（无压缩）
         assert!(validate_ip_address("gggg::1").is_err()); // 无效的十六进制字符
         assert!(validate_ip_address("1::2::3").is_err()); // 多个压缩符号
-                                                          // 无效的方括号格式
+        // 无效的方括号格式
         assert!(validate_ip_address("[::1").is_err()); // 缺少闭合方括号
         assert!(validate_ip_address("::1]:8080").is_err()); // 缺少开放方括号
     }
@@ -561,44 +561,60 @@ mod tests {
         use crate::storage::BanTarget;
 
         // 有效的国家代码（ISO 3166-1 alpha-2，2 字母大写）
-        assert!(validate_ban_target(&BanTarget::Geo {
-            country_code: "CN".to_string()
-        })
-        .is_ok());
-        assert!(validate_ban_target(&BanTarget::Geo {
-            country_code: "US".to_string()
-        })
-        .is_ok());
-        assert!(validate_ban_target(&BanTarget::Geo {
-            country_code: "JP".to_string()
-        })
-        .is_ok());
+        assert!(
+            validate_ban_target(&BanTarget::Geo {
+                country_code: "CN".to_string()
+            })
+            .is_ok()
+        );
+        assert!(
+            validate_ban_target(&BanTarget::Geo {
+                country_code: "US".to_string()
+            })
+            .is_ok()
+        );
+        assert!(
+            validate_ban_target(&BanTarget::Geo {
+                country_code: "JP".to_string()
+            })
+            .is_ok()
+        );
 
         // 无效：小写
-        assert!(validate_ban_target(&BanTarget::Geo {
-            country_code: "cn".to_string()
-        })
-        .is_err());
+        assert!(
+            validate_ban_target(&BanTarget::Geo {
+                country_code: "cn".to_string()
+            })
+            .is_err()
+        );
         // 无效：3 字符
-        assert!(validate_ban_target(&BanTarget::Geo {
-            country_code: "CHN".to_string()
-        })
-        .is_err());
+        assert!(
+            validate_ban_target(&BanTarget::Geo {
+                country_code: "CHN".to_string()
+            })
+            .is_err()
+        );
         // 无效：空
-        assert!(validate_ban_target(&BanTarget::Geo {
-            country_code: "".to_string()
-        })
-        .is_err());
+        assert!(
+            validate_ban_target(&BanTarget::Geo {
+                country_code: "".to_string()
+            })
+            .is_err()
+        );
         // 无效：数字
-        assert!(validate_ban_target(&BanTarget::Geo {
-            country_code: "12".to_string()
-        })
-        .is_err());
+        assert!(
+            validate_ban_target(&BanTarget::Geo {
+                country_code: "12".to_string()
+            })
+            .is_err()
+        );
         // 无效：1 字符
-        assert!(validate_ban_target(&BanTarget::Geo {
-            country_code: "C".to_string()
-        })
-        .is_err());
+        assert!(
+            validate_ban_target(&BanTarget::Geo {
+                country_code: "C".to_string()
+            })
+            .is_err()
+        );
     }
 
     #[test]

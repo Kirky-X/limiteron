@@ -214,6 +214,15 @@ features = ["async"]
 optional = true
 default-features = false
 
+# inklog structured logging integration (optional, feature-gated via `inklog`).
+# inklog 0.1.x is published to crates.io. `default-features = false` excludes
+# the `http`/`cli` features — limiteron only needs the core LoggerManager +
+# log/tracing bridge. Mirrors the trait-kit optional-dependency pattern.
+[dependencies.inklog]
+version = "0.1"
+default-features = false
+optional = true
+
 # 其他
 
 [dev-dependencies]
@@ -375,6 +384,11 @@ kit = ["dep:trait-kit"]
 # ICU4X 国际化能力 (locale 感知的数字/日期/复数/排序格式化).
 # Mirrors trait-kit/oxcache `i18n` feature.
 i18n = ["dep:icu", "dep:writeable"]
+
+# inklog structured logging integration. Replaces bare `log`/`tracing` output
+# with inklog's LoggerManager (console/file/database sinks). When disabled,
+# limiteron retains its original `log`/`tracing` behavior unchanged.
+inklog = ["dep:inklog"]
 
 [[bench]]
 name = "throughput"

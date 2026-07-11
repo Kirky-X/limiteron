@@ -9,7 +9,7 @@ use crate::constants::{
     DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_RATE_THRESHOLD, DEFAULT_CIRCUIT_BREAKER_SUCCESS_THRESHOLD,
     DEFAULT_CIRCUIT_BREAKER_TIMEOUT_SECS,
 };
-use crate::error::{CircuitBreakerStats, CircuitState, FlowGuardError};
+use crate::error::{CircuitBreakerStats, CircuitState, LimiteronError};
 use log::{info, trace, warn};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -25,14 +25,14 @@ use tokio::sync::RwLock;
 ///
 /// ```rust
 /// use limiteron::circuit::ErrorClassifier;
-/// use limiteron::error::FlowGuardError;
+/// use limiteron::error::LimiteronError;
 ///
 /// #[derive(Debug)]
 /// struct CustomErrorClassifier;
 /// impl ErrorClassifier for CustomErrorClassifier {
-///     fn is_counted_as_failure(&self, error: &FlowGuardError) -> bool {
+///     fn is_counted_as_failure(&self, error: &LimiteronError) -> bool {
 ///         // 自定义逻辑：只有特定的错误才算失败
-///         !matches!(error, FlowGuardError::ValidationError(_))
+///         !matches!(error, LimiteronError::ValidationError(_))
 ///     }
 /// }
 /// ```
@@ -45,7 +45,7 @@ pub trait ErrorClassifier: Send + Sync + std::fmt::Debug {
     /// # 返回
     /// - `true`: 错误应计入失败计数
     /// - `false`: 错误不应计入失败计数
-    fn is_counted_as_failure(&self, error: &FlowGuardError) -> bool;
+    fn is_counted_as_failure(&self, error: &LimiteronError) -> bool;
 }
 
 /// 默认错误分类器
@@ -58,14 +58,14 @@ pub trait ErrorClassifier: Send + Sync + std::fmt::Debug {
 pub struct DefaultErrorClassifier;
 
 impl ErrorClassifier for DefaultErrorClassifier {
-    fn is_counted_as_failure(&self, error: &FlowGuardError) -> bool {
+    fn is_counted_as_failure(&self, error: &LimiteronError) -> bool {
         match error {
             // 存储相关的临时错误算失败
-            FlowGuardError::StorageError(storage_err) => storage_err.is_transient(),
+            LimiteronError::StorageError(storage_err) => storage_err.is_transient(),
             // 限流、熔断器错误不算失败（这些是预期的保护机制）
-            FlowGuardError::LimitError(_) | FlowGuardError::CircuitBreakerError(_) => false,
+            LimiteronError::LimitError(_) | LimiteronError::CircuitBreakerError(_) => false,
             // 验证错误不算失败（客户端问题）
-            FlowGuardError::ValidationError(_) => false,
+            LimiteronError::ValidationError(_) => false,
             // 其他错误算失败
             _ => true,
         }
@@ -338,7 +338,7 @@ impl CircuitBreaker {
     ///
     /// # 返回
     /// - `Ok(T)`: 操作成功
-    /// - `Err(FlowGuardError)`: 操作失败或熔断器打开
+    /// - `Err(LimiteronError)`: 操作失败或熔断器打开
     ///
     /// # 示例
     /// ```rust
@@ -352,14 +352,14 @@ impl CircuitBreaker {
     ///
     /// let result = breaker.execute(|| async {
     ///     // 执行操作
-    ///     Ok::<(), limiteron::error::FlowGuardError>(())
+    ///     Ok::<(), limiteron::error::LimiteronError>(())
     /// }).await;
     /// # }
     /// ```
-    pub async fn execute<F, Fut, T>(&self, operation: F) -> Result<T, FlowGuardError>
+    pub async fn execute<F, Fut, T>(&self, operation: F) -> Result<T, LimiteronError>
     where
         F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<T, FlowGuardError>>,
+        Fut: std::future::Future<Output = Result<T, LimiteronError>>,
     {
         // 增加总调用次数
         self.total_calls.fetch_add(1, Ordering::Relaxed);
@@ -380,7 +380,7 @@ impl CircuitBreaker {
                         // 仍在熔断状态，拒绝请求
                         drop(state);
                         warn!("熔断器打开，拒绝请求");
-                        return Err(FlowGuardError::LimitError(
+                        return Err(LimiteronError::LimitError(
                             "熔断器打开，请求被拒绝".to_string(),
                         ));
                     }
@@ -392,7 +392,7 @@ impl CircuitBreaker {
                 if calls >= self.config.half_open_max_calls {
                     drop(state);
                     warn!("半开状态调用次数已达上限，拒绝请求");
-                    return Err(FlowGuardError::LimitError(
+                    return Err(LimiteronError::LimitError(
                         "半开状态调用次数已达上限".to_string(),
                     ));
                 }
@@ -460,7 +460,7 @@ impl CircuitBreaker {
     }
 
     /// 操作失败时的处理
-    async fn on_failure(&self, error: &FlowGuardError) {
+    async fn on_failure(&self, error: &LimiteronError) {
         // 使用错误分类器判断是否应该计入失败计数
         if !self.config.error_classifier.is_counted_as_failure(error) {
             trace!("错误不计入失败计数: {:?}", error);
@@ -732,7 +732,7 @@ mod tests {
         let breaker = CircuitBreaker::default();
 
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
 
@@ -751,7 +751,7 @@ mod tests {
         // 第一次失败
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
+                Err::<(), LimiteronError>(LimiteronError::BanError("test error".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -763,7 +763,7 @@ mod tests {
         // 第二次失败
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
+                Err::<(), LimiteronError>(LimiteronError::BanError("test error".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -775,7 +775,7 @@ mod tests {
         // 第三次失败，应该触发熔断
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
+                Err::<(), LimiteronError>(LimiteronError::BanError("test error".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -794,7 +794,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
+                    Err::<(), LimiteronError>(LimiteronError::BanError("test error".to_string()))
                 })
                 .await;
         }
@@ -803,7 +803,7 @@ mod tests {
 
         // 熔断器打开，请求应该被拒绝
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("熔断器打开"));
@@ -818,7 +818,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
+                    Err::<(), LimiteronError>(LimiteronError::BanError("test error".to_string()))
                 })
                 .await;
         }
@@ -830,14 +830,14 @@ mod tests {
 
         // 第一次成功，进入半开状态
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
         assert!(breaker.is_half_open().await);
 
         // 第二次成功，应该恢复到关闭状态
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
         assert!(breaker.is_closed().await);
@@ -852,7 +852,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
+                    Err::<(), LimiteronError>(LimiteronError::BanError("test error".to_string()))
                 })
                 .await;
         }
@@ -864,7 +864,7 @@ mod tests {
 
         // 第一次成功，进入半开状态
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
         assert!(breaker.is_half_open().await);
@@ -872,7 +872,7 @@ mod tests {
         // 再次失败，应该回到打开状态
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
+                Err::<(), LimiteronError>(LimiteronError::BanError("test error".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -888,7 +888,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
+                    Err::<(), LimiteronError>(LimiteronError::BanError("test error".to_string()))
                 })
                 .await;
         }
@@ -917,7 +917,7 @@ mod tests {
         let breaker = CircuitBreaker::default();
 
         let _ = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
 
         let stats = breaker.get_stats().await;
@@ -937,7 +937,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
+                    Err::<(), LimiteronError>(LimiteronError::BanError("test error".to_string()))
                 })
                 .await;
         }
@@ -949,19 +949,19 @@ mod tests {
 
         // 第一次调用，进入半开状态
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
 
         // 第二次调用，达到上限
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
 
         // 第三次调用，应该被拒绝
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_err());
         assert!(
@@ -998,7 +998,7 @@ mod tests {
         // 第一次失败
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError("error 1".to_string()))
+                Err::<(), LimiteronError>(LimiteronError::BanError("error 1".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -1007,7 +1007,7 @@ mod tests {
         // 第二次失败
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError("error 2".to_string()))
+                Err::<(), LimiteronError>(LimiteronError::BanError("error 2".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -1016,7 +1016,7 @@ mod tests {
         // 第三次失败，应触发熔断
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError("error 3".to_string()))
+                Err::<(), LimiteronError>(LimiteronError::BanError("error 3".to_string()))
             })
             .await;
         assert!(result.is_err());
@@ -1034,7 +1034,7 @@ mod tests {
         for i in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::BanError(format!("error {}", i)))
+                    Err::<(), LimiteronError>(LimiteronError::BanError(format!("error {}", i)))
                 })
                 .await;
         }
@@ -1042,7 +1042,7 @@ mod tests {
 
         // 未超时时请求应被拒绝
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_err());
         assert!(breaker.is_open().await, "未超时应保持 Open 状态");
@@ -1052,7 +1052,7 @@ mod tests {
 
         // 超时后第一次请求应进入 HalfOpen 状态
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
         assert!(breaker.is_half_open().await, "超时后应转换为 HalfOpen 状态");
@@ -1068,7 +1068,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
+                    Err::<(), LimiteronError>(LimiteronError::BanError("error".to_string()))
                 })
                 .await;
         }
@@ -1079,14 +1079,14 @@ mod tests {
 
         // 第一次成功，进入半开状态
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
         assert!(breaker.is_half_open().await);
 
         // 第二次成功，应恢复到 Closed 状态
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
         assert!(
@@ -1105,7 +1105,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
+                    Err::<(), LimiteronError>(LimiteronError::BanError("error".to_string()))
                 })
                 .await;
         }
@@ -1114,14 +1114,14 @@ mod tests {
         // 阶段2: Open → HalfOpen
         tokio::time::sleep(Duration::from_millis(150)).await;
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
         assert!(breaker.is_half_open().await, "阶段2: 应处于 HalfOpen 状态");
 
         // 阶段3: HalfOpen → Closed
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
         assert!(breaker.is_closed().await, "阶段3: 应恢复到 Closed 状态");
@@ -1171,7 +1171,7 @@ mod tests {
     #[test]
     fn test_default_error_classifier_storage_timeout() {
         let classifier = DefaultErrorClassifier;
-        let error = FlowGuardError::StorageError(crate::error::StorageError::TimeoutError(
+        let error = LimiteronError::StorageError(crate::error::StorageError::TimeoutError(
             "timeout".into(),
         ));
         assert!(classifier.is_counted_as_failure(&error));
@@ -1181,7 +1181,7 @@ mod tests {
     #[test]
     fn test_default_error_classifier_connection_error() {
         let classifier = DefaultErrorClassifier;
-        let error = FlowGuardError::StorageError(crate::error::StorageError::ConnectionError(
+        let error = LimiteronError::StorageError(crate::error::StorageError::ConnectionError(
             "connection".into(),
         ));
         assert!(classifier.is_counted_as_failure(&error));
@@ -1191,7 +1191,7 @@ mod tests {
     #[test]
     fn test_default_error_classifier_limit_error() {
         let classifier = DefaultErrorClassifier;
-        let error = FlowGuardError::LimitError("rate limited".into());
+        let error = LimiteronError::LimitError("rate limited".into());
         assert!(!classifier.is_counted_as_failure(&error));
     }
 
@@ -1199,7 +1199,7 @@ mod tests {
     #[test]
     fn test_default_error_classifier_validation_error() {
         let classifier = DefaultErrorClassifier;
-        let error = FlowGuardError::ValidationError("invalid input".into());
+        let error = LimiteronError::ValidationError("invalid input".into());
         assert!(!classifier.is_counted_as_failure(&error));
     }
 
@@ -1207,7 +1207,7 @@ mod tests {
     #[test]
     fn test_default_error_classifier_circuit_breaker_error() {
         let classifier = DefaultErrorClassifier;
-        let error = FlowGuardError::CircuitBreakerError("circuit open".into());
+        let error = LimiteronError::CircuitBreakerError("circuit open".into());
         assert!(!classifier.is_counted_as_failure(&error));
     }
 
@@ -1215,7 +1215,7 @@ mod tests {
     #[test]
     fn test_default_error_classifier_other_errors() {
         let classifier = DefaultErrorClassifier;
-        let error = FlowGuardError::Other("unknown error".into());
+        let error = LimiteronError::Other("unknown error".into());
         assert!(classifier.is_counted_as_failure(&error));
     }
 
@@ -1225,9 +1225,9 @@ mod tests {
         #[derive(Debug)]
         struct CustomClassifier;
         impl ErrorClassifier for CustomClassifier {
-            fn is_counted_as_failure(&self, error: &FlowGuardError) -> bool {
+            fn is_counted_as_failure(&self, error: &LimiteronError) -> bool {
                 // 只有 StorageError 算失败
-                matches!(error, FlowGuardError::StorageError(_))
+                matches!(error, LimiteronError::StorageError(_))
             }
         }
 
@@ -1242,7 +1242,7 @@ mod tests {
         // ValidationError 不应触发失败计数
         let _ = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::ValidationError("test".into()))
+                Err::<(), LimiteronError>(LimiteronError::ValidationError("test".into()))
             })
             .await;
 
@@ -1252,7 +1252,7 @@ mod tests {
         // StorageError 应该触发失败计数
         let _ = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::StorageError(
+                Err::<(), LimiteronError>(LimiteronError::StorageError(
                     crate::error::StorageError::TimeoutError("timeout".into()),
                 ))
             })
@@ -1324,7 +1324,7 @@ mod tests {
         let breaker = CircuitBreaker::new(config);
 
         let _ = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
 
         assert!(
@@ -1345,7 +1345,7 @@ mod tests {
 
         for _ in 0..5 {
             let _ = breaker
-                .execute(|| async { Ok::<(), FlowGuardError>(()) })
+                .execute(|| async { Ok::<(), LimiteronError>(()) })
                 .await;
         }
 
@@ -1360,13 +1360,13 @@ mod tests {
 
         // Trigger open
         let _ = breaker
-            .execute(|| async { Err::<(), FlowGuardError>(FlowGuardError::BanError("e".into())) })
+            .execute(|| async { Err::<(), LimiteronError>(LimiteronError::BanError("e".into())) })
             .await;
         assert!(breaker.is_open().await);
 
         // Next call should be rejected (still open, not timed out)
         let result = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_err());
     }
@@ -1400,7 +1400,7 @@ mod tests {
         let breaker = CircuitBreaker::new(config);
 
         let _ = breaker
-            .execute(|| async { Err::<(), FlowGuardError>(FlowGuardError::BanError("e".into())) })
+            .execute(|| async { Err::<(), LimiteronError>(LimiteronError::BanError("e".into())) })
             .await;
 
         let stats = breaker.get_stats().await;
@@ -1413,7 +1413,7 @@ mod tests {
     fn test_default_error_classifier_storage_not_transient() {
         let classifier = DefaultErrorClassifier;
         // NotFound is NOT transient, so it should NOT be counted as failure
-        let error = FlowGuardError::StorageError(crate::error::StorageError::NotFound("nf".into()));
+        let error = LimiteronError::StorageError(crate::error::StorageError::NotFound("nf".into()));
         assert!(!classifier.is_counted_as_failure(&error));
     }
 
@@ -1428,7 +1428,7 @@ mod tests {
         for _ in 0..2 {
             let _ = breaker
                 .execute(|| async {
-                    Err::<(), FlowGuardError>(FlowGuardError::BanError("e".to_string()))
+                    Err::<(), LimiteronError>(LimiteronError::BanError("e".to_string()))
                 })
                 .await;
         }
@@ -1436,7 +1436,7 @@ mod tests {
 
         // 直接调用 on_failure，覆盖 Open 分支
         // 此时状态为 Open，on_failure 内的 Open 分支会打印 warn 但不做状态转换
-        let error = FlowGuardError::BanError("open-state failure".to_string());
+        let error = LimiteronError::BanError("open-state failure".to_string());
         breaker.on_failure(&error).await;
 
         // 状态应仍为 Open

@@ -291,8 +291,8 @@ pub async fn create_ban(
         ),
         Err(e) => {
             let status = match &e {
-                crate::error::FlowGuardError::ValidationError(_) => StatusCode::BAD_REQUEST,
-                crate::error::FlowGuardError::AuthorizationError(_) => StatusCode::FORBIDDEN,
+                crate::error::LimiteronError::ValidationError(_) => StatusCode::BAD_REQUEST,
+                crate::error::LimiteronError::AuthorizationError(_) => StatusCode::FORBIDDEN,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
             (status, Json(ApiResponse::error(format!("{}", e))))
@@ -939,7 +939,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_circuit_breaker_status_with_failures() {
         use crate::circuit::types::{CircuitBreaker, CircuitBreakerConfig};
-        use crate::error::{FlowGuardError, StorageError};
+        use crate::error::{LimiteronError, StorageError};
         let cb = Arc::new(CircuitBreaker::with_dependencies(
             CircuitBreakerConfig::default(),
         ));
@@ -947,7 +947,7 @@ mod tests {
         // 使用 ConnectionError（transient）才会被 DefaultErrorClassifier 计为失败
         let _ = cb
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::StorageError(
+                Err::<(), LimiteronError>(LimiteronError::StorageError(
                     StorageError::ConnectionError("test".to_string()),
                 ))
             })

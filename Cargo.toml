@@ -76,6 +76,7 @@ tempfile = "3.27"
 rand = { version = "0.10", default-features = false, features = ["std_rng"] }
 criterion = { version = "0.8", features = ["async_tokio"] }
 trybuild = "1.0"
+serial_test = { version = "~3.5", default-features = false }
 
 # 数据库
 sea-orm = { version = "2.0.0-rc.42", default-features = false, features = ["macros", "with-chrono"] }
@@ -234,6 +235,7 @@ criterion.workspace = true
 proptest.workspace = true
 tower = { workspace = true, features = ["util"] }
 http-body-util = "0.1"
+serial_test.workspace = true
 
 [features]
 # ============================================

@@ -747,7 +747,7 @@ impl Governor {
     ///     let ban_storage: Arc<dyn limiteron::storage::BanStorage> = MemoryBanStorage::create_ban_storage();
     ///
     ///     // 设置环境变量覆盖
-    ///     std::env::set_var("LIMITERON_GLOBAL_STORAGE", "redis");
+    ///     unsafe { std::env::set_var("LIMITERON_GLOBAL_STORAGE", "redis") };
     ///
     ///     let governor = Governor::from_config_with_env(
     ///         "/path/to/config.yaml",

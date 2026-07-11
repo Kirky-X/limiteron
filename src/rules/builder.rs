@@ -14,7 +14,7 @@ use crate::config::types::{
     FlowControlConfig, LimiterConfig, LimiterTypeName, Matcher as ConfigMatcher,
 };
 use crate::decision_chain::{DecisionChain, DecisionNode};
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use crate::limiters::{
     ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
     TokenBucketLimiter,
@@ -60,7 +60,7 @@ impl RuleBuilder {
     /// # 返回
     ///
     /// - `Ok(Duration)`: 解析成功
-    /// - `Err(FlowGuardError)`: 解析失败
+    /// - `Err(LimiteronError)`: 解析失败
     ///
     /// # 示例
     ///
@@ -73,8 +73,8 @@ impl RuleBuilder {
     /// assert_eq!(RuleBuilder::parse_duration("5m").unwrap(), Duration::from_secs(300));
     /// assert_eq!(RuleBuilder::parse_duration("2h").unwrap(), Duration::from_secs(7200));
     /// ```
-    pub fn parse_duration(s: &str) -> Result<Duration, FlowGuardError> {
-        crate::config::types::parse_window_size(s).map_err(FlowGuardError::ConfigError)
+    pub fn parse_duration(s: &str) -> Result<Duration, LimiteronError> {
+        crate::config::types::parse_window_size(s).map_err(LimiteronError::ConfigError)
     }
 
     /// 从配置构建规则对应的决策链
@@ -86,7 +86,7 @@ impl RuleBuilder {
     /// # 返回
     ///
     /// - `Ok(DashMap<String, DecisionChain>)`: 决策链映射（规则ID -> 决策链）
-    /// - `Err(FlowGuardError)`: 构建失败
+    /// - `Err(LimiteronError)`: 构建失败
     ///
     /// # 示例
     ///
@@ -99,7 +99,7 @@ impl RuleBuilder {
     /// ```
     pub fn build_rule_chains(
         config: &FlowControlConfig,
-    ) -> Result<DashMap<String, DecisionChain>, FlowGuardError> {
+    ) -> Result<DashMap<String, DecisionChain>, LimiteronError> {
         let chains = DashMap::new();
 
         for rule in &config.rules {
@@ -194,7 +194,7 @@ impl RuleBuilder {
     /// # 返回
     ///
     /// - `Ok(Vec<MatcherRule>)`: 规则列表
-    /// - `Err(FlowGuardError)`: 构建失败
+    /// - `Err(LimiteronError)`: 构建失败
     ///
     /// # 示例
     ///
@@ -205,7 +205,7 @@ impl RuleBuilder {
     /// let config = FlowControlConfig::default();
     /// let rules = RuleBuilder::build_rules(&config).unwrap();
     /// ```
-    pub fn build_rules(config: &FlowControlConfig) -> Result<Vec<MatcherRule>, FlowGuardError> {
+    pub fn build_rules(config: &FlowControlConfig) -> Result<Vec<MatcherRule>, LimiteronError> {
         let mut rules = Vec::new();
 
         for rule_config in &config.rules {

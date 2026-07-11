@@ -5,7 +5,7 @@
 //! Implements a simple quota-based limiter that tracks usage per key
 //! with configurable limits and time windows.
 
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 #[cfg(feature = "quota-control")]
 use crate::quota::QuotaConfig;
 use async_trait::async_trait;
@@ -69,8 +69,8 @@ impl QuotaLimiter {
     ///
     /// # Returns
     /// * `Ok(())` - Quota available, consumption successful
-    /// * `Err(FlowGuardError)` - Quota exceeded or error
-    async fn check_and_consume(&self, key: &str) -> Result<bool, FlowGuardError> {
+    /// * `Err(LimiteronError)` - Quota exceeded or error
+    async fn check_and_consume(&self, key: &str) -> Result<bool, LimiteronError> {
         let now = Instant::now();
         let window_duration = Duration::from_secs(self.config.window_size);
 
@@ -99,7 +99,7 @@ impl QuotaLimiter {
         };
 
         if record.usage >= max_usage {
-            return Err(FlowGuardError::QuotaExceeded(format!(
+            return Err(LimiteronError::QuotaExceeded(format!(
                 "Quota exceeded for key '{}': used {}/{}",
                 key, record.usage, max_usage
             )));
@@ -112,14 +112,14 @@ impl QuotaLimiter {
 
 #[async_trait]
 impl crate::limiters::Limiter for QuotaLimiter {
-    async fn allow(&self, _cost: u64) -> Result<bool, FlowGuardError> {
+    async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
         // For quota limiter, we need a key to track, but the allow() method doesn't provide one
         // This is a limitation - quota tracking requires a key
         // Return true to allow the request (quota enforcement happens via check() with key)
         Ok(true)
     }
 
-    async fn check(&self, key: &str) -> Result<(), FlowGuardError> {
+    async fn check(&self, key: &str) -> Result<(), LimiteronError> {
         self.check_and_consume(key).await?;
         Ok(())
     }
@@ -167,7 +167,7 @@ mod tests {
         // Next request should be rejected
         let result = limiter.check("user1").await;
         assert!(result.is_err());
-        assert!(matches!(result, Err(FlowGuardError::QuotaExceeded(_))));
+        assert!(matches!(result, Err(LimiteronError::QuotaExceeded(_))));
     }
 
     #[tokio::test]
@@ -295,6 +295,6 @@ mod tests {
         // 下一个 check 应返回 QuotaExceeded 错误
         let result = limiter.check("user1").await;
         assert!(result.is_err());
-        assert!(matches!(result, Err(FlowGuardError::QuotaExceeded(_))));
+        assert!(matches!(result, Err(LimiteronError::QuotaExceeded(_))));
     }
 }

@@ -18,7 +18,7 @@
 //! ```
 
 use async_trait::async_trait;
-use limiteron::error::FlowGuardError;
+use limiteron::error::LimiteronError;
 use limiteron::matchers::custom::{
     CustomMatcher, CustomMatcherRegistry, HeaderMatcher, TimeWindowMatcher,
 };
@@ -105,16 +105,16 @@ async fn demo_custom_matcher_trait() -> Result<(), Box<dyn std::error::Error>> {
             "path-prefix"
         }
 
-        async fn matches(&self, context: &RequestContext) -> Result<bool, FlowGuardError> {
+        async fn matches(&self, context: &RequestContext) -> Result<bool, LimiteronError> {
             Ok(context.path.starts_with(&self.prefix))
         }
 
-        fn load_config(&mut self, config: Value) -> Result<(), FlowGuardError> {
+        fn load_config(&mut self, config: Value) -> Result<(), LimiteronError> {
             if let Some(prefix) = config.get("prefix").and_then(Value::as_str) {
                 self.prefix = prefix.to_string();
                 Ok(())
             } else {
-                Err(FlowGuardError::ConfigError(
+                Err(LimiteronError::ConfigError(
                     "missing 'prefix' field".to_string(),
                 ))
             }

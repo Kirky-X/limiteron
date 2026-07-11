@@ -21,7 +21,7 @@
 //! ```
 
 use crate::ban::{BanManager, BanSource};
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use crate::storage::BanTarget;
 #[cfg(feature = "config-watcher")]
 use parking_lot::RwLock;
@@ -105,19 +105,19 @@ impl BanFileLoader {
     ///
     /// # 返回
     /// - `Ok(LoadResult)`: 加载完成（可能含部分失败）
-    /// - `Err(FlowGuardError)`: 文件读取或 YAML 解析失败
-    pub async fn load_once(&self, manager: &BanManager) -> Result<LoadResult, FlowGuardError> {
+    /// - `Err(LimiteronError)`: 文件读取或 YAML 解析失败
+    pub async fn load_once(&self, manager: &BanManager) -> Result<LoadResult, LimiteronError> {
         // 文件大小预检查：防止 YAML 炸弹（billion laughs attack）导致 OOM
         const MAX_BAN_FILE_SIZE: u64 = 2 * 1024 * 1024; // 2 MB
         let file_meta = std::fs::metadata(&self.path).map_err(|e| {
-            FlowGuardError::ConfigError(format!(
+            LimiteronError::ConfigError(format!(
                 "读取封禁文件元数据失败 {}: {}",
                 self.path.display(),
                 e
             ))
         })?;
         if file_meta.len() > MAX_BAN_FILE_SIZE {
-            return Err(FlowGuardError::ConfigError(format!(
+            return Err(LimiteronError::ConfigError(format!(
                 "封禁文件过大: {} ({} bytes, 上限 {} bytes)",
                 self.path.display(),
                 file_meta.len(),
@@ -126,11 +126,11 @@ impl BanFileLoader {
         }
 
         let content = std::fs::read_to_string(&self.path).map_err(|e| {
-            FlowGuardError::ConfigError(format!("读取封禁文件失败 {}: {}", self.path.display(), e))
+            LimiteronError::ConfigError(format!("读取封禁文件失败 {}: {}", self.path.display(), e))
         })?;
 
         let ban_file: BanFile = serde_yaml::from_str(&content).map_err(|e| {
-            FlowGuardError::ConfigError(format!(
+            LimiteronError::ConfigError(format!(
                 "解析封禁文件 YAML 失败 {}: {}",
                 self.path.display(),
                 e
@@ -181,7 +181,7 @@ impl BanFileLoader {
     /// # 参数
     /// - `manager`: BanManager 实例（会被 clone 到后台任务中）
     #[cfg(feature = "config-watcher")]
-    pub async fn start_watching(&self, manager: BanManager) -> Result<(), FlowGuardError> {
+    pub async fn start_watching(&self, manager: BanManager) -> Result<(), LimiteronError> {
         use notify::{RecommendedWatcher, RecursiveMode, Watcher};
         use tokio::sync::mpsc;
 
@@ -203,13 +203,13 @@ impl BanFileLoader {
             },
             notify::Config::default().with_poll_interval(Duration::from_secs(2)),
         )
-        .map_err(|e| FlowGuardError::ConfigError(format!("启动文件监听失败: {}", e)))?;
+        .map_err(|e| LimiteronError::ConfigError(format!("启动文件监听失败: {}", e)))?;
 
         // 监听文件所在目录（监听文件本身在某些编辑器下会丢失事件）
         let watch_dir = path.parent().unwrap_or(Path::new("."));
         watcher
             .watch(watch_dir, RecursiveMode::NonRecursive)
-            .map_err(|e| FlowGuardError::ConfigError(format!("注册文件监听失败: {}", e)))?;
+            .map_err(|e| LimiteronError::ConfigError(format!("注册文件监听失败: {}", e)))?;
 
         let manager_clone = manager.clone();
         let loader_path = path.clone();

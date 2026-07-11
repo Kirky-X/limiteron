@@ -32,7 +32,7 @@
 //! ```
 
 #[cfg(feature = "device-matching")]
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use log::{debug, info};
 use oxcache::Cache;
 use serde::{Deserialize, Serialize};
@@ -408,7 +408,7 @@ impl DeviceMatcher {
     ///
     /// # 返回
     /// - `Ok(DeviceMatcher)`: 成功创建匹配器
-    /// - `Err(FlowGuardError)`: 创建失败
+    /// - `Err(LimiteronError)`: 创建失败
     ///
     /// # 示例
     /// ```rust
@@ -419,14 +419,14 @@ impl DeviceMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn new() -> Result<Self, FlowGuardError> {
+    pub async fn new() -> Result<Self, LimiteronError> {
         info!(target: "device", "创建DeviceMatcher");
 
         let parser = Parser::new();
         let cache = Cache::builder()
             .build()
             .await
-            .map_err(|e| FlowGuardError::ConfigError(e.to_string()))?;
+            .map_err(|e| LimiteronError::ConfigError(e.to_string()))?;
 
         let matcher = Self {
             parser: Arc::new(parser),
@@ -499,7 +499,7 @@ impl DeviceMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn with_cache_limit(cache_size_limit: usize) -> Result<Self, FlowGuardError> {
+    pub async fn with_cache_limit(cache_size_limit: usize) -> Result<Self, LimiteronError> {
         let mut matcher = Self::new().await?;
         matcher.cache_size_limit = cache_size_limit;
         Ok(matcher)
@@ -512,7 +512,7 @@ impl DeviceMatcher {
     ///
     /// # 返回
     /// - `Ok(DeviceInfo)`: 设备信息
-    /// - `Err(FlowGuardError)`: 解析失败
+    /// - `Err(LimiteronError)`: 解析失败
     ///
     /// # 性能
     /// - 首次解析: ~100μs
@@ -529,7 +529,7 @@ impl DeviceMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn parse(&self, user_agent: &str) -> Result<DeviceInfo, FlowGuardError> {
+    pub async fn parse(&self, user_agent: &str) -> Result<DeviceInfo, LimiteronError> {
         // 清理 User-Agent
         let sanitized = sanitize_user_agent(user_agent);
         let user_agent = sanitized.trim();
@@ -541,7 +541,7 @@ impl DeviceMatcher {
 
         // 验证 User-Agent 长度
         if user_agent.len() > MAX_USER_AGENT_LENGTH {
-            return Err(FlowGuardError::ConfigError(format!(
+            return Err(LimiteronError::ConfigError(format!(
                 "User-Agent 长度超过限制（最大 {} 字符）",
                 MAX_USER_AGENT_LENGTH
             )));
@@ -625,7 +625,7 @@ impl DeviceMatcher {
     pub async fn batch_parse(
         &self,
         user_agents: &[String],
-    ) -> Vec<Result<DeviceInfo, FlowGuardError>> {
+    ) -> Vec<Result<DeviceInfo, LimiteronError>> {
         let mut results = Vec::with_capacity(user_agents.len());
         for ua in user_agents {
             results.push(self.parse(ua).await);
@@ -642,7 +642,7 @@ impl DeviceMatcher {
     /// # 返回
     /// - `Ok(true)`: 匹配
     /// - `Ok(false)`: 不匹配
-    /// - `Err(FlowGuardError)`: 解析失败
+    /// - `Err(LimiteronError)`: 解析失败
     ///
     /// # 示例
     /// ```rust
@@ -660,7 +660,7 @@ impl DeviceMatcher {
         &self,
         user_agent: &str,
         condition: &DeviceCondition,
-    ) -> Result<bool, FlowGuardError> {
+    ) -> Result<bool, LimiteronError> {
         let info = self.parse(user_agent).await?;
         Ok(condition.matches(&info))
     }
@@ -885,8 +885,8 @@ impl DeviceMatcherBuilder {
     ///
     /// # 返回
     /// - `Ok(DeviceMatcher)`: 成功创建设备匹配器
-    /// - `Err(FlowGuardError)`: 创建失败
-    pub async fn build(self) -> Result<DeviceMatcher, FlowGuardError> {
+    /// - `Err(LimiteronError)`: 创建失败
+    pub async fn build(self) -> Result<DeviceMatcher, LimiteronError> {
         let mut matcher = DeviceMatcher::new().await?;
         matcher.cache_size_limit = self.cache_size_limit;
         matcher.custom_rules = self.custom_rules;

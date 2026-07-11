@@ -6,7 +6,7 @@
 
 use super::traits::{Limiter, validate_cost};
 use crate::clock::{Clock, SystemClock};
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -263,7 +263,7 @@ impl ShardedSlidingWindowLimiter {
 
 #[async_trait]
 impl Limiter for ShardedSlidingWindowLimiter {
-    async fn allow(&self, cost: u64) -> Result<bool, FlowGuardError> {
+    async fn allow(&self, cost: u64) -> Result<bool, LimiteronError> {
         let cost = validate_cost(cost)?;
         Ok(self.try_acquire(cost))
     }

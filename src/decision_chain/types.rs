@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! 决策链类型定义
 
-use crate::error::{Decision, FlowGuardError, RejectionMetadata};
+use crate::error::{Decision, LimiteronError, RejectionMetadata};
 use crate::limiters::Limiter;
 use ahash::AHashMap;
 use log::{info, warn};
@@ -275,7 +275,7 @@ impl DecisionChain {
     }
 
     /// 检查决策链（向后兼容）
-    pub async fn check(&self) -> Result<Decision, FlowGuardError> {
+    pub async fn check(&self) -> Result<Decision, LimiteronError> {
         let enabled_nodes: Vec<&DecisionNode> = self.nodes.iter().filter(|n| n.enabled).collect();
 
         let mut last_rejection: Option<RejectionMetadata> = None;
@@ -512,7 +512,7 @@ mod tests {
     }
     #[async_trait]
     impl Limiter for MockLimiter {
-        async fn allow(&self, _cost: u64) -> Result<bool, FlowGuardError> {
+        async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
             let a = self.allowed.load(std::sync::atomic::Ordering::SeqCst);
             Ok(a)
         }
@@ -530,7 +530,7 @@ mod tests {
     }
     #[async_trait]
     impl Limiter for SpyLimiter {
-        async fn allow(&self, _cost: u64) -> Result<bool, FlowGuardError> {
+        async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
             self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(true)
         }
@@ -1744,8 +1744,8 @@ mod tests {
 
     #[async_trait]
     impl Limiter for ErrorLimiter {
-        async fn allow(&self, _cost: u64) -> Result<bool, FlowGuardError> {
-            Err(FlowGuardError::LimitError("limit error".to_string()))
+        async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
+            Err(LimiteronError::LimitError("limit error".to_string()))
         }
     }
 

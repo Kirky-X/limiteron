@@ -4,7 +4,7 @@
 //!
 //! 测试验证函数的完整功能
 
-use limiteron::error::FlowGuardError;
+use limiteron::error::LimiteronError;
 #[cfg(feature = "ban-manager")]
 use limiteron::validation::validate_ban_target;
 use limiteron::validation::{
@@ -162,7 +162,7 @@ mod user_id_tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            FlowGuardError::ValidationError(_)
+            LimiteronError::ValidationError(_)
         ));
     }
 
@@ -173,7 +173,7 @@ mod user_id_tests {
         // Note: returns ConfigError for length overflow
         assert!(matches!(
             result.unwrap_err(),
-            FlowGuardError::ConfigError(_)
+            LimiteronError::ConfigError(_)
         ));
     }
 
@@ -223,7 +223,7 @@ mod mac_address_tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            FlowGuardError::ValidationError(_)
+            LimiteronError::ValidationError(_)
         ));
     }
 
@@ -280,7 +280,7 @@ mod api_key_tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            FlowGuardError::ConfigError(_)
+            LimiteronError::ConfigError(_)
         ));
     }
 }
@@ -307,7 +307,7 @@ mod header_value_tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            FlowGuardError::ConfigError(_)
+            LimiteronError::ConfigError(_)
         ));
     }
 }
@@ -343,7 +343,7 @@ mod ban_reason_tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            FlowGuardError::ConfigError(_)
+            LimiteronError::ConfigError(_)
         ));
     }
 }
@@ -370,7 +370,7 @@ mod path_tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            FlowGuardError::ConfigError(_)
+            LimiteronError::ConfigError(_)
         ));
     }
 
@@ -404,7 +404,7 @@ mod validate_length_tests {
         let result = validate_length("test_value", 5, "test_field");
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err, FlowGuardError::ConfigError(ref msg) if msg.contains("test_field")));
+        assert!(matches!(err, LimiteronError::ConfigError(ref msg) if msg.contains("test_field")));
     }
 
     #[test]
@@ -426,7 +426,7 @@ mod validate_length_tests {
 #[cfg(feature = "ban-manager")]
 mod ban_target_tests {
     use limiteron::BanTarget;
-    use limiteron::error::FlowGuardError;
+    use limiteron::error::LimiteronError;
     use limiteron::validation::validate_ban_target;
 
     #[test]
@@ -512,7 +512,7 @@ mod error_message_tests {
         assert!(empty_result.is_err());
         let empty_err = empty_result.unwrap_err();
         assert!(
-            matches!(empty_err, FlowGuardError::ValidationError(ref msg) if msg.contains("empty"))
+            matches!(empty_err, LimiteronError::ValidationError(ref msg) if msg.contains("empty"))
         );
 
         // Build a string that exceeds max length
@@ -521,14 +521,14 @@ mod error_message_tests {
         assert!(long_result.is_err());
         let long_err = long_result.unwrap_err();
         assert!(
-            matches!(long_err, FlowGuardError::ValidationError(ref msg) if msg.contains("exceeds") && msg.contains("45"))
+            matches!(long_err, LimiteronError::ValidationError(ref msg) if msg.contains("exceeds") && msg.contains("45"))
         );
 
         let bad_result = validate_ip_address("abc");
         assert!(bad_result.is_err());
         let bad_err = bad_result.unwrap_err();
         assert!(
-            matches!(bad_err, FlowGuardError::ValidationError(ref msg) if msg.contains("Invalid IP address format"))
+            matches!(bad_err, LimiteronError::ValidationError(ref msg) if msg.contains("Invalid IP address format"))
         );
     }
 
@@ -537,19 +537,19 @@ mod error_message_tests {
         let empty_result = validate_user_id("");
         assert!(matches!(
             empty_result.unwrap_err(),
-            FlowGuardError::ValidationError(_)
+            LimiteronError::ValidationError(_)
         ));
 
         let long_result = validate_user_id(&"a".repeat(MAX_USER_ID_LENGTH + 1));
         assert!(matches!(
             long_result.unwrap_err(),
-            FlowGuardError::ConfigError(_)
+            LimiteronError::ConfigError(_)
         ));
 
         let invalid_result = validate_user_id("user@#$");
         assert!(matches!(
             invalid_result.unwrap_err(),
-            FlowGuardError::ValidationError(_)
+            LimiteronError::ValidationError(_)
         ));
     }
 
@@ -558,7 +558,7 @@ mod error_message_tests {
         let result = validate_length("toolong", 5, "MyField");
         let err = result.unwrap_err();
         assert!(
-            matches!(err, FlowGuardError::ConfigError(ref msg) if msg.contains("MyField") && msg.contains("5"))
+            matches!(err, LimiteronError::ConfigError(ref msg) if msg.contains("MyField") && msg.contains("5"))
         );
     }
 }
@@ -584,7 +584,7 @@ mod consistency_tests {
 
     #[test]
     fn test_all_validation_functions_return_result() {
-        // Smoke test: all public functions return Result<(), FlowGuardError>
+        // Smoke test: all public functions return Result<(), LimiteronError>
         validate_ip_address("127.0.0.1").unwrap();
         validate_user_id("user").unwrap();
         validate_mac_address("00:00:00:00:00:00").unwrap();

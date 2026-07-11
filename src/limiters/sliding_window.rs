@@ -5,7 +5,7 @@
 //! 使用滑动窗口算法实现速率限制。
 
 use super::traits::{Limiter, validate_cost};
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use std::collections::VecDeque;
@@ -77,7 +77,7 @@ impl SlidingWindowLimiter {
 
 #[async_trait]
 impl Limiter for SlidingWindowLimiter {
-    async fn allow(&self, cost: u64) -> Result<bool, FlowGuardError> {
+    async fn allow(&self, cost: u64) -> Result<bool, LimiteronError> {
         validate_cost(cost)?;
 
         let now = Instant::now();

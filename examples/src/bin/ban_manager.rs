@@ -10,14 +10,14 @@
 //! Run: cargo run --bin ban_manager --features ban-manager
 
 use limiteron::ban::{BanManager, BanManagerConfig, BanSource};
-use limiteron::error::FlowGuardError;
+use limiteron::error::LimiteronError;
 use limiteron::{BanStorage, BanTarget};
 use limiteron_examples::MemoryBanStorage;
 use std::sync::Arc;
 use std::time::Duration;
 
 #[tokio::main]
-async fn main() -> Result<(), FlowGuardError> {
+async fn main() -> Result<(), LimiteronError> {
     println!("=== Limiteron Ban Manager Demo ===\n");
 
     demo_ip_ban().await?;
@@ -28,7 +28,7 @@ async fn main() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-async fn demo_ip_ban() -> Result<(), FlowGuardError> {
+async fn demo_ip_ban() -> Result<(), LimiteronError> {
     println!("--- IP Ban Demo ---\n");
 
     let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
@@ -62,7 +62,7 @@ async fn demo_ip_ban() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-async fn demo_user_ban() -> Result<(), FlowGuardError> {
+async fn demo_user_ban() -> Result<(), LimiteronError> {
     println!("--- User Ban Demo ---\n");
 
     let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
@@ -97,7 +97,7 @@ async fn demo_user_ban() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-async fn demo_ban_update() -> Result<(), FlowGuardError> {
+async fn demo_ban_update() -> Result<(), LimiteronError> {
     println!("--- Ban Update Demo ---\n");
 
     let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());

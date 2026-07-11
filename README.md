@@ -65,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use limiteron::flow_control;
 
 #[flow_control(rate = "100/s", quota = "10000/m", concurrency = 50)]
-async fn api_handler(user_id: &str) -> Result<String, limiteron::error::FlowGuardError> {
+async fn api_handler(user_id: &str) -> Result<String, limiteron::error::LimiteronError> {
     Ok(format!("处理用户 {} 的请求", user_id))
 }
 ```

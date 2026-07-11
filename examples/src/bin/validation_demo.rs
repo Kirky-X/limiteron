@@ -230,7 +230,7 @@ fn demo_ban_target_validation() {
 }
 
 /// 格式化验证结果
-fn format_result(result: &Result<(), limiteron::FlowGuardError>) -> String {
+fn format_result(result: &Result<(), limiteron::LimiteronError>) -> String {
     match result {
         Ok(()) => "✅ valid".to_string(),
         Err(e) => format!("❌ invalid ({})", e),

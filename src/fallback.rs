@@ -11,7 +11,7 @@
 //! - **热更新**: 支持动态更新策略
 //! - **故障注入**: 支持模拟故障进行测试
 
-use crate::error::{FlowGuardError, StorageError};
+use crate::error::{LimiteronError, StorageError};
 use ahash::AHashMap as HashMap;
 use oxcache::Cache;
 use std::sync::Arc;
@@ -244,12 +244,12 @@ impl FallbackManager {
     ///
     /// # 返回
     /// - `Ok(T)`: 操作成功
-    /// - `Err(FlowGuardError)`: 操作失败且降级也失败
+    /// - `Err(LimiteronError)`: 操作失败且降级也失败
     ///
     /// # 示例
     /// ```rust
     /// use limiteron::fallback::{FallbackManager, FallbackStrategy, ComponentType};
-    /// use limiteron::error::FlowGuardError;
+    /// use limiteron::error::LimiteronError;
     /// use oxcache::Cache;
     /// use std::sync::Arc;
     /// use std::time::Duration;
@@ -271,12 +271,12 @@ impl FallbackManager {
         component: ComponentType,
         operation: F,
         fallback_operation: FB,
-    ) -> Result<T, FlowGuardError>
+    ) -> Result<T, LimiteronError>
     where
         F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<T, FlowGuardError>>,
+        Fut: std::future::Future<Output = Result<T, LimiteronError>>,
         FB: FnOnce() -> FBFut,
-        FBFut: std::future::Future<Output = Result<T, FlowGuardError>>,
+        FBFut: std::future::Future<Output = Result<T, LimiteronError>>,
     {
         let config = self
             .get_strategy(component.clone())
@@ -323,10 +323,10 @@ impl FallbackManager {
         component: ComponentType,
         config: FallbackConfig,
         fallback_operation: F,
-    ) -> Result<T, FlowGuardError>
+    ) -> Result<T, LimiteronError>
     where
         F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<T, FlowGuardError>>,
+        Fut: std::future::Future<Output = Result<T, LimiteronError>>,
     {
         log::info!(
             target: "fallback",
@@ -338,14 +338,14 @@ impl FallbackManager {
             FallbackStrategy::FailOpen => {
                 // 故障开放：返回默认值或允许请求
                 log::warn!(target: "fallback", "降级策略: FailOpen - 允许请求通过");
-                Err(FlowGuardError::LimitError(
+                Err(LimiteronError::LimitError(
                     "服务降级，但允许请求通过".to_string(),
                 ))
             }
             FallbackStrategy::FailClosed => {
                 // 故障关闭：拒绝请求
                 log::error!(target: "fallback", "降级策略: FailClosed - 拒绝请求");
-                Err(FlowGuardError::StorageError(StorageError::ConnectionError(
+                Err(LimiteronError::StorageError(StorageError::ConnectionError(
                     "服务降级，拒绝请求".to_string(),
                 )))
             }
@@ -590,8 +590,8 @@ mod tests {
         let result = manager
             .execute_with_fallback(
                 ComponentType::Redis,
-                || async { Ok::<String, FlowGuardError>("primary".to_string()) },
-                || async { Ok::<String, FlowGuardError>("fallback".to_string()) },
+                || async { Ok::<String, LimiteronError>("primary".to_string()) },
+                || async { Ok::<String, LimiteronError>("fallback".to_string()) },
             )
             .await;
 
@@ -618,11 +618,11 @@ mod tests {
             .execute_with_fallback(
                 ComponentType::Redis,
                 || async {
-                    Err::<String, FlowGuardError>(FlowGuardError::StorageError(
+                    Err::<String, LimiteronError>(LimiteronError::StorageError(
                         StorageError::ConnectionError("connection failed".to_string()),
                     ))
                 },
-                || async { Ok::<String, FlowGuardError>("fallback".to_string()) },
+                || async { Ok::<String, LimiteronError>("fallback".to_string()) },
             )
             .await;
 
@@ -649,11 +649,11 @@ mod tests {
             .execute_with_fallback(
                 ComponentType::Redis,
                 || async {
-                    Err::<String, FlowGuardError>(FlowGuardError::StorageError(
+                    Err::<String, LimiteronError>(LimiteronError::StorageError(
                         StorageError::ConnectionError("connection failed".to_string()),
                     ))
                 },
-                || async { Ok::<String, FlowGuardError>("fallback".to_string()) },
+                || async { Ok::<String, LimiteronError>("fallback".to_string()) },
             )
             .await;
 
@@ -684,11 +684,11 @@ mod tests {
             .execute_with_fallback(
                 ComponentType::Redis,
                 || async {
-                    Err::<String, FlowGuardError>(FlowGuardError::StorageError(
+                    Err::<String, LimiteronError>(LimiteronError::StorageError(
                         StorageError::ConnectionError("connection failed".to_string()),
                     ))
                 },
-                || async { Ok::<String, FlowGuardError>("fallback".to_string()) },
+                || async { Ok::<String, LimiteronError>("fallback".to_string()) },
             )
             .await;
 
@@ -757,11 +757,11 @@ mod tests {
             .execute_with_fallback(
                 ComponentType::Redis,
                 || async {
-                    Err::<String, FlowGuardError>(FlowGuardError::StorageError(
+                    Err::<String, LimiteronError>(LimiteronError::StorageError(
                         StorageError::ConnectionError("connection failed".to_string()),
                     ))
                 },
-                || async { Ok::<String, FlowGuardError>("fallback".to_string()) },
+                || async { Ok::<String, LimiteronError>("fallback".to_string()) },
             )
             .await;
 
@@ -772,8 +772,8 @@ mod tests {
         let result = manager
             .execute_with_fallback(
                 ComponentType::Redis,
-                || async { Ok::<String, FlowGuardError>("recovered".to_string()) },
-                || async { Ok::<String, FlowGuardError>("fallback".to_string()) },
+                || async { Ok::<String, LimiteronError>("recovered".to_string()) },
+                || async { Ok::<String, LimiteronError>("fallback".to_string()) },
             )
             .await;
 
@@ -968,15 +968,15 @@ mod tests {
         manager.set_strategy(ComponentType::Redis, config).await;
 
         // When disabled, primary runs directly and errors propagate (no fallback)
-        let result: Result<String, FlowGuardError> = manager
+        let result: Result<String, LimiteronError> = manager
             .execute_with_fallback(
                 ComponentType::Redis,
                 || async {
-                    Err::<String, FlowGuardError>(FlowGuardError::LimitError(
+                    Err::<String, LimiteronError>(LimiteronError::LimitError(
                         "primary failed".to_string(),
                     ))
                 },
-                || async { Ok::<String, FlowGuardError>("fallback".to_string()) },
+                || async { Ok::<String, LimiteronError>("fallback".to_string()) },
             )
             .await;
 
@@ -992,11 +992,11 @@ mod tests {
             FallbackConfig::new(ComponentType::Redis, FallbackStrategy::Degraded).enabled(false);
         manager.set_strategy(ComponentType::Redis, config).await;
 
-        let result: Result<String, FlowGuardError> = manager
+        let result: Result<String, LimiteronError> = manager
             .execute_with_fallback(
                 ComponentType::Redis,
-                || async { Ok::<String, FlowGuardError>("primary_ok".to_string()) },
-                || async { Ok::<String, FlowGuardError>("fallback".to_string()) },
+                || async { Ok::<String, LimiteronError>("primary_ok".to_string()) },
+                || async { Ok::<String, LimiteronError>("fallback".to_string()) },
             )
             .await;
 
@@ -1009,15 +1009,15 @@ mod tests {
         let manager = create_manager().await;
 
         // Unknown component uses unwrap_or_default -> Degraded, enabled=true
-        let result: Result<String, FlowGuardError> = manager
+        let result: Result<String, LimiteronError> = manager
             .execute_with_fallback(
                 ComponentType::Other("unknown".to_string()),
                 || async {
-                    Err::<String, FlowGuardError>(FlowGuardError::StorageError(
+                    Err::<String, LimiteronError>(LimiteronError::StorageError(
                         StorageError::ConnectionError("down".to_string()),
                     ))
                 },
-                || async { Ok::<String, FlowGuardError>("degraded_ok".to_string()) },
+                || async { Ok::<String, LimiteronError>("degraded_ok".to_string()) },
             )
             .await;
 

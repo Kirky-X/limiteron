@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 文件封禁加载器模块
 //!
 //! 从 YAML 文件加载封禁规则到 BanManager，支持热重载（文件变更自动重载）。

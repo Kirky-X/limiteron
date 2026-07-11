@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 封禁管理场景测试
 //!
 //! 测试用户被封禁后无法访问，以及封禁过期后可访问的完整流程

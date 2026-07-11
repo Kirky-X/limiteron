@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 故障注入存储层
 //!
 //! 包装真实存储,随机注入故障以测试系统的容错能力。

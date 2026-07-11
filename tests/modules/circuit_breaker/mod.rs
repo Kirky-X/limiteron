@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 熔断器模块测试
 //!
 //! 包含熔断器的集成测试

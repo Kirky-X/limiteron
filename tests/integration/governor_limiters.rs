@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Governor + Limiters 集成测试
 //!
 //! 测试 Governor 与各种限流器的集成，验证完整决策流程和多限流器协作。

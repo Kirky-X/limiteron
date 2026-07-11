@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 配置集成测试
 //!
 //! 测试配置解析、环境变量覆盖和配置验证。

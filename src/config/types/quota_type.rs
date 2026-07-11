@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 配额类型枚举
 
 use serde::{Deserialize, Serialize};

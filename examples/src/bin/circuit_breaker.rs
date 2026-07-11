@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Circuit Breaker Example
 //!
 //! Demonstrates circuit breaker pattern for fault tolerance:

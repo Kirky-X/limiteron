@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 审计日志模块集成测试
 //!
 //! 测试审计日志模块的完整功能（需要 audit-log 特性）

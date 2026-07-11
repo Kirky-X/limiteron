@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Audit Log 示例
 //!
 //! 演示审计日志记录器的使用：事件记录、配置、统计、签名验证。

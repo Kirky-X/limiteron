@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Cache + Storage 集成测试
 //!
 //! 测试缓存与存储的集成，验证缓存一致性。

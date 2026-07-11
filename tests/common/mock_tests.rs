@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Mock 存储基础设施测试
 //!
 //! 这些测试验证 Mock 存储实现的正确性，确保测试基础设施可靠。

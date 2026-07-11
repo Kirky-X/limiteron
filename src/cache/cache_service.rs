@@ -1,7 +1,5 @@
-// Copyright (c) 2026, Kirky.X
-//
-// MIT License
-//
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 // CacheService trait - Defines the unified cache service interface
 //
 // This trait provides a standardized interface for cache operations

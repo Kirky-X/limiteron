@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Matcher + Limiter 集成测试
 //!
 //! 测试规则匹配器与限流器的集成，验证规则匹配与限流联动。

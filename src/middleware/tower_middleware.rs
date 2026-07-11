@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Tower Service/Layer 实现
 //!
 //! 实现 Tower 的 Layer 和 Service trait，将 Governor 流量控制

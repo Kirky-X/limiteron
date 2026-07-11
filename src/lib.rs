@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Limiteron - Unified Flow Control Framework
 //!
 //! Provides rate limiting, quota management, circuit breaking, and ban control.

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 延迟注入模块
 //!
 //! 提供可配置的延迟注入功能,模拟各种网络延迟场景。

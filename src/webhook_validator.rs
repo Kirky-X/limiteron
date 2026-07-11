@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Webhook URL 校验
 //!
 //! 防止 SSRF 攻击，确保 webhook URL 指向安全的公网地址。

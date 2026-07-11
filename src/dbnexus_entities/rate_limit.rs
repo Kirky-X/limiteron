@@ -1,8 +1,5 @@
-// Copyright (c) 2026, Kirky.X
-//
-// Licensed under the MIT License
-// See LICENSE file in the project root for full license information.
-
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! RateLimitEntity - DBNexus entity for rate limit counters
 //!
 //! This entity is used by DBNexusStorageAdapter to store rate limit

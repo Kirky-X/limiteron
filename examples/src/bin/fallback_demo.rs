@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Fallback Manager 示例
 //!
 //! 演示降级策略管理器的使用：策略配置、故障注入、降级执行、孤岛模式。

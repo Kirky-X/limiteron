@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Decision Chain 示例
 //!
 //! 演示责任链模式的决策链：组合多个限流器，按优先级执行，支持短路。

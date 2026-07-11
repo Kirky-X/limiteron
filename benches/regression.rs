@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 回归检测基准测试
 //!
 //! 提供性能回归检测功能，包括：

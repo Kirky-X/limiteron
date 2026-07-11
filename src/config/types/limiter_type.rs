@@ -1,8 +1,5 @@
-// Copyright (c) 2026, Kirky.X
-//
-// Licensed under the MIT License
-// See LICENSE file in the project root for full license information.
-
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 限流器类型名称枚举
 //!
 //! 提供类型安全的限流器类型标识，替代硬编码字符串。

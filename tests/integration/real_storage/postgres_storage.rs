@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! PostgreSQL Storage 集成测试
 //!
 //! 这些测试需要真实的 PostgreSQL 数据库连接。

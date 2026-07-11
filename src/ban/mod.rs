@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 封禁管理器模块
 //!
 //! 提供封禁记录的CRUD操作、指数退避算法和封禁优先级管理。

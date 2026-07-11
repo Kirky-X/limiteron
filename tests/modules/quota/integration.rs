@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 配额控制模块集成测试
 //!
 //! 测试配额控制模块的基本功能

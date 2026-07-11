@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Governor 主控制器 - 重构版本
 //!
 //! 流量控制的核心控制器，重构后具有更好的模块化设计：

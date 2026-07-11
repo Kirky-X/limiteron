@@ -1,7 +1,5 @@
-// Copyright (c) 2026, Kirky.X
-//
-// MIT License
-//
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 // MemoryCache - In-memory cache implementation of CacheService
 //
 // Implements the CacheService trait with an in-memory backend using DashMap.

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! BanFileLoader 示例
 //!
 //! 演示 [`BanFileLoader`] 从 YAML 文件加载封禁规则到 [`BanManager`]，

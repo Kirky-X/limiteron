@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 分片滑动窗口限流器模块
 //!
 //! 使用分片计数实现 O(1) 时间复杂度的限流检查。

@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 规则匹配引擎
 //!
 //! 包含规则匹配相关的类型：MatchCondition, IpRange, LogicalOperator,

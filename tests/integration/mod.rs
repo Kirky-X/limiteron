@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 集成测试模块
 //!
 //! 测试各组件之间的集成和交互

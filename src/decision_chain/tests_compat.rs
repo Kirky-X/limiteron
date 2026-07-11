@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 // 测试兼容模块
 // 导出 DecisionNode::new 和 DecisionChain::new 方法到测试命名空间
 

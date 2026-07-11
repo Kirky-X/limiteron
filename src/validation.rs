@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 统一验证模块
 //!
 //! 提供集中化的验证函数，消除跨模块的重复验证逻辑。

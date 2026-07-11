@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Token Bucket 属性测试
 //!
 //! 验证令牌桶算法的核心属性:

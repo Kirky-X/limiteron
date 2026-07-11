@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Tower Middleware 示例
 //!
 //! 演示如何将 Governor 流量控制集成到 Tower Service 处理链中。

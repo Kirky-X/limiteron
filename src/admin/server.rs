@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! HTTP服务器启动
 
 #[cfg(feature = "ban-manager")]

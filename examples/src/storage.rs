@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Storage implementations for examples
 //!
 //! Provides in-memory storage implementations for demonstration purposes.

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Sliding Window 属性测试
 //!
 //! 验证滑动窗口算法的核心属性:

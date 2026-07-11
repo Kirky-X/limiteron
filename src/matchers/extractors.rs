@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 标识符提取器实现
 //!
 //! 包含各种类型的提取器：UserIdExtractor, IpExtractor, MacExtractor,

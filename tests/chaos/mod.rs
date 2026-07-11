@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 混沌测试模块
 //!
 //! 提供故障注入、延迟注入等混沌测试基础设施,验证系统在异常条件下的行为。

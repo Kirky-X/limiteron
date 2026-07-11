@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Governor API 示例
 //!
 //! 演示 Governor 主控制器的三种构造模式、请求检查、决策解析与统计信息获取。

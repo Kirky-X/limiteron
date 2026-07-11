@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 限流器工厂模块
 //!
 //! 提供统一的限流器创建接口，支持通过配置动态创建各种限流器。

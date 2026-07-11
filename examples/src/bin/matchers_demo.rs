@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Matchers 示例
 //!
 //! 演示标识符提取器、请求上下文、规则匹配器的完整使用流程。

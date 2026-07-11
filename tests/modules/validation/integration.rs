@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 验证模块集成测试
 //!
 //! 测试验证函数的完整功能

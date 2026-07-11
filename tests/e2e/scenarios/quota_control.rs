@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 配额消费场景测试
 //!
 //! 测试配额正确追踪和告警正确触发的完整流程

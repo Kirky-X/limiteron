@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 延迟基准测试
 //!
 //! 测试各种操作的延迟性能，包括 P50/P90/P99/P99.9 延迟测量、直方图报告和不同操作延迟对比。

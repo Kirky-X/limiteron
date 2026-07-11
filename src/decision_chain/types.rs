@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 决策链类型定义
 
 use crate::error::{Decision, FlowGuardError, RejectionMetadata};

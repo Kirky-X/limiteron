@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 统计管理器模块
 //!
 //! 提供集中化的统计信息管理，将统计逻辑从 Governor 中分离出来。

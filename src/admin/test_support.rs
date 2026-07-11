@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Admin 模块测试辅助函数
 //!
 //! 集中定义 `make_valid_config` / `make_governor` / `make_state` 等公共构造，

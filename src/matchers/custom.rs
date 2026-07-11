@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 自定义匹配器扩展模块
 //!
 //! 提供自定义匹配器接口和注册机制，允许用户在运行时动态注册和使用自定义匹配器。

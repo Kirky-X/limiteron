@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 宏使用示例
 //!
 //! 注意: flow_control 宏需要内部 API (GLOBAL_LIMITER_MANAGER)

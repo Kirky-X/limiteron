@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ⚠️ BREAKING CHANGES
+
+- `FlowGuardError` renamed to `LimiteronError`, following `ProjectNameError` naming convention
+- Added `LimiteronResult<T>` type alias
+- Cross-crate imports updated: `oxcache::CacheError` → `oxcache::OxCacheError`
+
 ## [0.2.3] - 2026-07-11
 
 ### Changed

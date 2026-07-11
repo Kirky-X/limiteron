@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Ban HTTP API 示例
 //!
 //! 演示通过 [`AdminServer`] 启动管理 API 服务器，并使用 HTTP 客户端

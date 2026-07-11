@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 并发属性测试
 //!
 //! 验证在并发竞争条件下,限流器的核心安全属性:

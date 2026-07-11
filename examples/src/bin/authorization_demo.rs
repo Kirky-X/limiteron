@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Authorization 示例
 //!
 //! 演示授权提供者 trait 的实现与使用，包括内置的 SimpleAuthorizationProvider。

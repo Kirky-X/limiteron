@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! L1缓存模块集成测试
 
 use limiteron::l1_cache::{L1Cache, L1CacheConfig, RateLimitCacheKey};

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 简单限流示例
 //!
 //! 演示最基本的限流器使用方式

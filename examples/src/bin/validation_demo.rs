@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Validation 示例
 //!
 //! 演示 limiteron 的统一验证模块，涵盖 IP 地址、用户 ID、MAC 地址、

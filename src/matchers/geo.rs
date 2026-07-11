@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 地理位置匹配器
 //!
 //! 基于MaxMind GeoLite2数据库实现IP地理位置查询和匹配。

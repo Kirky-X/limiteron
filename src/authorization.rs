@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 封禁操作授权模块
 //!
 //! 提供封禁操作的授权检查机制，确保只有授权用户才能执行封禁操作。

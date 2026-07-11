@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 统一集成测试入口
 //!
 //! 包含 common 模块和所有子模块测试

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 混沌场景定义
 //!
 //! 定义常见的混沌测试场景,用于验证系统在异常条件下的行为。

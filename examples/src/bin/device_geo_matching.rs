@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Device & Geo Matching 示例
 //!
 //! 演示 limiteron 的设备匹配和地理匹配功能：User-Agent 解析、设备类型识别、

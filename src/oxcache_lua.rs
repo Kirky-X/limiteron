@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Lua script integration using oxcache's lua-script feature.
 //!
 //! This module provides Lua script execution through oxcache, which includes

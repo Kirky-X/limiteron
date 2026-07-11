@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! HTTP 响应头注入
 //!
 //! 实现标准限流响应头的注入，遵循 IETF Draft 规范。

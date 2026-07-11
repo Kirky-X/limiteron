@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 授权模块集成测试
 //!
 //! 测试授权模块的完整功能

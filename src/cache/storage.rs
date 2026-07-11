@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 use crate::error::StorageError;
 use crate::storage::Storage;
 use async_trait::async_trait;

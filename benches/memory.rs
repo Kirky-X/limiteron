@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 内存基准测试
 //!
 //! 测试各种组件的内存占用和内存稳定性，包括：

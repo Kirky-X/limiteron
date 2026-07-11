@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 增强监控指标和告警系统
 //!
 //! 实现实时监控、性能指标收集和智能告警功能。

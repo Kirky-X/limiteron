@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Telemetry 示例
 //!
 //! 演示 limiteron 的遥测系统：Prometheus 指标采集、OpenTelemetry 分布式追踪、

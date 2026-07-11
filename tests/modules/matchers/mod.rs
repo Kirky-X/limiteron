@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 匹配器模块测试
 //!
 //! 包含匹配器的集成测试

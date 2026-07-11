@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 #![cfg(feature = "admin-api")]
 
 use limiteron::admin::config::AdminApiConfig;

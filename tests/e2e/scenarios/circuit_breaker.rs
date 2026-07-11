@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 熔断保护场景测试
 //!
 //! 测试后端失败触发熔断，以及熔断恢复后正常访问的完整流程

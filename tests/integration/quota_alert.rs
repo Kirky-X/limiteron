@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! QuotaController + Alert 集成测试
 //!
 //! 测试配额控制器与告警系统的集成，验证配额告警联动。

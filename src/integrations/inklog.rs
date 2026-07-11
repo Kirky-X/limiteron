@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! inklog structured logging integration for limiteron.
 //!
 //! Enable via the `inklog` cargo feature. Provides [`init_inklog_logger`]

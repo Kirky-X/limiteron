@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Storage Factory 示例
 //!
 //! 演示如何使用 StorageFactory 从 DSN 创建不同类型的存储后端

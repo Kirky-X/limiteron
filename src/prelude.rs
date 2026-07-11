@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Prelude module - Commonly used types for quick imports
 //!
 //! This module re-exports the most commonly used types from Limiteron,

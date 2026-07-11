@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Rust edition 从 2021 升级到 2024
+- 设置 rust-version 为 1.85
+- 许可证从 Apache-2.0 变更为 MIT
+
+### Fixed
+
+- 修复 edition 2024 模式匹配错误（`ref` 关键字、隐式借用）
+
 ## [0.2.1] - 2026-07-06
 
 ### Breaking Changes
@@ -231,6 +241,7 @@ let ban_manager = BanManager::new().await.unwrap();
 - Monitoring with Prometheus metrics and OpenTelemetry tracing
 - Parallel ban checking for improved performance
 
+[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.2.1...HEAD
 [0.2.1]: https://github.com/Kirky-X/limiteron/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Kirky-X/limiteron/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Kirky-X/limiteron/compare/v0.1.0...v0.1.1

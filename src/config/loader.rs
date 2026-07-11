@@ -348,9 +348,9 @@ on_exceed = "degrade"
         let _guard = env_test_lock().lock().unwrap();
         let path = write_temp_config(&valid_yaml(), "yaml");
         // 确保环境变量未设置
-        std::env::remove_var("LIMITERON_GLOBAL_STORAGE");
-        std::env::remove_var("LIMITERON_GLOBAL_CACHE");
-        std::env::remove_var("LIMITERON_GLOBAL_METRICS");
+        unsafe { std::env::remove_var("LIMITERON_GLOBAL_STORAGE") };
+        unsafe { std::env::remove_var("LIMITERON_GLOBAL_CACHE") };
+        unsafe { std::env::remove_var("LIMITERON_GLOBAL_METRICS") };
 
         let result = ConfigLoader::load_from_file_with_env(&path);
         std::fs::remove_file(&path).ok();
@@ -367,10 +367,10 @@ on_exceed = "degrade"
     fn test_load_from_file_with_env_storage_override() {
         let _guard = env_test_lock().lock().unwrap();
         let path = write_temp_config(&valid_yaml(), "yaml");
-        std::env::set_var("LIMITERON_GLOBAL_STORAGE", "redis");
+        unsafe { std::env::set_var("LIMITERON_GLOBAL_STORAGE", "redis") };
 
         let result = ConfigLoader::load_from_file_with_env(&path);
-        std::env::remove_var("LIMITERON_GLOBAL_STORAGE");
+        unsafe { std::env::remove_var("LIMITERON_GLOBAL_STORAGE") };
         std::fs::remove_file(&path).ok();
 
         assert!(result.is_ok());
@@ -385,10 +385,10 @@ on_exceed = "degrade"
     fn test_load_from_file_with_env_invalid_storage() {
         let _guard = env_test_lock().lock().unwrap();
         let path = write_temp_config(&valid_yaml(), "yaml");
-        std::env::set_var("LIMITERON_GLOBAL_STORAGE", "invalid_storage");
+        unsafe { std::env::set_var("LIMITERON_GLOBAL_STORAGE", "invalid_storage") };
 
         let result = ConfigLoader::load_from_file_with_env(&path);
-        std::env::remove_var("LIMITERON_GLOBAL_STORAGE");
+        unsafe { std::env::remove_var("LIMITERON_GLOBAL_STORAGE") };
         std::fs::remove_file(&path).ok();
 
         assert!(result.is_err());
@@ -404,10 +404,10 @@ on_exceed = "degrade"
     fn test_load_from_file_with_env_empty_value_no_override() {
         let _guard = env_test_lock().lock().unwrap();
         let path = write_temp_config(&valid_yaml(), "yaml");
-        std::env::set_var("LIMITERON_GLOBAL_STORAGE", "");
+        unsafe { std::env::set_var("LIMITERON_GLOBAL_STORAGE", "") };
 
         let result = ConfigLoader::load_from_file_with_env(&path);
-        std::env::remove_var("LIMITERON_GLOBAL_STORAGE");
+        unsafe { std::env::remove_var("LIMITERON_GLOBAL_STORAGE") };
         std::fs::remove_file(&path).ok();
 
         assert!(result.is_ok());
@@ -423,10 +423,10 @@ on_exceed = "degrade"
     fn test_load_from_file_with_env_cache_override() {
         let _guard = env_test_lock().lock().unwrap();
         let path = write_temp_config(&valid_yaml(), "yaml");
-        std::env::set_var("LIMITERON_GLOBAL_CACHE", "redis");
+        unsafe { std::env::set_var("LIMITERON_GLOBAL_CACHE", "redis") };
 
         let result = ConfigLoader::load_from_file_with_env(&path);
-        std::env::remove_var("LIMITERON_GLOBAL_CACHE");
+        unsafe { std::env::remove_var("LIMITERON_GLOBAL_CACHE") };
         std::fs::remove_file(&path).ok();
 
         assert!(result.is_ok());
@@ -441,10 +441,10 @@ on_exceed = "degrade"
     fn test_load_from_file_with_env_metrics_override() {
         let _guard = env_test_lock().lock().unwrap();
         let path = write_temp_config(&valid_yaml(), "yaml");
-        std::env::set_var("LIMITERON_GLOBAL_METRICS", "statsd");
+        unsafe { std::env::set_var("LIMITERON_GLOBAL_METRICS", "statsd") };
 
         let result = ConfigLoader::load_from_file_with_env(&path);
-        std::env::remove_var("LIMITERON_GLOBAL_METRICS");
+        unsafe { std::env::remove_var("LIMITERON_GLOBAL_METRICS") };
         std::fs::remove_file(&path).ok();
 
         assert!(result.is_ok());
@@ -459,10 +459,10 @@ on_exceed = "degrade"
     fn test_load_from_file_with_env_invalid_cache() {
         let _guard = env_test_lock().lock().unwrap();
         let path = write_temp_config(&valid_yaml(), "yaml");
-        std::env::set_var("LIMITERON_GLOBAL_CACHE", "invalid_cache");
+        unsafe { std::env::set_var("LIMITERON_GLOBAL_CACHE", "invalid_cache") };
 
         let result = ConfigLoader::load_from_file_with_env(&path);
-        std::env::remove_var("LIMITERON_GLOBAL_CACHE");
+        unsafe { std::env::remove_var("LIMITERON_GLOBAL_CACHE") };
         std::fs::remove_file(&path).ok();
 
         assert!(result.is_err());
@@ -478,10 +478,10 @@ on_exceed = "degrade"
     fn test_load_from_file_with_env_invalid_metrics() {
         let _guard = env_test_lock().lock().unwrap();
         let path = write_temp_config(&valid_yaml(), "yaml");
-        std::env::set_var("LIMITERON_GLOBAL_METRICS", "invalid_metrics");
+        unsafe { std::env::set_var("LIMITERON_GLOBAL_METRICS", "invalid_metrics") };
 
         let result = ConfigLoader::load_from_file_with_env(&path);
-        std::env::remove_var("LIMITERON_GLOBAL_METRICS");
+        unsafe { std::env::remove_var("LIMITERON_GLOBAL_METRICS") };
         std::fs::remove_file(&path).ok();
 
         assert!(result.is_err());

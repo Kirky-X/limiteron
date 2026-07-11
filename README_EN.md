@@ -161,7 +161,7 @@ Suitable for enterprise applications requiring high concurrency and reliability.
 use limiteron::flow_control;
 
 #[flow_control(rate = "100/s", quota = "10000/m")]
-async fn api_handler(user_id: &str) -> Result<String, limiteron::error::FlowGuardError> {
+async fn api_handler(user_id: &str) -> Result<String, limiteron::error::LimiteronError> {
     // API business logic
     Ok(format!("Processing request for user {}", user_id))
 }
@@ -347,7 +347,7 @@ limiteron = { version = "0.2", features = ["macros"] }
 use limiteron::flow_control;
 
 #[flow_control(rate = "10/s")]
-async fn api_call() -> Result<String, limiteron::error::FlowGuardError> {
+async fn api_call() -> Result<String, limiteron::error::LimiteronError> {
     Ok("Success".to_string())
 }
 ```
@@ -497,7 +497,7 @@ Request 14 ❌
 use limiteron::flow_control;
 
 #[flow_control(rate = "100/s", quota = "10000/m")]
-async fn api_handler(user_id: &str) -> Result<String, limiteron::error::FlowGuardError> {
+async fn api_handler(user_id: &str) -> Result<String, limiteron::error::LimiteronError> {
     // API business logic
     Ok(format!("Processing request for user {}", user_id))
 }

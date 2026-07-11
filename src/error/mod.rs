@@ -17,7 +17,7 @@ use thiserror::Error;
 
 /// FlowGuard 错误类型
 #[derive(Error, Debug)]
-pub enum FlowGuardError {
+pub enum LimiteronError {
     /// 配置错误
     #[error("配置错误: {0}")]
     ConfigError(String),
@@ -348,22 +348,22 @@ mod tests {
 
     #[test]
     fn test_error_message() {
-        let error = FlowGuardError::ConfigError("测试错误".to_string());
+        let error = LimiteronError::ConfigError("测试错误".to_string());
         assert_eq!(error.to_string(), "配置错误: 测试错误");
     }
 
     #[test]
     fn test_storage_error_conversion() {
         let storage_error = StorageError::NotFound("test_key".to_string());
-        let flowguard_error: FlowGuardError = storage_error.into();
-        assert!(matches!(flowguard_error, FlowGuardError::StorageError(_)));
+        let flowguard_error: LimiteronError = storage_error.into();
+        assert!(matches!(flowguard_error, LimiteronError::StorageError(_)));
     }
 
     #[test]
     fn test_io_error_conversion() {
         let io_error = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
-        let flowguard_error: FlowGuardError = io_error.into();
-        assert!(matches!(flowguard_error, FlowGuardError::IoError(_)));
+        let flowguard_error: LimiteronError = io_error.into();
+        assert!(matches!(flowguard_error, LimiteronError::IoError(_)));
     }
 
     #[test]
@@ -521,58 +521,58 @@ mod tests {
     #[test]
     fn test_flowguard_error_variants_display() {
         assert_eq!(
-            FlowGuardError::LimitError("x".into()).to_string(),
+            LimiteronError::LimitError("x".into()).to_string(),
             "限流错误: x"
         );
         assert_eq!(
-            FlowGuardError::BanError("x".into()).to_string(),
+            LimiteronError::BanError("x".into()).to_string(),
             "封禁错误: x"
         );
         assert_eq!(
-            FlowGuardError::CircuitBreakerError("x".into()).to_string(),
+            LimiteronError::CircuitBreakerError("x".into()).to_string(),
             "熔断器错误: x"
         );
         assert_eq!(
-            FlowGuardError::FallbackError("x".into()).to_string(),
+            LimiteronError::FallbackError("x".into()).to_string(),
             "降级错误: x"
         );
         assert_eq!(
-            FlowGuardError::AuditLogError("x".into()).to_string(),
+            LimiteronError::AuditLogError("x".into()).to_string(),
             "审计日志错误: x"
         );
         assert_eq!(
-            FlowGuardError::AuthorizationError("x".into()).to_string(),
+            LimiteronError::AuthorizationError("x".into()).to_string(),
             "授权错误: x"
         );
         assert_eq!(
-            FlowGuardError::RateLimitExceeded("x".into()).to_string(),
+            LimiteronError::RateLimitExceeded("x".into()).to_string(),
             "速率限制超出: x"
         );
         assert_eq!(
-            FlowGuardError::QuotaExceeded("x".into()).to_string(),
+            LimiteronError::QuotaExceeded("x".into()).to_string(),
             "配额超出: x"
         );
         assert_eq!(
-            FlowGuardError::ConcurrencyLimitExceeded("x".into()).to_string(),
+            LimiteronError::ConcurrencyLimitExceeded("x".into()).to_string(),
             "并发限制超出: x"
         );
         assert_eq!(
-            FlowGuardError::ValidationError("x".into()).to_string(),
+            LimiteronError::ValidationError("x".into()).to_string(),
             "验证错误: x"
         );
         assert_eq!(
-            FlowGuardError::LockError("x".into()).to_string(),
+            LimiteronError::LockError("x".into()).to_string(),
             "锁获取错误: x"
         );
         assert_eq!(
-            FlowGuardError::TimeError("x".into()).to_string(),
+            LimiteronError::TimeError("x".into()).to_string(),
             "时间错误: x"
         );
         assert_eq!(
-            FlowGuardError::DependencyError("x".into()).to_string(),
+            LimiteronError::DependencyError("x".into()).to_string(),
             "依赖缺失: x"
         );
-        assert_eq!(FlowGuardError::Other("x".into()).to_string(), "未知错误: x");
+        assert_eq!(LimiteronError::Other("x".into()).to_string(), "未知错误: x");
     }
 
     #[test]
@@ -616,19 +616,22 @@ mod tests {
     fn test_serde_error_conversion() {
         let json_err = serde_json::from_str::<serde_json::Value>("{invalid}");
         let err: serde_json::Error = json_err.unwrap_err();
-        let fg_err: FlowGuardError = err.into();
-        assert!(matches!(fg_err, FlowGuardError::SerdeError(_)));
+        let fg_err: LimiteronError = err.into();
+        assert!(matches!(fg_err, LimiteronError::SerdeError(_)));
     }
 
     #[test]
     fn test_storage_error_from_into_flowguard() {
         let se = StorageError::QueryError("q".into());
-        let fg: FlowGuardError = se.into();
-        assert!(matches!(fg, FlowGuardError::StorageError(_)));
+        let fg: LimiteronError = se.into();
+        assert!(matches!(fg, LimiteronError::StorageError(_)));
         let back = match fg {
-            FlowGuardError::StorageError(s) => s,
+            LimiteronError::StorageError(s) => s,
             _ => unreachable!(),
         };
         assert!(matches!(back, StorageError::QueryError(_)));
     }
 }
+
+/// Limiteron 结果类型别名
+pub type LimiteronResult<T> = std::result::Result<T, LimiteronError>;

@@ -15,7 +15,7 @@
 //! - [`Governor`] - Main controller for flow control
 //! - [`FlowControlConfig`] - Configuration for flow control
 //! - [`Decision`] - Decision result from flow control checks
-//! - [`FlowGuardError`] - Error types
+//! - [`LimiteronError`] - Error types
 //!
 //! ## Matchers
 //!
@@ -58,6 +58,8 @@
 //! - **Declarative macros**: Use `#[flow_control]` macro to simplify rate limiting configuration
 //! - **Monitoring**: Integrated Prometheus metrics and OpenTelemetry tracing
 //! - **High performance**: Zero runtime overhead through compile-time optimization
+
+#![allow(clippy::collapsible_if)]
 
 pub mod prelude;
 
@@ -161,8 +163,8 @@ pub use config::{
 pub use decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
 // AtomicChainStats 改为 pub(crate)，不再公开导出
 pub use error::{
-    BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, FlowGuardError,
-    StorageError,
+    BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, LimiteronError,
+    LimiteronResult, StorageError,
 };
 // Event system types (feature-gated)
 #[cfg(feature = "event-system")]

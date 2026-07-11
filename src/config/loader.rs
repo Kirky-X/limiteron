@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! 配置加载器 - 使用 serde 从文件加载配置
 
-use crate::FlowGuardError;
+use crate::LimiteronError;
 use crate::config::FlowControlConfig;
 use std::fs;
 use std::path::Path;
@@ -14,18 +14,18 @@ impl ConfigLoader {
     /// 从配置文件加载配置
     ///
     /// 支持 YAML、TOML、JSON 格式,根据文件扩展名自动检测
-    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<FlowControlConfig, FlowGuardError> {
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<FlowControlConfig, LimiteronError> {
         let path = path.as_ref();
 
         if !path.exists() {
-            return Err(FlowGuardError::ConfigError(format!(
+            return Err(LimiteronError::ConfigError(format!(
                 "Config file not found: {}",
                 path.display()
             )));
         }
 
         let content = fs::read_to_string(path).map_err(|e| {
-            FlowGuardError::ConfigError(format!("Failed to read config file: {}", e))
+            LimiteronError::ConfigError(format!("Failed to read config file: {}", e))
         })?;
 
         let ext = path
@@ -36,16 +36,16 @@ impl ConfigLoader {
 
         let config: FlowControlConfig = match ext.as_str() {
             "yaml" | "yml" => serde_yaml::from_str(&content).map_err(|e| {
-                FlowGuardError::ConfigError(format!("Failed to parse YAML config: {}", e))
+                LimiteronError::ConfigError(format!("Failed to parse YAML config: {}", e))
             })?,
             "toml" => toml::from_str(&content).map_err(|e| {
-                FlowGuardError::ConfigError(format!("Failed to parse TOML config: {}", e))
+                LimiteronError::ConfigError(format!("Failed to parse TOML config: {}", e))
             })?,
             "json" => serde_json::from_str(&content).map_err(|e| {
-                FlowGuardError::ConfigError(format!("Failed to parse JSON config: {}", e))
+                LimiteronError::ConfigError(format!("Failed to parse JSON config: {}", e))
             })?,
             _ => {
-                return Err(FlowGuardError::ConfigError(format!(
+                return Err(LimiteronError::ConfigError(format!(
                     "Unsupported config file format: {}. Supported: yaml, yml, toml, json",
                     ext
                 )));
@@ -65,14 +65,14 @@ impl ConfigLoader {
     /// 环境变量值为空或未设置时不覆盖。无效值会返回 ConfigError。
     pub fn load_from_file_with_env<P: AsRef<Path>>(
         path: P,
-    ) -> Result<FlowControlConfig, FlowGuardError> {
+    ) -> Result<FlowControlConfig, LimiteronError> {
         let mut config = Self::load_from_file(path)?;
 
         if let Ok(storage_str) = std::env::var("LIMITERON_GLOBAL_STORAGE") {
             if !storage_str.trim().is_empty() {
                 let storage_type = crate::config::types::StorageType::parse(&storage_str)
                     .ok_or_else(|| {
-                        FlowGuardError::ConfigError(format!(
+                        LimiteronError::ConfigError(format!(
                             "Invalid LIMITERON_GLOBAL_STORAGE value: {}. Valid: memory, postgresql, redis",
                             storage_str
                         ))
@@ -85,7 +85,7 @@ impl ConfigLoader {
             if !cache_str.trim().is_empty() {
                 let cache_backend = crate::config::types::CacheBackend::parse(cache_str.trim())
                     .ok_or_else(|| {
-                        FlowGuardError::ConfigError(format!(
+                        LimiteronError::ConfigError(format!(
                             "Invalid LIMITERON_GLOBAL_CACHE value: {}. Valid: memory, redis, none",
                             cache_str
                         ))
@@ -98,7 +98,7 @@ impl ConfigLoader {
             if !metrics_str.trim().is_empty() {
                 let metrics_backend =
                     crate::config::types::MetricsBackend::parse(metrics_str.trim()).ok_or_else(|| {
-                        FlowGuardError::ConfigError(format!(
+                        LimiteronError::ConfigError(format!(
                             "Invalid LIMITERON_GLOBAL_METRICS value: {}. Valid: prometheus, statsd, none",
                             metrics_str
                         ))
@@ -221,7 +221,7 @@ on_exceed = "degrade"
         let result = ConfigLoader::load_from_file("/tmp/limiteron_nonexistent_config.yaml");
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ConfigError(msg)) => assert!(msg.contains("not found")),
+            Err(LimiteronError::ConfigError(msg)) => assert!(msg.contains("not found")),
             _ => panic!("expected ConfigError"),
         }
     }
@@ -247,7 +247,7 @@ on_exceed = "degrade"
         std::fs::remove_file(&path).ok();
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ConfigError(msg)) => assert!(msg.contains("Unsupported")),
+            Err(LimiteronError::ConfigError(msg)) => assert!(msg.contains("Unsupported")),
             _ => panic!("expected ConfigError"),
         }
     }
@@ -262,7 +262,7 @@ on_exceed = "degrade"
         std::fs::remove_file(&path).ok();
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ConfigError(msg)) => assert!(msg.contains("TOML")),
+            Err(LimiteronError::ConfigError(msg)) => assert!(msg.contains("TOML")),
             _ => panic!("expected ConfigError for invalid TOML"),
         }
     }
@@ -277,7 +277,7 @@ on_exceed = "degrade"
         std::fs::remove_file(&path).ok();
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ConfigError(msg)) => assert!(msg.contains("JSON")),
+            Err(LimiteronError::ConfigError(msg)) => assert!(msg.contains("JSON")),
             _ => panic!("expected ConfigError for invalid JSON"),
         }
     }
@@ -292,7 +292,7 @@ on_exceed = "degrade"
         std::fs::remove_file(&path).ok();
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ConfigError(msg)) => assert!(msg.contains("Unsupported")),
+            Err(LimiteronError::ConfigError(msg)) => assert!(msg.contains("Unsupported")),
             _ => panic!("expected ConfigError for no extension"),
         }
     }
@@ -315,7 +315,7 @@ on_exceed = "degrade"
         let result = ConfigLoader::load_from_file(dir.path());
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ConfigError(msg)) => {
+            Err(LimiteronError::ConfigError(msg)) => {
                 assert!(msg.contains("Failed to read"));
             }
             _ => panic!("expected ConfigError for directory read failure"),
@@ -391,7 +391,7 @@ on_exceed = "degrade"
 
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ConfigError(msg)) => {
+            Err(LimiteronError::ConfigError(msg)) => {
                 assert!(msg.contains("Invalid LIMITERON_GLOBAL_STORAGE"));
             }
             _ => panic!("expected ConfigError for invalid storage env"),
@@ -465,7 +465,7 @@ on_exceed = "degrade"
 
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ConfigError(msg)) => {
+            Err(LimiteronError::ConfigError(msg)) => {
                 assert!(msg.contains("Invalid LIMITERON_GLOBAL_CACHE"));
             }
             _ => panic!("expected ConfigError for invalid cache env"),
@@ -484,7 +484,7 @@ on_exceed = "degrade"
 
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ConfigError(msg)) => {
+            Err(LimiteronError::ConfigError(msg)) => {
                 assert!(msg.contains("Invalid LIMITERON_GLOBAL_METRICS"));
             }
             _ => panic!("expected ConfigError for invalid metrics env"),

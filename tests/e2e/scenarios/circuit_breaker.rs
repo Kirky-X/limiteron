@@ -7,7 +7,7 @@
 #[cfg(feature = "circuit-breaker")]
 use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig};
 #[cfg(feature = "circuit-breaker")]
-use limiteron::error::{CircuitState, FlowGuardError};
+use limiteron::error::{CircuitState, LimiteronError};
 #[cfg(feature = "circuit-breaker")]
 use std::time::Duration;
 
@@ -36,7 +36,7 @@ async fn e2e_circuit_breaker_failures_trigger_open() {
     for i in 1..=3 {
         let result = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError(
+                Err::<(), LimiteronError>(LimiteronError::BanError(
                     "service unavailable".to_string(),
                 ))
             })
@@ -81,7 +81,7 @@ async fn e2e_circuit_breaker_fast_fail_when_open() {
     for _ in 0..2 {
         let _ = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
+                Err::<(), LimiteronError>(LimiteronError::BanError("error".to_string()))
             })
             .await;
     }
@@ -94,7 +94,7 @@ async fn e2e_circuit_breaker_fast_fail_when_open() {
         .execute(|| async {
             // 这个闭包不应该被执行
             tokio::time::sleep(Duration::from_secs(5)).await;
-            Ok::<(), FlowGuardError>(())
+            Ok::<(), LimiteronError>(())
         })
         .await;
 
@@ -109,7 +109,7 @@ async fn e2e_circuit_breaker_fast_fail_when_open() {
 
     // 验证错误消息
     match result {
-        Err(FlowGuardError::LimitError(msg)) => {
+        Err(LimiteronError::LimitError(msg)) => {
             assert!(
                 msg.contains("熔断器打开") || msg.contains("请求被拒绝"),
                 "Error message should indicate circuit is open: {}",
@@ -137,7 +137,7 @@ async fn e2e_circuit_breaker_recovery_after_timeout() {
     for _ in 0..2 {
         let _ = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
+                Err::<(), LimiteronError>(LimiteronError::BanError("error".to_string()))
             })
             .await;
     }
@@ -149,7 +149,7 @@ async fn e2e_circuit_breaker_recovery_after_timeout() {
 
     // 发送成功请求，应该触发恢复
     let result = breaker
-        .execute(|| async { Ok::<(), FlowGuardError>(()) })
+        .execute(|| async { Ok::<(), LimiteronError>(()) })
         .await;
 
     assert!(result.is_ok(), "Request should succeed in half-open state");
@@ -189,7 +189,7 @@ async fn e2e_circuit_breaker_reopen_on_half_open_failure() {
     for _ in 0..2 {
         let _ = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
+                Err::<(), LimiteronError>(LimiteronError::BanError("error".to_string()))
             })
             .await;
     }
@@ -202,7 +202,7 @@ async fn e2e_circuit_breaker_reopen_on_half_open_failure() {
     // 在半开状态下失败
     let result = breaker
         .execute(|| async {
-            Err::<(), FlowGuardError>(FlowGuardError::BanError("still failing".to_string()))
+            Err::<(), LimiteronError>(LimiteronError::BanError("still failing".to_string()))
         })
         .await;
 
@@ -231,7 +231,7 @@ async fn e2e_circuit_breaker_statistics() {
     // 执行一些成功请求
     for _ in 0..3 {
         let _ = breaker
-            .execute(|| async { Ok::<(), FlowGuardError>(()) })
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
     }
 
@@ -239,7 +239,7 @@ async fn e2e_circuit_breaker_statistics() {
     for _ in 0..2 {
         let _ = breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
+                Err::<(), LimiteronError>(LimiteronError::BanError("error".to_string()))
             })
             .await;
     }
@@ -277,10 +277,10 @@ async fn e2e_circuit_breaker_concurrent_protection() {
                 .execute(|| async {
                     if i < 10 {
                         // 前 10 个请求失败
-                        Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
+                        Err::<(), LimiteronError>(LimiteronError::BanError("error".to_string()))
                     } else {
                         // 后 10 个请求成功
-                        Ok::<(), FlowGuardError>(())
+                        Ok::<(), LimiteronError>(())
                     }
                 })
                 .await
@@ -356,7 +356,7 @@ async fn e2e_circuit_breaker_timeout_config() {
     // 触发熔断
     let _ = breaker
         .execute(|| async {
-            Err::<(), FlowGuardError>(FlowGuardError::BanError("error".to_string()))
+            Err::<(), LimiteronError>(LimiteronError::BanError("error".to_string()))
         })
         .await;
 
@@ -364,7 +364,7 @@ async fn e2e_circuit_breaker_timeout_config() {
 
     // 立即尝试，应该仍然打开
     let result = breaker
-        .execute(|| async { Ok::<(), FlowGuardError>(()) })
+        .execute(|| async { Ok::<(), LimiteronError>(()) })
         .await;
     assert!(result.is_err(), "Should still fail immediately after trip");
 
@@ -373,7 +373,7 @@ async fn e2e_circuit_breaker_timeout_config() {
 
     // 现在应该可以尝试恢复
     let result = breaker
-        .execute(|| async { Ok::<(), FlowGuardError>(()) })
+        .execute(|| async { Ok::<(), LimiteronError>(()) })
         .await;
     assert!(result.is_ok(), "Should succeed after timeout");
 }

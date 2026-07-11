@@ -27,7 +27,7 @@ pub const DEFAULT_DEDUP_CLEANUP_INTERVAL_SECS: u64 = 300;
 pub const DEFAULT_ALERT_CONCURRENCY: usize = 8;
 
 use crate::config::types::QuotaType;
-use crate::error::{ConsumeResult, FlowGuardError};
+use crate::error::{ConsumeResult, LimiteronError};
 use crate::storage::QuotaStorage;
 #[cfg(feature = "webhook")]
 use crate::webhook_validator::validate_webhook_url;
@@ -228,7 +228,7 @@ impl QuotaControllerBuilder {
     }
 
     /// 构建 QuotaController 实例
-    pub fn build(self) -> Result<QuotaController, FlowGuardError> {
+    pub fn build(self) -> Result<QuotaController, LimiteronError> {
         let storage = self.storage.expect("storage is required");
         let config = self.config.unwrap_or_default();
 
@@ -369,8 +369,8 @@ impl QuotaController {
     /// # #[async_trait::async_trait]
     /// # impl QuotaStorage for MockStorage {
     /// #   async fn get_quota(&self, _: &str, _: &str) -> Result<Option<limiteron::storage::QuotaInfo>, limiteron::error::StorageError> { Ok(None) }
-    /// #   async fn consume(&self, _: &str, _: &str, _: u64, _: u64, _: std::time::Duration) -> Result<limiteron::error::ConsumeResult, limiteron::error::FlowGuardError> { unimplemented!() }
-    /// #   async fn reset(&self, _: &str, _: &str, _: u64, _: std::time::Duration) -> Result<(), limiteron::error::FlowGuardError> { Ok(()) }
+    /// #   async fn consume(&self, _: &str, _: &str, _: u64, _: u64, _: std::time::Duration) -> Result<limiteron::error::ConsumeResult, limiteron::error::LimiteronError> { unimplemented!() }
+    /// #   async fn reset(&self, _: &str, _: &str, _: u64, _: std::time::Duration) -> Result<(), limiteron::error::LimiteronError> { Ok(()) }
     /// # }
     /// #
     /// # let controller = QuotaController::new(Arc::new(MockStorage), QuotaConfig::default());
@@ -385,7 +385,7 @@ impl QuotaController {
         user_id: &str,
         resource: &str,
         cost: u64,
-    ) -> Result<ConsumeResult, FlowGuardError> {
+    ) -> Result<ConsumeResult, LimiteronError> {
         // 验证消费数量
         if cost == 0 {
             // 获取当前配额状态（用于计算 usage_percent）
@@ -459,12 +459,12 @@ impl QuotaController {
         &self,
         user_id: &str,
         resource: &str,
-    ) -> Result<Option<QuotaState>, FlowGuardError> {
+    ) -> Result<Option<QuotaState>, LimiteronError> {
         let quota_info = self
             .storage
             .get_quota(user_id, resource)
             .await
-            .map_err(FlowGuardError::StorageError)?;
+            .map_err(LimiteronError::StorageError)?;
 
         if let Some(info) = quota_info {
             Ok(Some(QuotaState {
@@ -488,7 +488,7 @@ impl QuotaController {
     /// # 返回
     /// - `Ok(())`: 重置成功
     /// - `Err(error)`: 错误信息
-    pub async fn reset_quota(&self, user_id: &str, resource: &str) -> Result<(), FlowGuardError> {
+    pub async fn reset_quota(&self, user_id: &str, resource: &str) -> Result<(), LimiteronError> {
         self.storage
             .reset(
                 user_id,
@@ -497,7 +497,7 @@ impl QuotaController {
                 StdDuration::from_secs(self.config.window_size),
             )
             .await
-            .map_err(FlowGuardError::StorageError)?;
+            .map_err(LimiteronError::StorageError)?;
 
         // 清除该用户/资源的告警去重状态，使告警能在新一轮消费中重新触发
         let prefix = format!("{}:{}:", user_id, resource);
@@ -511,7 +511,7 @@ impl QuotaController {
         &self,
         user_id: &str,
         resource: &str,
-    ) -> Result<QuotaState, FlowGuardError> {
+    ) -> Result<QuotaState, LimiteronError> {
         if let Some(state) = self.get_quota(user_id, resource).await? {
             return Ok(state);
         }
@@ -535,7 +535,7 @@ impl QuotaController {
     async fn check_and_reset_window(
         &self,
         state: QuotaState,
-    ) -> Result<QuotaState, FlowGuardError> {
+    ) -> Result<QuotaState, LimiteronError> {
         let now = Utc::now();
 
         // 如果当前时间在窗口内，不需要重置
@@ -597,7 +597,7 @@ impl QuotaController {
         resource: &str,
         state: &QuotaState,
         new_consumed: u64,
-    ) -> Result<(), FlowGuardError> {
+    ) -> Result<(), LimiteronError> {
         // 使用存储的 consume 方法更新配额
         // 计算总限制
         let overdraft_limit = self.calculate_overdraft_limit();
@@ -613,7 +613,7 @@ impl QuotaController {
                 StdDuration::from_secs(self.config.window_size),
             )
             .await
-            .map_err(FlowGuardError::StorageError)?;
+            .map_err(LimiteronError::StorageError)?;
 
         Ok(())
     }
@@ -624,7 +624,7 @@ impl QuotaController {
         user_id: &str,
         resource: &str,
         consumed: u64,
-    ) -> Result<bool, FlowGuardError> {
+    ) -> Result<bool, LimiteronError> {
         if !self.config.alert_config.enabled {
             return Ok(false);
         }
@@ -801,7 +801,7 @@ async fn send_webhook_alert(
     alert_info: &AlertInfo,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // 安全验证：检查 URL 是否安全
-    validate_webhook_url(url, true).map_err(crate::error::FlowGuardError::ConfigError)?;
+    validate_webhook_url(url, true).map_err(crate::error::LimiteronError::ConfigError)?;
 
     let client = reqwest::Client::new();
     let response = client

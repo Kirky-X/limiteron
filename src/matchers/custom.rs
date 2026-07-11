@@ -17,7 +17,7 @@
 //! ```rust
 //! use limiteron::matchers::custom::{CustomMatcher, CustomMatcherRegistry};
 //! use limiteron::matchers::RequestContext;
-//! use limiteron::error::FlowGuardError;
+//! use limiteron::error::LimiteronError;
 //! use async_trait::async_trait;
 //!
 //! #[derive(Debug)]
@@ -31,12 +31,12 @@
 //!         "my_custom"
 //!     }
 //!
-//!     async fn matches(&self, context: &RequestContext) -> Result<bool, FlowGuardError> {
+//!     async fn matches(&self, context: &RequestContext) -> Result<bool, LimiteronError> {
 //!         // 自定义匹配逻辑
 //!         Ok(true)
 //!     }
 //!
-//!     fn load_config(&mut self, config: serde_json::Value) -> Result<(), FlowGuardError> {
+//!     fn load_config(&mut self, config: serde_json::Value) -> Result<(), LimiteronError> {
 //!         self.threshold = config["threshold"].as_u64().unwrap_or(100);
 //!         Ok(())
 //!     }
@@ -50,7 +50,7 @@
 //! }
 //! ```
 
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use crate::matchers::RequestContext;
 use ahash::AHashMap as HashMap;
 use async_trait::async_trait;
@@ -87,16 +87,16 @@ const MAX_ALLOWED_VALUES_COUNT: usize = 100;
 ///
 /// # 返回
 /// - `Ok(())`: 验证通过
-/// - `Err(FlowGuardError)`: 验证失败
-fn validate_matcher_name(name: &str) -> Result<(), FlowGuardError> {
+/// - `Err(LimiteronError)`: 验证失败
+fn validate_matcher_name(name: &str) -> Result<(), LimiteronError> {
     if name.is_empty() {
-        return Err(FlowGuardError::ConfigError(
+        return Err(LimiteronError::ConfigError(
             "匹配器名称不能为空".to_string(),
         ));
     }
 
     if name.len() > MAX_MATCHER_NAME_LENGTH {
-        return Err(FlowGuardError::ConfigError(format!(
+        return Err(LimiteronError::ConfigError(format!(
             "匹配器名称长度超过限制（最大 {} 字符）",
             MAX_MATCHER_NAME_LENGTH
         )));
@@ -107,7 +107,7 @@ fn validate_matcher_name(name: &str) -> Result<(), FlowGuardError> {
         .chars()
         .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
     {
-        return Err(FlowGuardError::ConfigError(
+        return Err(LimiteronError::ConfigError(
             "匹配器名称只能包含字母、数字、下划线和连字符".to_string(),
         ));
     }
@@ -122,16 +122,16 @@ fn validate_matcher_name(name: &str) -> Result<(), FlowGuardError> {
 ///
 /// # 返回
 /// - `Ok(())`: 验证通过
-/// - `Err(FlowGuardError)`: 验证失败
-fn validate_header_name(name: &str) -> Result<(), FlowGuardError> {
+/// - `Err(LimiteronError)`: 验证失败
+fn validate_header_name(name: &str) -> Result<(), LimiteronError> {
     if name.is_empty() {
-        return Err(FlowGuardError::ConfigError(
+        return Err(LimiteronError::ConfigError(
             "HTTP头名称不能为空".to_string(),
         ));
     }
 
     if name.len() > MAX_HEADER_NAME_LENGTH {
-        return Err(FlowGuardError::ConfigError(format!(
+        return Err(LimiteronError::ConfigError(format!(
             "HTTP头名称长度超过限制（最大 {} 字符）",
             MAX_HEADER_NAME_LENGTH
         )));
@@ -139,7 +139,7 @@ fn validate_header_name(name: &str) -> Result<(), FlowGuardError> {
 
     // 只允许字母、数字、连字符
     if !name.chars().all(|c| c.is_alphanumeric() || c == '-') {
-        return Err(FlowGuardError::ConfigError(
+        return Err(LimiteronError::ConfigError(
             "HTTP头名称只能包含字母、数字和连字符".to_string(),
         ));
     }
@@ -154,10 +154,10 @@ fn validate_header_name(name: &str) -> Result<(), FlowGuardError> {
 ///
 /// # 返回
 /// - `Ok(())`: 验证通过
-/// - `Err(FlowGuardError)`: 验证失败
-fn validate_header_value(value: &str) -> Result<(), FlowGuardError> {
+/// - `Err(LimiteronError)`: 验证失败
+fn validate_header_value(value: &str) -> Result<(), LimiteronError> {
     if value.len() > MAX_HEADER_VALUE_LENGTH {
-        return Err(FlowGuardError::ConfigError(format!(
+        return Err(LimiteronError::ConfigError(format!(
             "HTTP头值长度超过限制（最大 {} 字符）",
             MAX_HEADER_VALUE_LENGTH
         )));
@@ -190,7 +190,7 @@ pub trait CustomMatcher: Send + Sync {
     /// - `Ok(true)`: 请求匹配
     /// - `Ok(false)`: 请求不匹配
     /// - `Err(_)`: 发生错误
-    async fn matches(&self, context: &RequestContext) -> Result<bool, FlowGuardError>;
+    async fn matches(&self, context: &RequestContext) -> Result<bool, LimiteronError>;
 
     /// 加载配置
     ///
@@ -200,7 +200,7 @@ pub trait CustomMatcher: Send + Sync {
     /// # 返回
     /// - `Ok(())`: 配置加载成功
     /// - `Err(_)`: 配置加载失败
-    fn load_config(&mut self, config: Value) -> Result<(), FlowGuardError>;
+    fn load_config(&mut self, config: Value) -> Result<(), LimiteronError>;
 }
 
 // ============================================================================
@@ -266,7 +266,7 @@ impl CustomMatcherRegistry {
     ///
     /// # 返回
     /// - `Ok(())`: 注册成功
-    /// - `Err(FlowGuardError::ConfigError)`: 名称已存在或验证失败
+    /// - `Err(LimiteronError::ConfigError)`: 名称已存在或验证失败
     ///
     /// # 示例
     /// ```rust
@@ -283,7 +283,7 @@ impl CustomMatcherRegistry {
         &self,
         name: String,
         matcher: Box<dyn CustomMatcher>,
-    ) -> Result<(), FlowGuardError> {
+    ) -> Result<(), LimiteronError> {
         // 验证匹配器名称
         validate_matcher_name(&name)?;
 
@@ -292,7 +292,7 @@ impl CustomMatcherRegistry {
         if matchers.contains_key(&name) {
             let error_msg = format!("匹配器 '{}' 已存在", name);
             warn!("{}", error_msg);
-            return Err(FlowGuardError::ConfigError(error_msg));
+            return Err(LimiteronError::ConfigError(error_msg));
         }
 
         info!("注册自定义匹配器: {}", name);
@@ -359,7 +359,7 @@ impl CustomMatcherRegistry {
     ///
     /// # 返回
     /// - `Ok(())`: 注销成功
-    /// - `Err(FlowGuardError::ConfigError)`: 匹配器不存在
+    /// - `Err(LimiteronError::ConfigError)`: 匹配器不存在
     ///
     /// # 示例
     /// ```rust
@@ -376,13 +376,13 @@ impl CustomMatcherRegistry {
     ///     registry.unregister("my_matcher").await.unwrap();
     /// }
     /// ```
-    pub async fn unregister(&self, name: &str) -> Result<(), FlowGuardError> {
+    pub async fn unregister(&self, name: &str) -> Result<(), LimiteronError> {
         let mut matchers = self.matchers.write().await;
 
         if !matchers.contains_key(name) {
             let error_msg = format!("匹配器 '{}' 不存在", name);
             warn!("{}", error_msg);
-            return Err(FlowGuardError::ConfigError(error_msg));
+            return Err(LimiteronError::ConfigError(error_msg));
         }
 
         info!("注销自定义匹配器: {}", name);
@@ -445,13 +445,13 @@ impl CustomMatcherRegistry {
         &self,
         name: &str,
         context: &RequestContext,
-    ) -> Result<bool, FlowGuardError> {
+    ) -> Result<bool, LimiteronError> {
         let matchers = self.matchers.read().await;
 
         let matcher = matchers.get(name).ok_or_else(|| {
             let error_msg = format!("匹配器 '{}' 不存在", name);
             error!("{}", error_msg);
-            FlowGuardError::ConfigError(error_msg)
+            LimiteronError::ConfigError(error_msg)
         })?;
 
         debug!("使用匹配器 '{}' 检查请求", name);
@@ -569,7 +569,7 @@ impl CustomMatcher for TimeWindowMatcher {
         "time_window"
     }
 
-    async fn matches(&self, _context: &RequestContext) -> Result<bool, FlowGuardError> {
+    async fn matches(&self, _context: &RequestContext) -> Result<bool, LimiteronError> {
         let now = chrono::Utc::now();
         let hour = now.hour() as u8;
 
@@ -590,14 +590,14 @@ impl CustomMatcher for TimeWindowMatcher {
         Ok(matches)
     }
 
-    fn load_config(&mut self, config: Value) -> Result<(), FlowGuardError> {
+    fn load_config(&mut self, config: Value) -> Result<(), LimiteronError> {
         // 先获取 start_hour 并验证
         let start_hour_u64 = config["start_hour"]
             .as_u64()
-            .ok_or_else(|| FlowGuardError::ConfigError("缺少 start_hour 配置".to_string()))?;
+            .ok_or_else(|| LimiteronError::ConfigError("缺少 start_hour 配置".to_string()))?;
         // 先校验范围再转换，避免 `as u8` 截断绕过校验（如 256 截断为 0）
         if start_hour_u64 > 23 {
-            return Err(FlowGuardError::ConfigError(
+            return Err(LimiteronError::ConfigError(
                 "start_hour 必须在 0-23 范围内".to_string(),
             ));
         }
@@ -606,9 +606,9 @@ impl CustomMatcher for TimeWindowMatcher {
         // 然后获取 end_hour 并验证
         let end_hour_u64 = config["end_hour"]
             .as_u64()
-            .ok_or_else(|| FlowGuardError::ConfigError("缺少 end_hour 配置".to_string()))?;
+            .ok_or_else(|| LimiteronError::ConfigError("缺少 end_hour 配置".to_string()))?;
         if end_hour_u64 > 23 {
-            return Err(FlowGuardError::ConfigError(
+            return Err(LimiteronError::ConfigError(
                 "end_hour 必须在 0-23 范围内".to_string(),
             ));
         }
@@ -700,13 +700,13 @@ impl HeaderMatcher {
     ///
     /// let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]).unwrap();
     /// ```
-    pub fn new(header_name: &str, allowed_values: Vec<String>) -> Result<Self, FlowGuardError> {
+    pub fn new(header_name: &str, allowed_values: Vec<String>) -> Result<Self, LimiteronError> {
         // 验证 HTTP 头名称
         validate_header_name(header_name)?;
 
         // 验证允许的值数量
         if allowed_values.len() > MAX_ALLOWED_VALUES_COUNT {
-            return Err(FlowGuardError::ValidationError(format!(
+            return Err(LimiteronError::ValidationError(format!(
                 "允许的值数量超过限制（最大 {}）",
                 MAX_ALLOWED_VALUES_COUNT
             )));
@@ -771,7 +771,7 @@ impl HeaderMatcher {
         header_name: &str,
         allowed_values: Vec<String>,
         case_sensitive: bool,
-    ) -> Result<Self, FlowGuardError> {
+    ) -> Result<Self, LimiteronError> {
         Self::new(header_name, allowed_values).map(|mut m| {
             m.case_sensitive = case_sensitive;
             m
@@ -785,7 +785,7 @@ impl CustomMatcher for HeaderMatcher {
         "header"
     }
 
-    async fn matches(&self, context: &RequestContext) -> Result<bool, FlowGuardError> {
+    async fn matches(&self, context: &RequestContext) -> Result<bool, LimiteronError> {
         let header_value = match context.get_header(&self.header_name) {
             Some(value) => value,
             None => {
@@ -811,7 +811,7 @@ impl CustomMatcher for HeaderMatcher {
         Ok(matches)
     }
 
-    fn load_config(&mut self, config: Value) -> Result<(), FlowGuardError> {
+    fn load_config(&mut self, config: Value) -> Result<(), LimiteronError> {
         if let Some(header_name) = config["header_name"].as_str() {
             validate_header_name(header_name)?;
             self.header_name = header_name.to_lowercase();
@@ -819,7 +819,7 @@ impl CustomMatcher for HeaderMatcher {
 
         if let Some(values) = config["allowed_values"].as_array() {
             if values.len() > MAX_ALLOWED_VALUES_COUNT {
-                return Err(FlowGuardError::ConfigError(format!(
+                return Err(LimiteronError::ConfigError(format!(
                     "允许的值数量超过限制（最大 {}）",
                     MAX_ALLOWED_VALUES_COUNT
                 )));
@@ -832,7 +832,7 @@ impl CustomMatcher for HeaderMatcher {
                     validate_header_value(s)?;
                     Ok(s.to_string())
                 })
-                .collect::<Result<Vec<_>, FlowGuardError>>()?;
+                .collect::<Result<Vec<_>, LimiteronError>>()?;
         }
 
         if let Some(case_sensitive) = config["case_sensitive"].as_bool() {
@@ -887,7 +887,7 @@ impl HeaderMatcherBuilder {
     }
 
     /// 构建HeaderMatcher
-    pub fn build(self) -> Result<HeaderMatcher, FlowGuardError> {
+    pub fn build(self) -> Result<HeaderMatcher, LimiteronError> {
         HeaderMatcher::new(
             self.header_name.as_deref().unwrap_or(""),
             self.allowed_values,

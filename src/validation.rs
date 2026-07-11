@@ -24,7 +24,7 @@ use crate::constants::{
     MAX_API_KEY_LENGTH, MAX_BAN_REASON_LENGTH, MAX_HEADER_VALUE_LENGTH, MAX_IP_ADDRESS_LENGTH,
     MAX_MAC_ADDRESS_LENGTH, MAX_PATH_LENGTH, MAX_USER_ID_LENGTH,
 };
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 #[cfg(feature = "ban-manager")]
 use crate::storage::BanTarget;
 
@@ -37,7 +37,7 @@ use crate::storage::BanTarget;
 ///
 /// # Returns
 /// * `Ok(())` - Valid IP address
-/// * `Err(FlowGuardError)` - Validation failed
+/// * `Err(LimiteronError)` - Validation failed
 ///
 /// # Supported Formats
 ///
@@ -67,15 +67,15 @@ use crate::storage::BanTarget;
 /// assert!(validate_ip_address("2001:db8::1").is_ok());
 /// assert!(validate_ip_address("::ffff:192.168.1.1").is_ok());
 /// ```
-pub fn validate_ip_address(ip: &str) -> Result<(), FlowGuardError> {
+pub fn validate_ip_address(ip: &str) -> Result<(), LimiteronError> {
     if ip.is_empty() {
-        return Err(FlowGuardError::ValidationError(
+        return Err(LimiteronError::ValidationError(
             "IP address cannot be empty".to_string(),
         ));
     }
 
     if ip.len() > MAX_IP_ADDRESS_LENGTH {
-        return Err(FlowGuardError::ValidationError(format!(
+        return Err(LimiteronError::ValidationError(format!(
             "IP address exceeds maximum length (max: {}, actual: {})",
             MAX_IP_ADDRESS_LENGTH,
             ip.len()
@@ -87,7 +87,7 @@ pub fn validate_ip_address(ip: &str) -> Result<(), FlowGuardError> {
 
     // 使用标准库解析 IP 地址
     ip_part.parse::<std::net::IpAddr>().map_err(|_| {
-        FlowGuardError::ValidationError(format!("Invalid IP address format: {}", ip))
+        LimiteronError::ValidationError(format!("Invalid IP address format: {}", ip))
     })?;
 
     Ok(())
@@ -98,13 +98,13 @@ pub fn validate_ip_address(ip: &str) -> Result<(), FlowGuardError> {
 /// 支持以下格式：
 /// - IPv4: `192.168.1.1` 或 `192.168.1.1:8080`
 /// - IPv6: `::1` 或 `[::1]:8080`
-fn extract_ip_part(ip: &str) -> Result<&str, FlowGuardError> {
+fn extract_ip_part(ip: &str) -> Result<&str, LimiteronError> {
     // IPv6 地址带端口格式：[IPv6]:port
     if ip.starts_with('[') {
         if let Some(close_bracket) = ip.find(']') {
             return Ok(&ip[1..close_bracket]);
         }
-        return Err(FlowGuardError::ValidationError(
+        return Err(LimiteronError::ValidationError(
             "Invalid IPv6 address format: missing closing bracket".to_string(),
         ));
     }
@@ -137,16 +137,16 @@ fn extract_ip_part(ip: &str) -> Result<&str, FlowGuardError> {
 ///
 /// # Returns
 /// * `Ok(())` - Valid user ID
-/// * `Err(FlowGuardError)` - Validation failed
-pub fn validate_user_id(user_id: &str) -> Result<(), FlowGuardError> {
+/// * `Err(LimiteronError)` - Validation failed
+pub fn validate_user_id(user_id: &str) -> Result<(), LimiteronError> {
     if user_id.is_empty() {
-        return Err(FlowGuardError::ValidationError(
+        return Err(LimiteronError::ValidationError(
             "User ID cannot be empty".to_string(),
         ));
     }
 
     if user_id.len() > MAX_USER_ID_LENGTH {
-        return Err(FlowGuardError::ConfigError(format!(
+        return Err(LimiteronError::ConfigError(format!(
             "User ID exceeds maximum length ({})",
             MAX_USER_ID_LENGTH
         )));
@@ -157,7 +157,7 @@ pub fn validate_user_id(user_id: &str) -> Result<(), FlowGuardError> {
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '@' || c == '.')
     {
-        return Err(FlowGuardError::ValidationError(
+        return Err(LimiteronError::ValidationError(
             "User ID contains invalid characters".to_string(),
         ));
     }
@@ -172,16 +172,16 @@ pub fn validate_user_id(user_id: &str) -> Result<(), FlowGuardError> {
 ///
 /// # Returns
 /// * `Ok(())` - Valid MAC address
-/// * `Err(FlowGuardError)` - Validation failed
-pub fn validate_mac_address(mac: &str) -> Result<(), FlowGuardError> {
+/// * `Err(LimiteronError)` - Validation failed
+pub fn validate_mac_address(mac: &str) -> Result<(), LimiteronError> {
     if mac.is_empty() {
-        return Err(FlowGuardError::ValidationError(
+        return Err(LimiteronError::ValidationError(
             "MAC address cannot be empty".to_string(),
         ));
     }
 
     if mac.len() > MAX_MAC_ADDRESS_LENGTH {
-        return Err(FlowGuardError::ConfigError(format!(
+        return Err(LimiteronError::ConfigError(format!(
             "MAC address exceeds maximum length ({})",
             MAX_MAC_ADDRESS_LENGTH
         )));
@@ -190,13 +190,13 @@ pub fn validate_mac_address(mac: &str) -> Result<(), FlowGuardError> {
     // Standard MAC format: XX:XX:XX:XX:XX:XX or with hyphens/periods
     let cleaned = mac.replace([':', '-', '.'], "");
     if cleaned.len() != 12 {
-        return Err(FlowGuardError::ValidationError(
+        return Err(LimiteronError::ValidationError(
             "Invalid MAC address format".to_string(),
         ));
     }
 
     if !cleaned.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(FlowGuardError::ValidationError(
+        return Err(LimiteronError::ValidationError(
             "MAC address contains invalid characters".to_string(),
         ));
     }
@@ -213,14 +213,14 @@ pub fn validate_mac_address(mac: &str) -> Result<(), FlowGuardError> {
 ///
 /// # Returns
 /// * `Ok(())` - Valid length
-/// * `Err(FlowGuardError)` - Validation failed
+/// * `Err(LimiteronError)` - Validation failed
 pub fn validate_length(
     value: &str,
     max_length: usize,
     field_name: &str,
-) -> Result<(), FlowGuardError> {
+) -> Result<(), LimiteronError> {
     if value.len() > max_length {
-        return Err(FlowGuardError::ConfigError(format!(
+        return Err(LimiteronError::ConfigError(format!(
             "{} exceeds maximum length ({})",
             field_name, max_length
         )));
@@ -235,8 +235,8 @@ pub fn validate_length(
 ///
 /// # Returns
 /// * `Ok(())` - Valid reason
-/// * `Err(FlowGuardError)` - Validation failed
-pub fn validate_ban_reason(reason: &str) -> Result<(), FlowGuardError> {
+/// * `Err(LimiteronError)` - Validation failed
+pub fn validate_ban_reason(reason: &str) -> Result<(), LimiteronError> {
     validate_length(reason, MAX_BAN_REASON_LENGTH, "Ban reason")
 }
 
@@ -247,8 +247,8 @@ pub fn validate_ban_reason(reason: &str) -> Result<(), FlowGuardError> {
 ///
 /// # Returns
 /// * `Ok(())` - Valid API key
-/// * `Err(FlowGuardError)` - Validation failed
-pub fn validate_api_key(api_key: &str) -> Result<(), FlowGuardError> {
+/// * `Err(LimiteronError)` - Validation failed
+pub fn validate_api_key(api_key: &str) -> Result<(), LimiteronError> {
     validate_length(api_key, MAX_API_KEY_LENGTH, "API key")
 }
 
@@ -259,8 +259,8 @@ pub fn validate_api_key(api_key: &str) -> Result<(), FlowGuardError> {
 ///
 /// # Returns
 /// * `Ok(())` - Valid header value
-/// * `Err(FlowGuardError)` - Validation failed
-pub fn validate_header_value(value: &str) -> Result<(), FlowGuardError> {
+/// * `Err(LimiteronError)` - Validation failed
+pub fn validate_header_value(value: &str) -> Result<(), LimiteronError> {
     validate_length(value, MAX_HEADER_VALUE_LENGTH, "Header value")
 }
 
@@ -271,8 +271,8 @@ pub fn validate_header_value(value: &str) -> Result<(), FlowGuardError> {
 ///
 /// # Returns
 /// * `Ok(())` - Valid path
-/// * `Err(FlowGuardError)` - Validation failed
-pub fn validate_path(path: &str) -> Result<(), FlowGuardError> {
+/// * `Err(LimiteronError)` - Validation failed
+pub fn validate_path(path: &str) -> Result<(), LimiteronError> {
     validate_length(path, MAX_PATH_LENGTH, "Path")
 }
 
@@ -285,7 +285,7 @@ pub fn validate_path(path: &str) -> Result<(), FlowGuardError> {
 ///
 /// # Returns
 /// * `Ok(())` - Valid ban target
-/// * `Err(FlowGuardError)` - Validation failed
+/// * `Err(LimiteronError)` - Validation failed
 ///
 /// # Examples
 ///
@@ -306,7 +306,7 @@ pub fn validate_path(path: &str) -> Result<(), FlowGuardError> {
 /// assert!(validate_ban_target(&mac_target).is_ok());
 /// ```
 #[cfg(feature = "ban-manager")]
-pub fn validate_ban_target(target: &BanTarget) -> Result<(), FlowGuardError> {
+pub fn validate_ban_target(target: &BanTarget) -> Result<(), LimiteronError> {
     match target {
         BanTarget::Ip(ip) => validate_ip_address(ip),
         BanTarget::UserId(user_id) => validate_user_id(user_id),
@@ -318,21 +318,21 @@ pub fn validate_ban_target(target: &BanTarget) -> Result<(), FlowGuardError> {
 /// 验证地理位置国家代码（ISO 3166-1 alpha-2）
 ///
 /// 格式要求：2 字母大写，如 "CN", "US", "JP"
-pub fn validate_geo_country_code(code: &str) -> Result<(), FlowGuardError> {
+pub fn validate_geo_country_code(code: &str) -> Result<(), LimiteronError> {
     if code.is_empty() {
-        return Err(FlowGuardError::ValidationError(
+        return Err(LimiteronError::ValidationError(
             "国家代码不能为空".to_string(),
         ));
     }
     if code.len() != 2 {
-        return Err(FlowGuardError::ValidationError(format!(
+        return Err(LimiteronError::ValidationError(format!(
             "国家代码必须是 2 字母（ISO 3166-1 alpha-2），got {} 字符: {}",
             code.len(),
             code
         )));
     }
     if !code.chars().all(|c| c.is_ascii_uppercase()) {
-        return Err(FlowGuardError::ValidationError(format!(
+        return Err(LimiteronError::ValidationError(format!(
             "国家代码必须是大写字母: {}",
             code
         )));

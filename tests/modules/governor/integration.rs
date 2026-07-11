@@ -10,7 +10,7 @@ use limiteron::config::{
     Action, ActionConfig, CacheBackend, ConfigMatcher as Matcher, FlowControlConfig, LimiterConfig,
     MetricsBackend, Rule, StorageType,
 };
-use limiteron::error::{ConsumeResult, Decision, FlowGuardError, StorageError};
+use limiteron::error::{ConsumeResult, Decision, LimiteronError, StorageError};
 use limiteron::governor::GovernorStats;
 use limiteron::matchers::RequestContext;
 use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, Storage};

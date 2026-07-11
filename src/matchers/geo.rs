@@ -33,7 +33,7 @@
 //! ```
 
 #[cfg(feature = "geo-matching")]
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use maxminddb::{Reader, geoip2};
 use oxcache::Cache;
 use serde::{Deserialize, Serialize};
@@ -240,7 +240,7 @@ impl GeoMatcher {
     ///
     /// # 返回
     /// - `Ok(GeoMatcher)`: 成功创建匹配器
-    /// - `Err(FlowGuardError)`: 创建失败
+    /// - `Err(LimiteronError)`: 创建失败
     ///
     /// # 示例
     /// ```rust
@@ -251,12 +251,12 @@ impl GeoMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, FlowGuardError> {
+    pub async fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, LimiteronError> {
         let db_path = db_path.as_ref();
 
         // 检查文件是否存在
         if !db_path.exists() {
-            return Err(FlowGuardError::ConfigError(format!(
+            return Err(LimiteronError::ConfigError(format!(
                 "GeoLite2数据库文件不存在: {}。请从MaxMind官网下载GeoLite2-City.mmdb文件",
                 db_path.display()
             )));
@@ -265,7 +265,7 @@ impl GeoMatcher {
         log::info!(target: "geo", "加载GeoLite2数据库: {}", db_path.display());
 
         // 获取文件元数据
-        let metadata = std::fs::metadata(db_path).map_err(FlowGuardError::IoError)?;
+        let metadata = std::fs::metadata(db_path).map_err(LimiteronError::IoError)?;
 
         // 验证文件大小（GeoLite2-City.mmdb 通常大于 50MB）
         const MIN_DB_SIZE: u64 = 50 * 1024 * 1024; // 50MB
@@ -273,7 +273,7 @@ impl GeoMatcher {
 
         let file_size = metadata.len();
         if file_size < MIN_DB_SIZE {
-            return Err(FlowGuardError::ConfigError(format!(
+            return Err(LimiteronError::ConfigError(format!(
                 "GeoLite2数据库文件大小异常（{} bytes），可能已损坏或不是完整文件。最小要求: {} \
                  bytes",
                 file_size, MIN_DB_SIZE
@@ -289,11 +289,11 @@ impl GeoMatcher {
         }
 
         // 读取数据库文件
-        let db_content = std::fs::read(db_path).map_err(FlowGuardError::IoError)?;
+        let db_content = std::fs::read(db_path).map_err(LimiteronError::IoError)?;
 
         // 验证文件大小一致性
         if db_content.len() as u64 != file_size {
-            return Err(FlowGuardError::ConfigError(
+            return Err(LimiteronError::ConfigError(
                 "GeoLite2数据库文件读取不完整，可能被截断".to_string(),
             ));
         }
@@ -303,7 +303,7 @@ impl GeoMatcher {
         // 验证文件头（MaxMind 数据库文件以特定 magic number 开头）
         // MaxMind DB 格式: 0x00 0x00 0x02 0x00 (v2) 或 0x00 0x00 0x00 0x00 (v1)
         if db_content.len() < 4 {
-            return Err(FlowGuardError::ConfigError(
+            return Err(LimiteronError::ConfigError(
                 "GeoLite2数据库文件过短，无法读取文件头".to_string(),
             ));
         }
@@ -322,7 +322,7 @@ impl GeoMatcher {
 
         // 创建读取器
         let reader = Reader::from_source(db_content)
-            .map_err(|e| FlowGuardError::ConfigError(format!("无效的GeoLite2数据库文件: {}", e)))?;
+            .map_err(|e| LimiteronError::ConfigError(format!("无效的GeoLite2数据库文件: {}", e)))?;
 
         // 验证数据库元数据
         log::info!(
@@ -338,7 +338,7 @@ impl GeoMatcher {
             .ttl(Duration::from_secs(300))
             .build()
             .await
-            .map_err(|e| FlowGuardError::ConfigError(format!("创建缓存失败: {}", e)))?;
+            .map_err(|e| LimiteronError::ConfigError(format!("创建缓存失败: {}", e)))?;
 
         let matcher = Self {
             reader: Arc::new(reader),
@@ -370,7 +370,7 @@ impl GeoMatcher {
     pub async fn with_cache_limit<P: AsRef<Path>>(
         db_path: P,
         cache_size_limit: usize,
-    ) -> Result<Self, FlowGuardError> {
+    ) -> Result<Self, LimiteronError> {
         let mut matcher = Self::new(db_path).await?;
         matcher.cache_size_limit = cache_size_limit;
         Ok(matcher)
@@ -383,7 +383,7 @@ impl GeoMatcher {
     ///
     /// # 返回
     /// - `Ok(GeoInfo)`: 地理信息
-    /// - `Err(FlowGuardError)`: 查询失败
+    /// - `Err(LimiteronError)`: 查询失败
     ///
     /// # 性能
     /// - 首次查询: ~1ms
@@ -401,7 +401,7 @@ impl GeoMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn lookup(&self, ip: IpAddr) -> Result<GeoInfo, FlowGuardError> {
+    pub async fn lookup(&self, ip: IpAddr) -> Result<GeoInfo, LimiteronError> {
         // 检查缓存
         let ip_str = ip.to_string();
         if let Ok(Some(cached)) = self.cache.get(&ip_str).await {
@@ -420,13 +420,13 @@ impl GeoMatcher {
         let lookup_result = self
             .reader
             .lookup(ip)
-            .map_err(|e| FlowGuardError::ConfigError(format!("IP查询失败: {}", e)))?;
+            .map_err(|e| LimiteronError::ConfigError(format!("IP查询失败: {}", e)))?;
 
         // 解码为 City 结构
         let city: geoip2::City = lookup_result
             .decode()
-            .map_err(|e| FlowGuardError::ConfigError(format!("IP数据解析失败: {}", e)))?
-            .ok_or_else(|| FlowGuardError::ConfigError("IP不在数据库中".to_string()))?;
+            .map_err(|e| LimiteronError::ConfigError(format!("IP数据解析失败: {}", e)))?
+            .ok_or_else(|| LimiteronError::ConfigError("IP不在数据库中".to_string()))?;
 
         // 提取地理信息
         let info = self.extract_geo_info(&city);
@@ -468,7 +468,7 @@ impl GeoMatcher {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn batch_lookup(&self, ips: &[IpAddr]) -> Vec<Result<GeoInfo, FlowGuardError>> {
+    pub async fn batch_lookup(&self, ips: &[IpAddr]) -> Vec<Result<GeoInfo, LimiteronError>> {
         let mut results = Vec::with_capacity(ips.len());
         for ip in ips {
             results.push(self.lookup(*ip).await);
@@ -485,7 +485,7 @@ impl GeoMatcher {
     /// # 返回
     /// - `Ok(true)`: 匹配
     /// - `Ok(false)`: 不匹配
-    /// - `Err(FlowGuardError)`: 查询失败
+    /// - `Err(LimiteronError)`: 查询失败
     ///
     /// # 示例
     /// ```rust
@@ -504,7 +504,7 @@ impl GeoMatcher {
         &self,
         ip: IpAddr,
         condition: &GeoCondition,
-    ) -> Result<bool, FlowGuardError> {
+    ) -> Result<bool, LimiteronError> {
         let info = self.lookup(ip).await?;
         Ok(condition.matches(&info))
     }
@@ -1053,7 +1053,7 @@ mod tests {
         // 使用 err() 避免 GeoMatcher 需要 Debug 的约束
         let err = result.err().unwrap();
         assert!(
-            matches!(err, FlowGuardError::ConfigError(_)),
+            matches!(err, LimiteronError::ConfigError(_)),
             "expected ConfigError, got {:?}",
             err
         );
@@ -1083,7 +1083,7 @@ mod tests {
         assert!(result.is_err());
         let err = result.err().unwrap();
         assert!(
-            matches!(err, FlowGuardError::ConfigError(_)),
+            matches!(err, LimiteronError::ConfigError(_)),
             "expected ConfigError, got {:?}",
             err
         );
@@ -1103,7 +1103,7 @@ mod tests {
             GeoMatcher::with_cache_limit("/nonexistent/path/to/GeoLite2-City.mmdb", 5000).await;
         assert!(result.is_err());
         let err = result.err().unwrap();
-        assert!(matches!(err, FlowGuardError::ConfigError(_)));
+        assert!(matches!(err, LimiteronError::ConfigError(_)));
     }
 
     #[cfg(feature = "geo-matching")]

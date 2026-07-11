@@ -19,7 +19,7 @@ use crate::config::LimiterConfig;
 #[cfg(test)]
 use crate::config::types::QuotaType;
 use crate::config::types::parse_window_size;
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use std::sync::Arc;
 
 /// 配置限制常量
@@ -61,7 +61,7 @@ impl LimiterFactory {
     ///
     /// # 返回
     /// - `Ok(Arc<dyn Limiter>)`: 创建成功的限流器
-    /// - `Err(FlowGuardError)`: 创建失败
+    /// - `Err(LimiteronError)`: 创建失败
     ///
     /// # 示例
     ///
@@ -75,7 +75,7 @@ impl LimiterFactory {
     /// };
     /// let limiter = LimiterFactory::create(&config).unwrap();
     /// ```
-    pub fn create(config: &LimiterConfig) -> Result<Arc<dyn Limiter>, FlowGuardError> {
+    pub fn create(config: &LimiterConfig) -> Result<Arc<dyn Limiter>, LimiteronError> {
         match config {
             LimiterConfig::TokenBucket {
                 capacity,
@@ -109,13 +109,13 @@ impl LimiterFactory {
                 overdraft: _,
             } => {
                 // Quota 类型由QuotaController处理
-                Err(FlowGuardError::LimitError(
+                Err(LimiteronError::LimitError(
                     "Quota 限流器类型需要由QuotaController处理".to_string(),
                 ))
             }
             LimiterConfig::Custom { .. } => {
                 // Custom 类型由CustomLimiterRegistry处理
-                Err(FlowGuardError::LimitError(
+                Err(LimiteronError::LimitError(
                     "Custom 限流器类型需要由CustomLimiterRegistry处理".to_string(),
                 ))
             }
@@ -129,7 +129,7 @@ impl LimiterFactory {
     ///
     /// # 返回
     /// - `Ok(Vec<Arc<dyn Limiter>>)`: 创建成功的限流器列表
-    /// - `Err(FlowGuardError)`: 创建失败
+    /// - `Err(LimiteronError)`: 创建失败
     ///
     /// # 示例
     ///
@@ -145,12 +145,12 @@ impl LimiterFactory {
     /// ```
     pub fn create_batch(
         configs: &[LimiterConfig],
-    ) -> Result<Vec<Arc<dyn Limiter>>, FlowGuardError> {
+    ) -> Result<Vec<Arc<dyn Limiter>>, LimiteronError> {
         let mut limiters = Vec::with_capacity(configs.len());
 
         for (index, config) in configs.iter().enumerate() {
             let limiter = Self::create(config).map_err(|e| {
-                FlowGuardError::LimitError(format!("创建第 {} 个限流器失败: {}", index + 1, e))
+                LimiteronError::LimitError(format!("创建第 {} 个限流器失败: {}", index + 1, e))
             })?;
             limiters.push(limiter);
         }
@@ -165,7 +165,7 @@ impl LimiterFactory {
     ///
     /// # 返回
     /// - `Ok(Duration)`: 解析成功的时间段
-    /// - `Err(FlowGuardError)`: 解析失败
+    /// - `Err(LimiteronError)`: 解析失败
     ///
     /// # 支持的格式
     ///
@@ -183,8 +183,8 @@ impl LimiterFactory {
     /// let duration = LimiterFactory::parse_window_size("5m").unwrap();
     /// assert_eq!(duration, Duration::from_secs(300));
     /// ```
-    pub fn parse_window_size(window_size: &str) -> Result<std::time::Duration, FlowGuardError> {
-        parse_window_size(window_size).map_err(FlowGuardError::ConfigError)
+    pub fn parse_window_size(window_size: &str) -> Result<std::time::Duration, LimiteronError> {
+        parse_window_size(window_size).map_err(LimiteronError::ConfigError)
     }
 
     /// 验证限流器配置
@@ -194,7 +194,7 @@ impl LimiterFactory {
     ///
     /// # 返回
     /// - `Ok(())`: 验证通过
-    /// - `Err(FlowGuardError)`: 验证失败
+    /// - `Err(LimiteronError)`: 验证失败
     ///
     /// # 示例
     ///
@@ -210,16 +210,16 @@ impl LimiterFactory {
         window_size: &str,
         max_requests: u64,
         limiter_type: &str,
-    ) -> Result<(), FlowGuardError> {
+    ) -> Result<(), LimiteronError> {
         Self::parse_window_size(window_size)?;
         if max_requests == 0 {
-            return Err(FlowGuardError::ConfigError(format!(
+            return Err(LimiteronError::ConfigError(format!(
                 "{}最大请求数必须大于0",
                 limiter_type
             )));
         }
         if max_requests > MAX_WINDOW_REQUESTS {
-            return Err(FlowGuardError::ConfigError(format!(
+            return Err(LimiteronError::ConfigError(format!(
                 "{}最大请求数过大，最大值为{}",
                 limiter_type, MAX_WINDOW_REQUESTS
             )));
@@ -227,30 +227,30 @@ impl LimiterFactory {
         Ok(())
     }
 
-    pub fn validate_config(config: &LimiterConfig) -> Result<(), FlowGuardError> {
+    pub fn validate_config(config: &LimiterConfig) -> Result<(), LimiteronError> {
         match config {
             LimiterConfig::TokenBucket {
                 capacity,
                 refill_rate,
             } => {
                 if *capacity == 0 {
-                    return Err(FlowGuardError::ConfigError(
+                    return Err(LimiteronError::ConfigError(
                         "令牌桶容量必须大于0".to_string(),
                     ));
                 }
                 if *refill_rate == 0 {
-                    return Err(FlowGuardError::ConfigError(
+                    return Err(LimiteronError::ConfigError(
                         "令牌桶补充速率必须大于0".to_string(),
                     ));
                 }
                 if *capacity > MAX_TOKEN_BUCKET_CAPACITY {
-                    return Err(FlowGuardError::ConfigError(format!(
+                    return Err(LimiteronError::ConfigError(format!(
                         "令牌桶容量过大，最大值为{}",
                         MAX_TOKEN_BUCKET_CAPACITY
                     )));
                 }
                 if *refill_rate > MAX_TOKEN_BUCKET_REFILL_RATE {
-                    return Err(FlowGuardError::ConfigError(format!(
+                    return Err(LimiteronError::ConfigError(format!(
                         "令牌桶补充速率过大，最大值为{}",
                         MAX_TOKEN_BUCKET_REFILL_RATE
                     )));
@@ -270,12 +270,12 @@ impl LimiterFactory {
             }
             LimiterConfig::Concurrency { max_concurrent } => {
                 if *max_concurrent == 0 {
-                    return Err(FlowGuardError::ConfigError(
+                    return Err(LimiteronError::ConfigError(
                         "并发限制数必须大于0".to_string(),
                     ));
                 }
                 if *max_concurrent > MAX_CONCURRENT_REQUESTS {
-                    return Err(FlowGuardError::ConfigError(format!(
+                    return Err(LimiteronError::ConfigError(format!(
                         "并发限制数过大，最大值为{}",
                         MAX_CONCURRENT_REQUESTS
                     )));
@@ -283,13 +283,13 @@ impl LimiterFactory {
             }
             LimiterConfig::Quota { .. } => {
                 // Quota 类型由QuotaController处理
-                return Err(FlowGuardError::LimitError(
+                return Err(LimiteronError::LimitError(
                     "Quota 限流器类型需要由QuotaController处理".to_string(),
                 ));
             }
             LimiterConfig::Custom { .. } => {
                 // Custom 类型由CustomLimiterRegistry处理
-                return Err(FlowGuardError::LimitError(
+                return Err(LimiteronError::LimitError(
                     "Custom 限流器类型需要由CustomLimiterRegistry处理".to_string(),
                 ));
             }

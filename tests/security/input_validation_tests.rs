@@ -7,7 +7,7 @@
 //! - 数值注入测试（负数消费拒绝、整数溢出保护）
 //! - 配置注入测试（恶意配置拒绝、配置验证覆盖）
 
-use limiteron::error::FlowGuardError;
+use limiteron::error::LimiteronError;
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use limiteron::matchers::{Identifier, IdentifierExtractor, IpExtractor, RequestContext};
 
@@ -209,7 +209,7 @@ async fn test_zero_cost_rejection() {
     assert!(result.is_err(), "Zero cost should be rejected");
 
     if let Err(e) = result {
-        assert!(matches!(e, FlowGuardError::ConfigError(_)));
+        assert!(matches!(e, LimiteronError::ConfigError(_)));
         assert!(e.to_string().contains("zero") || e.to_string().contains("0"));
     }
 }
@@ -245,7 +245,7 @@ async fn test_integer_overflow_protection() {
     );
 
     if let Err(e) = result {
-        assert!(matches!(e, FlowGuardError::ConfigError(_)));
+        assert!(matches!(e, LimiteronError::ConfigError(_)));
     }
 
     // 测试 u64 最大值
@@ -271,7 +271,7 @@ async fn test_boundary_values() {
     // 注意：即使成本有效，也可能因令牌不足被拒绝
     // 但不应因成本验证错误而失败
     match result {
-        Ok(_) | Err(FlowGuardError::LimitError(_)) => {}
+        Ok(_) | Err(LimiteronError::LimitError(_)) => {}
         Err(e) => panic!("Unexpected error for MAX_COST: {:?}", e),
     }
 

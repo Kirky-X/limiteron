@@ -30,7 +30,7 @@ pub const MAX_PAGINATION_LIMIT: u64 = 1000;
 
 use crate::authorization::AuthorizationProvider;
 use crate::constants::MAX_BAN_REASON_LENGTH;
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use crate::storage::BanTarget;
 use crate::storage::{BanRecord, BanStorage};
 use chrono::{DateTime, Utc};
@@ -353,7 +353,7 @@ impl BanManagerBuilder {
     /// 这允许使用 `BanManager::builder().build()` 进行快速原型开发。
     ///
     /// **注意**：默认内存存储不适用于多实例生产环境。
-    pub async fn build(self) -> Result<BanManager, FlowGuardError> {
+    pub async fn build(self) -> Result<BanManager, LimiteronError> {
         use crate::storage::MemoryBanStorage;
 
         let storage = match self.storage {
@@ -398,7 +398,7 @@ impl BanManagerBuilder {
 /// 验证封禁目标
 ///
 /// 使用统一的 validation 模块进行验证。
-fn validate_ban_target(target: &BanTarget) -> Result<(), FlowGuardError> {
+fn validate_ban_target(target: &BanTarget) -> Result<(), LimiteronError> {
     match target {
         BanTarget::Ip(ip) => crate::validation::validate_ip_address(ip),
         BanTarget::UserId(user_id) => crate::validation::validate_user_id(user_id),
@@ -412,15 +412,15 @@ fn validate_ban_target(target: &BanTarget) -> Result<(), FlowGuardError> {
 /// 验证封禁原因
 ///
 /// 使用统一的 validation 模块进行验证。
-fn validate_ban_reason(reason: &str) -> Result<(), FlowGuardError> {
+fn validate_ban_reason(reason: &str) -> Result<(), LimiteronError> {
     if reason.is_empty() {
-        return Err(FlowGuardError::ValidationError(
+        return Err(LimiteronError::ValidationError(
             "封禁原因不能为空".to_string(),
         ));
     }
 
     if reason.len() > MAX_BAN_REASON_LENGTH {
-        return Err(FlowGuardError::ValidationError(format!(
+        return Err(LimiteronError::ValidationError(format!(
             "封禁原因过长，最大长度为 {} 字符",
             MAX_BAN_REASON_LENGTH
         )));
@@ -428,7 +428,7 @@ fn validate_ban_reason(reason: &str) -> Result<(), FlowGuardError> {
 
     // 检查是否包含控制字符
     if reason.contains(|c: char| c.is_control()) {
-        return Err(FlowGuardError::ValidationError(
+        return Err(LimiteronError::ValidationError(
             "封禁原因包含非法字符".to_string(),
         ));
     }
@@ -457,7 +457,7 @@ impl BanManager {
     ///     // ban_manager 现在可以用于封禁管理
     /// }
     /// ```
-    pub async fn new() -> Result<Self, FlowGuardError> {
+    pub async fn new() -> Result<Self, LimiteronError> {
         use crate::storage::MemoryBanStorage;
 
         let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
@@ -507,7 +507,7 @@ impl BanManager {
     pub async fn with_dependencies(
         storage: Arc<dyn BanStorage>,
         config: BanManagerConfig,
-    ) -> Result<Self, FlowGuardError> {
+    ) -> Result<Self, LimiteronError> {
         Self::with_dependencies_and_auth(
             storage,
             config,
@@ -551,7 +551,7 @@ impl BanManager {
         config: BanManagerConfig,
         authorization_provider: Option<Arc<dyn AuthorizationProvider>>,
         #[cfg(feature = "event-system")] event_emitter: Option<Arc<crate::events::EventEmitter>>,
-    ) -> Result<Self, FlowGuardError> {
+    ) -> Result<Self, LimiteronError> {
         // 显式警告：未配置授权 provider 时，所有手动封禁操作将跳过细粒度授权检查
         // （Rule 12: 失败必须显性化 — 禁止静默跳过授权链路）
         if authorization_provider.is_none() {
@@ -681,7 +681,7 @@ impl BanManager {
         source: BanSource,
         metadata: serde_json::Value,
         duration: Option<StdDuration>,
-    ) -> Result<BanDetail, FlowGuardError> {
+    ) -> Result<BanDetail, LimiteronError> {
         // 授权检查：仅对手动封禁进行检查
         // 未配置 provider 时显式警告（Rule 12: 禁止静默跳过授权链路）
         match (&self.authorization_provider, &source) {
@@ -722,7 +722,7 @@ impl BanManager {
         let now = Utc::now();
         let expires_at = now
             + chrono::Duration::from_std(duration)
-                .map_err(|e| FlowGuardError::TimeError(format!("Invalid duration: {}", e)))?;
+                .map_err(|e| LimiteronError::TimeError(format!("Invalid duration: {}", e)))?;
         let is_manual = matches!(source, BanSource::Manual { .. });
 
         let record = BanRecord {
@@ -791,7 +791,7 @@ impl BanManager {
     ///
     /// # 返回
     /// - 封禁详情（如果存在）
-    pub async fn read_ban(&self, target: &BanTarget) -> Result<Option<BanDetail>, FlowGuardError> {
+    pub async fn read_ban(&self, target: &BanTarget) -> Result<Option<BanDetail>, LimiteronError> {
         debug!("Reading ban: target={:?}", target);
 
         let record = self.storage.is_banned(target).await?;
@@ -815,7 +815,7 @@ impl BanManager {
         reason: Option<String>,
         duration: Option<StdDuration>,
         metadata: Option<serde_json::Value>,
-    ) -> Result<Option<BanDetail>, FlowGuardError> {
+    ) -> Result<Option<BanDetail>, LimiteronError> {
         debug!("Updating ban: target={:?}", target);
 
         // 获取当前封禁记录
@@ -838,7 +838,7 @@ impl BanManager {
             record.duration = new_duration;
             record.expires_at = now
                 + chrono::Duration::from_std(new_duration)
-                    .map_err(|e| FlowGuardError::TimeError(format!("Invalid duration: {}", e)))?;
+                    .map_err(|e| LimiteronError::TimeError(format!("Invalid duration: {}", e)))?;
         }
 
         // 保存更新后的记录
@@ -870,7 +870,7 @@ impl BanManager {
         &self,
         target: &BanTarget,
         unbanned_by: String,
-    ) -> Result<bool, FlowGuardError> {
+    ) -> Result<bool, LimiteronError> {
         // 授权检查
         if let Some(provider) = &self.authorization_provider {
             self.check_authorization(provider, "remove_ban", &unbanned_by, target)
@@ -909,7 +909,7 @@ impl BanManager {
     ///
     /// # 返回
     /// - 封禁记录列表（BanDetail 形式）
-    pub async fn list_bans(&self, filter: BanFilter) -> Result<Vec<BanDetail>, FlowGuardError> {
+    pub async fn list_bans(&self, filter: BanFilter) -> Result<Vec<BanDetail>, LimiteronError> {
         debug!("Listing bans with filter: {:?}", filter);
 
         // 解析分页参数，使用默认值
@@ -990,7 +990,7 @@ impl BanManager {
     pub async fn check_ban_priority(
         &self,
         targets: &[BanTarget],
-    ) -> Result<Option<BanDetail>, FlowGuardError> {
+    ) -> Result<Option<BanDetail>, LimiteronError> {
         debug!(
             "Checking ban priority for {} targets (parallel with early exit)",
             targets.len()
@@ -1065,7 +1065,7 @@ impl BanManager {
     }
 
     /// 更新配置
-    pub async fn update_config(&self, new_config: BanManagerConfig) -> Result<(), FlowGuardError> {
+    pub async fn update_config(&self, new_config: BanManagerConfig) -> Result<(), LimiteronError> {
         info!("Updating BanManager configuration");
 
         *self.config.write().await = new_config;
@@ -1079,7 +1079,7 @@ impl BanManager {
     }
 
     /// 添加封禁（便捷方法）
-    pub async fn add_ban(&self, record: BanRecord) -> Result<(), FlowGuardError> {
+    pub async fn add_ban(&self, record: BanRecord) -> Result<(), LimiteronError> {
         let detail = self
             .create_ban(
                 record.target.clone(),
@@ -1100,7 +1100,7 @@ impl BanManager {
     }
 
     /// 获取封禁（便捷方法）
-    pub async fn get_ban(&self, target: &BanTarget) -> Result<Option<BanRecord>, FlowGuardError> {
+    pub async fn get_ban(&self, target: &BanTarget) -> Result<Option<BanRecord>, LimiteronError> {
         let detail = self.read_ban(target).await?;
         if let Some(detail) = detail {
             Ok(Some(BanRecord {
@@ -1118,7 +1118,7 @@ impl BanManager {
     }
 
     /// 检查是否被封禁（便捷方法）
-    pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, FlowGuardError> {
+    pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, LimiteronError> {
         self.get_ban(target).await
     }
 
@@ -1126,11 +1126,11 @@ impl BanManager {
     pub async fn get_history(
         &self,
         target: &BanTarget,
-    ) -> Result<Option<crate::BanHistory>, FlowGuardError> {
+    ) -> Result<Option<crate::BanHistory>, LimiteronError> {
         self.storage
             .get_history(target)
             .await
-            .map_err(FlowGuardError::StorageError)
+            .map_err(LimiteronError::StorageError)
     }
 
     /// 检查授权（内部辅助方法）
@@ -1142,7 +1142,7 @@ impl BanManager {
         action: &str,
         operator: &str,
         target: &BanTarget,
-    ) -> Result<(), FlowGuardError> {
+    ) -> Result<(), LimiteronError> {
         let target_str = match target {
             BanTarget::Ip(ip) => ip.clone(),
             BanTarget::UserId(user_id) => user_id.clone(),
@@ -2451,7 +2451,7 @@ mod tests {
 
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::AuthorizationError(msg)) => {
+            Err(LimiteronError::AuthorizationError(msg)) => {
                 assert!(msg.contains("unauthorized_user"));
             }
             _ => panic!("期望 AuthorizationError"),
@@ -2536,7 +2536,7 @@ mod tests {
 
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::AuthorizationError(msg)) => {
+            Err(LimiteronError::AuthorizationError(msg)) => {
                 assert!(msg.contains("unauthorized_user"));
             }
             _ => panic!("期望 AuthorizationError"),
@@ -2613,7 +2613,7 @@ mod tests {
 
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ValidationError(msg)) => {
+            Err(LimiteronError::ValidationError(msg)) => {
                 assert!(msg.contains("不能为空"));
             }
             _ => panic!("期望 ValidationError"),
@@ -2638,7 +2638,7 @@ mod tests {
 
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ValidationError(msg)) => {
+            Err(LimiteronError::ValidationError(msg)) => {
                 assert!(msg.contains("过长"));
             }
             _ => panic!("期望 ValidationError"),
@@ -2661,7 +2661,7 @@ mod tests {
 
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ValidationError(msg)) => {
+            Err(LimiteronError::ValidationError(msg)) => {
                 assert!(msg.contains("非法字符"));
             }
             _ => panic!("期望 ValidationError"),

@@ -752,7 +752,7 @@ for item in items {
 use limiteron::flow_control;
 
 #[flow_control(rate = "100/s")]
-async fn api_handler(user_id: &str) -> Result<String, FlowGuardError> {
+async fn api_handler(user_id: &str) -> Result<String, LimiteronError> {
     // 宏自动处理限流
     Ok("Success".to_string())
 }
@@ -831,9 +831,9 @@ async fn api_handler(user_id: &str) -> Result<String, FlowGuardError> {
 </div>
 
 ```rust
-use limiteron::error::FlowGuardError;
+use limiteron::error::LimiteronError;
 
-async fn handle_request() -> Result<(), FlowGuardError> {
+async fn handle_request() -> Result<(), LimiteronError> {
     match limiter.allow(1).await {
         Ok(true) => {
             println!("✅ 请求允许");
@@ -843,13 +843,13 @@ async fn handle_request() -> Result<(), FlowGuardError> {
             println!("⚠️ 请求被限流");
             Ok(())
         }
-        Err(FlowGuardError::LimitError(msg)) => {
+        Err(LimiteronError::LimitError(msg)) => {
             println!("⚠️ 限流错误: {}", msg);
             Ok(())
         }
-        Err(FlowGuardError::BanError(msg)) => {
+        Err(LimiteronError::BanError(msg)) => {
             eprintln!("❌ 已封禁: {}", msg);
-            Err(FlowGuardError::BanError(msg))
+            Err(LimiteronError::BanError(msg))
         }
         Err(e) => {
             eprintln!("❌ 错误: {:?}", e);
@@ -946,7 +946,7 @@ match limiter.check(key).await {
 **使用宏简化代码**
 ```rust
 #[flow_control(rate = "100/s")]
-async fn api_handler() -> Result<String, FlowGuardError> {
+async fn api_handler() -> Result<String, LimiteronError> {
     // 宏自动处理限流
     Ok("Success".to_string())
 }
@@ -1027,7 +1027,7 @@ for request in requests {
 use limiteron::flow_control;
 
 #[flow_control(rate = "100/s", quota = "10000/m")]
-async fn api_handler(user_id: &str) -> Result<String, FlowGuardError> {
+async fn api_handler(user_id: &str) -> Result<String, LimiteronError> {
     // API 业务逻辑
     Ok(format!("处理用户 {}", user_id))
 }
@@ -1145,7 +1145,7 @@ lazy_static! {
 
 // 或使用宏
 #[flow_control(rate = "10/s")]
-async fn handler() -> Result<(), FlowGuardError> {
+async fn handler() -> Result<(), LimiteronError> {
     Ok(())
 }
 ```

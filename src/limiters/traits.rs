@@ -5,7 +5,7 @@
 //! 定义 Limiter trait 和通用验证函数。
 
 use crate::constants::MAX_COST;
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use async_trait::async_trait;
 
 /// Validates the cost parameter.
@@ -15,16 +15,16 @@ use async_trait::async_trait;
 ///
 /// # Returns
 /// * `Ok(u64)` - The validated cost value
-/// * `Err(FlowGuardError)` - Validation failed
-pub(crate) fn validate_cost(cost: u64) -> Result<u64, FlowGuardError> {
+/// * `Err(LimiteronError)` - Validation failed
+pub(crate) fn validate_cost(cost: u64) -> Result<u64, LimiteronError> {
     if cost == 0 {
-        return Err(FlowGuardError::ConfigError(
+        return Err(LimiteronError::ConfigError(
             "Cost cannot be zero".to_string(),
         ));
     }
 
     if cost > MAX_COST {
-        return Err(FlowGuardError::ConfigError(format!(
+        return Err(LimiteronError::ConfigError(format!(
             "Cost exceeds maximum limit ({})",
             MAX_COST
         )));
@@ -53,7 +53,7 @@ pub(crate) fn validate_cost(cost: u64) -> Result<u64, FlowGuardError> {
 ///
 /// #[async_trait]
 /// impl Limiter for MyLimiter {
-///     async fn allow(&self, cost: u64) -> Result<bool, limiteron::error::FlowGuardError> {
+///     async fn allow(&self, cost: u64) -> Result<bool, limiteron::error::LimiteronError> {
 ///         // 实现限流逻辑
 ///         Ok(true)
 ///     }
@@ -70,7 +70,7 @@ pub trait Limiter: Send + Sync {
     /// - `Ok(true)`: 允许通过
     /// - `Ok(false)`: 拒绝通过
     /// - `Err(_)`: 发生错误
-    async fn allow(&self, cost: u64) -> Result<bool, FlowGuardError>;
+    async fn allow(&self, cost: u64) -> Result<bool, LimiteronError>;
 
     /// 检查是否允许（接受 key 参数，用于宏）
     ///
@@ -82,7 +82,7 @@ pub trait Limiter: Send + Sync {
     /// # 返回
     /// - `Ok(())`: 允许通过
     /// - `Err(_)`: 拒绝通过或发生错误
-    async fn check(&self, _key: &str) -> Result<(), FlowGuardError> {
+    async fn check(&self, _key: &str) -> Result<(), LimiteronError> {
         self.allow(1).await?;
         Ok(())
     }
@@ -97,7 +97,7 @@ mod tests {
         let result = validate_cost(0);
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ConfigError(msg)) => {
+            Err(LimiteronError::ConfigError(msg)) => {
                 assert!(msg.contains("Cost cannot be zero"))
             }
             _ => panic!("expected ConfigError for zero cost"),
@@ -109,7 +109,7 @@ mod tests {
         let result = validate_cost(crate::constants::MAX_COST + 1);
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::ConfigError(msg)) => {
+            Err(LimiteronError::ConfigError(msg)) => {
                 assert!(msg.contains("Cost exceeds maximum limit"))
             }
             _ => panic!("expected ConfigError for exceeding max cost"),
@@ -130,7 +130,7 @@ mod tests {
         struct AllowAllLimiter;
         #[async_trait]
         impl Limiter for AllowAllLimiter {
-            async fn allow(&self, _cost: u64) -> Result<bool, FlowGuardError> {
+            async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
                 Ok(true)
             }
         }
@@ -145,8 +145,8 @@ mod tests {
         struct ErrorLimiter;
         #[async_trait]
         impl Limiter for ErrorLimiter {
-            async fn allow(&self, _cost: u64) -> Result<bool, FlowGuardError> {
-                Err(FlowGuardError::LimitError("denied".to_string()))
+            async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
+                Err(LimiteronError::LimitError("denied".to_string()))
             }
         }
 

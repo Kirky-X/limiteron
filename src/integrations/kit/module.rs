@@ -24,8 +24,8 @@
 //!    `CacheBackend` instead of non-object-safe `UnifiedCache`).
 //!
 //! 2. **`LimiteronError` does NOT exist** — limiteron's error type is
-//!    [`FlowGuardError`] (thiserror-based, implements `std::error::Error +
-//!    Send + 'static`). We use `FlowGuardError` as `AsyncAutoBuilder::Error`.
+//!    [`LimiteronError`] (thiserror-based, implements `std::error::Error +
+//!    Send + 'static`). We use `LimiteronError` as `AsyncAutoBuilder::Error`.
 //!
 //! 3. **`LimiteronConfig` does NOT exist** — per spec Constraints line 43
 //!    ("LimiteronConfig 类型从 limiteron 现有配置类型复用"), we reuse
@@ -37,7 +37,7 @@
 //! limiteron's public API and is deferred to its own change spec.
 
 use crate::config::FlowControlConfig;
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use crate::governor::Governor;
 use std::any::TypeId;
 use std::future::Future;
@@ -68,14 +68,14 @@ impl ModuleMeta for LimiteronModule {
 
 impl AsyncAutoBuilder for LimiteronModule {
     type Capability = Arc<Governor>;
-    type Error = FlowGuardError;
+    type Error = LimiteronError;
 
     fn build<'a>(
         kit: &'a AsyncKit,
     ) -> Pin<Box<dyn Future<Output = Result<Self::Capability, Self::Error>> + Send + 'a>> {
         Box::pin(async move {
             let config: FlowControlConfig = kit.config().map_err(|e| {
-                FlowGuardError::ConfigError(format!("LimiteronModule: read config: {e}"))
+                LimiteronError::ConfigError(format!("LimiteronModule: read config: {e}"))
             })?;
             // Leaf module: use in-memory storage so the kit feature stays
             // independent of postgres/redis backends. Production callers can

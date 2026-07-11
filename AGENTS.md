@@ -2,7 +2,7 @@
 
 ## Overview
 
-limiteron 是 Rust 统一流量控制框架，提供限流（rate limiting）、配额管理（quota control）、熔断（circuit breaking）、封禁管理（ban management）等能力。版本 0.2.2，MIT 许可证，edition 2024，rust-version 1.85。Workspace 结构包含主 crate（`.`）、宏 crate（`macros`）和示例 crate（`examples`）。
+limiteron 是 Rust 统一流量控制框架，提供限流（rate limiting）、配额管理（quota control）、熔断（circuit breaking）、封禁管理（ban management）等能力。版本 0.2.3，MIT 许可证，edition 2024，rust-version 1.85。Workspace 结构包含主 crate（`.`）、宏 crate（`macros`）和示例 crate（`examples`）。
 
 ## Project Structure
 

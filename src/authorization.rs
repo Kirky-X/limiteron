@@ -32,7 +32,7 @@
 
 use async_trait::async_trait;
 
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 
 /// 授权提供者 trait
 ///
@@ -43,13 +43,13 @@ use crate::error::FlowGuardError;
 /// - 必须实现 `Send + Sync` 以支持多线程环境
 /// - 所有方法必须是异步的
 /// - 返回 `Ok(())` 表示授权通过
-/// - 返回 `Err(FlowGuardError::AuthorizationError)` 表示授权失败
+/// - 返回 `Err(LimiteronError::AuthorizationError)` 表示授权失败
 ///
 /// # 示例
 ///
 /// ```rust
 /// use limiteron::authorization::AuthorizationProvider;
-/// use limiteron::error::FlowGuardError;
+/// use limiteron::error::LimiteronError;
 /// use async_trait::async_trait;
 ///
 /// pub struct MyAuthorizationProvider;
@@ -61,12 +61,12 @@ use crate::error::FlowGuardError;
 ///         operation: &str,
 ///         operator: &str,
 ///         target: &str,
-///     ) -> Result<(), FlowGuardError> {
+///     ) -> Result<(), LimiteronError> {
 ///         // 实现自定义授权逻辑
 ///         if operator == "admin" {
 ///             Ok(())
 ///         } else {
-///             Err(FlowGuardError::AuthorizationError(
+///             Err(LimiteronError::AuthorizationError(
 ///                 "Only admin can perform this operation".to_string(),
 ///             ))
 ///         }
@@ -86,7 +86,7 @@ pub trait AuthorizationProvider: Send + Sync {
     /// # 返回
     ///
     /// * `Ok(())` - 授权通过
-    /// * `Err(FlowGuardError::AuthorizationError)` - 授权失败
+    /// * `Err(LimiteronError::AuthorizationError)` - 授权失败
     ///
     /// # 示例
     ///
@@ -110,7 +110,7 @@ pub trait AuthorizationProvider: Send + Sync {
         operation: &str,
         operator: &str,
         target: &str,
-    ) -> Result<(), FlowGuardError>;
+    ) -> Result<(), LimiteronError>;
 }
 
 /// 简单授权提供者
@@ -256,11 +256,11 @@ impl AuthorizationProvider for SimpleAuthorizationProvider {
         _operation: &str,
         operator: &str,
         _target: &str,
-    ) -> Result<(), FlowGuardError> {
+    ) -> Result<(), LimiteronError> {
         if self.is_authorized(operator) {
             Ok(())
         } else {
-            Err(FlowGuardError::AuthorizationError(format!(
+            Err(LimiteronError::AuthorizationError(format!(
                 "操作者 '{}' 未被授权执行此操作",
                 operator
             )))
@@ -287,7 +287,7 @@ impl AuthorizationProvider for AllowAllAuthorizationProvider {
         _operation: &str,
         _operator: &str,
         _target: &str,
-    ) -> Result<(), FlowGuardError> {
+    ) -> Result<(), LimiteronError> {
         Ok(())
     }
 }
@@ -306,8 +306,8 @@ impl AuthorizationProvider for DenyAllAuthorizationProvider {
         _operation: &str,
         _operator: &str,
         _target: &str,
-    ) -> Result<(), FlowGuardError> {
-        Err(FlowGuardError::AuthorizationError(
+    ) -> Result<(), LimiteronError> {
+        Err(LimiteronError::AuthorizationError(
             "所有操作都被拒绝".to_string(),
         ))
     }
@@ -398,19 +398,19 @@ impl AuthorizationProvider for OperationAuthorizationProvider {
         operation: &str,
         operator: &str,
         _target: &str,
-    ) -> Result<(), FlowGuardError> {
+    ) -> Result<(), LimiteronError> {
         match self.operation_roles.get(operation) {
             Some(roles) => {
                 if roles.iter().any(|r| r == operator) {
                     Ok(())
                 } else {
-                    Err(FlowGuardError::AuthorizationError(format!(
+                    Err(LimiteronError::AuthorizationError(format!(
                         "操作者 '{}' 未被授权执行操作 '{}'",
                         operator, operation
                     )))
                 }
             }
-            None => Err(FlowGuardError::AuthorizationError(format!(
+            None => Err(LimiteronError::AuthorizationError(format!(
                 "未知的操作类型: '{}'",
                 operation
             ))),
@@ -481,7 +481,7 @@ mod tests {
         assert!(result.is_err());
 
         match result {
-            Err(FlowGuardError::AuthorizationError(msg)) => {
+            Err(LimiteronError::AuthorizationError(msg)) => {
                 assert!(msg.contains("user"));
             }
             _ => panic!("期望 AuthorizationError"),
@@ -631,7 +631,7 @@ mod tests {
 
     #[test]
     fn test_authorization_error_message() {
-        let error = FlowGuardError::AuthorizationError("测试授权错误".to_string());
+        let error = LimiteronError::AuthorizationError("测试授权错误".to_string());
         assert_eq!(error.to_string(), "授权错误: 测试授权错误");
     }
 }

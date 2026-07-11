@@ -511,10 +511,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 **推荐模式:**
 
 ```rust
-use limiteron::error::FlowGuardError;
+use limiteron::error::LimiteronError;
 use limiteron::limiters::TokenBucketLimiter;
 
-async fn process_request() -> Result<(), FlowGuardError> {
+async fn process_request() -> Result<(), LimiteronError> {
     let limiter = TokenBucketLimiter::new(10, 1);
     match limiter.allow(1).await {
         Ok(true) => {
@@ -525,13 +525,13 @@ async fn process_request() -> Result<(), FlowGuardError> {
             println!("⚠️ 速率限制");
             Ok(())
         }
-        Err(FlowGuardError::RateLimitExceeded(msg)) => {
+        Err(LimiteronError::RateLimitExceeded(msg)) => {
             println!("⚠️ 速率限制: {}", msg);
             Ok(())
         }
-        Err(FlowGuardError::BanError(msg)) => {
+        Err(LimiteronError::BanError(msg)) => {
             eprintln!("❌ 已封禁: {}", msg);
-            Err(FlowGuardError::BanError(msg))
+            Err(LimiteronError::BanError(msg))
         }
         Err(e) => {
             eprintln!("❌ 错误: {:?}", e);
@@ -671,7 +671,7 @@ cargo bench
 4. **使用宏:**
    ```rust
    #[flow_control(rate = "100/s")]
-   async fn api_handler() -> Result<String, FlowGuardError> {
+   async fn api_handler() -> Result<String, LimiteronError> {
        Ok("Success".to_string())
    }
    ```

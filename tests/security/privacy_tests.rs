@@ -552,12 +552,12 @@ fn test_log_output_no_sensitive_leak() {
 /// 测试错误处理不泄露堆栈信息
 #[test]
 fn test_error_no_stack_trace_leak() {
-    use limiteron::error::FlowGuardError;
+    use limiteron::error::LimiteronError;
 
-    let errors: Vec<FlowGuardError> = vec![
-        FlowGuardError::ConfigError("Invalid configuration".to_string()),
-        FlowGuardError::ValidationError("Invalid input".to_string()),
-        FlowGuardError::LimitError("Rate limit exceeded".to_string()),
+    let errors: Vec<LimiteronError> = vec![
+        LimiteronError::ConfigError("Invalid configuration".to_string()),
+        LimiteronError::ValidationError("Invalid input".to_string()),
+        LimiteronError::LimitError("Rate limit exceeded".to_string()),
     ];
 
     for error in errors {

@@ -10,11 +10,11 @@
 //! Run: cargo run --bin circuit_breaker --features circuit-breaker
 
 use limiteron::circuit::CircuitBreaker;
-use limiteron::error::FlowGuardError;
+use limiteron::error::LimiteronError;
 use std::time::Duration;
 
 #[tokio::main]
-async fn main() -> Result<(), FlowGuardError> {
+async fn main() -> Result<(), LimiteronError> {
     println!("=== Limiteron Circuit Breaker Demo ===\n");
 
     demo_basic_operations().await?;
@@ -25,7 +25,7 @@ async fn main() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-async fn demo_basic_operations() -> Result<(), FlowGuardError> {
+async fn demo_basic_operations() -> Result<(), LimiteronError> {
     println!("--- Basic Circuit Breaker Operations ---");
     println!("Config: failure_threshold=2, success_threshold=1, timeout=100ms\n");
 
@@ -40,8 +40,8 @@ async fn demo_basic_operations() -> Result<(), FlowGuardError> {
     println!("Is closed: {}", breaker.is_closed().await);
     println!("Is open: {}\n", breaker.is_open().await);
 
-    let success: Result<(), FlowGuardError> = breaker
-        .execute(|| async { Ok::<(), FlowGuardError>(()) })
+    let success: Result<(), LimiteronError> = breaker
+        .execute(|| async { Ok::<(), LimiteronError>(()) })
         .await;
     println!("Execute success operation: {:?}", success.is_ok());
 
@@ -54,7 +54,7 @@ async fn demo_basic_operations() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-async fn demo_state_transitions() -> Result<(), FlowGuardError> {
+async fn demo_state_transitions() -> Result<(), LimiteronError> {
     println!("--- State Transitions Demo ---\n");
 
     let breaker = CircuitBreaker::builder()
@@ -63,8 +63,8 @@ async fn demo_state_transitions() -> Result<(), FlowGuardError> {
         .timeout(Duration::from_millis(100))
         .build();
 
-    async fn fail_operation() -> Result<(), FlowGuardError> {
-        Err(FlowGuardError::LimitError("operation failed".to_string()))
+    async fn fail_operation() -> Result<(), LimiteronError> {
+        Err(LimiteronError::LimitError("operation failed".to_string()))
     }
 
     println!("Triggering failures to open circuit...");
@@ -81,14 +81,14 @@ async fn demo_state_transitions() -> Result<(), FlowGuardError> {
     println!("Is open: {}\n", breaker.is_open().await);
 
     let result = breaker
-        .execute(|| async { Ok::<(), FlowGuardError>(()) })
+        .execute(|| async { Ok::<(), LimiteronError>(()) })
         .await;
     println!("Request in open state: {:?} (fast fail)\n", result);
 
     Ok(())
 }
 
-async fn demo_recovery() -> Result<(), FlowGuardError> {
+async fn demo_recovery() -> Result<(), LimiteronError> {
     println!("--- Recovery Demo ---\n");
 
     let breaker = CircuitBreaker::builder()
@@ -97,11 +97,11 @@ async fn demo_recovery() -> Result<(), FlowGuardError> {
         .timeout(Duration::from_millis(100))
         .build();
 
-    async fn fail_operation() -> Result<(), FlowGuardError> {
-        Err(FlowGuardError::LimitError("operation failed".to_string()))
+    async fn fail_operation() -> Result<(), LimiteronError> {
+        Err(LimiteronError::LimitError("operation failed".to_string()))
     }
 
-    async fn success_operation() -> Result<(), FlowGuardError> {
+    async fn success_operation() -> Result<(), LimiteronError> {
         Ok(())
     }
 
@@ -114,7 +114,7 @@ async fn demo_recovery() -> Result<(), FlowGuardError> {
     tokio::time::sleep(Duration::from_millis(120)).await;
 
     println!("\nProbing with success operation...");
-    let result: Result<(), FlowGuardError> = breaker.execute(success_operation).await;
+    let result: Result<(), LimiteronError> = breaker.execute(success_operation).await;
     println!("Probe result: {:?}", result.is_ok());
 
     let stats = breaker.get_stats().await;

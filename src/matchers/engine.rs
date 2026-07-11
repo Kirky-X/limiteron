@@ -7,7 +7,7 @@
 
 use super::traits::RequestContext;
 use crate::config::ConfigMatcher;
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use parking_lot::RwLock;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
@@ -141,7 +141,7 @@ impl IpRange {
 }
 
 impl FromStr for IpRange {
-    type Err = FlowGuardError;
+    type Err = LimiteronError;
 
     /// 从字符串解析IP范围
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -149,7 +149,7 @@ impl FromStr for IpRange {
             // CIDR格式
             let parts: Vec<&str> = s.split('/').collect();
             if parts.len() != 2 {
-                return Err(FlowGuardError::ConfigError(format!(
+                return Err(LimiteronError::ConfigError(format!(
                     "无效的CIDR格式: {}",
                     s
                 )));
@@ -157,15 +157,15 @@ impl FromStr for IpRange {
 
             let addr: IpAddr = parts[0]
                 .parse()
-                .map_err(|_| FlowGuardError::ConfigError(format!("无效的IP地址: {}", parts[0])))?;
+                .map_err(|_| LimiteronError::ConfigError(format!("无效的IP地址: {}", parts[0])))?;
             let prefix: u8 = parts[1]
                 .parse()
-                .map_err(|_| FlowGuardError::ConfigError(format!("无效的前缀: {}", parts[1])))?;
+                .map_err(|_| LimiteronError::ConfigError(format!("无效的前缀: {}", parts[1])))?;
 
             match addr {
                 IpAddr::V4(ipv4) => {
                     if prefix > 32 {
-                        return Err(FlowGuardError::ConfigError(format!(
+                        return Err(LimiteronError::ConfigError(format!(
                             "IPv4前缀不能超过32: {}",
                             prefix
                         )));
@@ -174,7 +174,7 @@ impl FromStr for IpRange {
                 }
                 IpAddr::V6(ipv6) => {
                     if prefix > 128 {
-                        return Err(FlowGuardError::ConfigError(format!(
+                        return Err(LimiteronError::ConfigError(format!(
                             "IPv6前缀不能超过128: {}",
                             prefix
                         )));
@@ -186,7 +186,7 @@ impl FromStr for IpRange {
             // 范围格式
             let parts: Vec<&str> = s.split('-').collect();
             if parts.len() != 2 {
-                return Err(FlowGuardError::ConfigError(format!(
+                return Err(LimiteronError::ConfigError(format!(
                     "无效的IP范围格式: {}",
                     s
                 )));
@@ -194,13 +194,13 @@ impl FromStr for IpRange {
 
             let start: Ipv4Addr = parts[0]
                 .parse()
-                .map_err(|_| FlowGuardError::ConfigError(format!("无效的起始IP: {}", parts[0])))?;
+                .map_err(|_| LimiteronError::ConfigError(format!("无效的起始IP: {}", parts[0])))?;
             let end: Ipv4Addr = parts[1]
                 .parse()
-                .map_err(|_| FlowGuardError::ConfigError(format!("无效的结束IP: {}", parts[1])))?;
+                .map_err(|_| LimiteronError::ConfigError(format!("无效的结束IP: {}", parts[1])))?;
 
             if start > end {
-                return Err(FlowGuardError::ConfigError(format!(
+                return Err(LimiteronError::ConfigError(format!(
                     "起始IP不能大于结束IP: {} - {}",
                     parts[0], parts[1]
                 )));
@@ -211,7 +211,7 @@ impl FromStr for IpRange {
             // 单个IP
             let addr: IpAddr = s
                 .parse()
-                .map_err(|_| FlowGuardError::ConfigError(format!("无效的IP地址: {}", s)))?;
+                .map_err(|_| LimiteronError::ConfigError(format!("无效的IP地址: {}", s)))?;
             Ok(IpRange::Single(addr))
         }
     }
@@ -631,7 +631,7 @@ impl RuleMatcher {
     ///
     /// # 参数
     /// - `config_matchers`: 配置中的匹配器列表
-    pub fn from_config(config_matchers: &[ConfigMatcher]) -> Result<Self, FlowGuardError> {
+    pub fn from_config(config_matchers: &[ConfigMatcher]) -> Result<Self, LimiteronError> {
         let mut rules = Vec::new();
 
         for (index, matcher) in config_matchers.iter().enumerate() {

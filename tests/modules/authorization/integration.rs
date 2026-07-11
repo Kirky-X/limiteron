@@ -11,7 +11,7 @@ use limiteron::authorization::{
 };
 #[cfg(not(feature = "ban-manager"))]
 use limiteron::authorization::{AuthorizationProvider, SimpleAuthorizationProvider};
-use limiteron::error::FlowGuardError;
+use limiteron::error::LimiteronError;
 
 // ============================================================================
 // SimpleAuthorizationProvider Tests
@@ -42,7 +42,7 @@ async fn test_simple_provider_unauthorized() {
         .await;
     assert!(result.is_err());
     match result {
-        Err(FlowGuardError::AuthorizationError(msg)) => {
+        Err(LimiteronError::AuthorizationError(msg)) => {
             assert!(msg.contains("guest"));
         }
         _ => panic!("expected AuthorizationError"),

@@ -6,7 +6,7 @@
 
 use async_trait::async_trait;
 use limiteron::decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
-use limiteron::error::{Decision, FlowGuardError};
+use limiteron::error::{Decision, LimiteronError};
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use std::sync::Arc;
 
@@ -24,7 +24,7 @@ impl MockLimiter {
 
 #[async_trait]
 impl Limiter for MockLimiter {
-    async fn allow(&self, _cost: u64) -> Result<bool, FlowGuardError> {
+    async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
         Ok(self.allowed)
     }
 }
@@ -47,7 +47,7 @@ impl SpyLimiter {
 
 #[async_trait]
 impl Limiter for SpyLimiter {
-    async fn allow(&self, _cost: u64) -> Result<bool, FlowGuardError> {
+    async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
         self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(true)
     }

@@ -27,7 +27,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::{self, Sender};
 
 #[cfg(feature = "audit-log")]
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 
 #[cfg(feature = "audit-log")]
 /// 审计事件类型
@@ -196,12 +196,12 @@ impl AuditLogEntry {
     /// - Ok(true): 签名验证通过
     /// - Ok(false): 未配置签名密钥，跳过验证
     /// - Err(...): 签名验证失败，日志可能被篡改
-    pub fn verify(&self, signing_key: &str) -> Result<bool, FlowGuardError> {
+    pub fn verify(&self, signing_key: &str) -> Result<bool, LimiteronError> {
         // 如果没有签名，返回错误
         let stored_signature = match &self.signature {
             Some(sig) => sig,
             None => {
-                return Err(FlowGuardError::AuditLogError(
+                return Err(LimiteronError::AuditLogError(
                     "日志条目缺少签名".to_string(),
                 ));
             }
@@ -214,7 +214,7 @@ impl AuditLogEntry {
         if Self::constant_time_compare(stored_signature, &expected_signature) {
             Ok(true)
         } else {
-            Err(FlowGuardError::AuditLogError(
+            Err(LimiteronError::AuditLogError(
                 "签名验证失败，日志可能被篡改".to_string(),
             ))
         }
@@ -678,7 +678,7 @@ impl AuditLogger {
         path: &str,
         config: &AuditLogConfig,
         stats: &AuditLogStats,
-    ) -> Result<Vec<AuditLogEntry>, FlowGuardError> {
+    ) -> Result<Vec<AuditLogEntry>, LimiteronError> {
         use std::fs::File;
         use std::io::{BufRead, BufReader};
 
@@ -742,7 +742,7 @@ impl AuditLogger {
     /// - `Ok(true)`: 签名验证通过
     /// - `Ok(false)`: 未配置签名密钥，跳过验证
     /// - `Err(...)`: 签名验证失败
-    pub fn verify_integrity(&self, entry: &AuditLogEntry) -> Result<bool, FlowGuardError> {
+    pub fn verify_integrity(&self, entry: &AuditLogEntry) -> Result<bool, LimiteronError> {
         if let Some(ref signing_key) = self.config.signing_key {
             let key = signing_key.expose_secret();
             entry.verify(key)
@@ -1044,7 +1044,7 @@ mod tests {
         // 没有签名的条目验证应该失败
         let result = entry.verify(signing_key);
         assert!(result.is_err());
-        assert!(matches!(result, Err(FlowGuardError::AuditLogError(_))));
+        assert!(matches!(result, Err(LimiteronError::AuditLogError(_))));
     }
 
     #[test]

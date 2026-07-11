@@ -19,7 +19,7 @@
 
 use async_trait::async_trait;
 use limiteron::authorization::{AuthorizationProvider, SimpleAuthorizationProvider};
-use limiteron::error::FlowGuardError;
+use limiteron::error::LimiteronError;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -137,14 +137,14 @@ async fn demo_custom_provider() -> Result<(), Box<dyn std::error::Error>> {
             operation: &str,
             operator: &str,
             _target: &str,
-        ) -> Result<(), FlowGuardError> {
+        ) -> Result<(), LimiteronError> {
             match self.rules.get(operation) {
                 Some(roles) if roles.iter().any(|r| r == operator) => Ok(()),
-                Some(_) => Err(FlowGuardError::AuthorizationError(format!(
+                Some(_) => Err(LimiteronError::AuthorizationError(format!(
                     "操作者 '{}' 无权执行 '{}'",
                     operator, operation
                 ))),
-                None => Err(FlowGuardError::AuthorizationError(format!(
+                None => Err(LimiteronError::AuthorizationError(format!(
                     "未知操作: '{}'",
                     operation
                 ))),
@@ -203,7 +203,7 @@ struct BanService {
 }
 
 impl BanService {
-    async fn create_ban(&self, operator: &str, target: &str) -> Result<(), FlowGuardError> {
+    async fn create_ban(&self, operator: &str, target: &str) -> Result<(), LimiteronError> {
         self.auth
             .check_authorization("create_ban", operator, target)
             .await?;
@@ -213,7 +213,7 @@ impl BanService {
 }
 
 /// 格式化授权检查结果
-fn format_result(result: &Result<(), FlowGuardError>) -> String {
+fn format_result(result: &Result<(), LimiteronError>) -> String {
     match result {
         Ok(()) => "✅ Authorized".to_string(),
         Err(e) => format!("❌ Denied ({})", e),

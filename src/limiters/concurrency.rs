@@ -5,7 +5,7 @@
 //! 使用信号量实现并发控制。
 
 use super::traits::Limiter;
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
@@ -97,7 +97,7 @@ impl ConcurrencyLimiterBuilder {
     }
 
     /// 构建 ConcurrencyLimiter 实例
-    pub fn build(self) -> Result<ConcurrencyLimiter, FlowGuardError> {
+    pub fn build(self) -> Result<ConcurrencyLimiter, LimiteronError> {
         if let Some(semaphore) = self.semaphore {
             return Ok(ConcurrencyLimiter {
                 semaphore,
@@ -108,10 +108,10 @@ impl ConcurrencyLimiterBuilder {
 
         let max_concurrent = self
             .max_concurrent
-            .ok_or_else(|| FlowGuardError::ConfigError("max_concurrent is required".to_string()))?;
+            .ok_or_else(|| LimiteronError::ConfigError("max_concurrent is required".to_string()))?;
 
         if max_concurrent == 0 {
-            return Err(FlowGuardError::ConfigError(
+            return Err(LimiteronError::ConfigError(
                 "max_concurrent must be greater than 0".to_string(),
             ));
         }
@@ -184,10 +184,10 @@ impl ConcurrencyLimiter {
     pub async fn acquire(
         &self,
         cost: u64,
-    ) -> Result<tokio::sync::SemaphorePermit<'_>, FlowGuardError> {
+    ) -> Result<tokio::sync::SemaphorePermit<'_>, LimiteronError> {
         let cost_u32 = cost as u32;
         if cost_u32 as u64 != cost {
-            return Err(FlowGuardError::LimitError(
+            return Err(LimiteronError::LimitError(
                 "许可数量超出 u32 范围".to_string(),
             ));
         }
@@ -195,13 +195,13 @@ impl ConcurrencyLimiter {
         let permit = match self.timeout {
             Some(timeout) => tokio::time::timeout(timeout, self.semaphore.acquire_many(cost_u32))
                 .await
-                .map_err(|_| FlowGuardError::LimitError("获取许可超时".to_string()))?
-                .map_err(|_| FlowGuardError::LimitError("信号量已关闭".to_string()))?,
+                .map_err(|_| LimiteronError::LimitError("获取许可超时".to_string()))?
+                .map_err(|_| LimiteronError::LimitError("信号量已关闭".to_string()))?,
             None => self
                 .semaphore
                 .acquire_many(cost_u32)
                 .await
-                .map_err(|_| FlowGuardError::LimitError("信号量已关闭".to_string()))?,
+                .map_err(|_| LimiteronError::LimitError("信号量已关闭".to_string()))?,
         };
 
         Ok(permit)
@@ -215,26 +215,26 @@ impl ConcurrencyLimiter {
 
     /// 尝试获取许可（非阻塞）
     #[cfg(test)]
-    fn try_acquire(&self, cost: u64) -> Result<tokio::sync::SemaphorePermit<'_>, FlowGuardError> {
+    fn try_acquire(&self, cost: u64) -> Result<tokio::sync::SemaphorePermit<'_>, LimiteronError> {
         let cost_u32 = cost as u32;
         if cost_u32 as u64 != cost {
-            return Err(FlowGuardError::LimitError(
+            return Err(LimiteronError::LimitError(
                 "许可数量超出 u32 范围".to_string(),
             ));
         }
 
         self.semaphore
             .try_acquire_many(cost_u32)
-            .map_err(|e| FlowGuardError::LimitError(format!("获取许可失败: {:?}", e)))
+            .map_err(|e| LimiteronError::LimitError(format!("获取许可失败: {:?}", e)))
     }
 }
 
 #[async_trait]
 impl Limiter for ConcurrencyLimiter {
-    async fn allow(&self, cost: u64) -> Result<bool, FlowGuardError> {
+    async fn allow(&self, cost: u64) -> Result<bool, LimiteronError> {
         let cost_u32 = cost as u32;
         if cost_u32 as u64 != cost {
-            return Err(FlowGuardError::LimitError(
+            return Err(LimiteronError::LimitError(
                 "许可数量超出 u32 范围".to_string(),
             ));
         }
@@ -366,7 +366,7 @@ mod tests {
         let result = limiter.allow(u64::from(u32::MAX) + 1).await;
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::LimitError(msg)) => {
+            Err(LimiteronError::LimitError(msg)) => {
                 assert!(msg.contains("u32"));
             }
             _ => panic!("expected LimitError for u32 overflow"),
@@ -396,7 +396,7 @@ mod tests {
         let result = limiter.acquire(1).await;
         assert!(result.is_err());
         match result {
-            Err(FlowGuardError::LimitError(msg)) => {
+            Err(LimiteronError::LimitError(msg)) => {
                 assert!(msg.contains("超时"));
             }
             _ => panic!("expected timeout error"),

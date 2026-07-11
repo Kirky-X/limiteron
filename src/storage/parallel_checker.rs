@@ -7,7 +7,7 @@
 //! 需要同时启用 `ban-manager` 和 `parallel-checker` feature。
 
 use super::BanTarget;
-use crate::error::{BanInfo, FlowGuardError};
+use crate::error::{BanInfo, LimiteronError};
 use crate::matchers::RequestContext;
 use futures::stream::{FuturesUnordered, StreamExt};
 use log::debug;
@@ -39,7 +39,7 @@ impl ParallelBanChecker {
         &self,
         targets: &[BanTarget],
         _context: Option<&RequestContext>,
-    ) -> Result<Option<BanInfo>, FlowGuardError> {
+    ) -> Result<Option<BanInfo>, LimiteronError> {
         let start = std::time::Instant::now();
 
         debug!("开始并行封禁检查，目标数量: {}", targets.len());
@@ -99,7 +99,7 @@ impl ParallelBanChecker {
     pub async fn check_single_target(
         &self,
         target: &BanTarget,
-    ) -> Result<Option<BanInfo>, FlowGuardError> {
+    ) -> Result<Option<BanInfo>, LimiteronError> {
         self.check_targets_parallel(std::slice::from_ref(target), None)
             .await
     }
@@ -108,7 +108,7 @@ impl ParallelBanChecker {
     pub async fn check_user_banned(
         &self,
         user_id: &str,
-    ) -> Result<Option<BanInfo>, FlowGuardError> {
+    ) -> Result<Option<BanInfo>, LimiteronError> {
         let target = BanTarget::UserId(user_id.to_string());
         self.check_single_target(&target).await
     }

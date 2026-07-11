@@ -22,7 +22,7 @@
 //! ```
 
 use limiteron::fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
-use limiteron::FlowGuardError;
+use limiteron::LimiteronError;
 use oxcache::Cache;
 use std::sync::Arc;
 use std::time::Duration;
@@ -175,7 +175,7 @@ async fn demo_execute_with_fallback() -> Result<(), Box<dyn std::error::Error>> 
     let manager = create_manager().await;
 
     // 场景 1：主操作成功
-    let result: Result<String, FlowGuardError> = manager
+    let result: Result<String, LimiteronError> = manager
         .execute_with_fallback(
             ComponentType::Redis,
             || async { Ok("primary success".to_string()) },
@@ -186,10 +186,10 @@ async fn demo_execute_with_fallback() -> Result<(), Box<dyn std::error::Error>> 
 
     // 场景 2：主操作失败，执行降级操作
     // 使用 Degraded 策略（默认），降级操作会被调用
-    let result: Result<String, FlowGuardError> = manager
+    let result: Result<String, LimiteronError> = manager
         .execute_with_fallback(
             ComponentType::Redis,
-            || async { Err(FlowGuardError::ConfigError("redis down".to_string())) },
+            || async { Err(LimiteronError::ConfigError("redis down".to_string())) },
             || async { Ok("fallback success".to_string()) },
         )
         .await;
@@ -202,10 +202,10 @@ async fn demo_execute_with_fallback() -> Result<(), Box<dyn std::error::Error>> 
             FallbackConfig::new(ComponentType::Redis, FallbackStrategy::FailOpen),
         )
         .await;
-    let result: Result<String, FlowGuardError> = manager
+    let result: Result<String, LimiteronError> = manager
         .execute_with_fallback(
             ComponentType::Redis,
-            || async { Err(FlowGuardError::ConfigError("redis down".to_string())) },
+            || async { Err(LimiteronError::ConfigError("redis down".to_string())) },
             || async { Ok("fallback value".to_string()) },
         )
         .await;
@@ -218,10 +218,10 @@ async fn demo_execute_with_fallback() -> Result<(), Box<dyn std::error::Error>> 
             FallbackConfig::new(ComponentType::Redis, FallbackStrategy::FailClosed),
         )
         .await;
-    let result: Result<String, FlowGuardError> = manager
+    let result: Result<String, LimiteronError> = manager
         .execute_with_fallback(
             ComponentType::Redis,
-            || async { Err(FlowGuardError::ConfigError("redis down".to_string())) },
+            || async { Err(LimiteronError::ConfigError("redis down".to_string())) },
             || async { Ok("fallback value".to_string()) },
         )
         .await;

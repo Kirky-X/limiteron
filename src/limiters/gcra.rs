@@ -16,7 +16,7 @@
 //! - Update TAT = max(TAT, current_time) + cost * interval
 
 use super::traits::{Limiter, validate_cost};
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 
@@ -212,8 +212,8 @@ impl Limiter for GcraLimiter {
     /// # Returns
     /// * `Ok(true)` - Request allowed
     /// * `Ok(false)` - Request denied
-    /// * `Err(FlowGuardError)` - Validation error
-    async fn allow(&self, cost: u64) -> Result<bool, FlowGuardError> {
+    /// * `Err(LimiteronError)` - Validation error
+    async fn allow(&self, cost: u64) -> Result<bool, LimiteronError> {
         validate_cost(cost)?;
 
         let now_us = Self::now_us();

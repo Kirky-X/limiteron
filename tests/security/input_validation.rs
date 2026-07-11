@@ -10,7 +10,7 @@
 use limiteron::limiters::{FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter};
 use limiteron::matchers::{IpExtractor, RequestContext};
 use limiteron::validation::{validate_ip_address, validate_user_id, validate_mac_address, validate_api_key};
-use limiteron::error::FlowGuardError;
+use limiteron::error::LimiteronError;
 use std::time::Duration;
 
 // ============================================================================

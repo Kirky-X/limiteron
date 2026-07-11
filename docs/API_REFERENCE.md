@@ -155,7 +155,7 @@ let limiter = TokenBucketLimiter::new(10, 1); // 10 个令牌，每秒补充 1 �
 <td width="70%">
 
 ```rust
-pub async fn allow(&self, cost: u64) -> Result<bool, FlowGuardError>
+pub async fn allow(&self, cost: u64) -> Result<bool, LimiteronError>
 ```
 
 </td>
@@ -170,14 +170,14 @@ pub async fn allow(&self, cost: u64) -> Result<bool, FlowGuardError>
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;bool, FlowGuardError&gt;</code> - Ok(true) 表示允许，Ok(false) 表示被限流</td>
+<td><code>Result&lt;bool, LimiteronError&gt;</code> - Ok(true) 表示允许，Ok(false) 表示被限流</td>
 </tr>
 <tr>
 <td><b>错误</b></td>
 <td>
 
-- `FlowGuardError::LimitError` - 限流错误
-- `FlowGuardError::ValidationError` - 成本验证错误
+- `LimiteronError::LimitError` - 限流错误
+- `LimiteronError::ValidationError` - 成本验证错误
 
 </td>
 </tr>
@@ -356,7 +356,7 @@ if result.allowed {
 <td width="70%">
 
 ```rust
-pub async fn allow(&self, cost: u64) -> Result<bool, FlowGuardError>
+pub async fn allow(&self, cost: u64) -> Result<bool, LimiteronError>
 ```
 
 </td>
@@ -371,7 +371,7 @@ pub async fn allow(&self, cost: u64) -> Result<bool, FlowGuardError>
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;bool, FlowGuardError&gt;</code> - Ok(true) 表示允许，Ok(false) 表示被限流</td>
+<td><code>Result&lt;bool, LimiteronError&gt;</code> - Ok(true) 表示允许，Ok(false) 表示被限流</td>
 </tr>
 </table>
 
@@ -442,7 +442,7 @@ pub struct BanManager {
 pub async fn with_dependencies(
     storage: Arc<dyn BanStorage>,
     config: BanManagerConfig
-) -> Result<Self, FlowGuardError>
+) -> Result<Self, LimiteronError>
 ```
 
 </td>
@@ -458,7 +458,7 @@ pub async fn with_dependencies(
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;BanManager, FlowGuardError&gt;</code></td>
+<td><code>Result&lt;BanManager, LimiteronError&gt;</code></td>
 </tr>
 </table>
 
@@ -492,7 +492,7 @@ pub async fn create_ban(
     source: BanSource,
     metadata: serde_json::Value,
     duration: Option<StdDuration>,
-) -> Result<BanDetail, FlowGuardError>
+) -> Result<BanDetail, LimiteronError>
 ```
 
 </td>
@@ -513,7 +513,7 @@ pub async fn create_ban(
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;BanDetail, FlowGuardError&gt;</code> - 封禁详情</td>
+<td><code>Result&lt;BanDetail, LimiteronError&gt;</code> - 封禁详情</td>
 </tr>
 </table>
 
@@ -556,7 +556,7 @@ ban_manager.create_ban(
 <td width="70%">
 
 ```rust
-pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, FlowGuardError>
+pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, LimiteronError>
 ```
 
 </td>
@@ -571,7 +571,7 @@ pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, F
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;Option&lt;BanRecord&gt;, FlowGuardError&gt;</code> - Some表示被封禁，None表示未封禁</td>
+<td><code>Result&lt;Option&lt;BanRecord&gt;, LimiteronError&gt;</code> - Some表示被封禁，None表示未封禁</td>
 </tr>
 </table>
 
@@ -738,7 +738,7 @@ pub async fn consume(
     user_id: &str,
     resource: &str,
     cost: u64,
-) -> Result<(), FlowGuardError>
+) -> Result<(), LimiteronError>
 ```
 
 </td>
@@ -755,7 +755,7 @@ pub async fn consume(
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;(), FlowGuardError&gt;</code> - Ok(()) 表示消费成功，Err 表示超出配额或存储错误</td>
+<td><code>Result&lt;(), LimiteronError&gt;</code> - Ok(()) 表示消费成功，Err 表示超出配额或存储错误</td>
 </tr>
 </table>
 
@@ -940,7 +940,7 @@ pub async fn new(
     ban_storage: Arc<dyn BanStorage>,
     #[cfg(feature = "monitoring")] metrics: Option<Arc<Metrics>>,
     #[cfg(feature = "telemetry")] tracer: Option<Arc<Tracer>>,
-) -> Result<Self, FlowGuardError>
+) -> Result<Self, LimiteronError>
 ```
 
 </td>
@@ -959,7 +959,7 @@ pub async fn new(
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;Governor, FlowGuardError&gt;</code></td>
+<td><code>Result&lt;Governor, LimiteronError&gt;</code></td>
 </tr>
 </table>
 
@@ -1001,7 +1001,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 <td width="70%">
 
 ```rust
-pub async fn check(&self, context: &RequestContext) -> Result<Decision, FlowGuardError>
+pub async fn check(&self, context: &RequestContext) -> Result<Decision, LimiteronError>
 ```
 
 </td>
@@ -1016,7 +1016,7 @@ pub async fn check(&self, context: &RequestContext) -> Result<Decision, FlowGuar
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;Decision, FlowGuardError&gt;</code> - 决策结果</td>
+<td><code>Result&lt;Decision, LimiteronError&gt;</code> - 决策结果</td>
 </tr>
 </table>
 
@@ -1051,14 +1051,14 @@ match decision {
 <td width="70%">
 
 ```rust
-pub async fn shutdown(&self) -> Result<(), FlowGuardError>
+pub async fn shutdown(&self) -> Result<(), LimiteronError>
 ```
 
 </td>
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;(), FlowGuardError&gt;</code> - 关闭结果</td>
+<td><code>Result&lt;(), LimiteronError&gt;</code> - 关闭结果</td>
 </tr>
 </table>
 
@@ -1149,14 +1149,14 @@ if governor.is_shutdown() {
 <td width="70%">
 
 ```rust
-pub async fn health_check(&self) -> Result<(), FlowGuardError>
+pub async fn health_check(&self) -> Result<(), LimiteronError>
 ```
 
 </td>
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;(), FlowGuardError&gt;</code> - Ok(()) 表示所有依赖健康，Err 表示检测失败</td>
+<td><code>Result&lt;(), LimiteronError&gt;</code> - Ok(()) 表示所有依赖健康，Err 表示检测失败</td>
 </tr>
 </table>
 
@@ -1512,7 +1512,7 @@ pub fn new(path: impl Into<PathBuf>) -> Self
 <td width="70%">
 
 ```rust
-pub async fn load_once(&self, manager: &BanManager) -> Result<LoadResult, FlowGuardError>
+pub async fn load_once(&self, manager: &BanManager) -> Result<LoadResult, LimiteronError>
 ```
 
 </td>
@@ -1528,7 +1528,7 @@ pub async fn load_once(&self, manager: &BanManager) -> Result<LoadResult, FlowGu
 <tr>
 <td><b>返回</b></td>
 <td>
-<code>Result&lt;LoadResult, FlowGuardError&gt;</code><br>
+<code>Result&lt;LoadResult, LimiteronError&gt;</code><br>
 <code>Ok</code> = 加载完成（可能含部分失败）；<code>Err</code> = 文件读取或 YAML 解析失败
 </td>
 </tr>
@@ -1571,7 +1571,7 @@ println!("成功 {} 条，失败 {} 条", result.success_count, result.failure_c
 <td width="70%">
 
 ```rust
-pub async fn start_watching(&self, manager: BanManager) -> Result<(), FlowGuardError>
+pub async fn start_watching(&self, manager: BanManager) -> Result<(), LimiteronError>
 ```
 
 </td>
@@ -1586,7 +1586,7 @@ pub async fn start_watching(&self, manager: BanManager) -> Result<(), FlowGuardE
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;(), FlowGuardError&gt;</code> - 启动结果</td>
+<td><code>Result&lt;(), LimiteronError&gt;</code> - 启动结果</td>
 </tr>
 <tr>
 <td><b>特性</b></td>
@@ -1787,7 +1787,7 @@ curl -X DELETE "http://localhost:8080/api/v1/ban/00:1a:2b:3c:4d:5e?type=mac" \
 <td width="70%">
 
 ```rust
-pub fn load_from_file(path: &str) -> Result<FlowControlConfig, FlowGuardError>
+pub fn load_from_file(path: &str) -> Result<FlowControlConfig, LimiteronError>
 ```
 
 </td>
@@ -1802,7 +1802,7 @@ pub fn load_from_file(path: &str) -> Result<FlowControlConfig, FlowGuardError>
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;FlowControlConfig, FlowGuardError&gt;</code></td>
+<td><code>Result&lt;FlowControlConfig, LimiteronError&gt;</code></td>
 </tr>
 </table>
 
@@ -1826,7 +1826,7 @@ let config = ConfigLoader::load_from_file("config.toml")?;
 <td width="70%">
 
 ```rust
-pub fn load_from_file_with_env(path: &str) -> Result<FlowControlConfig, FlowGuardError>
+pub fn load_from_file_with_env(path: &str) -> Result<FlowControlConfig, LimiteronError>
 ```
 
 </td>
@@ -1841,7 +1841,7 @@ pub fn load_from_file_with_env(path: &str) -> Result<FlowControlConfig, FlowGuar
 </tr>
 <tr>
 <td><b>返回</b></td>
-<td><code>Result&lt;FlowControlConfig, FlowGuardError&gt;</code></td>
+<td><code>Result&lt;FlowControlConfig, LimiteronError&gt;</code></td>
 </tr>
 </table>
 
@@ -1876,10 +1876,10 @@ let config = ConfigLoader::load_from_file_with_env("config.toml")?;
 
 </div>
 
-### `FlowGuardError` 枚举
+### `LimiteronError` 枚举
 
 ```rust
-pub enum FlowGuardError {
+pub enum LimiteronError {
     ConfigError(String),
     StorageError(#[from] StorageError),
     LimitError(String),
@@ -1914,10 +1914,10 @@ match limiter.allow(1).await {
     Ok(false) => {
         println!("❌ 请求被限流");
     }
-    Err(FlowGuardError::LimitError(msg)) => {
+    Err(LimiteronError::LimitError(msg)) => {
         eprintln!("❌ 限流错误: {}", msg);
     }
-    Err(FlowGuardError::BanError(msg)) => {
+    Err(LimiteronError::BanError(msg)) => {
         eprintln!("❌ 封禁错误: {}", msg);
     }
     Err(e) => {
@@ -1931,7 +1931,7 @@ match limiter.allow(1).await {
 
 **? 操作符**
 ```rust
-async fn process_request() -> Result<(), FlowGuardError> {
+async fn process_request() -> Result<(), LimiteronError> {
     let limiter = TokenBucketLimiter::new(10, 1);
     limiter.allow(1).await?;
 
@@ -1978,7 +1978,7 @@ pub enum Identifier {
 **结果类型**
 ```rust
 pub type Result<T> =
-    std::result::Result<T, FlowGuardError>;
+    std::result::Result<T, LimiteronError>;
 ```
 
 **配置类型**
@@ -2126,7 +2126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use limiteron::flow_control;
 
 #[flow_control(rate = "100/s", quota = "10000/m", concurrency = 50)]
-async fn api_handler(user_id: &str) -> Result<String, limiteron::error::FlowGuardError> {
+async fn api_handler(user_id: &str) -> Result<String, limiteron::error::LimiteronError> {
     // API 业务逻辑
     Ok(format!("处理用户 {} 的请求", user_id))
 }

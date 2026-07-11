@@ -25,7 +25,7 @@
 //!
 //!     let result = breaker.execute(|| async {
 //!         // 执行操作
-//!         Ok::<(), limiteron::error::FlowGuardError>(())
+//!         Ok::<(), limiteron::error::LimiteronError>(())
 //!     }).await;
 //! }
 //! ```

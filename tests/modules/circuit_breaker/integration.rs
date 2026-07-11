@@ -7,7 +7,7 @@
 #[cfg(feature = "circuit-breaker")]
 use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig};
 #[cfg(feature = "circuit-breaker")]
-use limiteron::error::{CircuitState, FlowGuardError};
+use limiteron::error::{CircuitState, LimiteronError};
 use std::time::Duration;
 
 /// 测试熔断器模块导入
@@ -40,7 +40,7 @@ async fn test_circuit_breaker_governor_integration() {
 
     // 执行成功操作
     let result = circuit_breaker
-        .execute(|| async { Ok::<(), FlowGuardError>(()) })
+        .execute(|| async { Ok::<(), LimiteronError>(()) })
         .await;
     assert!(result.is_ok());
 
@@ -69,7 +69,7 @@ async fn test_circuit_breaker_recovers_after_timeout() {
     for _ in 0..2 {
         let _ = circuit_breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
+                Err::<(), LimiteronError>(LimiteronError::BanError("test error".to_string()))
             })
             .await;
     }
@@ -81,7 +81,7 @@ async fn test_circuit_breaker_recovers_after_timeout() {
 
     // 状态应该变为 HalfOpen（通过执行操作触发状态检查）
     let _ = circuit_breaker
-        .execute(|| async { Ok::<(), FlowGuardError>(()) })
+        .execute(|| async { Ok::<(), LimiteronError>(()) })
         .await;
 
     // 成功后应该恢复到 Closed
@@ -104,7 +104,7 @@ async fn test_circuit_breaker_fast_fails_in_open_state() {
     for _ in 0..2 {
         let _ = circuit_breaker
             .execute(|| async {
-                Err::<(), FlowGuardError>(FlowGuardError::BanError("test error".to_string()))
+                Err::<(), LimiteronError>(LimiteronError::BanError("test error".to_string()))
             })
             .await;
     }
@@ -113,13 +113,13 @@ async fn test_circuit_breaker_fast_fails_in_open_state() {
 
     // 在打开状态下，请求应该被快速拒绝
     let result = circuit_breaker
-        .execute(|| async { Ok::<(), FlowGuardError>(()) })
+        .execute(|| async { Ok::<(), LimiteronError>(()) })
         .await;
     assert!(result.is_err());
 
     // 验证错误类型（熔断器打开时返回 LimitError）
     match result {
-        Err(FlowGuardError::LimitError(msg)) => {
+        Err(LimiteronError::LimitError(msg)) => {
             assert!(msg.contains("熔断器打开") || msg.contains("请求被拒绝"));
         }
         _ => panic!("Expected LimitError when circuit breaker is open"),

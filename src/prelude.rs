@@ -8,7 +8,7 @@
 
 // Core types - always available
 pub use crate::config::types::FlowControlConfig;
-pub use crate::error::{Decision, FlowGuardError};
+pub use crate::error::{Decision, LimiteronError};
 pub use crate::governor::Governor;
 
 // Common matchers

@@ -13,7 +13,7 @@
 use crate::config::types::{ConfigChangeRecord, ConfigHistory, FlowControlConfig};
 use crate::decision_chain::DecisionChain;
 use crate::error::Decision;
-use crate::error::FlowGuardError;
+use crate::error::LimiteronError;
 #[cfg(feature = "fallback")]
 use crate::fallback::FallbackManager;
 #[cfg(feature = "fallback")]
@@ -336,20 +336,20 @@ impl GovernorBuilder {
     /// # 返回
     ///
     /// * `Ok(Governor)` - 构建成功
-    /// * `Err(FlowGuardError)` - 构建失败（配置错误或依赖缺失）
+    /// * `Err(LimiteronError)` - 构建失败（配置错误或依赖缺失）
     ///
-    pub async fn build(self) -> Result<Governor, FlowGuardError> {
+    pub async fn build(self) -> Result<Governor, LimiteronError> {
         let config = self.config.unwrap_or_default();
 
         // 校验配置
-        config.validate().map_err(FlowGuardError::ConfigError)?;
+        config.validate().map_err(LimiteronError::ConfigError)?;
 
         // 获取存储后端（必需依赖）
         let storage = self
             .storage
-            .ok_or_else(|| FlowGuardError::DependencyError("storage is required".to_string()))?;
+            .ok_or_else(|| LimiteronError::DependencyError("storage is required".to_string()))?;
         let ban_storage = self.ban_storage.ok_or_else(|| {
-            FlowGuardError::DependencyError("ban_storage is required".to_string())
+            LimiteronError::DependencyError("ban_storage is required".to_string())
         })?;
 
         // 创建封禁管理器
@@ -427,7 +427,7 @@ impl GovernorBuilder {
             .l1_cache_config
             .unwrap_or_else(|| L1CacheConfig::new(std::time::Duration::from_secs(60), 10_000));
         let l1_cache = L1Cache::with_config(l1_cache_config).await.map_err(|e| {
-            FlowGuardError::DependencyError(format!("Failed to create L1Cache: {}", e))
+            LimiteronError::DependencyError(format!("Failed to create L1Cache: {}", e))
         })?;
         let l1_cache_enabled = self.l1_cache_enabled;
 
@@ -648,7 +648,7 @@ impl Governor {
         ban_storage: Arc<dyn BanStorage>,
         #[cfg(feature = "monitoring")] metrics: Option<Arc<Metrics>>,
         #[cfg(feature = "telemetry")] tracer: Option<Arc<Tracer>>,
-    ) -> Result<Self, FlowGuardError> {
+    ) -> Result<Self, LimiteronError> {
         // 使用 builder 模式创建 Governor
         let builder = Governor::builder()
             .with_config(config)
@@ -716,7 +716,7 @@ impl Governor {
         config_path: P,
         storage: Arc<dyn Storage>,
         ban_storage: Arc<dyn BanStorage>,
-    ) -> Result<Self, FlowGuardError> {
+    ) -> Result<Self, LimiteronError> {
         // 使用 ConfigLoader 加载配置
         let config = crate::config::ConfigLoader::load_from_file(config_path)?;
         Self::create_with_config(config, storage, ban_storage).await
@@ -760,7 +760,7 @@ impl Governor {
         config_path: P,
         storage: Arc<dyn Storage>,
         ban_storage: Arc<dyn BanStorage>,
-    ) -> Result<Self, FlowGuardError> {
+    ) -> Result<Self, LimiteronError> {
         // 使用 ConfigLoader 加载配置，支持环境变量覆盖
         let config = crate::ConfigLoader::load_from_file_with_env(config_path)?;
         Self::create_with_config(config, storage, ban_storage).await
@@ -773,7 +773,7 @@ impl Governor {
         config: FlowControlConfig,
         storage: Arc<dyn Storage>,
         ban_storage: Arc<dyn BanStorage>,
-    ) -> Result<Self, FlowGuardError> {
+    ) -> Result<Self, LimiteronError> {
         #[cfg(all(feature = "monitoring", feature = "telemetry"))]
         {
             Self::with_storage(config, storage, ban_storage, None, None).await
@@ -798,7 +798,7 @@ impl Governor {
     /// 如果缓存未命中，则执行完整的检查流程，并将结果缓存。
     ///
     /// 当启用了 FallbackManager 时，会在存储层故障时自动降级。
-    pub async fn check(&self, context: &RequestContext) -> Result<Decision, FlowGuardError> {
+    pub async fn check(&self, context: &RequestContext) -> Result<Decision, LimiteronError> {
         #[cfg(feature = "monitoring")]
         let start_time = std::time::Instant::now();
 
@@ -830,7 +830,7 @@ impl Governor {
     }
 
     /// 内部检查分发（不含 metrics/tracer 包装，由 check() 统一处理）
-    async fn check_inner(&self, context: &RequestContext) -> Result<Decision, FlowGuardError> {
+    async fn check_inner(&self, context: &RequestContext) -> Result<Decision, LimiteronError> {
         // 如果启用了 FallbackManager，使用降级包装的检查逻辑
         #[cfg(feature = "fallback")]
         if let Some(ref fallback_mgr) = self.fallback_manager {
@@ -842,7 +842,7 @@ impl Governor {
     }
 
     /// 内部检查逻辑（不包含降级处理）
-    async fn check_internal(&self, context: &RequestContext) -> Result<Decision, FlowGuardError> {
+    async fn check_internal(&self, context: &RequestContext) -> Result<Decision, LimiteronError> {
         self.stats.increment_total();
 
         debug!(
@@ -855,7 +855,7 @@ impl Governor {
 
         // Extracted identifier
         let identifier = self.identifier_extractor.extract(context).ok_or_else(|| {
-            FlowGuardError::ConfigError("Failed to extract identifier".to_string())
+            LimiteronError::ConfigError("Failed to extract identifier".to_string())
         })?;
         trace!("Extracted identifier: {}", identifier.key());
 
@@ -984,7 +984,7 @@ impl Governor {
         &self,
         context: &RequestContext,
         fallback_mgr: &Arc<FallbackManager>,
-    ) -> Result<Decision, FlowGuardError> {
+    ) -> Result<Decision, LimiteronError> {
         let context_clone = context.clone();
 
         fallback_mgr
@@ -1006,16 +1006,16 @@ impl Governor {
     async fn check_l1_cache_only(
         &self,
         context: &RequestContext,
-    ) -> Result<Decision, FlowGuardError> {
+    ) -> Result<Decision, LimiteronError> {
         if !self.is_l1_cache_enabled() {
-            return Err(FlowGuardError::LimitError(
+            return Err(LimiteronError::LimitError(
                 "存储层故障且 L1 缓存未启用".to_string(),
             ));
         }
 
         // 尝试从 L1 缓存获取结果
         let identifier = self.identifier_extractor.extract(context).ok_or_else(|| {
-            FlowGuardError::ConfigError("Failed to extract identifier".to_string())
+            LimiteronError::ConfigError("Failed to extract identifier".to_string())
         })?;
 
         let matched_rules = {
@@ -1055,7 +1055,7 @@ impl Governor {
                             }
                             IslandFallbackStrategy::RejectAll => {
                                 log::warn!(target: "governor", "孤岛模式 - 拒绝所有请求");
-                                Err(FlowGuardError::LimitError(
+                                Err(LimiteronError::LimitError(
                                     "孤岛模式：存储层故障，拒绝请求".to_string(),
                                 ))
                             }
@@ -1081,7 +1081,7 @@ impl Governor {
                     }
                 } else {
                     // 不在孤岛模式，返回错误
-                    Err(FlowGuardError::LimitError(
+                    Err(LimiteronError::LimitError(
                         "存储层故障，降级缓存未命中".to_string(),
                     ))
                 }
@@ -1108,7 +1108,7 @@ impl Governor {
     /// 根据决策结果更新统计信息
     ///
     /// 统一处理不同决策类型的统计更新，避免重复的 match 分支。
-    fn update_stats_for_decision(&self, result: &Result<Decision, FlowGuardError>) {
+    fn update_stats_for_decision(&self, result: &Result<Decision, LimiteronError>) {
         match result {
             Ok(Decision::Allowed(_)) => {
                 self.stats.increment_allowed();
@@ -1145,7 +1145,7 @@ impl Governor {
     pub async fn check_resource_parallel(
         &self,
         resource: &str,
-    ) -> Result<Decision, FlowGuardError> {
+    ) -> Result<Decision, LimiteronError> {
         // 使用专门的并行封禁检查器
         let ban_info = self
             .parallel_ban_checker
@@ -1166,7 +1166,7 @@ impl Governor {
     pub async fn check_resource_parallel(
         &self,
         _resource: &str,
-    ) -> Result<Decision, FlowGuardError> {
+    ) -> Result<Decision, LimiteronError> {
         #[cfg(feature = "ban-manager")]
         {
             let target = BanTarget::UserId(_resource.to_string());
@@ -1185,7 +1185,7 @@ impl Governor {
 
         #[cfg(not(feature = "ban-manager"))]
         {
-            Err(FlowGuardError::ConfigError(
+            Err(LimiteronError::ConfigError(
                 "并行检查已禁用且未启用封禁管理器，无法执行资源封禁检查".to_string(),
             ))
         }
@@ -1198,7 +1198,7 @@ impl Governor {
         identifier: &Identifier,
         reason: &str,
         source: Option<BanSource>,
-    ) -> Result<(), FlowGuardError> {
+    ) -> Result<(), LimiteronError> {
         debug!("Ban user: {} 原因: {}", identifier.key(), reason);
 
         let ban_target = identifier.to_ban_target();
@@ -1222,7 +1222,7 @@ impl Governor {
                 crate::logging::redact_user_id(Some(identifier.key().as_ref()))
             );
         } else {
-            return Err(FlowGuardError::ValidationError(
+            return Err(LimiteronError::ValidationError(
                 "Unsupported identifier type".to_string(),
             ));
         }
@@ -1232,7 +1232,7 @@ impl Governor {
 
     /// 取消用户封禁
     #[cfg(feature = "ban-manager")]
-    pub async fn unban_identifier(&self, identifier: &Identifier) -> Result<(), FlowGuardError> {
+    pub async fn unban_identifier(&self, identifier: &Identifier) -> Result<(), LimiteronError> {
         debug!("取消Ban user: {}", identifier.key());
 
         let ban_target = identifier.to_ban_target();
@@ -1251,7 +1251,7 @@ impl Governor {
             }
             Ok(())
         } else {
-            Err(FlowGuardError::ValidationError(
+            Err(LimiteronError::ValidationError(
                 "Unsupported identifier type".to_string(),
             ))
         }
@@ -1263,14 +1263,14 @@ impl Governor {
     }
 
     /// 停止配置监视器
-    pub async fn stop_config_watcher(&self) -> Result<(), FlowGuardError> {
+    pub async fn stop_config_watcher(&self) -> Result<(), LimiteronError> {
         info!("停止配置监视器");
 
         Ok(())
     }
 
     /// 手动配置检查
-    pub async fn manual_config_check(&self) -> Result<bool, FlowGuardError> {
+    pub async fn manual_config_check(&self) -> Result<bool, LimiteronError> {
         info!("手动配置检查");
 
         let _config = self.config.read().await;
@@ -1416,7 +1416,7 @@ impl Governor {
     ///
     /// 执行真实的存储 ping、缓存可用性检查、后台任务存活检查。
     /// 返回 `Ok(())` 表示所有关键组件健康；返回 `Err` 包含具体故障信息。
-    pub async fn health_check(&self) -> Result<(), FlowGuardError> {
+    pub async fn health_check(&self) -> Result<(), LimiteronError> {
         info!("健康检查");
 
         let status = self.health_status().await;
@@ -1437,7 +1437,7 @@ impl Governor {
             if !status.background_tasks_alive {
                 issues.push("background_tasks".to_string());
             }
-            Err(FlowGuardError::StorageError(
+            Err(LimiteronError::StorageError(
                 crate::error::StorageError::ConnectionError(format!(
                     "Components unhealthy: {}",
                     issues.join(", ")
@@ -1510,7 +1510,7 @@ impl Governor {
     ///     Ok(())
     /// }
     /// ```
-    pub async fn shutdown(&self) -> Result<(), FlowGuardError> {
+    pub async fn shutdown(&self) -> Result<(), LimiteronError> {
         // 幂等性检查：使用 compare_exchange 确保只执行一次关闭逻辑
         let already_shutdown = self
             .is_shutdown
@@ -2088,7 +2088,7 @@ mod governor_construction_tests {
 
         let err = governor.health_check().await.unwrap_err();
         let err_msg = match err {
-            FlowGuardError::StorageError(StorageError::ConnectionError(msg)) => msg,
+            LimiteronError::StorageError(StorageError::ConnectionError(msg)) => msg,
             other => panic!("expected StorageError::ConnectionError, got {other:?}"),
         };
         assert!(
@@ -2360,7 +2360,7 @@ mod governor_construction_tests {
             .err()
             .expect("expected DependencyError for missing storage");
         match err {
-            FlowGuardError::DependencyError(msg) => assert!(msg.contains("storage")),
+            LimiteronError::DependencyError(msg) => assert!(msg.contains("storage")),
             _ => panic!("expected DependencyError"),
         }
     }
@@ -2376,7 +2376,7 @@ mod governor_construction_tests {
             .err()
             .expect("expected DependencyError for missing ban_storage");
         match err {
-            FlowGuardError::DependencyError(msg) => assert!(msg.contains("ban_storage")),
+            LimiteronError::DependencyError(msg) => assert!(msg.contains("ban_storage")),
             _ => panic!("expected DependencyError"),
         }
     }
@@ -2398,7 +2398,7 @@ mod governor_construction_tests {
         let ctx = RequestContext::default();
         let result = governor.check(&ctx).await;
         match result {
-            Err(FlowGuardError::ConfigError(msg)) => {
+            Err(LimiteronError::ConfigError(msg)) => {
                 assert!(msg.contains("Failed to extract identifier"))
             }
             other => panic!("Expected ConfigError, got: {:?}", other),
@@ -2919,7 +2919,7 @@ mod governor_construction_tests {
         let identifier = crate::matchers::Identifier::ApiKey("test_key".to_string());
         let result = governor.ban_identifier(&identifier, "test ban", None).await;
         match result {
-            Err(FlowGuardError::ValidationError(msg)) => {
+            Err(LimiteronError::ValidationError(msg)) => {
                 assert!(msg.contains("Unsupported identifier type"))
             }
             other => panic!("Expected ValidationError, got: {:?}", other),
@@ -2964,7 +2964,7 @@ mod governor_construction_tests {
         let identifier = crate::matchers::Identifier::ApiKey("test_key".to_string());
         let result = governor.unban_identifier(&identifier).await;
         match result {
-            Err(FlowGuardError::ValidationError(msg)) => {
+            Err(LimiteronError::ValidationError(msg)) => {
                 assert!(msg.contains("Unsupported identifier type"))
             }
             other => panic!("Expected ValidationError, got: {:?}", other),
@@ -3776,7 +3776,7 @@ mod governor_feature_gated_tests {
         let result = governor.check_l1_cache_only(&ctx).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            FlowGuardError::LimitError(msg) => {
+            LimiteronError::LimitError(msg) => {
                 assert!(msg.contains("L1 缓存未启用"), "unexpected: {}", msg);
             }
             other => panic!("expected LimitError, got: {:?}", other),
@@ -3800,7 +3800,7 @@ mod governor_feature_gated_tests {
         let result = governor.check_l1_cache_only(&ctx).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            FlowGuardError::ConfigError(msg) => {
+            LimiteronError::ConfigError(msg) => {
                 assert!(
                     msg.contains("Failed to extract identifier"),
                     "unexpected: {}",
@@ -3852,7 +3852,7 @@ mod governor_feature_gated_tests {
         let result = governor.check_l1_cache_only(&ctx).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            FlowGuardError::LimitError(msg) => {
+            LimiteronError::LimitError(msg) => {
                 assert!(msg.contains("降级缓存未命中"), "unexpected: {}", msg);
             }
             other => panic!("expected LimitError, got: {:?}", other),
@@ -3903,7 +3903,7 @@ mod governor_feature_gated_tests {
         let result = governor.check_l1_cache_only(&ctx).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            FlowGuardError::LimitError(msg) => {
+            LimiteronError::LimitError(msg) => {
                 assert!(msg.contains("拒绝请求"), "unexpected: {}", msg);
             }
             other => panic!("expected LimitError, got: {:?}", other),
@@ -4031,8 +4031,8 @@ mod governor_feature_gated_tests {
             .expect("build should succeed");
 
         // 直接调用 update_stats_for_decision 传入 Err
-        let err_result: Result<Decision, FlowGuardError> =
-            Err(FlowGuardError::LimitError("test error".to_string()));
+        let err_result: Result<Decision, LimiteronError> =
+            Err(LimiteronError::LimitError("test error".to_string()));
         governor.update_stats_for_decision(&err_result);
         // 验证不会 panic 即可（stats.increment_error 内部是原子操作）
     }

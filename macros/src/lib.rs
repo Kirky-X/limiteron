@@ -40,6 +40,7 @@ struct FlowControlConfig {
 }
 
 impl FlowControlConfig {
+    #[allow(clippy::collapsible_if)]
     fn parse(tokens: &proc_macro2::TokenStream) -> Result<Self, String> {
         use syn::Token;
         use syn::parse::Parser;
@@ -272,7 +273,7 @@ fn generate_flow_control(
             };
             let rate_limiter = limiteron::GLOBAL_LIMITER_MANAGER.get_rate_limiter(&rate_key, #amount, 1);
             if !rate_limiter.allow(1).await? {
-                return Err(limiteron::error::FlowGuardError::RateLimitExceeded(#msg.to_string()));
+                return Err(limiteron::error::LimiteronError::RateLimitExceeded(#msg.to_string()));
             }
         }
     } else {
@@ -295,7 +296,7 @@ fn generate_flow_control(
             };
             let quota_limiter = limiteron::GLOBAL_LIMITER_MANAGER.get_quota_limiter(&quota_key, #duration, #max);
             if !quota_limiter.allow(1).await? {
-                return Err(limiteron::error::FlowGuardError::QuotaExceeded(#msg.to_string()));
+                return Err(limiteron::error::LimiteronError::QuotaExceeded(#msg.to_string()));
             }
         }
     } else {
@@ -315,7 +316,7 @@ fn generate_flow_control(
                 format!("concurrency:{}:{}", #fn_name_str, sanitize(&identifier))
             };
             let concurrency_limiter = limiteron::GLOBAL_LIMITER_MANAGER.get_concurrency_limiter(&concurrency_key, #concurrency as u64);
-            let _permit = concurrency_limiter.acquire(1).await.map_err(|_| limiteron::error::FlowGuardError::ConcurrencyLimitExceeded(#msg.to_string()))?;
+            let _permit = concurrency_limiter.acquire(1).await.map_err(|_| limiteron::error::LimiteronError::ConcurrencyLimitExceeded(#msg.to_string()))?;
         }
     } else {
         quote!()

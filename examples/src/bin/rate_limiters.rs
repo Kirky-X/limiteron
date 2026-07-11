@@ -11,7 +11,7 @@
 //!
 //! Run: cargo run --bin rate_limiters
 
-use limiteron::error::FlowGuardError;
+use limiteron::error::LimiteronError;
 use limiteron::limiters::{
     ConcurrencyLimiter, FixedWindowLimiter, GcraLimiter, Limiter, ShardedSlidingWindowLimiter,
     TokenBucketLimiter,
@@ -19,7 +19,7 @@ use limiteron::limiters::{
 use std::time::Duration;
 
 #[tokio::main]
-async fn main() -> Result<(), FlowGuardError> {
+async fn main() -> Result<(), LimiteronError> {
     println!("=== Limiteron Rate Limiters Demo ===\n");
 
     demo_token_bucket().await?;
@@ -32,7 +32,7 @@ async fn main() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-async fn demo_token_bucket() -> Result<(), FlowGuardError> {
+async fn demo_token_bucket() -> Result<(), LimiteronError> {
     println!("--- Token Bucket Limiter ---");
     println!("Capacity: 3 tokens, Refill rate: 1 token/sec\n");
 
@@ -64,7 +64,7 @@ async fn demo_token_bucket() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-async fn demo_sliding_window() -> Result<(), FlowGuardError> {
+async fn demo_sliding_window() -> Result<(), LimiteronError> {
     println!("--- Sharded Sliding Window Limiter ---");
     println!("Window: 200ms, Max requests: 2\n");
 
@@ -90,7 +90,7 @@ async fn demo_sliding_window() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-async fn demo_fixed_window() -> Result<(), FlowGuardError> {
+async fn demo_fixed_window() -> Result<(), LimiteronError> {
     println!("--- Fixed Window Limiter ---");
     println!("Window: 200ms, Max requests: 2\n");
 
@@ -116,7 +116,7 @@ async fn demo_fixed_window() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-async fn demo_concurrency() -> Result<(), FlowGuardError> {
+async fn demo_concurrency() -> Result<(), LimiteronError> {
     println!("--- Concurrency Limiter ---");
     println!("Max concurrent: 2, Timeout: 50ms\n");
 
@@ -141,7 +141,7 @@ async fn demo_concurrency() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-async fn demo_gcra() -> Result<(), FlowGuardError> {
+async fn demo_gcra() -> Result<(), LimiteronError> {
     println!("--- GCRA (Generic Cell Rate Algorithm) Limiter ---");
     println!("Capacity: 3 burst, Rate: 10 req/s (100ms interval)\n");
 

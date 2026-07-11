@@ -9,14 +9,14 @@
 //!
 //! Run: cargo run --bin quota_control --features quota-control
 
-use limiteron::error::FlowGuardError;
+use limiteron::error::LimiteronError;
 use limiteron::quota::{AlertChannel, AlertConfig, QuotaConfig, QuotaController, QuotaType};
 use limiteron::QuotaStorage;
 use limiteron_examples::MemoryQuotaStorage;
 use std::sync::Arc;
 
 #[tokio::main]
-async fn main() -> Result<(), FlowGuardError> {
+async fn main() -> Result<(), LimiteronError> {
     println!("=== Limiteron Quota Control Demo ===\n");
 
     demo_basic_quota().await?;
@@ -27,7 +27,7 @@ async fn main() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-async fn demo_basic_quota() -> Result<(), FlowGuardError> {
+async fn demo_basic_quota() -> Result<(), LimiteronError> {
     println!("--- Basic Quota Operations ---");
     println!("Config: limit=10, window=60s\n");
 
@@ -68,7 +68,7 @@ async fn demo_basic_quota() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-async fn demo_limit_enforcement() -> Result<(), FlowGuardError> {
+async fn demo_limit_enforcement() -> Result<(), LimiteronError> {
     println!("--- Limit Enforcement Demo ---\n");
 
     let storage: Arc<dyn QuotaStorage> = Arc::new(MemoryQuotaStorage::new());
@@ -101,7 +101,7 @@ async fn demo_limit_enforcement() -> Result<(), FlowGuardError> {
     Ok(())
 }
 
-async fn demo_usage_tracking() -> Result<(), FlowGuardError> {
+async fn demo_usage_tracking() -> Result<(), LimiteronError> {
     println!("--- Usage Tracking Demo ---\n");
 
     let storage: Arc<dyn QuotaStorage> = Arc::new(MemoryQuotaStorage::new());

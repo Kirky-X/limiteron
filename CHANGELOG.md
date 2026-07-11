@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-07-11
+
 ### Changed
+
+- 移除 `StructuredLogger` trait（YAGNI 清理）
+- 对齐 inklog 集成与 sdforge 模式
+- 修复 edition 2024 unsafe env 调用
+
+### Changed（Phase 6 前置）
 
 - Rust edition 从 2021 升级到 2024
 - 设置 rust-version 为 1.85
@@ -241,7 +249,8 @@ let ban_manager = BanManager::new().await.unwrap();
 - Monitoring with Prometheus metrics and OpenTelemetry tracing
 - Parallel ban checking for improved performance
 
-[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/Kirky-X/limiteron/compare/v0.2.1...v0.2.3
 [0.2.1]: https://github.com/Kirky-X/limiteron/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Kirky-X/limiteron/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Kirky-X/limiteron/compare/v0.1.0...v0.1.1

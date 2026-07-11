@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 租户命名空间配置
 //!
 //! 定义租户命名空间结构，用于限流键的租户隔离。

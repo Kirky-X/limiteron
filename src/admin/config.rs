@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Admin API configuration
 
 use serde::{Deserialize, Serialize};

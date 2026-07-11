@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 规则管理模块
 //!
 //! 提供规则构建和统计管理功能。

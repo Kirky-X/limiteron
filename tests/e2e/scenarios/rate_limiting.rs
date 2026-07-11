@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 基本限流场景测试
 //!
 //! 测试用户请求超过限流配置后被拒绝的完整流程

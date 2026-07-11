@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 熔断器模块
 //!
 //! 提供熔断器功能，支持三状态转换和自动恢复。

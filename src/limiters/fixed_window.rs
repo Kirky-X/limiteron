@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 固定窗口限流器模块
 //!
 //! 使用固定窗口算法实现速率限制。

@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 可控时钟抽象模块
 //!
 //! 提供时钟 trait 和实现,支持时间注入用于测试。

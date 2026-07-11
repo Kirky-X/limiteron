@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 封禁管理模块集成测试
 //!
 //! 测试封禁管理模块的基本功能

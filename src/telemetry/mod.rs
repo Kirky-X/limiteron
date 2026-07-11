@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 监控和追踪模块
 //!
 //! 集成Prometheus指标和OpenTelemetry分布式追踪。

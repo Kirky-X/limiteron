@@ -1,8 +1,5 @@
-// Copyright (c) 2026, Kirky.X
-//
-// Licensed under the MIT License
-// See LICENSE file in the project root for full license information.
-
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! DBNexus 存储工厂
 //!
 //! 提供统一的存储实例创建接口，支持通过配置或 DSN 创建各种存储适配器。

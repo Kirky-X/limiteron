@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 事件发射器
 //!
 //! 使用 tokio broadcast channel 实现事件的发布/订阅模式。

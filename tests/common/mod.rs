@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 #![allow(dead_code)]
 #![allow(unused_imports)]
 

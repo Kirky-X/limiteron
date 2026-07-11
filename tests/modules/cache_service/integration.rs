@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 缓存服务模块集成测试
 //!
 //! 测试缓存服务 trait 和 oxcache 集成

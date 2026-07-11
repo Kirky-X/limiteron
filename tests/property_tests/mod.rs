@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 属性测试模块
 //!
 //! 使用 proptest 对限流算法进行属性测试，验证在各种输入条件下的不变性。

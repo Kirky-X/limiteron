@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! Custom Matchers 示例
 //!
 //! 演示自定义匹配器 trait 的实现、注册表使用、以及内置的 HeaderMatcher 与 TimeWindowMatcher。

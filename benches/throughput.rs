@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 吞吐量基准测试
 //!
 //! 测试系统的吞吐量性能，包括单线程吞吐量、并发吞吐量和吞吐量扩展曲线。

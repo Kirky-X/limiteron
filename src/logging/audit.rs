@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 审计日志模块
 //!
 //! 提供审计日志功能，记录决策过程、配置变更、封禁操作等。

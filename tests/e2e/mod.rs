@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 端到端测试模块
 //!
 //! 测试完整的业务流程和场景

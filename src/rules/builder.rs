@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 规则构建器模块
 //!
 //! 提供从配置构建规则和决策链的功能，将规则构建逻辑从 Governor 中分离出来。

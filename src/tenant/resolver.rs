@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 租户解析器 trait
 //!
 //! 定义租户解析器接口，用于从请求上下文中提取租户命名空间。

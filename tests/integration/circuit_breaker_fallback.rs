@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! CircuitBreaker + Fallback 集成测试
 //!
 //! 测试熔断器与降级策略的集成，验证熔断降级流程。

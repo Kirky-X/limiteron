@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 配额控制器模块
 //!
 //! 实现配额控制功能，支持多种配额类型、滑动窗口重置、透支功能和告警机制。

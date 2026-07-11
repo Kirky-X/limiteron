@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 并行封禁检查器
 //!
 //! 专门负责高效的并行封禁检查，支持多种目标类型的并发验证。

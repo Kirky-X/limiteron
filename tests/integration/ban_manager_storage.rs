@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! BanManager + Storage 集成测试
 //!
 //! 测试 BanManager 与存储层的集成，验证封禁管理的完整生命周期。

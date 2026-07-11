@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 自定义限流器模块集成测试
 
 use limiteron::custom_limiter::{CustomLimiterRegistry, LimiterStats};

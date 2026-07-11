@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 配置模块集成测试
 //!
 //! 测试配置模块的完整功能：验证、版本比较、ConfigBuilder、哈希、变更记录等

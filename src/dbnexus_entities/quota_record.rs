@@ -1,8 +1,5 @@
-// Copyright (c) 2026, Kirky.X
-//
-// Licensed under the MIT License
-// See LICENSE file in the project root for full license information.
-
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! QuotaRecordEntity - DBNexus entity for quota records
 //!
 //! This entity is used by DBNexusQuotaStorageAdapter to store quota records

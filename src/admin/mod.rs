@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 管理控制面API
 //!
 //! 提供轻量HTTP管理接口,用于在运行时查询和操作系统状态:

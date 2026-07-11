@@ -1,7 +1,5 @@
-//! Copyright (c) 2026, Kirky.X
-//!
-//! MIT License
-//!
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 事件系统模块
 //!
 //! 提供事件发布/订阅系统，支持事件发射、分发和 Webhook 推送。

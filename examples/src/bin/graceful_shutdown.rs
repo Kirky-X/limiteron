@@ -1,3 +1,5 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
 //! 优雅关闭示例
 //!
 //! 演示 Governor 的 shutdown() 方法：

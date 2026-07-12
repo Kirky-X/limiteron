@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-07-13
+
+### ⚠️ BREAKING CHANGES（仅影响启用 `kit` feature 的用户）
+
+- trait-kit 0.2 → 0.3（pre-1.0 minor bump，Cargo 视为不兼容）；启用 `kit` feature 的用户需同步升级
+
+### Dependencies
+
+- trait-kit 0.2 → 0.3（对齐 oxcache/dbnexus/inklog 依赖链）
+- inklog 0.1.6 → 0.1.7（transitive, via Cargo.lock resolution）
+
 ## [0.2.5] - 2026-07-13
 
 ### Dependencies
@@ -265,7 +276,9 @@ let ban_manager = BanManager::new().await.unwrap();
 - Monitoring with Prometheus metrics and OpenTelemetry tracing
 - Parallel ban checking for improved performance
 
-[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.2.6...HEAD
+[0.2.6]: https://github.com/Kirky-X/limiteron/compare/v0.2.5...v0.2.6
+[0.2.5]: https://github.com/Kirky-X/limiteron/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/Kirky-X/limiteron/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Kirky-X/limiteron/compare/v0.2.1...v0.2.3
 [0.2.1]: https://github.com/Kirky-X/limiteron/compare/v0.2.0...v0.2.1

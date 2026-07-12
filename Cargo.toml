@@ -433,11 +433,3 @@ exclude-files = [
     "**/matchers/geo.rs",
 ]
 fail-under = 95
-
-# ============================================================================
-# Local Development Patches
-# ============================================================================
-# Use local oxcache (0.3.6 with OxCacheError rename) instead of published 0.3.4
-# Remove this patch after oxcache 0.3.6+ is published to crates.io
-[patch.crates-io]
-oxcache = { path = "../oxcache" }

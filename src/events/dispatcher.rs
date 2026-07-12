@@ -5,7 +5,7 @@
 //! 监听事件通道并将事件分发给注册的处理器和 Webhook。
 
 use crate::events::emitter::EventEmitter;
-use crate::events::types::{Event, EventHandler};
+use crate::events::{Event, EventHandler};
 #[cfg(feature = "webhook")]
 use crate::webhook_validator::validate_webhook_url;
 use log::{debug, error, info, warn};

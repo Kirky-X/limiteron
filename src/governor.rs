@@ -10,7 +10,7 @@
 //! - 简化核心逻辑，提高可维护性
 //! - 保持向后兼容性
 
-use crate::config::types::{ConfigChangeRecord, ConfigHistory, FlowControlConfig};
+use crate::config::{ConfigChangeRecord, ConfigHistory, FlowControlConfig};
 use crate::decision_chain::DecisionChain;
 use crate::error::Decision;
 use crate::error::LimiteronError;
@@ -1590,9 +1590,7 @@ impl HealthStatus {
 #[allow(clippy::field_reassign_with_default)]
 mod governor_construction_tests {
     use super::*;
-    use crate::config::types::{
-        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule,
-    };
+    use crate::config::{Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
     use crate::error::StorageError;
     use crate::storage::{BanHistory, BanRecord, BanTarget, MemoryBanStorage, MemoryStorage};
     use async_trait::async_trait;

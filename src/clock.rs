@@ -14,7 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::clock::{Clock, SystemClock};
+/// use limiteron::{Clock, SystemClock};
 ///
 /// let clock = SystemClock;
 /// let now = clock.now();
@@ -64,7 +64,7 @@ impl Clock for SystemClock {
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::clock::{Clock, MockClock};
+/// use limiteron::{Clock, MockClock};
 /// use std::time::{Duration, Instant};
 ///
 /// let clock = MockClock::new();

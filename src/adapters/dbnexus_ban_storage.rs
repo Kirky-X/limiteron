@@ -5,9 +5,8 @@
 //! This adapter provides a complete BanStorage trait implementation using DBNexus
 //! for all ban management operations.
 
-use crate::dbnexus_entities::ban_record::{
-    ActiveModel as BanRecordActiveModel, Column as BanColumn, Entity as BanRecordEntity,
-    Model as BanRecordModel, create_target_key,
+use crate::dbnexus_entities::{
+    BanColumn, BanRecordActiveModel, BanRecordEntity, BanRecordModel, create_target_key,
 };
 use crate::error::StorageError;
 use crate::storage::{BanHistory, BanRecord, BanStorage, BanTarget};

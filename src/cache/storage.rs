@@ -4,7 +4,7 @@ use crate::error::StorageError;
 use crate::storage::Storage;
 use async_trait::async_trait;
 use oxcache::backend::CacheBackend;
-use oxcache::error::CacheError;
+use oxcache::error::OxCacheError;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,10 +18,10 @@ impl CacheStorage {
     }
 }
 
-fn map_error(e: CacheError) -> StorageError {
+fn map_error(e: OxCacheError) -> StorageError {
     match e {
-        CacheError::Connection(_) => StorageError::ConnectionError(e.to_string()),
-        CacheError::Timeout(_) => StorageError::ConnectionError(e.to_string()),
+        OxCacheError::Connection(_) => StorageError::ConnectionError(e.to_string()),
+        OxCacheError::Timeout(_) => StorageError::ConnectionError(e.to_string()),
         _ => StorageError::QueryError(e.to_string()),
     }
 }
@@ -55,7 +55,7 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use oxcache::backend::interface::{BackendKind, CacheConnector, CacheReader, CacheWriter};
-    use oxcache::error::CacheError;
+    use oxcache::error::OxCacheError;
     use std::sync::Mutex;
 
     /// Mock CacheBackend for testing CacheStorage.
@@ -64,8 +64,8 @@ mod tests {
     /// produces errors for failing write (set/delete) calls.
     #[allow(clippy::type_complexity)]
     struct MockBackend {
-        get_factory: Mutex<Box<dyn Fn() -> Result<Option<Vec<u8>>, CacheError> + Send + Sync>>,
-        write_factory: Mutex<Option<Box<dyn Fn() -> CacheError + Send + Sync>>>,
+        get_factory: Mutex<Box<dyn Fn() -> Result<Option<Vec<u8>>, OxCacheError> + Send + Sync>>,
+        write_factory: Mutex<Option<Box<dyn Fn() -> OxCacheError + Send + Sync>>>,
     }
 
     impl MockBackend {
@@ -79,7 +79,7 @@ mod tests {
 
         fn new_failing_get<F>(err_factory: F) -> Self
         where
-            F: Fn() -> CacheError + Send + Sync + 'static,
+            F: Fn() -> OxCacheError + Send + Sync + 'static,
         {
             Self {
                 get_factory: Mutex::new(Box::new(move || Err(err_factory()))),
@@ -89,7 +89,7 @@ mod tests {
 
         fn new_failing_writes<F>(err_factory: F) -> Self
         where
-            F: Fn() -> CacheError + Send + Sync + 'static,
+            F: Fn() -> OxCacheError + Send + Sync + 'static,
         {
             Self {
                 get_factory: Mutex::new(Box::new(|| Ok(None))),
@@ -100,24 +100,24 @@ mod tests {
 
     #[async_trait]
     impl CacheReader for MockBackend {
-        async fn get(&self, _key: &str) -> Result<Option<Vec<u8>>, CacheError> {
+        async fn get(&self, _key: &str) -> Result<Option<Vec<u8>>, OxCacheError> {
             let factory = self.get_factory.lock().unwrap();
             factory()
         }
-        async fn exists(&self, _key: &str) -> Result<bool, CacheError> {
+        async fn exists(&self, _key: &str) -> Result<bool, OxCacheError> {
             Ok(true)
         }
-        async fn ttl(&self, _key: &str) -> Result<Option<Duration>, CacheError> {
+        async fn ttl(&self, _key: &str) -> Result<Option<Duration>, OxCacheError> {
             Ok(None)
         }
-        async fn len(&self) -> Result<u64, CacheError> {
+        async fn len(&self) -> Result<u64, OxCacheError> {
             Ok(0)
         }
-        async fn capacity(&self) -> Result<u64, CacheError> {
+        async fn capacity(&self) -> Result<u64, OxCacheError> {
             Ok(100)
         }
         #[allow(clippy::disallowed_types)]
-        async fn stats(&self) -> Result<std::collections::HashMap<String, String>, CacheError> {
+        async fn stats(&self) -> Result<std::collections::HashMap<String, String>, OxCacheError> {
             Ok(std::collections::HashMap::new())
         }
     }
@@ -129,31 +129,31 @@ mod tests {
             _key: &str,
             _value: Vec<u8>,
             _ttl: Option<Duration>,
-        ) -> Result<(), CacheError> {
+        ) -> Result<(), OxCacheError> {
             let factory = self.write_factory.lock().unwrap();
             match factory.as_ref() {
                 Some(f) => Err(f()),
                 None => Ok(()),
             }
         }
-        async fn delete(&self, _key: &str) -> Result<(), CacheError> {
+        async fn delete(&self, _key: &str) -> Result<(), OxCacheError> {
             let factory = self.write_factory.lock().unwrap();
             match factory.as_ref() {
                 Some(f) => Err(f()),
                 None => Ok(()),
             }
         }
-        async fn clear(&self) -> Result<(), CacheError> {
+        async fn clear(&self) -> Result<(), OxCacheError> {
             Ok(())
         }
-        async fn expire(&self, _key: &str, _ttl: Duration) -> Result<bool, CacheError> {
+        async fn expire(&self, _key: &str, _ttl: Duration) -> Result<bool, OxCacheError> {
             Ok(true)
         }
     }
 
     #[async_trait]
     impl CacheConnector for MockBackend {
-        async fn health_check(&self) -> Result<(), CacheError> {
+        async fn health_check(&self) -> Result<(), OxCacheError> {
             Ok(())
         }
         async fn shutdown(&self) {}
@@ -181,7 +181,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_storage_get_maps_connection_error() {
         let backend = Arc::new(MockBackend::new_failing_get(|| {
-            CacheError::Connection("net down".to_string())
+            OxCacheError::Connection("net down".to_string())
         }));
         let storage = CacheStorage::new(backend);
         let err = storage.get("k").await.unwrap_err();
@@ -194,7 +194,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_storage_get_maps_timeout_error() {
         let backend = Arc::new(MockBackend::new_failing_get(|| {
-            CacheError::Timeout("5s".to_string())
+            OxCacheError::Timeout("5s".to_string())
         }));
         let storage = CacheStorage::new(backend);
         let err = storage.get("k").await.unwrap_err();
@@ -207,7 +207,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_storage_get_maps_other_error_to_query_error() {
         let backend = Arc::new(MockBackend::new_failing_get(|| {
-            CacheError::NotFound("absent".to_string())
+            OxCacheError::NotFound("absent".to_string())
         }));
         let storage = CacheStorage::new(backend);
         let err = storage.get("k").await.unwrap_err();
@@ -234,7 +234,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_storage_set_maps_error() {
         let backend = Arc::new(MockBackend::new_failing_writes(|| {
-            CacheError::Operation("boom".to_string())
+            OxCacheError::Operation("boom".to_string())
         }));
         let storage = CacheStorage::new(backend);
         let err = storage.set("k", "v", None).await.unwrap_err();
@@ -254,7 +254,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_storage_delete_maps_connection_error() {
         let backend = Arc::new(MockBackend::new_failing_writes(|| {
-            CacheError::Connection("lost".to_string())
+            OxCacheError::Connection("lost".to_string())
         }));
         let storage = CacheStorage::new(backend);
         let err = storage.delete("k").await.unwrap_err();
@@ -266,24 +266,24 @@ mod tests {
 
     #[test]
     fn test_map_error_connection_variant() {
-        let err = map_error(CacheError::Connection("c".to_string()));
+        let err = map_error(OxCacheError::Connection("c".to_string()));
         assert!(matches!(err, StorageError::ConnectionError(_)));
     }
 
     #[test]
     fn test_map_error_timeout_variant() {
-        let err = map_error(CacheError::Timeout("t".to_string()));
+        let err = map_error(OxCacheError::Timeout("t".to_string()));
         assert!(matches!(err, StorageError::ConnectionError(_)));
     }
 
     #[test]
     fn test_map_error_other_variants_become_query_error() {
         // 抽样验证非 Connection/Timeout 的变体都映射为 QueryError
-        let cases: Vec<CacheError> = vec![
-            CacheError::Serialization("s".to_string()),
-            CacheError::Operation("o".to_string()),
-            CacheError::NotFound("n".to_string()),
-            CacheError::NotSupported("ns".to_string()),
+        let cases: Vec<OxCacheError> = vec![
+            OxCacheError::Serialization("s".to_string()),
+            OxCacheError::Operation("o".to_string()),
+            OxCacheError::NotFound("n".to_string()),
+            OxCacheError::NotSupported("ns".to_string()),
         ];
         for e in cases {
             let mapped = map_error(e);

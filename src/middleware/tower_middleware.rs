@@ -351,9 +351,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::types::{
-        Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule,
-    };
+    use crate::config::{Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
     use crate::storage::{MemoryBanStorage, MemoryStorage};
 
     #[derive(Clone)]
@@ -479,7 +477,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_rate_limit_layer_creation() {
-        use crate::config::types::{
+        use crate::config::{
             Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule,
         };
         use crate::storage::{MemoryBanStorage, MemoryStorage};

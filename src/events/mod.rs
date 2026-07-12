@@ -14,7 +14,7 @@
 //! # 示例
 //!
 //! ```rust
-//! use limiteron::events::{EventEmitter, EventDispatcher, Event, EventType};
+//! use limiteron::{EventEmitter, EventDispatcher, Event, EventType};
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -55,5 +55,5 @@ mod types;
 
 // Re-export all public types
 pub use dispatcher::EventDispatcher;
-pub use emitter::{EventEmitter, EventEmitterBuilder};
+pub use emitter::EventEmitter;
 pub use types::{Event, EventConfig, EventHandler, EventType};

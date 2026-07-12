@@ -89,7 +89,7 @@ oxcache = { version = "0.3", default-features = false, features = ["core"] }
 dbnexus = { version = "0.2", default-features = false, features = ["postgres", "macros", "sql-parser", "permission"] }
 
 # 宏
-limiteron-macros = { path = "macros", version = "0.2.3" }
+limiteron-macros = { path = "macros", version = "0.2" }
 
 # 监控
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -433,11 +433,3 @@ exclude-files = [
     "**/matchers/geo.rs",
 ]
 fail-under = 95
-
-# ============================================================================
-# Local Development Patches
-# ============================================================================
-# Use local oxcache (0.3.6 with OxCacheError rename) instead of published 0.3.4
-# Remove this patch after oxcache 0.3.6+ is published to crates.io
-[patch.crates-io]
-oxcache = { path = "../oxcache" }

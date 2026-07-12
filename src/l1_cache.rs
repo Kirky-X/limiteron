@@ -187,7 +187,7 @@ impl RateLimitCacheKey {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::l1_cache::RateLimitCacheKey;
+    /// use limiteron::RateLimitCacheKey;
     ///
     /// let key = RateLimitCacheKey::user_rate_limit_with_ns("tenant:acme:env:prod", "user123", "rule1");
     /// assert_eq!(key, "tenant:acme:env:prod:rl:user:user123:rule1");
@@ -431,7 +431,7 @@ impl IslandModeConfig {
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::l1_cache::{L1Cache, L1CacheConfig};
+/// use limiteron::{L1Cache, L1CacheConfig};
 /// use std::time::Duration;
 ///
 /// #[tokio::main]

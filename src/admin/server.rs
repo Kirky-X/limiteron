@@ -108,7 +108,7 @@ impl AdminServer {
 mod tests {
     use super::*;
     use crate::admin::config::AdminApiConfig;
-    use crate::admin::test_support::make_governor;
+    use crate::admin::make_governor;
 
     #[tokio::test]
     async fn test_admin_server_new() {
@@ -160,7 +160,7 @@ mod tests {
     #[cfg(feature = "circuit-breaker")]
     #[tokio::test]
     async fn test_admin_server_with_circuit_breaker() {
-        use crate::circuit::types::{CircuitBreaker, CircuitBreakerConfig};
+        use crate::circuit::{CircuitBreaker, CircuitBreakerConfig};
         let governor = Arc::new(make_governor().await);
         let cb = Arc::new(CircuitBreaker::with_dependencies(
             CircuitBreakerConfig::default(),
@@ -195,7 +195,7 @@ mod tests {
     #[tokio::test]
     async fn test_admin_server_chained_builders() {
         use crate::cache::quota_storage::CacheQuotaStorage;
-        use crate::circuit::types::{CircuitBreaker, CircuitBreakerConfig};
+        use crate::circuit::{CircuitBreaker, CircuitBreakerConfig};
         use crate::quota::QuotaConfig;
         use crate::storage::QuotaStorage;
         use crate::{BanManager, QuotaController};

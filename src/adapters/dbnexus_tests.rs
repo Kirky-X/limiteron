@@ -330,9 +330,7 @@ mod quota_storage_adapter_tests {
 
 #[cfg(test)]
 mod entity_helper_functions {
-    use crate::dbnexus_entities::ban_record::create_target_key;
-    use crate::dbnexus_entities::quota_record::create_quota_key;
-    use crate::dbnexus_entities::rate_limit::create_rate_key;
+    use crate::dbnexus_entities::{create_quota_key, create_rate_key, create_target_key};
 
     #[test]
     fn test_create_target_key() {
@@ -602,10 +600,9 @@ mod adapter_construction_tests {
 
 #[cfg(test)]
 mod model_structure_tests {
-    use crate::dbnexus_entities::ban_record::Model as BanRecordModel;
-    use crate::dbnexus_entities::key_value::Model as KeyValueModel;
-    use crate::dbnexus_entities::quota_record::Model as QuotaRecordModel;
-    use crate::dbnexus_entities::rate_limit::Model as RateLimitModel;
+    use crate::dbnexus_entities::{
+        BanRecordModel, KeyValueModel, QuotaRecordModel, RateLimitModel,
+    };
     use chrono::Utc;
 
     #[test]

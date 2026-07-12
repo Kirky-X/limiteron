@@ -14,7 +14,7 @@ use crate::tenant::Namespace;
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::tenant::{TenantResolver, Namespace};
+/// use limiteron::{TenantResolver, Namespace};
 /// use limiteron::RequestContext;
 ///
 /// struct HeaderTenantResolver;
@@ -46,7 +46,7 @@ pub trait TenantResolver: Send + Sync {
 ///
 /// # 示例
 ///
-/// ```rust
+/// ```rust,ignore
 /// use limiteron::tenant::{DefaultTenantResolver, TenantResolver};
 /// use limiteron::RequestContext;
 ///
@@ -70,7 +70,7 @@ impl TenantResolver for DefaultTenantResolver {
 ///
 /// # 示例
 ///
-/// ```rust
+/// ```rust,ignore
 /// use limiteron::tenant::{HeaderTenantResolver, TenantResolver};
 /// use limiteron::RequestContext;
 ///

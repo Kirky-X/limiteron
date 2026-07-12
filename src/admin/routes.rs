@@ -74,7 +74,7 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
 mod tests {
     use super::*;
     use crate::admin::config::AdminApiConfig;
-    use crate::admin::test_support::{make_state, make_state_with_ban_manager};
+    use crate::admin::{make_state, make_state_with_ban_manager};
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header::AUTHORIZATION};
     use http_body_util::BodyExt;

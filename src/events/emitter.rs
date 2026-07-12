@@ -4,7 +4,7 @@
 //!
 //! 使用 tokio broadcast channel 实现事件的发布/订阅模式。
 
-use crate::events::types::{Event, EventConfig};
+use crate::events::{Event, EventConfig};
 use log::debug;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -17,7 +17,7 @@ use tokio::sync::broadcast;
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::events::{EventEmitter, Event, EventType, EventConfig};
+/// use limiteron::{EventEmitter, Event, EventType, EventConfig};
 ///
 /// #[tokio::main]
 /// async fn main() {
@@ -82,7 +82,7 @@ impl EventEmitter {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::events::EventEmitter;
+    /// use limiteron::EventEmitter;
     ///
     /// let emitter = EventEmitter::builder()
     ///     .with_channel_capacity(2048)
@@ -162,7 +162,7 @@ impl EventEmitter {
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::events::EventEmitter;
+/// use limiteron::EventEmitter;
 ///
 /// let emitter = EventEmitter::builder()
 ///     .with_channel_capacity(2048)

@@ -5,9 +5,7 @@
 //! This adapter provides a complete Storage trait implementation using DBNexus
 //! for all database operations. It handles key-value storage with optional TTL.
 
-use crate::dbnexus_entities::key_value::{
-    ActiveModel as KeyValueActiveModel, Entity as KeyValueEntity,
-};
+use crate::dbnexus_entities::{KeyValueActiveModel, KeyValueEntity, KeyValueModel};
 use crate::error::StorageError;
 use crate::storage::Storage;
 use async_trait::async_trait;
@@ -85,7 +83,7 @@ impl Storage for DBNexusStorageAdapter {
             .await
             .is_ok();
 
-        let model = crate::dbnexus_entities::key_value::Model {
+        let model = KeyValueModel {
             key: key.to_string(),
             value: value.to_string(),
             expires_at,

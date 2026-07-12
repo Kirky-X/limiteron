@@ -14,7 +14,7 @@ use std::fmt;
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::tenant::Namespace;
+/// use limiteron::Namespace;
 ///
 /// let namespace = Namespace::new("tenant-123", "production");
 /// assert_eq!(namespace.tenant_id(), "tenant-123");
@@ -39,7 +39,7 @@ impl Namespace {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::tenant::Namespace;
+    /// use limiteron::Namespace;
     ///
     /// let ns = Namespace::new("acme-corp", "production");
     /// ```
@@ -67,7 +67,7 @@ impl Namespace {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::tenant::Namespace;
+    /// use limiteron::Namespace;
     ///
     /// let ns = Namespace::new("acme", "prod");
     /// assert_eq!(ns.prefix(), "tenant:acme:env:prod");
@@ -89,7 +89,7 @@ impl Namespace {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::tenant::Namespace;
+    /// use limiteron::Namespace;
     ///
     /// let ns = Namespace::new("acme", "prod");
     /// let namespaced_key = ns.qualify_key("rl:user:123:rule1");

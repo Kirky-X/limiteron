@@ -225,7 +225,7 @@ pub struct BanManager {
     #[cfg(feature = "event-system")]
     event_emitter: Option<Arc<crate::events::EventEmitter>>,
     /// 文件加载器（可选，启用 with_file_loader 时存在）
-    file_loader: Option<Arc<crate::ban::file_loader::BanFileLoader>>,
+    file_loader: Option<Arc<crate::ban::BanFileLoader>>,
 }
 
 /// BanManager 构建器
@@ -373,7 +373,7 @@ impl BanManagerBuilder {
 
         // 文件封禁加载器：加载初始规则 + 启动热重载
         if let Some(path) = self.file_loader_path {
-            let loader = Arc::new(crate::ban::file_loader::BanFileLoader::new(path));
+            let loader = Arc::new(crate::ban::BanFileLoader::new(path));
             let result = loader.load_once(&manager).await?;
             if result.failure_count > 0 {
                 log::warn!(

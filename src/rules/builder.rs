@@ -72,7 +72,7 @@ impl RuleBuilder {
     /// assert_eq!(RuleBuilder::parse_duration("2h").unwrap(), Duration::from_secs(7200));
     /// ```
     pub fn parse_duration(s: &str) -> Result<Duration, LimiteronError> {
-        crate::config::types::parse_window_size(s).map_err(LimiteronError::ConfigError)
+        crate::config::parse_window_size(s).map_err(LimiteronError::ConfigError)
     }
 
     /// 从配置构建规则对应的决策链

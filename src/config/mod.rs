@@ -17,7 +17,7 @@ pub(crate) mod types;
 // pub mod security;
 
 // Re-export all config types from types module
-pub use crate::config::types::{
+pub use types::{
     Action, ActionConfig, BanConfig, BanScope, CacheBackend, ChangeSource, ConfigBuilder,
     ConfigChangeRecord, ConfigHistory, FlowControlConfig, GlobalConfig, LimiterConfig,
     LimiterTypeName, Matcher, MetricsBackend, OverdraftConfig, QuotaType, Rule, RuleBuilder,
@@ -28,7 +28,10 @@ pub use crate::config::types::{
 pub use Matcher as ConfigMatcher;
 
 // Re-export config loader
-pub use crate::config::loader::ConfigLoader;
+pub use loader::ConfigLoader;
+
+// Re-export parse_window_size for crate-internal use
+pub(crate) use types::parse_window_size;
 
 // Re-export config watcher (requires config-watcher feature)
 // config-watcher 模块尚未实现：BanFileLoader::start_watching 已提供文件级热重载能力，

@@ -156,7 +156,7 @@ pub use circuit::{CircuitBreaker, CircuitBreakerConfig};
 pub use logging::audit::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
 // 导出配置相关类型
 #[cfg(feature = "cache-service")]
-pub use cache::{Cache, CacheKey, cache_service::CacheService};
+pub use cache::{Cache, CacheKey, CacheService};
 pub use config::ConfigLoader;
 pub use config::{
     ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, ConfigMatcher,
@@ -232,11 +232,11 @@ pub use storage::ParallelBanChecker;
 
 // Re-export CacheStorage (feature-gated)
 #[cfg(feature = "cache-storage")]
-pub use cache::ban_storage::CacheBanStorage;
+pub use cache::CacheBanStorage;
 #[cfg(feature = "cache-storage")]
-pub use cache::quota_storage::CacheQuotaStorage;
+pub use cache::CacheQuotaStorage;
 #[cfg(feature = "cache-storage")]
-pub use cache::storage::CacheStorage;
+pub use cache::CacheStorage;
 
 // Re-export GCRA limiter (feature-gated)
 #[cfg(feature = "gcra")]

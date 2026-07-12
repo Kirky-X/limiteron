@@ -107,7 +107,7 @@ impl AdminServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::admin::config::AdminApiConfig;
+    use crate::admin::AdminApiConfig;
     use crate::admin::make_governor;
 
     #[tokio::test]
@@ -140,7 +140,7 @@ mod tests {
     #[tokio::test]
     async fn test_admin_server_with_quota_controller() {
         use crate::QuotaController;
-        use crate::cache::quota_storage::CacheQuotaStorage;
+        use crate::cache::CacheQuotaStorage;
         use crate::quota::QuotaConfig;
         use crate::storage::QuotaStorage;
         use oxcache::backend::memory::DashMapMemoryBackend;
@@ -194,7 +194,7 @@ mod tests {
     #[cfg(feature = "ban-manager")]
     #[tokio::test]
     async fn test_admin_server_chained_builders() {
-        use crate::cache::quota_storage::CacheQuotaStorage;
+        use crate::cache::CacheQuotaStorage;
         use crate::circuit::{CircuitBreaker, CircuitBreakerConfig};
         use crate::quota::QuotaConfig;
         use crate::storage::QuotaStorage;

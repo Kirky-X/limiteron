@@ -35,3 +35,5 @@ pub use test_support::{make_governor, make_state, make_state_with_ban_manager};
 pub use config::AdminApiConfig;
 #[cfg(feature = "admin-api")]
 pub use server::AdminServer;
+#[cfg(feature = "admin-api")]
+pub use server::AppState;

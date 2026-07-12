@@ -17,8 +17,8 @@ use super::{
 };
 use crate::config::LimiterConfig;
 #[cfg(test)]
-use crate::config::types::QuotaType;
-use crate::config::types::parse_window_size;
+use crate::config::QuotaType;
+use crate::config::parse_window_size;
 use crate::error::LimiteronError;
 use std::sync::Arc;
 

@@ -6,7 +6,7 @@
 //! 使用 oxcache 作为底层缓存引擎，支持 TTL 过期策略。
 
 use crate::error::{BanInfo, Decision, RateLimitMetadata, RejectionMetadata};
-use oxcache::{Cache, OxCacheError};
+use oxcache::{Cache, CacheError};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::sync::Arc;
@@ -513,7 +513,7 @@ where
     /// # Errors
     ///
     /// 如果 oxcache 初始化失败，返回错误
-    pub async fn new() -> Result<Self, OxCacheError> {
+    pub async fn new() -> Result<Self, CacheError> {
         Self::with_config(L1CacheConfig::default()).await
     }
 
@@ -526,7 +526,7 @@ where
     /// # Errors
     ///
     /// 如果 oxcache 初始化失败，返回错误
-    pub async fn with_config(config: L1CacheConfig) -> Result<Self, OxCacheError> {
+    pub async fn with_config(config: L1CacheConfig) -> Result<Self, CacheError> {
         let cache = Cache::builder()
             .ttl(config.default_ttl)
             .capacity(config.max_size as u64)
@@ -558,7 +558,7 @@ where
     pub async fn with_ttl_and_size(
         default_ttl: Duration,
         max_size: usize,
-    ) -> Result<Self, OxCacheError> {
+    ) -> Result<Self, CacheError> {
         Self::with_config(L1CacheConfig::new(default_ttl, max_size)).await
     }
 
@@ -573,7 +573,7 @@ where
     /// # 返回
     ///
     /// 返回缓存的值（如果存在且未过期）
-    pub async fn get(&self, key: &str) -> Result<Option<T>, OxCacheError> {
+    pub async fn get(&self, key: &str) -> Result<Option<T>, CacheError> {
         if self.config.enable_stats {
             self.total_lookups.fetch_add(1, Ordering::Relaxed);
         }
@@ -595,7 +595,7 @@ where
     ///
     /// - `key`: 缓存键
     /// - `value`: 缓存值
-    pub async fn set(&self, key: String, value: T) -> Result<(), OxCacheError> {
+    pub async fn set(&self, key: String, value: T) -> Result<(), CacheError> {
         self.cache.set(&key, &value).await
     }
 
@@ -611,7 +611,7 @@ where
         key: String,
         value: T,
         ttl: Duration,
-    ) -> Result<(), OxCacheError> {
+    ) -> Result<(), CacheError> {
         self.cache.set_with_ttl(&key, &value, Some(ttl)).await
     }
 
@@ -622,7 +622,7 @@ where
     /// # 参数
     ///
     /// - `key`: 缓存键
-    pub async fn invalidate(&self, key: &str) -> Result<(), OxCacheError> {
+    pub async fn invalidate(&self, key: &str) -> Result<(), CacheError> {
         self.cache.delete(&key.to_string()).await
     }
 
@@ -633,7 +633,7 @@ where
     /// # 参数
     ///
     /// - `prefix`: 键前缀
-    pub async fn invalidate_by_prefix(&self, prefix: &str) -> Result<(), OxCacheError> {
+    pub async fn invalidate_by_prefix(&self, prefix: &str) -> Result<(), CacheError> {
         // oxcache 不支持前缀删除，需要先获取所有键再删除
         // 由于 oxcache API 限制，这里使用简单实现
         // 实际生产环境可能需要额外的键追踪机制
@@ -651,7 +651,7 @@ where
     /// # 参数
     ///
     /// - `pattern`: 要匹配的字符串模式
-    pub async fn invalidate_containing(&self, pattern: &str) -> Result<(), OxCacheError> {
+    pub async fn invalidate_containing(&self, pattern: &str) -> Result<(), CacheError> {
         log::warn!(
             "invalidate_containing called with pattern: {}. Note: This is a no-op in oxcache-based L1Cache",
             pattern
@@ -660,7 +660,7 @@ where
     }
 
     /// 清空所有缓存
-    pub async fn clear(&self) -> Result<(), OxCacheError> {
+    pub async fn clear(&self) -> Result<(), CacheError> {
         self.cache.clear().await
     }
 
@@ -671,19 +671,19 @@ where
     /// # 返回
     ///
     /// 返回清理的条目数（oxcache 自动处理，返回 0）
-    pub async fn evict_expired(&self) -> Result<usize, OxCacheError> {
+    pub async fn evict_expired(&self) -> Result<usize, CacheError> {
         // oxcache 自动处理过期条目
         Ok(0)
     }
 
     /// 获取当前缓存大小
-    pub async fn len(&self) -> Result<usize, OxCacheError> {
+    pub async fn len(&self) -> Result<usize, CacheError> {
         let len = self.cache.len().await? as usize;
         Ok(len)
     }
 
     /// 检查缓存是否为空
-    pub async fn is_empty(&self) -> Result<bool, OxCacheError> {
+    pub async fn is_empty(&self) -> Result<bool, CacheError> {
         let len = self.len().await?;
         Ok(len == 0)
     }
@@ -711,7 +711,7 @@ where
     }
 
     /// 检查键是否存在
-    pub async fn contains(&self, key: &str) -> Result<bool, OxCacheError> {
+    pub async fn contains(&self, key: &str) -> Result<bool, CacheError> {
         self.cache.exists(&key.to_string()).await
     }
 
@@ -723,7 +723,7 @@ where
     /// - `None`: 键不存在或已过期
     ///
     /// 注意：oxcache 不直接支持获取 TTL，此方法总是返回 None
-    pub async fn ttl(&self, _key: &str) -> Result<Option<Duration>, OxCacheError> {
+    pub async fn ttl(&self, _key: &str) -> Result<Option<Duration>, CacheError> {
         // oxcache 不支持获取单个键的 TTL
         Ok(None)
     }

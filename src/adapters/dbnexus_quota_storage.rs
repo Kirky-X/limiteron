@@ -5,9 +5,8 @@
 //! This adapter provides a complete QuotaStorage trait implementation using DBNexus
 //! for all quota management operations.
 
-use crate::dbnexus_entities::quota_record::{
-    ActiveModel as QuotaRecordActiveModel, Column as QuotaColumn, Model as QuotaRecordModel,
-    create_quota_key,
+use crate::dbnexus_entities::{
+    QuotaColumn, QuotaRecordActiveModel, QuotaRecordModel, create_quota_key,
 };
 use crate::error::{ConsumeResult, StorageError};
 use crate::storage::{QuotaInfo, QuotaStorage};

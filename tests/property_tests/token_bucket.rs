@@ -7,7 +7,7 @@
 //! 2. 令牌补充速率正确
 //! 3. 并发安全:多线程竞争下不超限
 
-use limiteron::clock::MockClock;
+use limiteron::MockClock;
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use proptest::prelude::*;
 use std::sync::Arc;
@@ -51,7 +51,7 @@ proptest! {
         wait_seconds in 0u64..10
     ) {
         let mock_clock = Arc::new(MockClock::new());
-        let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
+        let clock: Arc<dyn limiteron::Clock> = mock_clock.clone();
         let limiter = TokenBucketLimiter::with_clock(capacity, refill_rate, clock);
 
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -101,7 +101,7 @@ proptest! {
         wait_seconds in 0u64..100
     ) {
         let mock_clock = Arc::new(MockClock::new());
-        let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
+        let clock: Arc<dyn limiteron::Clock> = mock_clock.clone();
         let limiter = TokenBucketLimiter::with_clock(capacity, refill_rate, clock);
 
         // 时间前进很长时间,远超补充所需

@@ -13,8 +13,8 @@
 
 use super::ChaosTestResult;
 use super::fault_injection::{FaultInjectionStorage, FaultPattern};
+use limiteron::MockClock;
 use limiteron::Storage;
-use limiteron::clock::MockClock;
 use limiteron::error::StorageError;
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use limiteron::storage::MemoryStorage;
@@ -321,7 +321,7 @@ impl ChaosScenario for ClockSkew {
 
     async fn run(&self) -> ChaosTestResult {
         let mock_clock = Arc::new(MockClock::new());
-        let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
+        let clock: Arc<dyn limiteron::Clock> = mock_clock.clone();
         let limiter = TokenBucketLimiter::with_clock(self.capacity, self.refill_rate, clock);
 
         let mut result = ChaosTestResult {

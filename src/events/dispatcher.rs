@@ -22,7 +22,7 @@ use tokio::task::JoinHandle;
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::events::{EventEmitter, EventDispatcher, EventConfig};
+/// use limiteron::{EventEmitter, EventDispatcher, EventConfig};
 ///
 /// #[tokio::main]
 /// async fn main() {

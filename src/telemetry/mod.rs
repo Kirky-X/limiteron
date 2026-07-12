@@ -54,6 +54,7 @@ mod telemetry_impl;
 // 重新导出实现模块的公共函数
 #[cfg(feature = "telemetry")]
 pub use telemetry_impl::init_telemetry;
+pub use telemetry_impl::start_prometheus_server;
 #[cfg(feature = "monitoring")]
 pub use telemetry_impl::{set_global_metrics, try_global};
 

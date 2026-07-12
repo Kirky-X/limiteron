@@ -1,4 +1,4 @@
-  <div align="center">
+<div align="center">
 
 <p>
   <img src="docs/image/limiteron.png" alt="Limiteron Logo" width="200">
@@ -16,6 +16,8 @@
   <img src="https://img.shields.io/github/issues/Kirky-X/limiteron" alt="GitHub Issues">
 </p>
 
+[中文](./README.md)
+
 <p align="center">
   <strong>Rust Unified Flow Control Framework</strong>
 </p>
@@ -29,8 +31,6 @@
 </p>
 
 </div>
-
-[中文](./README.md)
 
 ---
 
@@ -89,20 +89,20 @@
 
 <div align="center">
 
-### 🎨 特性亮点
+### 🎨 Feature Highlights
 
 </div>
 
 ```mermaid
 graph LR
-    A[请求] --> B[标识符提取]
-    B --> C[限流检查]
-    B --> D[封禁检查]
-    B --> E[配额检查]
-    C --> F[决策链]
+    A[Request] --> B[Identifier Extraction]
+    B --> C[Rate Limit Check]
+    B --> D[Ban Check]
+    B --> E[Quota Check]
+    C --> F[Decision Chain]
     D --> F
     E --> F
-    F --> G[允许/拒绝]
+    F --> G[Allow/Deny]
 
     style A fill:#e1f5ff
     style B fill:#b3e5fc
@@ -242,40 +242,40 @@ limiteron = { version = "0.2", features = ["postgres", "redis-storage", "macros"
 
 <div align="center">
 
-#### 🎛️ 可选特性配置
+#### 🎛️ Optional Feature Configuration
 
 </div>
 
-Limiteron 使用 feature flags 来控制功能启用，默认只启用内存存储：
+Limiteron uses feature flags to control functionality. Only in-memory storage is enabled by default:
 
 <table>
 <tr>
 <td width="50%">
 
-**预定义组合**
+**Preset Combinations**
 ```toml
-# 最小化：仅核心限流
+# Minimal: core rate limiting only
 limiteron = { version = "0.2", features = ["minimal"] }
 
-# 标准：核心 + 基础高级功能
+# Standard: core + basic advanced features
 limiteron = { version = "0.2", features = ["standard"] }
 
-# 完整：所有功能
+# Full: all features
 limiteron = { version = "0.2", features = ["full"] }
 ```
 
 </td>
 <td width="50%">
 
-**单独特性**
+**Individual Features**
 ```toml
-# 存储后端
+# Storage backends
 limiteron = { version = "0.2", features = ["postgres", "redis-storage"] }
 
-# 高级功能
+# Advanced features
 limiteron = { version = "0.2", features = ["ban-manager", "quota-control", "circuit-breaker"] }
 
-# 宏支持
+# Macro support
 limiteron = { version = "0.2", features = ["macros"] }
 ```
 
@@ -284,7 +284,7 @@ limiteron = { version = "0.2", features = ["macros"] }
 </table>
 
 <details>
-<summary><b>📋 完整特性列表</b></summary>
+<summary><b>📋 Complete Feature List</b></summary>
 
 <br>
 
@@ -638,7 +638,7 @@ let governor = Governor::builder()
 
 </div>
 
-Limiteron使用TOML格式的配置文件（`config.toml`），支持环境变量覆盖。
+Limiteron uses TOML-format configuration files (`config.toml`) with environment variable override support.
 
 <table>
 <tr>
@@ -756,8 +756,8 @@ cargo bench
 cargo tarpaulin --out Html
 ```
 
-详细测试文档: [TESTING.md](./docs/TESTING.md)
-覆盖率报告: [COVERAGE_REPORT.md](./docs/COVERAGE_REPORT.md)
+Detailed test documentation: [TESTING.md](./docs/TESTING.md)
+Coverage report: [COVERAGE_REPORT.md](./docs/COVERAGE_REPORT.md)
 
 ---
 
@@ -821,11 +821,11 @@ cd temp/comprehensive_test
 
 **Sample output:**
 ```
-功能测试: 7/7 Pass (100%)
+Functional Tests: 7/7 Pass (100%)
 TokenBucket: 12,088,759 ops/s
 FixedWindow: 19,920,188 ops/s
 ConcurrencyLimiter: 11,891,237 ops/s
-并发测试: 100% 数据一致性
+Concurrency Test: 100% Data Consistency
 ```
 
 </details>

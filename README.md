@@ -4,11 +4,11 @@
 
 [![CI](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg)](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml) [![crates.io](https://img.shields.io/crates/v/limiteron)](https://crates.io/crates/limiteron) [![docs.rs](https://img.shields.io/docsrs/limiteron)](https://docs.rs/limiteron) [![downloads](https://img.shields.io/crates/d/limiteron)](https://crates.io/crates/limiteron) [![license](https://img.shields.io/crates/l/limiteron)](LICENSE) ![rust](https://img.shields.io/badge/rust-1.85%2B-orange)
 
+[English](./README_EN.md)
+
 **Rust 统一流量控制框架** — 限流、配额管理、熔断、封禁一体化解决方案。
 
 </div>
-
-[English](./README_EN.md)
 
 ---
 

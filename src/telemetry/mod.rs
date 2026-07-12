@@ -96,10 +96,6 @@ pub struct Metrics {
     registry: Registry,
 }
 
-/// 全局指标实例
-#[cfg(feature = "monitoring")]
-static GLOBAL_METRICS: std::sync::OnceLock<Arc<Metrics>> = std::sync::OnceLock::new();
-
 /// 追踪器
 ///
 /// 使用OpenTelemetry实现的分布式追踪器。

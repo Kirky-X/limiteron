@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! `LimiteronModule` — trait-kit 0.2.2 `AsyncKit` integration for limiteron.
+//! `LimiteronModule` — trait-kit `AsyncKit` integration for limiteron.
 //!
 //! Phase 3 (T021 Red / T022 Green) of the `trait-kit-async-integration`
 //! change. Wires limiteron's [`Governor`] into the `AsyncKit` dependency

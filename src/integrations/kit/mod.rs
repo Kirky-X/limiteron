@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! trait-kit 0.2.2 `AsyncKit` integration for limiteron.
+//! trait-kit `AsyncKit` integration for limiteron.
 //!
 //! Enable via the `kit` cargo feature. Provides [`LimiteronModule`] — a leaf
 //! module (no upstream dependencies) that constructs a limiteron

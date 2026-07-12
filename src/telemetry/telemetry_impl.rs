@@ -6,6 +6,10 @@
 
 use super::*;
 
+/// 全局指标实例
+#[cfg(feature = "monitoring")]
+static GLOBAL_METRICS: std::sync::OnceLock<Arc<Metrics>> = std::sync::OnceLock::new();
+
 #[cfg(not(feature = "monitoring"))]
 impl Metrics {
     pub fn new() -> Self {

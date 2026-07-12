@@ -16,7 +16,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.2.4"
+version = "0.2.5"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Kirky.X"]
@@ -85,8 +85,8 @@ sqlx = { version = "0.9", features = ["postgres", "runtime-tokio", "tls-rustls"]
 # 缓存库
 oxcache = { version = "0.3", default-features = false, features = ["core"] }
 
-# 数据库抽象层 — dbnexus 0.3 依赖 oxcache 0.2（与本项目 oxcache 0.3 冲突），暂保持 0.2
-dbnexus = { version = "0.2", default-features = false, features = ["postgres", "macros", "sql-parser", "permission"] }
+# 数据库抽象层 — dbnexus 0.4 依赖 oxcache 0.3（与本项目兼容），trait-kit 0.3
+dbnexus = { version = "0.4", default-features = false, features = ["postgres", "macros", "sql-parser", "permission"] }
 
 # 宏
 limiteron-macros = { path = "macros", version = "0.2" }

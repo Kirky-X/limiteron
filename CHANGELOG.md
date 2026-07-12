@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-07-13
+
+### Dependencies
+
+- dbnexus 0.2 → 0.4（解决 oxcache 版本冲突，dbnexus 0.4 现依赖 oxcache 0.3）
+- oxcache 0.3.7 → 0.3.8
+
 ## [0.2.4] - 2026-07-12
 
 ### Changed

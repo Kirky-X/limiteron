@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### ⚠️ BREAKING CHANGES
+## [0.2.4] - 2026-07-12
+
+### Changed
 
 - `FlowGuardError` renamed to `LimiteronError`, following `ProjectNameError` naming convention
 - Added `LimiteronResult<T>` type alias
-- Cross-crate imports updated: `oxcache::CacheError` → `oxcache::OxCacheError`
+- Cross-crate imports updated: `oxcache::CacheError` → `oxcache::OxCacheError`（适配 oxcache 0.3.7）
+- 导入路径扁平化
 
 ## [0.2.3] - 2026-07-11
 
@@ -255,7 +258,8 @@ let ban_manager = BanManager::new().await.unwrap();
 - Monitoring with Prometheus metrics and OpenTelemetry tracing
 - Parallel ban checking for improved performance
 
-[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/Kirky-X/limiteron/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/Kirky-X/limiteron/compare/v0.2.1...v0.2.3
 [0.2.1]: https://github.com/Kirky-X/limiteron/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Kirky-X/limiteron/compare/v0.1.1...v0.2.0

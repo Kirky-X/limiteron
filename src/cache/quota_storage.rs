@@ -5,14 +5,14 @@ use crate::storage::{QuotaInfo, QuotaStorage};
 use async_trait::async_trait;
 use chrono::Utc;
 use oxcache::backend::CacheBackend;
-use oxcache::error::CacheError;
+use oxcache::error::OxCacheError;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 
-fn map_error(e: CacheError) -> StorageError {
+fn map_error(e: OxCacheError) -> StorageError {
     match e {
-        CacheError::Connection(_) | CacheError::Timeout(_) => {
+        OxCacheError::Connection(_) | OxCacheError::Timeout(_) => {
             StorageError::ConnectionError(e.to_string())
         }
         _ => StorageError::QueryError(e.to_string()),
@@ -382,19 +382,19 @@ mod tests {
     // map_error 直接调用覆盖（私有函数，通过 use super::* 可访问）
     #[test]
     fn test_map_error_connection() {
-        let err = map_error(CacheError::Connection("conn fail".to_string()));
+        let err = map_error(OxCacheError::Connection("conn fail".to_string()));
         assert!(matches!(err, StorageError::ConnectionError(_)));
     }
 
     #[test]
     fn test_map_error_timeout() {
-        let err = map_error(CacheError::Timeout("timed out".to_string()));
+        let err = map_error(OxCacheError::Timeout("timed out".to_string()));
         assert!(matches!(err, StorageError::ConnectionError(_)));
     }
 
     #[test]
     fn test_map_error_other() {
-        let err = map_error(CacheError::NotFound("not found".to_string()));
+        let err = map_error(OxCacheError::NotFound("not found".to_string()));
         assert!(matches!(err, StorageError::QueryError(_)));
     }
 

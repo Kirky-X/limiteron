@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use crate::admin::server::AppState;
-use crate::config::types::{
+use crate::config::{
     Action, ActionConfig, FlowControlConfig, GlobalConfig, LimiterConfig, Matcher, Rule,
 };
 use crate::governor::Governor;

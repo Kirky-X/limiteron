@@ -10,9 +10,7 @@
 //! - 从 FlowControlConfig 构建决策链映射
 //! - 时长字符串解析
 
-use crate::config::types::{
-    FlowControlConfig, LimiterConfig, LimiterTypeName, Matcher as ConfigMatcher,
-};
+use crate::config::{FlowControlConfig, LimiterConfig, LimiterTypeName, Matcher as ConfigMatcher};
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::LimiteronError;
 use crate::limiters::{
@@ -35,7 +33,7 @@ use std::time::Duration;
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::rules::builder::RuleBuilder;
+/// use limiteron::RuleBuilder;
 /// use limiteron::config::FlowControlConfig;
 ///
 /// let config = FlowControlConfig::default();
@@ -65,7 +63,7 @@ impl RuleBuilder {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::rules::builder::RuleBuilder;
+    /// use limiteron::RuleBuilder;
     /// use std::time::Duration;
     ///
     /// assert_eq!(RuleBuilder::parse_duration("100ms").unwrap(), Duration::from_millis(100));
@@ -91,7 +89,7 @@ impl RuleBuilder {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::rules::builder::RuleBuilder;
+    /// use limiteron::RuleBuilder;
     /// use limiteron::config::FlowControlConfig;
     ///
     /// let config = FlowControlConfig::default();
@@ -199,7 +197,7 @@ impl RuleBuilder {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::rules::builder::RuleBuilder;
+    /// use limiteron::RuleBuilder;
     /// use limiteron::config::FlowControlConfig;
     ///
     /// let config = FlowControlConfig::default();
@@ -272,7 +270,7 @@ impl RuleBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::types::{ActionConfig, Matcher, QuotaType, Rule};
+    use crate::config::{ActionConfig, Matcher, QuotaType, Rule};
 
     #[test]
     fn test_parse_duration_milliseconds() {

@@ -7,7 +7,7 @@
 //! 2. 多线程竞争下不出现数据竞争
 //! 3. 各种限流器在并发下的行为一致性
 
-use limiteron::clock::MockClock;
+use limiteron::MockClock;
 use limiteron::limiters::{FixedWindowLimiter, Limiter, TokenBucketLimiter};
 use proptest::prelude::*;
 use std::sync::Arc;
@@ -76,7 +76,7 @@ proptest! {
         num_concurrent in 10usize..200
     ) {
         let mock_clock = Arc::new(MockClock::new());
-        let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
+        let clock: Arc<dyn limiteron::Clock> = mock_clock.clone();
         let limiter = Arc::new(FixedWindowLimiter::with_clock(
             Duration::from_secs(60),
             max_requests,
@@ -137,7 +137,7 @@ proptest! {
         num_concurrent in 20usize..100
     ) {
         let mock_clock = Arc::new(MockClock::new());
-        let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
+        let clock: Arc<dyn limiteron::Clock> = mock_clock.clone();
         let limiter = Arc::new(TokenBucketLimiter::with_clock(
             capacity,
             refill_rate,
@@ -192,7 +192,7 @@ mod additional_tests {
     #[tokio::test]
     async fn test_concurrent_fixed_window_stress() {
         let mock_clock = Arc::new(MockClock::new());
-        let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
+        let clock: Arc<dyn limiteron::Clock> = mock_clock.clone();
         let limiter = Arc::new(FixedWindowLimiter::with_clock(
             Duration::from_secs(60),
             50,
@@ -209,7 +209,7 @@ mod additional_tests {
     #[tokio::test]
     async fn test_concurrent_multiple_waves() {
         let mock_clock = Arc::new(MockClock::new());
-        let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
+        let clock: Arc<dyn limiteron::Clock> = mock_clock.clone();
         let limiter = Arc::new(TokenBucketLimiter::with_clock(10, 10, clock));
 
         // 第一波: 消耗所有令牌

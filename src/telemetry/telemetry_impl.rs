@@ -1,0 +1,1197 @@
+// Copyright (c) 2026 Kirky.X
+// SPDX-License-Identifier: MIT
+//! Telemetry 模块的 impl 块、函数实现和单元测试
+//!
+//! 从 `mod.rs` 拆分而来，包含所有类型的实现逻辑和测试。
+
+use super::*;
+
+/// 全局指标实例
+#[cfg(feature = "monitoring")]
+static GLOBAL_METRICS: std::sync::OnceLock<Arc<Metrics>> = std::sync::OnceLock::new();
+
+#[cfg(not(feature = "monitoring"))]
+impl Metrics {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn gather(&self) -> String {
+        String::new()
+    }
+
+    pub fn record_check(&self, _duration: Duration, _allowed: bool) {}
+
+    pub fn record_error(&self, _error_type: &str) {}
+
+    pub fn record_ban(&self) {}
+
+    pub fn update_quota_usage(&self, _usage: f64) {}
+
+    pub fn update_concurrent_connections(&self, _count: i64) {}
+
+    pub fn update_token_bucket_tokens(&self, _tokens: f64) {}
+
+    pub fn update_sliding_window_requests(&self, _count: f64) {}
+
+    pub fn update_fixed_window_requests(&self, _count: f64) {}
+}
+
+/// 设置全局指标实例
+///
+#[cfg(feature = "monitoring")]
+/// # 参数
+/// - `metrics`: Metrics实例
+pub fn set_global_metrics(metrics: Arc<Metrics>) {
+    let _ = GLOBAL_METRICS.set(metrics);
+}
+
+/// 获取全局指标实例
+///
+#[cfg(feature = "monitoring")]
+/// # 返回
+/// - `Some(Arc<Metrics>)`: 如果已设置
+pub fn try_global() -> Option<Arc<Metrics>> {
+    GLOBAL_METRICS.get().cloned()
+}
+
+#[cfg(feature = "monitoring")]
+impl Metrics {
+    /// 创建新的监控指标
+    ///
+    /// # 返回
+    /// - 包含所有指标的Metrics实例
+    pub fn new() -> Self {
+        let registry = Registry::new();
+
+        let register_counter = |name: &str, help: &str| -> Counter {
+            let c = Counter::new(name, help).expect("Failed to create counter");
+            registry
+                .register(Box::new(c.clone()))
+                .expect("Failed to register counter");
+            c
+        };
+
+        let register_gauge = |name: &str, help: &str| -> Gauge {
+            let g = Gauge::new(name, help).expect("Failed to create gauge");
+            registry
+                .register(Box::new(g.clone()))
+                .expect("Failed to register gauge");
+            g
+        };
+
+        let register_histogram = |name: &str, help: &str, buckets: Vec<f64>| -> Histogram {
+            let opts = HistogramOpts::new(name, help).buckets(buckets);
+            let h = Histogram::with_opts(opts).expect("Failed to create histogram");
+            registry
+                .register(Box::new(h.clone()))
+                .expect("Failed to register histogram");
+            h
+        };
+
+        // 总请求数
+        let requests_total = register_counter(
+            "flowguard_requests_total",
+            "Total number of flow control checks",
+        );
+
+        // 允许的请求数
+        let requests_allowed = register_counter(
+            "flowguard_requests_allowed_total",
+            "Total number of allowed requests",
+        );
+
+        // 拒绝的请求数
+        let requests_rejected = register_counter(
+            "flowguard_requests_rejected_total",
+            "Total number of rejected requests",
+        );
+
+        // 封禁的请求数
+        let requests_banned = register_counter(
+            "flowguard_requests_banned_total",
+            "Total number of banned requests",
+        );
+
+        // 错误数
+        let errors_total = register_counter("flowguard_errors_total", "Total number of errors");
+
+        // 检查延迟分布
+        let check_duration = register_histogram(
+            "flowguard_check_duration_seconds",
+            "Duration of flow control checks in seconds",
+            vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
+        );
+
+        // 限流器延迟分布
+        let limiter_duration = register_histogram(
+            "flowguard_limiter_duration_seconds",
+            "Duration of limiter operations in seconds",
+            vec![0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
+        );
+
+        // 配额使用率
+        let quota_usage = register_gauge(
+            "flowguard_quota_usage_ratio_percent",
+            "Quota usage ratio as percentage (0-100)",
+        );
+
+        // 并发连接数
+        let concurrent_connections = register_gauge(
+            "flowguard_concurrent_connections",
+            "Current number of concurrent connections",
+        );
+
+        // 令牌桶令牌数
+        let token_bucket_tokens = register_gauge(
+            "flowguard_token_bucket_tokens",
+            "Current number of tokens in token bucket",
+        );
+
+        // 滑动窗口请求数
+        let sliding_window_requests = register_gauge(
+            "flowguard_sliding_window_requests",
+            "Current number of requests in sliding window",
+        );
+
+        // 固定窗口请求数
+        let fixed_window_requests = register_gauge(
+            "flowguard_fixed_window_requests",
+            "Current number of requests in fixed window",
+        );
+
+        Self {
+            requests_total,
+            requests_allowed,
+            requests_rejected,
+            requests_banned,
+            errors_total,
+            check_duration,
+            limiter_duration,
+            quota_usage,
+            concurrent_connections,
+            token_bucket_tokens,
+            sliding_window_requests,
+            fixed_window_requests,
+            registry,
+        }
+    }
+
+    /// 注册到Registry
+    ///
+    /// # 参数
+    /// - `registry`: Prometheus注册表
+    ///
+    /// # 返回
+    /// - `Ok(())`: 注册成功
+    /// - `Err(_)`: 注册失败
+    pub fn register(&self, registry: &Registry) -> Result<(), prometheus::Error> {
+        registry.register(Box::new(self.requests_total.clone()))?;
+        registry.register(Box::new(self.requests_allowed.clone()))?;
+        registry.register(Box::new(self.requests_rejected.clone()))?;
+        registry.register(Box::new(self.requests_banned.clone()))?;
+        registry.register(Box::new(self.errors_total.clone()))?;
+        registry.register(Box::new(self.check_duration.clone()))?;
+        registry.register(Box::new(self.limiter_duration.clone()))?;
+        registry.register(Box::new(self.quota_usage.clone()))?;
+        registry.register(Box::new(self.concurrent_connections.clone()))?;
+        registry.register(Box::new(self.token_bucket_tokens.clone()))?;
+        registry.register(Box::new(self.sliding_window_requests.clone()))?;
+        registry.register(Box::new(self.fixed_window_requests.clone()))?;
+        Ok(())
+    }
+
+    /// 收集所有指标并返回Prometheus格式的文本
+    ///
+    /// # 返回
+    /// - Prometheus格式的指标文本
+    pub fn gather(&self) -> String {
+        let encoder = TextEncoder::new();
+        let metric_families = self.registry.gather();
+        let mut buffer = Vec::new();
+        if let Err(e) = encoder.encode(&metric_families, &mut buffer) {
+            error!("Failed to encode metrics: {}", e);
+            return String::new();
+        }
+        String::from_utf8(buffer).unwrap_or_else(|_| String::new())
+    }
+
+    /// 记录检查操作
+    ///
+    /// # 参数
+    /// - `duration`: 操作持续时间
+    /// - `allowed`: 是否允许
+    pub fn record_check(&self, duration: Duration, allowed: bool) {
+        self.check_duration.observe(duration.as_secs_f64());
+        self.requests_total.inc();
+        if allowed {
+            self.requests_allowed.inc();
+        } else {
+            self.requests_rejected.inc();
+        }
+    }
+
+    /// 记录错误
+    ///
+    /// # 参数
+    /// - `error_type`: 错误类型
+    pub fn record_error(&self, _error_type: &str) {
+        self.errors_total.inc();
+    }
+
+    /// 记录封禁
+    pub fn record_ban(&self) {
+        self.requests_banned.inc();
+    }
+
+    /// 更新配额使用率
+    ///
+    /// # 参数
+    /// - `usage`: 使用率 (0-100)
+    pub fn update_quota_usage(&self, usage: f64) {
+        self.quota_usage.set(usage);
+    }
+
+    /// 更新并发连接数
+    ///
+    /// # 参数
+    /// - `count`: 连接数
+    pub fn update_concurrent_connections(&self, count: i64) {
+        self.concurrent_connections.set(count as f64);
+    }
+
+    /// 更新令牌桶令牌数
+    ///
+    /// # 参数
+    /// - `tokens`: 令牌数
+    pub fn update_token_bucket_tokens(&self, tokens: f64) {
+        self.token_bucket_tokens.set(tokens);
+    }
+
+    /// 更新滑动窗口请求数
+    ///
+    /// # 参数
+    /// - `count`: 请求数
+    pub fn update_sliding_window_requests(&self, count: f64) {
+        self.sliding_window_requests.set(count);
+    }
+
+    /// 更新固定窗口请求数
+    ///
+    /// # 参数
+    /// - `count`: 请求数
+    pub fn update_fixed_window_requests(&self, count: f64) {
+        self.fixed_window_requests.set(count);
+    }
+}
+
+#[cfg(feature = "monitoring")]
+impl Default for Metrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Tracer {
+    /// 创建新的追踪器
+    ///
+    /// # 参数
+    /// - `enabled`: 是否启用追踪
+    ///
+    /// # 返回
+    /// - Tracer实例
+    pub fn new(enabled: bool) -> Self {
+        Self { enabled }
+    }
+
+    /// 开始追踪
+    ///
+    /// # 参数
+    /// - `name`: Span名称
+    ///
+    /// # 返回
+    /// - Span实例
+    pub fn start_span(&self, _name: &str) -> Span {
+        if !self.enabled {
+            return Span::new_disabled();
+        }
+
+        Span::new()
+    }
+
+    /// 检查是否启用
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+}
+
+impl Default for Tracer {
+    fn default() -> Self {
+        Self::new(true)
+    }
+}
+
+impl Span {
+    /// 创建新的Span
+    fn new() -> Self {
+        Self {
+            started_at: Some(Instant::now()),
+            enabled: true,
+            attributes: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            events: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            error: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+        }
+    }
+
+    /// 创建禁用的Span
+    fn new_disabled() -> Self {
+        Self {
+            started_at: None,
+            enabled: false,
+            attributes: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            events: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            error: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+        }
+    }
+
+    /// 添加属性
+    ///
+    /// # 参数
+    /// - `key`: 属性名
+    /// - `value`: 属性值
+    pub fn set_attribute(&self, key: &str, value: &str) {
+        if self.enabled {
+            if let Ok(mut attrs) = self.attributes.try_lock() {
+                attrs.push((key.to_string(), value.to_string()));
+            }
+        }
+    }
+
+    /// 添加事件
+    ///
+    /// # 参数
+    /// - `name`: 事件名
+    /// - `attributes`: 事件属性
+    pub fn add_event(&self, name: &str, attributes: Vec<(String, String)>) {
+        if self.enabled {
+            if let Ok(mut evts) = self.events.try_lock() {
+                evts.push((name.to_string(), attributes));
+            }
+        }
+    }
+
+    /// 记录错误
+    ///
+    /// # 参数
+    /// - `error`: 错误信息
+    pub fn record_error(&self, error: &str) {
+        if self.enabled {
+            if let Ok(mut err) = self.error.try_lock() {
+                *err = Some(error.to_string());
+            }
+        }
+    }
+
+    /// 结束追踪
+    pub fn finish(self) {
+        if self.enabled {
+            // 记录span完成
+            let elapsed = self.elapsed();
+            if let Some(duration) = elapsed {
+                log::debug!("Span finished in {:?}", duration);
+            }
+        }
+    }
+
+    /// 获取持续时间
+    pub fn elapsed(&self) -> Option<Duration> {
+        self.started_at.map(|start| start.elapsed())
+    }
+
+    /// 获取所有属性
+    pub fn attributes(&self) -> Vec<(String, String)> {
+        self.attributes
+            .try_lock()
+            .map(|attrs| attrs.clone())
+            .unwrap_or_default()
+    }
+
+    /// 获取所有事件
+    pub fn events(&self) -> Vec<(String, Vec<(String, String)>)> {
+        self.events
+            .try_lock()
+            .map(|evts| evts.clone())
+            .unwrap_or_default()
+    }
+
+    /// 获取错误信息
+    pub fn error(&self) -> Option<String> {
+        self.error
+            .try_lock()
+            .map(|err| err.clone())
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for Span {
+    fn drop(&mut self) {
+        if self.enabled {
+            // 自动结束span
+            let elapsed = self.elapsed();
+            if let Some(duration) = elapsed {
+                log::debug!("Span dropped after {:?}", duration);
+            }
+        }
+    }
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            service_name: "flowguard".to_string(),
+            jaeger_endpoint: None,
+            enable_prometheus: true,
+            enable_tracing: false,
+            prometheus_port: 9090,
+            sampling_rate: 1.0,
+        }
+    }
+}
+
+impl TelemetryConfig {
+    /// 创建新的配置
+    pub fn new(service_name: impl Into<String>) -> Self {
+        Self {
+            service_name: service_name.into(),
+            ..Default::default()
+        }
+    }
+
+    /// 设置Jaeger端点
+    pub fn with_jaeger(mut self, endpoint: impl Into<String>) -> Self {
+        self.jaeger_endpoint = Some(endpoint.into());
+        self.enable_tracing = true;
+        self
+    }
+
+    /// 启用Prometheus
+    pub fn with_prometheus(mut self, port: u16) -> Self {
+        self.prometheus_port = port;
+        self.enable_prometheus = true;
+        self
+    }
+
+    /// 设置采样率
+    pub fn with_sampling_rate(mut self, rate: f64) -> Self {
+        self.sampling_rate = rate.clamp(0.0, 1.0);
+        self
+    }
+}
+
+/// 初始化遥测系统
+///
+/// # 参数
+/// - `config`: 遥测配置
+///
+/// # 返回
+/// - `Ok((Metrics, Tracer))`: 初始化成功
+/// - `Err(_)`: 初始化失败
+///
+/// # 示例
+/// ```rust
+/// use limiteron::telemetry::{init_telemetry, TelemetryConfig};
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let config = TelemetryConfig::new("my-service")
+///         .with_jaeger("http://localhost:14268/api/traces")
+///         .with_prometheus(9090);
+///
+///     let (metrics, tracer) = init_telemetry(&config).await.unwrap();
+/// }
+/// ```
+pub async fn init_telemetry(config: &TelemetryConfig) -> Result<(Metrics, Tracer), String> {
+    info!("Initializing telemetry system");
+
+    // 初始化Prometheus指标
+    let metrics = if config.enable_prometheus {
+        info!(
+            "Prometheus metrics initialized (configured port: {})",
+            config.prometheus_port
+        );
+        Metrics::new()
+    } else {
+        info!("Prometheus metrics disabled");
+        Metrics::new()
+    };
+
+    // 初始化OpenTelemetry追踪
+    let tracer = if config.enable_tracing {
+        info!(
+            "OpenTelemetry tracing enabled with sampling rate {}",
+            config.sampling_rate
+        );
+
+        if let Some(ref jaeger_endpoint) = config.jaeger_endpoint {
+            init_jaeger_tracer(config, jaeger_endpoint).await?;
+        } else {
+            info!("No Jaeger endpoint provided, using console exporter");
+            init_console_tracer(config)?;
+        }
+
+        Tracer::new(true)
+    } else {
+        info!("OpenTelemetry tracing disabled");
+        Tracer::new(false)
+    };
+
+    info!("Telemetry system initialized successfully");
+    Ok((metrics, tracer))
+}
+
+/// 初始化Jaeger追踪器
+async fn init_jaeger_tracer(config: &TelemetryConfig, endpoint: &str) -> Result<(), String> {
+    #[cfg(feature = "telemetry")]
+    {
+        // 简化的 Jaeger 追踪器初始化
+        // 由于 OpenTelemetry SDK API 变更，完整功能需要更新依赖版本
+        info!("Jaeger tracing configured for endpoint: {}", endpoint);
+        info!("Service name: {}", config.service_name);
+        info!("Sampling rate: {}", config.sampling_rate);
+
+        // 设置基本的 tracing subscriber（如果尚未设置）
+        if let Err(e) = tracing_subscriber::fmt().try_init() {
+            warn!("Tracing subscriber already set: {}", e);
+        }
+
+        info!("Jaeger tracer initialized successfully (simplified mode)");
+        Ok(())
+    }
+    #[cfg(not(feature = "telemetry"))]
+    {
+        let _ = config;
+        let _ = endpoint;
+        Err("telemetry feature is disabled".to_string())
+    }
+}
+
+/// 初始化控制台追踪器
+///
+/// 使用 OpenTelemetry SDK 的控制台 exporter 输出 traces。
+/// 适用于开发环境或调试目的。
+fn init_console_tracer(config: &TelemetryConfig) -> Result<(), String> {
+    #[cfg(feature = "telemetry")]
+    {
+        // 设置 tracing subscriber
+        if let Err(e) = tracing_subscriber::fmt().try_init() {
+            warn!("Tracing subscriber already set: {}", e);
+        }
+
+        info!(
+            "Console tracer initialized for service: {}",
+            config.service_name
+        );
+        Ok(())
+    }
+    #[cfg(not(feature = "telemetry"))]
+    {
+        let _ = config;
+        Err("telemetry feature is disabled".to_string())
+    }
+}
+
+/// 启动Prometheus指标服务器
+///
+/// # 参数
+/// - `metrics`: Metrics实例
+/// - `port`: 端口号
+///
+/// # 返回
+/// - `Ok(())`: 服务器启动成功
+/// - `Err(_)`: 服务器启动失败
+#[cfg(feature = "monitoring")]
+pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result<(), String> {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    use tokio::time::{Duration, timeout};
+
+    // 并发连接限制
+    const MAX_CONCURRENT_CONNECTIONS: usize = 100;
+    let connection_count = Arc::new(AtomicUsize::new(0));
+
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
+        .await
+        .map_err(|e| format!("Failed to bind to port {}: {}", port, e))?;
+
+    info!("Prometheus metrics server listening on port {}", port);
+
+    loop {
+        match listener.accept().await {
+            Ok((mut socket, addr)) => {
+                // 检查并发连接数
+                let current_connections = connection_count.load(Ordering::Relaxed);
+                if current_connections >= MAX_CONCURRENT_CONNECTIONS {
+                    warn!("Too many concurrent connections, rejecting: {}", addr);
+                    let response = "HTTP/1.1 503 Service Unavailable\r\n\r\n";
+                    let _ = socket.write_all(response.as_bytes()).await;
+                    continue;
+                }
+
+                connection_count.fetch_add(1, Ordering::Relaxed);
+                let metrics = metrics.clone();
+                let connection_count_clone = connection_count.clone();
+
+                tokio::spawn(async move {
+                    // 确保连接计数被正确减少
+                    let _guard = scopeguard::guard((), move |_| {
+                        connection_count_clone.fetch_sub(1, Ordering::Relaxed);
+                    });
+
+                    let mut buffer = [0u8; 1024];
+
+                    // 添加读取超时（5秒）
+                    let read_result =
+                        timeout(Duration::from_secs(5), socket.read(&mut buffer)).await;
+
+                    match read_result {
+                        Ok(Ok(n)) => {
+                            let request = String::from_utf8_lossy(&buffer[..n]);
+
+                            // 简单的 HTTP 请求验证
+                            if request.starts_with("GET /metrics") {
+                                let response = metrics.gather();
+                                let http_response = format!(
+                                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4; \
+                                     charset=utf-8\r\nContent-Length: {}\r\nConnection: \
+                                     close\r\n\r\n{}",
+                                    response.len(),
+                                    response
+                                );
+
+                                // 添加写入超时（5秒）
+                                let write_result = timeout(
+                                    Duration::from_secs(5),
+                                    socket.write_all(http_response.as_bytes()),
+                                )
+                                .await;
+
+                                if write_result.is_err() {
+                                    warn!("Failed to send metrics response: timeout");
+                                }
+                            } else if request.starts_with("GET /health") {
+                                // 添加健康检查端点
+                                let response =
+                                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nOK\r\n";
+                                let _ = socket.write_all(response.as_bytes()).await;
+                            } else {
+                                let response = "HTTP/1.1 404 Not Found\r\n\r\n";
+                                let _ = socket.write_all(response.as_bytes()).await;
+                            }
+                        }
+                        Ok(Err(e)) => {
+                            warn!("Failed to read from socket: {}", e);
+                        }
+                        Err(_) => {
+                            warn!("Read timeout from socket");
+                        }
+                    }
+                });
+            }
+            Err(e) => {
+                error!("Failed to accept connection: {}", e);
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "monitoring"))]
+pub async fn start_prometheus_server(_metrics: Arc<Metrics>, _port: u16) -> Result<(), String> {
+    Err("monitoring feature is disabled".to_string())
+}
+
+// ============================================================================
+// 单元测试
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_tracer_creation() {
+        let tracer = Tracer::new(true);
+        assert!(tracer.is_enabled());
+
+        let tracer = Tracer::new(false);
+        assert!(!tracer.is_enabled());
+    }
+
+    #[test]
+    fn test_tracer_start_span() {
+        let tracer = Tracer::new(true);
+        let span = tracer.start_span("test_operation");
+        span.finish();
+    }
+
+    #[test]
+    fn test_disabled_span() {
+        let span = Span::new_disabled();
+        assert!(span.elapsed().is_none());
+    }
+
+    #[test]
+    fn test_span_set_attribute() {
+        let tracer = Tracer::new(true);
+        let span = tracer.start_span("test_operation");
+        span.set_attribute("key", "value");
+        span.finish();
+    }
+
+    #[test]
+    fn test_span_add_event() {
+        let tracer = Tracer::new(true);
+        let span = tracer.start_span("test_operation");
+        span.add_event(
+            "test_event",
+            vec![("attr1".to_string(), "value1".to_string())],
+        );
+        span.finish();
+    }
+
+    #[test]
+    fn test_span_record_error() {
+        let tracer = Tracer::new(true);
+        let span = tracer.start_span("test_operation");
+        span.record_error("test error");
+        span.finish();
+    }
+
+    #[test]
+    fn test_span_elapsed() {
+        let span = Span::new_disabled();
+        assert!(span.elapsed().is_none());
+    }
+
+    #[test]
+    fn test_telemetry_config_default() {
+        let config = TelemetryConfig::default();
+        assert_eq!(config.service_name, "flowguard");
+        assert!(config.enable_prometheus);
+        assert!(!config.enable_tracing);
+        assert_eq!(config.prometheus_port, 9090);
+        assert_eq!(config.sampling_rate, 1.0);
+    }
+
+    #[test]
+    fn test_telemetry_config_builder() {
+        let config = TelemetryConfig::new("test-service")
+            .with_jaeger("http://localhost:14268/api/traces")
+            .with_prometheus(8080)
+            .with_sampling_rate(0.5);
+
+        assert_eq!(config.service_name, "test-service");
+        assert!(config.enable_tracing);
+        assert_eq!(config.prometheus_port, 8080);
+        assert_eq!(config.sampling_rate, 0.5);
+    }
+
+    #[test]
+    fn test_sampling_rate_clamping() {
+        let config = TelemetryConfig::new("test").with_sampling_rate(1.5);
+        assert_eq!(config.sampling_rate, 1.0);
+
+        let config = TelemetryConfig::new("test").with_sampling_rate(-0.5);
+        assert_eq!(config.sampling_rate, 0.0);
+    }
+
+    #[test]
+    fn test_tracer_default() {
+        let tracer = Tracer::default();
+        assert!(tracer.is_enabled());
+    }
+
+    #[test]
+    fn test_span_attributes() {
+        let span = Span::new();
+        span.set_attribute("user_id", "test_user");
+        span.set_attribute("ip", "192.168.1.1");
+
+        let attrs = span.attributes();
+        assert_eq!(attrs.len(), 2);
+        assert_eq!(attrs[0], ("user_id".to_string(), "test_user".to_string()));
+        assert_eq!(attrs[1], ("ip".to_string(), "192.168.1.1".to_string()));
+    }
+
+    #[test]
+    fn test_span_events() {
+        let span = Span::new();
+        span.add_event("event1", vec![("key1".to_string(), "value1".to_string())]);
+        span.add_event("event2", vec![("key2".to_string(), "value2".to_string())]);
+
+        let events = span.events();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].0, "event1");
+        assert_eq!(events[1].0, "event2");
+    }
+
+    #[test]
+    fn test_span_error() {
+        let span = Span::new();
+        span.record_error("test error");
+
+        let error = span.error();
+        assert_eq!(error, Some("test error".to_string()));
+    }
+
+    #[test]
+    fn test_span_drop() {
+        let span = Span::new();
+        span.set_attribute("test", "value");
+        let _ = span;
+    }
+
+    #[test]
+    fn test_span_duration() {
+        // NOTE: Using std::thread::sleep instead of tokio::time::sleep because this is a
+        // simple synchronous unit test that doesn't require async runtime overhead.
+        // The 10ms delay is minimal and won't significantly impact CI time.
+        let span = Span::new();
+        std::thread::sleep(Duration::from_millis(10));
+        let elapsed = span.elapsed();
+        assert!(elapsed.is_some());
+        assert!(elapsed.unwrap() >= Duration::from_millis(10));
+    }
+
+    #[test]
+    fn test_disabled_span_no_operations() {
+        let span = Span::new_disabled();
+        span.set_attribute("key", "value");
+        span.add_event("event", vec![]);
+        span.record_error("error");
+
+        assert!(span.elapsed().is_none());
+        assert!(span.attributes().is_empty());
+        assert!(span.events().is_empty());
+        assert!(span.error().is_none());
+    }
+
+    #[test]
+    fn test_span_new() {
+        let span = Span::new();
+        assert!(span.elapsed().is_some());
+    }
+
+    #[test]
+    fn test_span_disabled_finish() {
+        let span = Span::new_disabled();
+        span.finish();
+    }
+
+    #[test]
+    fn test_span_disabled_drop() {
+        let span = Span::new_disabled();
+        drop(span);
+    }
+
+    #[test]
+    fn test_tracer_start_span_disabled() {
+        let tracer = Tracer::new(false);
+        let span = tracer.start_span("noop");
+        assert!(span.elapsed().is_none());
+    }
+}
+
+#[cfg(all(test, feature = "telemetry"))]
+mod tests_init_telemetry {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_init_telemetry_prometheus_disabled() {
+        let config = TelemetryConfig::new("test");
+        let (_, tracer) = init_telemetry(&config).await.unwrap();
+        assert!(!tracer.is_enabled());
+    }
+
+    #[tokio::test]
+    async fn test_init_telemetry_with_console_tracing() {
+        let config = TelemetryConfig {
+            service_name: "test".to_string(),
+            jaeger_endpoint: None,
+            enable_prometheus: true,
+            enable_tracing: true,
+            prometheus_port: 9090,
+            sampling_rate: 1.0,
+        };
+        let (_, tracer) = init_telemetry(&config).await.unwrap();
+        assert!(tracer.is_enabled());
+    }
+
+    #[tokio::test]
+    async fn test_init_telemetry_with_jaeger() {
+        let config = TelemetryConfig::new("test").with_jaeger("http://jaeger:14268/api/traces");
+        let (_, tracer) = init_telemetry(&config).await.unwrap();
+        assert!(tracer.is_enabled());
+    }
+
+    #[tokio::test]
+    async fn test_init_telemetry_tracing_disabled_no_prometheus() {
+        let config = TelemetryConfig {
+            service_name: "test".to_string(),
+            jaeger_endpoint: None,
+            enable_prometheus: false,
+            enable_tracing: false,
+            prometheus_port: 9090,
+            sampling_rate: 1.0,
+        };
+        let (_, tracer) = init_telemetry(&config).await.unwrap();
+        assert!(!tracer.is_enabled());
+    }
+
+    /// 覆盖 init_console_tracer 中 try_init 失败路径（line 709）
+    /// 全局 tracing subscriber 只能初始化一次，第二次调用必定失败
+    #[tokio::test]
+    async fn test_init_console_tracer_double_init_warns() {
+        let config = TelemetryConfig::new("test_double_init");
+        // 第一次调用（可能成功也可能因全局 subscriber 已设置而失败）
+        let _ = init_console_tracer(&config);
+        // 第二次调用：try_init 必定失败，触发 warn! 行
+        let result = init_console_tracer(&config);
+        // init_console_tracer 不论 try_init 成功失败都返回 Ok(())
+        assert!(result.is_ok());
+    }
+}
+
+#[cfg(all(test, feature = "monitoring"))]
+mod tests_monitoring {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_metrics_creation() {
+        let metrics = Metrics::new();
+        assert_eq!(metrics.requests_total.get(), 0.0);
+        assert_eq!(metrics.requests_allowed.get(), 0.0);
+        assert_eq!(metrics.requests_rejected.get(), 0.0);
+    }
+
+    #[test]
+    fn test_metrics_record_check_allowed() {
+        let metrics = Metrics::new();
+        metrics.record_check(Duration::from_millis(10), true);
+
+        assert_eq!(metrics.requests_total.get(), 1.0);
+        assert_eq!(metrics.requests_allowed.get(), 1.0);
+        assert_eq!(metrics.requests_rejected.get(), 0.0);
+    }
+
+    #[test]
+    fn test_metrics_record_check_rejected() {
+        let metrics = Metrics::new();
+        metrics.record_check(Duration::from_millis(10), false);
+
+        assert_eq!(metrics.requests_total.get(), 1.0);
+        assert_eq!(metrics.requests_allowed.get(), 0.0);
+        assert_eq!(metrics.requests_rejected.get(), 1.0);
+    }
+
+    #[test]
+    fn test_metrics_record_error() {
+        let metrics = Metrics::new();
+        metrics.record_error("test_error");
+
+        assert_eq!(metrics.errors_total.get(), 1.0);
+    }
+
+    #[test]
+    fn test_metrics_record_ban() {
+        let metrics = Metrics::new();
+        metrics.record_ban();
+
+        assert_eq!(metrics.requests_banned.get(), 1.0);
+    }
+
+    #[test]
+    fn test_metrics_update_quota_usage() {
+        let metrics = Metrics::new();
+        metrics.update_quota_usage(75.5);
+    }
+
+    #[test]
+    fn test_metrics_update_concurrent_connections() {
+        let metrics = Metrics::new();
+        metrics.update_concurrent_connections(10);
+    }
+
+    #[test]
+    fn test_metrics_gather() {
+        let metrics = Metrics::new();
+        metrics.record_check(Duration::from_millis(10), true);
+
+        let output = metrics.gather();
+        assert!(!output.is_empty());
+        assert!(output.contains("flowguard_requests_total"));
+    }
+
+    #[test]
+    fn test_metrics_multiple_records() {
+        let metrics = Metrics::new();
+
+        for i in 0..5 {
+            metrics.record_check(Duration::from_millis(i * 10), i % 2 == 0);
+        }
+
+        assert_eq!(metrics.requests_total.get(), 5.0);
+        assert_eq!(metrics.requests_allowed.get(), 3.0);
+        assert_eq!(metrics.requests_rejected.get(), 2.0);
+    }
+
+    #[test]
+    fn test_metrics_all_gauges() {
+        let metrics = Metrics::new();
+
+        metrics.update_quota_usage(50.0);
+        metrics.update_concurrent_connections(100);
+        metrics.update_token_bucket_tokens(10.5);
+        metrics.update_sliding_window_requests(20.0);
+        metrics.update_fixed_window_requests(30.0);
+    }
+
+    #[test]
+    fn test_metrics_default() {
+        let metrics = Metrics::default();
+        assert_eq!(metrics.requests_total.get(), 0.0);
+    }
+
+    #[test]
+    fn test_global_metrics() {
+        let metrics = Arc::new(Metrics::new());
+        set_global_metrics(metrics);
+
+        let global = try_global();
+        assert!(global.is_some());
+    }
+
+    #[test]
+    fn test_metrics_register() {
+        let metrics = Metrics::new();
+        let registry = Registry::new();
+
+        let result = metrics.register(&registry);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_metrics_histogram_buckets() {
+        let metrics = Metrics::new();
+
+        metrics.record_check(Duration::from_micros(50), true);
+        metrics.record_check(Duration::from_millis(1), true);
+        metrics.record_check(Duration::from_millis(10), true);
+        metrics.record_check(Duration::from_millis(100), true);
+        metrics.record_check(Duration::from_millis(500), true);
+
+        assert_eq!(metrics.requests_total.get(), 5.0);
+    }
+
+    #[test]
+    fn test_metrics_gather_format() {
+        let metrics = Metrics::new();
+        metrics.record_check(Duration::from_millis(10), true);
+
+        let output = metrics.gather();
+
+        assert!(output.contains("flowguard_requests_total"));
+        assert!(output.contains("flowguard_requests_allowed_total"));
+        assert!(output.contains("flowguard_requests_rejected_total"));
+        assert!(output.contains("flowguard_check_duration_seconds"));
+    }
+}
+
+#[cfg(all(test, feature = "monitoring"))]
+mod tests_prometheus_server {
+    use super::*;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn find_free_port() -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        port
+    }
+
+    #[tokio::test]
+    async fn test_server_metrics_endpoint() {
+        let metrics = Arc::new(Metrics::new());
+        metrics.record_check(Duration::from_millis(10), true);
+        let port = find_free_port().await;
+        let handle = tokio::spawn(async move {
+            let _ = start_prometheus_server(metrics, port).await;
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
+            .await
+            .unwrap();
+        stream
+            .write_all(b"GET /metrics HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        let resp = String::from_utf8_lossy(&response);
+        assert!(resp.contains("200 OK"));
+        assert!(resp.contains("flowguard_requests_total"));
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_server_health_endpoint() {
+        let metrics = Arc::new(Metrics::new());
+        let port = find_free_port().await;
+        let handle = tokio::spawn(async move {
+            let _ = start_prometheus_server(metrics, port).await;
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
+            .await
+            .unwrap();
+        stream
+            .write_all(b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        let resp = String::from_utf8_lossy(&response);
+        assert!(resp.contains("200 OK"));
+        assert!(resp.contains("OK"));
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_server_not_found() {
+        let metrics = Arc::new(Metrics::new());
+        let port = find_free_port().await;
+        let handle = tokio::spawn(async move {
+            let _ = start_prometheus_server(metrics, port).await;
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
+            .await
+            .unwrap();
+        stream
+            .write_all(b"GET /unknown HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        let resp = String::from_utf8_lossy(&response);
+        assert!(resp.contains("404 Not Found"));
+        handle.abort();
+    }
+}

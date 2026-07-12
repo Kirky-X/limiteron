@@ -444,7 +444,7 @@ pub async fn get_circuit_breaker_status() -> (StatusCode, Json<ApiResponse<()>>)
 mod tests {
     use super::*;
     use crate::admin::server::AppState;
-    use crate::admin::test_support::{make_governor, make_state};
+    use crate::admin::{make_governor, make_state};
     use std::sync::Arc;
 
     #[test]
@@ -637,7 +637,7 @@ mod tests {
     #[cfg(feature = "circuit-breaker")]
     #[tokio::test]
     async fn test_get_circuit_breaker_status_with_cb() {
-        use crate::circuit::types::{CircuitBreaker, CircuitBreakerConfig};
+        use crate::circuit::{CircuitBreaker, CircuitBreakerConfig};
         let cb = Arc::new(CircuitBreaker::with_dependencies(
             CircuitBreakerConfig::default(),
         ));
@@ -661,7 +661,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_status_with_ban_manager_and_cb() {
         use crate::BanManager;
-        use crate::circuit::types::{CircuitBreaker, CircuitBreakerConfig};
+        use crate::circuit::{CircuitBreaker, CircuitBreakerConfig};
         let ban_manager = Arc::new(BanManager::new().await.unwrap());
         let cb = Arc::new(CircuitBreaker::with_dependencies(
             CircuitBreakerConfig::default(),
@@ -938,7 +938,7 @@ mod tests {
     #[cfg(feature = "circuit-breaker")]
     #[tokio::test]
     async fn test_get_circuit_breaker_status_with_failures() {
-        use crate::circuit::types::{CircuitBreaker, CircuitBreakerConfig};
+        use crate::circuit::{CircuitBreaker, CircuitBreakerConfig};
         use crate::error::{LimiteronError, StorageError};
         let cb = Arc::new(CircuitBreaker::with_dependencies(
             CircuitBreakerConfig::default(),

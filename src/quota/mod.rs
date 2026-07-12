@@ -16,4 +16,4 @@ pub use controller::{
 
 // Re-export QuotaType from config module (single source of truth)
 #[cfg(feature = "quota-control")]
-pub use crate::config::types::QuotaType;
+pub use crate::config::QuotaType;

@@ -182,7 +182,7 @@ pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::types::QuotaType;
+    use crate::config::QuotaType;
 
     // ==================== parse_window_size ====================
 

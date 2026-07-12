@@ -26,7 +26,7 @@ pub const DEFAULT_DEDUP_CLEANUP_INTERVAL_SECS: u64 = 300;
 /// 防止 Webhook 慢/挂时内存与连接无限增长导致 OOM。
 pub const DEFAULT_ALERT_CONCURRENCY: usize = 8;
 
-use crate::config::types::QuotaType;
+use crate::config::QuotaType;
 use crate::error::{ConsumeResult, LimiteronError};
 use crate::storage::QuotaStorage;
 #[cfg(feature = "webhook")]

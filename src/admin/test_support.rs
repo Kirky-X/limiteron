@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use crate::admin::server::AppState;
+use crate::admin::AppState;
 use crate::config::{
     Action, ActionConfig, FlowControlConfig, GlobalConfig, LimiterConfig, Matcher, Rule,
 };

@@ -443,7 +443,7 @@ pub async fn get_circuit_breaker_status() -> (StatusCode, Json<ApiResponse<()>>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::admin::server::AppState;
+    use crate::admin::AppState;
     use crate::admin::{make_governor, make_state};
     use std::sync::Arc;
 
@@ -594,7 +594,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_quota_unsupported_limit() {
         use crate::QuotaController;
-        use crate::cache::quota_storage::CacheQuotaStorage;
+        use crate::cache::CacheQuotaStorage;
         use crate::quota::QuotaConfig;
         use crate::storage::QuotaStorage;
         use oxcache::backend::memory::DashMapMemoryBackend;
@@ -904,7 +904,7 @@ mod tests {
     #[tokio::test]
     async fn test_update_quota_reset_success() {
         use crate::QuotaController;
-        use crate::cache::quota_storage::CacheQuotaStorage;
+        use crate::cache::CacheQuotaStorage;
         use crate::quota::QuotaConfig;
         use crate::storage::QuotaStorage;
         use oxcache::backend::memory::DashMapMemoryBackend;

@@ -70,7 +70,7 @@ impl ConfigLoader {
 
         if let Ok(storage_str) = std::env::var("LIMITERON_GLOBAL_STORAGE") {
             if !storage_str.trim().is_empty() {
-                let storage_type = crate::config::types::StorageType::parse(&storage_str)
+                let storage_type = crate::config::StorageType::parse(&storage_str)
                     .ok_or_else(|| {
                         LimiteronError::ConfigError(format!(
                             "Invalid LIMITERON_GLOBAL_STORAGE value: {}. Valid: memory, postgresql, redis",
@@ -83,7 +83,7 @@ impl ConfigLoader {
 
         if let Ok(cache_str) = std::env::var("LIMITERON_GLOBAL_CACHE") {
             if !cache_str.trim().is_empty() {
-                let cache_backend = crate::config::types::CacheBackend::parse(cache_str.trim())
+                let cache_backend = crate::config::CacheBackend::parse(cache_str.trim())
                     .ok_or_else(|| {
                         LimiteronError::ConfigError(format!(
                             "Invalid LIMITERON_GLOBAL_CACHE value: {}. Valid: memory, redis, none",
@@ -97,7 +97,7 @@ impl ConfigLoader {
         if let Ok(metrics_str) = std::env::var("LIMITERON_GLOBAL_METRICS") {
             if !metrics_str.trim().is_empty() {
                 let metrics_backend =
-                    crate::config::types::MetricsBackend::parse(metrics_str.trim()).ok_or_else(|| {
+                    crate::config::MetricsBackend::parse(metrics_str.trim()).ok_or_else(|| {
                         LimiteronError::ConfigError(format!(
                             "Invalid LIMITERON_GLOBAL_METRICS value: {}. Valid: prometheus, statsd, none",
                             metrics_str

@@ -10,6 +10,7 @@ use sea_orm::entity::prelude::DateTimeUtc;
 use sea_orm::entity::prelude::*;
 
 /// Rate limit counter model
+#[allow(dead_code)]
 #[db_entity(table_name = "limiteron_rate_limits", primary_key = "id")]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "limiteron_rate_limits")]
@@ -39,6 +40,7 @@ pub struct Model {
 }
 
 /// Relations for the entity
+#[allow(dead_code)]
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {}
 
@@ -59,6 +61,7 @@ pub fn create_table_ddl() -> &'static str {
 }
 
 /// Helper to create rate limit key
+#[allow(dead_code)]
 pub fn create_rate_key(identifier: &str, limiter_type: &str, params: &str) -> String {
     format!("{}:{}:{}", identifier, limiter_type, params)
 }

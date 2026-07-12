@@ -35,7 +35,7 @@ use std::time::Duration;
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::rules::builder::RuleBuilder;
+/// use limiteron::RuleBuilder;
 /// use limiteron::config::FlowControlConfig;
 ///
 /// let config = FlowControlConfig::default();
@@ -65,7 +65,7 @@ impl RuleBuilder {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::rules::builder::RuleBuilder;
+    /// use limiteron::RuleBuilder;
     /// use std::time::Duration;
     ///
     /// assert_eq!(RuleBuilder::parse_duration("100ms").unwrap(), Duration::from_millis(100));
@@ -91,7 +91,7 @@ impl RuleBuilder {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::rules::builder::RuleBuilder;
+    /// use limiteron::RuleBuilder;
     /// use limiteron::config::FlowControlConfig;
     ///
     /// let config = FlowControlConfig::default();
@@ -199,7 +199,7 @@ impl RuleBuilder {
     /// # 示例
     ///
     /// ```rust
-    /// use limiteron::rules::builder::RuleBuilder;
+    /// use limiteron::RuleBuilder;
     /// use limiteron::config::FlowControlConfig;
     ///
     /// let config = FlowControlConfig::default();

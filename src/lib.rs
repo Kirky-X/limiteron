@@ -71,7 +71,7 @@ pub mod authorization;
 pub mod ban;
 #[cfg(feature = "circuit-breaker")]
 pub mod circuit;
-pub mod clock;
+mod clock;
 pub mod config;
 
 #[cfg(feature = "postgres")]
@@ -89,24 +89,26 @@ pub use adapters::{
 pub mod cache;
 pub(crate) mod constants;
 #[cfg(feature = "postgres")]
-pub mod dbnexus_entities;
+mod dbnexus_entities;
+#[cfg(feature = "postgres")]
+pub use dbnexus_entities::create_all_tables_ddl;
 pub mod decision_chain;
 
 // Event system (feature-gated)
 #[cfg(feature = "event-system")]
-pub mod events;
+mod events;
 
 // Consolidated modules
 pub mod error; // Contains error types and abstraction
 pub mod limiters; // Contains limiters, factory, and manager
 pub mod logging; // Contains audit_log and log_redaction
-pub mod rules; // Contains rule_builder and stats_manager
+mod rules; // Contains rule_builder and stats_manager
 pub mod storage; // Contains storage_trait and parallel_ban_checker
 
 #[cfg(feature = "fallback")]
 pub mod fallback;
-pub mod governor;
-pub mod l1_cache;
+mod governor;
+mod l1_cache;
 #[cfg(feature = "macros")]
 pub mod macros;
 pub mod matchers;
@@ -117,7 +119,7 @@ pub mod quota;
 #[cfg(any(feature = "telemetry", feature = "monitoring"))]
 pub mod telemetry;
 #[cfg(feature = "multi-tenant")]
-pub mod tenant;
+mod tenant;
 pub mod validation;
 #[cfg(feature = "webhook")]
 pub(crate) mod webhook_validator;
@@ -257,7 +259,7 @@ pub use clock::{Clock, MockClock, SystemClock};
 
 // Re-export tenant types (feature-gated)
 #[cfg(feature = "multi-tenant")]
-pub use tenant::{Namespace, TenantResolver};
+pub use tenant::{DefaultTenantResolver, HeaderTenantResolver, Namespace, TenantResolver};
 
 // Re-export middleware types (feature-gated)
 #[cfg(feature = "tower-middleware")]

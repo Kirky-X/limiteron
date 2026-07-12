@@ -7,7 +7,7 @@
 //! 2. 窗口重置后计数归零
 //! 3. 跨窗口请求的正确性
 
-use limiteron::clock::MockClock;
+use limiteron::MockClock;
 use limiteron::limiters::{FixedWindowLimiter, Limiter};
 use proptest::prelude::*;
 use std::sync::Arc;
@@ -24,7 +24,7 @@ proptest! {
         num_requests in 1usize..2000
     ) {
         let mock_clock = Arc::new(MockClock::new());
-        let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
+        let clock: Arc<dyn limiteron::Clock> = mock_clock.clone();
         let limiter = FixedWindowLimiter::with_clock(
             Duration::from_secs(window_seconds),
             max_requests,
@@ -58,7 +58,7 @@ proptest! {
         num_windows in 1usize..5
     ) {
         let mock_clock = Arc::new(MockClock::new());
-        let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
+        let clock: Arc<dyn limiteron::Clock> = mock_clock.clone();
         let limiter = FixedWindowLimiter::with_clock(
             Duration::from_secs(window_seconds),
             max_requests,
@@ -114,7 +114,7 @@ proptest! {
         window_seconds in 1u64..10
     ) {
         let mock_clock = Arc::new(MockClock::new());
-        let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
+        let clock: Arc<dyn limiteron::Clock> = mock_clock.clone();
         let limiter = FixedWindowLimiter::with_clock(
             Duration::from_secs(window_seconds),
             max_requests,
@@ -146,7 +146,7 @@ proptest! {
         cost in 1u64..50
     ) {
         let mock_clock = Arc::new(MockClock::new());
-        let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
+        let clock: Arc<dyn limiteron::Clock> = mock_clock.clone();
         let limiter = FixedWindowLimiter::with_clock(
             Duration::from_secs(window_seconds),
             max_requests,
@@ -180,7 +180,7 @@ proptest! {
         window_seconds in 1u64..10
     ) {
         let mock_clock = Arc::new(MockClock::new());
-        let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
+        let clock: Arc<dyn limiteron::Clock> = mock_clock.clone();
         let limiter = FixedWindowLimiter::with_clock(
             Duration::from_secs(window_seconds),
             max_requests,
@@ -223,7 +223,7 @@ mod additional_tests {
     #[tokio::test]
     async fn test_fixed_window_immediate_reset() {
         let mock_clock = Arc::new(MockClock::new());
-        let clock: Arc<dyn limiteron::clock::Clock> = mock_clock.clone();
+        let clock: Arc<dyn limiteron::Clock> = mock_clock.clone();
         let limiter = FixedWindowLimiter::with_clock(Duration::from_secs(1), 5, clock);
 
         // 填满窗口

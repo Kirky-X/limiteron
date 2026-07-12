@@ -7,7 +7,7 @@
 //! statement instead of importing each type individually.
 
 // Core types - always available
-pub use crate::config::types::FlowControlConfig;
+pub use crate::config::FlowControlConfig;
 pub use crate::error::{Decision, LimiteronError};
 pub use crate::governor::Governor;
 

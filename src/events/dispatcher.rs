@@ -4,7 +4,7 @@
 //!
 //! 监听事件通道并将事件分发给注册的处理器和 Webhook。
 
-use crate::events::emitter::EventEmitter;
+use crate::events::EventEmitter;
 use crate::events::{Event, EventHandler};
 #[cfg(feature = "webhook")]
 use crate::webhook_validator::validate_webhook_url;
@@ -251,7 +251,7 @@ async fn send_webhook(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::types::EventType;
+    use crate::events::EventType;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     struct TestHandler {

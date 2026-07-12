@@ -221,7 +221,7 @@ impl Default for EventEmitterBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::types::EventType;
+    use crate::events::EventType;
 
     #[tokio::test]
     async fn test_event_emitter_emit_and_receive() {

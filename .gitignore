@@ -62,3 +62,18 @@ IFLOW.md
 TEST_SUMMARY_2026_01_17.md
 AGENTS.md
 .gitnexus
+
+# AI / Agent Tools (not for version control)
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+CODEIUM.md
+.claude/
+.trae/
+.qoder/
+.opencode/
+.cursor/
+.aider/
+.continue/
+.codeium/
+.github/copilot/

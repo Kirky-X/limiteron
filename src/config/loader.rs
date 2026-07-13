@@ -35,7 +35,7 @@ impl ConfigLoader {
             .to_lowercase();
 
         let config: FlowControlConfig = match ext.as_str() {
-            "yaml" | "yml" => serde_yaml::from_str(&content).map_err(|e| {
+            "yaml" | "yml" => serde_yaml_ng::from_str(&content).map_err(|e| {
                 LimiteronError::ConfigError(format!("Failed to parse YAML config: {}", e))
             })?,
             "toml" => toml::from_str(&content).map_err(|e| {

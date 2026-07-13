@@ -7,6 +7,8 @@
 use crate::constants::MAX_COST;
 use crate::error::LimiteronError;
 use async_trait::async_trait;
+#[cfg(feature = "distributed")]
+use std::time::Duration;
 
 /// Validates the cost parameter.
 ///
@@ -86,6 +88,82 @@ pub trait Limiter: Send + Sync {
         self.allow(1).await?;
         Ok(())
     }
+}
+
+/// 分布式限流器 trait
+///
+/// 扩展 [`Limiter`] trait，提供原子计数操作，支持分布式 DAO（如 BulwarkDao）。
+/// 进程内限流器只需实现 `Limiter` trait；分布式限流器需实现 `DistributedLimiter`。
+///
+/// # 特性
+///
+/// - **原子计数** - `incr`/`incr_with_ttl` 方法支持原子递增
+/// - **TTL 支持** - `incr_with_ttl` 方法支持带过期时间的递增（滑动窗口）
+/// - **状态查询** - `get_count` 方法获取当前计数
+/// - **状态重置** - `reset` 方法重置计数器
+///
+/// # 示例
+///
+/// ```rust
+/// use limiteron::limiters::{DistributedLimiter, InMemoryDistributedLimiter};
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let limiter = InMemoryDistributedLimiter::new();
+///     let count = limiter.incr("user:123", 1).await.unwrap();
+///     assert_eq!(count, 1);
+/// }
+/// ```
+#[cfg(feature = "distributed")]
+#[async_trait]
+pub trait DistributedLimiter: Limiter {
+    /// 原子递增计数器，返回递增后的值
+    ///
+    /// # 参数
+    /// - `key`: 计数器键
+    /// - `amount`: 递增量
+    ///
+    /// # 返回
+    /// - `Ok(u64)`: 递增后的值
+    /// - `Err(_)`: 发生错误
+    async fn incr(&self, key: &str, amount: u64) -> Result<u64, LimiteronError>;
+
+    /// 原子递增并设置 TTL（用于滑动窗口）
+    ///
+    /// # 参数
+    /// - `key`: 计数器键
+    /// - `amount`: 递增量
+    /// - `ttl`: 过期时间
+    ///
+    /// # 返回
+    /// - `Ok(u64)`: 递增后的值
+    /// - `Err(_)`: 发生错误
+    async fn incr_with_ttl(
+        &self,
+        key: &str,
+        amount: u64,
+        ttl: Duration,
+    ) -> Result<u64, LimiteronError>;
+
+    /// 获取当前计数
+    ///
+    /// # 参数
+    /// - `key`: 计数器键
+    ///
+    /// # 返回
+    /// - `Ok(u64)`: 当前计数值（不存在则为 0）
+    /// - `Err(_)`: 发生错误
+    async fn get_count(&self, key: &str) -> Result<u64, LimiteronError>;
+
+    /// 重置计数器
+    ///
+    /// # 参数
+    /// - `key`: 计数器键
+    ///
+    /// # 返回
+    /// - `Ok(())`: 重置成功
+    /// - `Err(_)`: 发生错误
+    async fn reset(&self, key: &str) -> Result<(), LimiteronError>;
 }
 
 #[cfg(test)]

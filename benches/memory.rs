@@ -63,12 +63,12 @@ impl TrackingAllocator {
 unsafe impl GlobalAlloc for TrackingAllocator {
     unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
         self.allocated.fetch_add(layout.size(), Ordering::Relaxed);
-        self.inner.alloc(layout)
+        unsafe { self.inner.alloc(layout) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
         self.allocated.fetch_sub(layout.size(), Ordering::Relaxed);
-        self.inner.dealloc(ptr, layout);
+        unsafe { self.inner.dealloc(ptr, layout) };
     }
 }
 

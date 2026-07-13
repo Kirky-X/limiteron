@@ -63,7 +63,7 @@ pub enum LimiteronError {
 
     /// YAML解析错误
     #[error("YAML解析错误: {0}")]
-    YamlError(#[from] serde_yaml::Error),
+    YamlError(#[from] serde_yaml_ng::Error),
 
     /// 速率限制超出
     #[error("速率限制超出: {0}")]

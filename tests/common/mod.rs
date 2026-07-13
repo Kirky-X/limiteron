@@ -71,11 +71,11 @@ impl Storage for MockQuotaStorageInner {
         self.check_error().await?;
         let mut data = self.data.write().await;
         if let Some(entry) = data.get(key) {
-            if let Some(expires_at) = entry.expires_at {
-                if expires_at <= chrono::Utc::now() {
-                    data.remove(key);
-                    return Ok(None);
-                }
+            if let Some(expires_at) = entry.expires_at
+                && expires_at <= chrono::Utc::now()
+            {
+                data.remove(key);
+                return Ok(None);
             }
             return Ok(Some(entry.value.clone()));
         }
@@ -182,10 +182,10 @@ impl MockBanStorage {
 
     async fn can_insert(&self, current_len: usize) -> Result<(), StorageError> {
         let behavior = self.behavior.read().await;
-        if let Some(max_entries) = behavior.max_entries {
-            if current_len >= max_entries {
-                return Err(StorageError::QueryError("超过最大封禁条目限制".to_string()));
-            }
+        if let Some(max_entries) = behavior.max_entries
+            && current_len >= max_entries
+        {
+            return Err(StorageError::QueryError("超过最大封禁条目限制".to_string()));
         }
         Ok(())
     }
@@ -209,10 +209,10 @@ impl BanStorage for MockBanStorage {
 
         let mut bans = self.bans.write().await;
         let now = chrono::Utc::now();
-        if let Some(record) = bans.get(target) {
-            if record.expires_at > now {
-                return Ok(Some(record.clone()));
-            }
+        if let Some(record) = bans.get(target)
+            && record.expires_at > now
+        {
+            return Ok(Some(record.clone()));
         }
         bans.remove(target);
         Ok(None)
@@ -473,10 +473,10 @@ impl MockQuotaStorage {
 
     async fn can_insert(&self, current_len: usize) -> Result<(), StorageError> {
         let behavior = self.behavior.read().await;
-        if let Some(max_entries) = behavior.max_entries {
-            if current_len >= max_entries {
-                return Err(StorageError::QueryError("超过最大配额条目限制".to_string()));
-            }
+        if let Some(max_entries) = behavior.max_entries
+            && current_len >= max_entries
+        {
+            return Err(StorageError::QueryError("超过最大配额条目限制".to_string()));
         }
         Ok(())
     }
@@ -493,11 +493,11 @@ impl Storage for MockQuotaStorage {
 
         let mut data = self.data.write().await;
         if let Some(entry) = data.get(key) {
-            if let Some(expires_at) = entry.expires_at {
-                if expires_at <= chrono::Utc::now() {
-                    data.remove(key);
-                    return Ok(None);
-                }
+            if let Some(expires_at) = entry.expires_at
+                && expires_at <= chrono::Utc::now()
+            {
+                data.remove(key);
+                return Ok(None);
             }
             return Ok(Some(entry.value.clone()));
         }

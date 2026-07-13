@@ -31,6 +31,10 @@
 //! - Circuit breaker (requires `circuit-breaker` feature)
 //! - Quota control (requires `quota-control` feature)
 //! - Macros (requires `macros` feature)
+//! - Distributed rate limiting (requires `distributed` feature)
+//! - trait-kit AsyncKit integration (requires `kit` feature)
+//! - Internationalization (requires `i18n` feature)
+//! - inklog structured logging (requires `inklog` feature)
 //!
 //! # Examples
 //!
@@ -58,6 +62,10 @@
 //! - **Declarative macros**: Use `#[flow_control]` macro to simplify rate limiting configuration
 //! - **Monitoring**: Integrated Prometheus metrics and OpenTelemetry tracing
 //! - **High performance**: Zero runtime overhead through compile-time optimization
+//! - **Distributed rate limiting**: `DistributedLimiter` trait + `InMemoryDistributedLimiter` implementation (requires `distributed` feature)
+//! - **trait-kit integration**: AsyncKit `LimiteronModule` (requires `kit` feature)
+//! - **Internationalization**: Locale-aware number/date/plural/sort formatting (requires `i18n` feature)
+//! - **inklog logging**: inklog structured logging integration (requires `inklog` feature)
 
 #![allow(clippy::collapsible_if)]
 

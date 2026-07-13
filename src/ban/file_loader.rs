@@ -129,7 +129,7 @@ impl BanFileLoader {
             LimiteronError::ConfigError(format!("读取封禁文件失败 {}: {}", self.path.display(), e))
         })?;
 
-        let ban_file: BanFile = serde_yaml::from_str(&content).map_err(|e| {
+        let ban_file: BanFile = serde_yaml_ng::from_str(&content).map_err(|e| {
             LimiteronError::ConfigError(format!(
                 "解析封禁文件 YAML 失败 {}: {}",
                 self.path.display(),
@@ -303,7 +303,7 @@ target:
 reason: "恶意请求"
 duration_secs: 3600
 "#;
-        let entry: BanFileEntry = serde_yaml::from_str(yaml).expect("解析失败");
+        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("解析失败");
         assert_eq!(entry.target, BanTarget::Ip("192.168.1.1".to_string()));
         assert_eq!(entry.reason, "恶意请求");
         assert_eq!(entry.duration_secs, Some(3600));
@@ -318,7 +318,7 @@ target:
     country_code: "CN"
 reason: "地区封禁"
 "#;
-        let entry: BanFileEntry = serde_yaml::from_str(yaml).expect("解析失败");
+        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("解析失败");
         assert_eq!(
             entry.target,
             BanTarget::Geo {
@@ -338,7 +338,7 @@ target:
 reason: "违规用户"
 duration_secs: 7200
 "#;
-        let entry: BanFileEntry = serde_yaml::from_str(yaml).expect("解析失败");
+        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("解析失败");
         assert_eq!(entry.target, BanTarget::UserId("user123".to_string()));
         assert_eq!(entry.duration_secs, Some(7200));
     }
@@ -351,7 +351,7 @@ target:
   value: "00:1A:2B:3C:4D:5E"
 reason: "MAC 封禁"
 "#;
-        let entry: BanFileEntry = serde_yaml::from_str(yaml).expect("解析失败");
+        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("解析失败");
         assert_eq!(
             entry.target,
             BanTarget::Mac("00:1A:2B:3C:4D:5E".to_string())
@@ -362,7 +362,7 @@ reason: "MAC 封禁"
     #[test]
     fn test_ban_file_root_default() {
         let yaml = "";
-        let file: BanFile = serde_yaml::from_str(yaml).expect("解析失败");
+        let file: BanFile = serde_yaml_ng::from_str(yaml).expect("解析失败");
         assert!(file.bans.is_empty());
     }
 
@@ -379,7 +379,7 @@ bans:
       value: "u1"
     reason: "test2"
 "#;
-        let file: BanFile = serde_yaml::from_str(yaml).expect("解析失败");
+        let file: BanFile = serde_yaml_ng::from_str(yaml).expect("解析失败");
         assert_eq!(file.bans.len(), 2);
         assert_eq!(file.bans[0].reason, "test1");
         assert_eq!(file.bans[1].reason, "test2");

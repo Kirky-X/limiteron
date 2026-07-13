@@ -33,6 +33,10 @@ pub use crate::quota::QuotaController;
 #[cfg(feature = "macros")]
 pub use crate::macros::flow_control;
 
+// Distributed limiter (feature-gated)
+#[cfg(feature = "distributed")]
+pub use crate::limiters::{DistributedLimiter, InMemoryDistributedLimiter};
+
 // Tower middleware (feature-gated)
 #[cfg(feature = "tower-middleware")]
 pub use crate::middleware::{

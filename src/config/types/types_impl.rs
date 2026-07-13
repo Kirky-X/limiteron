@@ -437,7 +437,7 @@ rules:
       on_exceed: "reject"
 "#;
 
-        let config: FlowControlConfig = serde_yaml::from_str(yaml).unwrap();
+        let config: FlowControlConfig = serde_yaml_ng::from_str(yaml).unwrap();
         assert_eq!(config.version, "1.0");
         assert_eq!(config.rules.len(), 1);
         assert!(config.validate().is_ok());

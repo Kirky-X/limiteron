@@ -33,6 +33,10 @@ pub mod traits;
 #[cfg(feature = "quota-control")]
 pub mod quota_limiter;
 
+// Distributed limiter (feature-gated)
+#[cfg(feature = "distributed")]
+pub mod distributed;
+
 // Re-export all public types
 pub use concurrency::ConcurrencyLimiter;
 pub use fixed_window::FixedWindowLimiter;
@@ -47,3 +51,8 @@ pub use quota_limiter::QuotaLimiter;
 
 #[cfg(feature = "gcra")]
 pub use gcra::GcraLimiter;
+
+#[cfg(feature = "distributed")]
+pub use distributed::InMemoryDistributedLimiter;
+#[cfg(feature = "distributed")]
+pub use traits::DistributedLimiter;

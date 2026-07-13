@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.6] - 2026-07-13
 
+### Added
+
+- `distributed` feature 与 `src/limiters/distributed.rs` 模块（DistributedLimiter trait + InMemoryDistributedLimiter 实现）—— 支持分布式与进程内限流兼容
+- 跨平台 CI 矩阵（ubuntu/macos/windows）验证 apple/windows/linux 平台兼容性
+
+### Changed
+
+- `release.yml` publish 步骤幂等化：捕获 cargo publish 输出，若失败但匹配 "already exists"/"already published" 则发 ::warning:: 并继续
+- `benches/memory.rs`: 修复 `unsafe-op-in-unsafe-fn` clippy lint（unsafe fn 内部操作用 `unsafe { }` 包裹）
+- `benches/regression.rs` + `tests/common/mod.rs`: 修复 `collapsible_if` clippy lint（嵌套 if-let 用 let-chains 合并）
+
+### Fixed
+
+- CI clippy lint 失败（unsafe-op-in-unsafe-fn + collapsible_if）
+- `examples/integration-app` governor 私有模块访问错误（改为 re-export `limiteron::Governor`）
+
 ### ⚠️ BREAKING CHANGES（仅影响启用 `kit` feature 的用户）
 
 - trait-kit 0.2 → 0.3（pre-1.0 minor bump，Cargo 视为不兼容）；启用 `kit` feature 的用户需同步升级

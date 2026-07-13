@@ -81,7 +81,17 @@ jobs:
 
       - name: Publish limiteron-macros
         if: env.HAS_CARGO_TOKEN == 'true' || env.HAS_CRATES_TOKEN == 'true'
-        run: cargo publish --token ${{ steps.token.outputs.token }} --manifest-path macros/Cargo.toml
+        run: |
+          OUTPUT=$(cargo publish --token ${{ steps.token.outputs.token }} --manifest-path macros/Cargo.toml 2>&1) || {
+            if echo "$OUTPUT" | grep -qE "already exists|already published"; then
+              echo "::warning::limiteron-macros already published, continuing"
+            else
+              echo "::error::Failed to publish limiteron-macros"
+              echo "$OUTPUT"
+              exit 1
+            fi
+          }
+          echo "$OUTPUT"
 
       - name: Wait for crates.io index update
         if: env.HAS_CARGO_TOKEN == 'true' || env.HAS_CRATES_TOKEN == 'true'
@@ -89,4 +99,14 @@ jobs:
 
       - name: Publish limiteron
         if: env.HAS_CARGO_TOKEN == 'true' || env.HAS_CRATES_TOKEN == 'true'
-        run: cargo publish --token ${{ steps.token.outputs.token }} --all-features
+        run: |
+          OUTPUT=$(cargo publish --token ${{ steps.token.outputs.token }} --all-features 2>&1) || {
+            if echo "$OUTPUT" | grep -qE "already exists|already published"; then
+              echo "::warning::limiteron already published, continuing"
+            else
+              echo "::error::Failed to publish limiteron"
+              echo "$OUTPUT"
+              exit 1
+            fi
+          }
+          echo "$OUTPUT"

@@ -38,7 +38,7 @@ cargo add limiteron
 
 ```toml
 [dependencies]
-limiteron = { version = "0.2.3", features = ["macros"] }
+limiteron = { version = "0.2.6", features = ["macros"] }
 ```
 
 ### 基础使用
@@ -88,7 +88,7 @@ Limiteron 默认不启用任何可选功能，按需开启：
 
 | 预设 | 说明 | 启用的特性 |
 |------|------|-----------|
-| `minimal` | 核心限流 + PostgreSQL | `postgres` |
+| `minimal` | 核心限流（无外部存储依赖） | |
 | `standard` | 核心 + 基础高级功能 | `postgres`, `ban-manager`, `quota-control`, `circuit-breaker` |
 | `full` | 所有功能 | 全部特性 |
 
@@ -109,6 +109,10 @@ Limiteron 默认不启用任何可选功能，按需开启：
 | `multi-tenant` | 多租户支持 |
 | `geo-matching` | 地理位置匹配 |
 | `device-matching` | 设备信息匹配 |
+| `distributed` | 分布式限流器支持（DistributedLimiter trait + InMemoryDistributedLimiter 实现） |
+| `kit` | trait-kit AsyncKit integration (LimiteronModule) |
+| `i18n` | Internationalization support |
+| `inklog` | inklog log integration |
 
 完整特性列表见 [Cargo.toml](Cargo.toml) 的 `[features]` 段。
 

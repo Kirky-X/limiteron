@@ -32,7 +32,8 @@ pub struct OperatorIdentity(pub String);
 ///
 /// key = (group, client_ip)，value = (request_count, window_start Instant)。
 /// 提取为 type alias 以避免 clippy::type_complexity 警告。
-type RateBuckets = Arc<Mutex<AHashMap<(String, String), (u64, Instant)>>>;
+type RateBucketMap = AHashMap<(String, String), (u64, Instant)>;
+type RateBuckets = Arc<Mutex<RateBucketMap>>;
 
 fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
@@ -43,6 +44,25 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
         result |= x ^ y;
     }
     result == 0
+}
+
+/// MEDIUM-002 修复：锁定 rate_buckets mutex，从中毒状态恢复而非 panic。
+///
+/// std::sync::Mutex 在持锁期间 panic 时会"中毒"。原实现 `.lock().expect(...)`
+/// 会在中毒时 panic，导致 admin API 整体不可用——对于 per-client 速率分桶
+/// 这样的非关键、内存态、按窗口重置的数据，这是过度反应。
+///
+/// 此函数恢复中毒 mutex 的内部数据（可能已不一致）并记录 warn 日志，
+/// 让运维介入排查根因。窗口过期后计数器自然重置，影响可控。
+fn lock_rate_buckets(buckets: &Mutex<RateBucketMap>) -> std::sync::MutexGuard<'_, RateBucketMap> {
+    buckets.lock().unwrap_or_else(|poisoned| {
+        log::warn!(
+            target: "admin-api",
+            "rate_buckets mutex was poisoned by a previous panic; \
+             recovering inner state (counters may be stale until window reset)"
+        );
+        poisoned.into_inner()
+    })
 }
 
 /// 按路径前缀分组（vuln-0002 修复）
@@ -115,7 +135,7 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
                 let window = Duration::from_secs(window_secs);
                 let now = Instant::now();
                 {
-                    let mut buckets = rate_buckets.lock().expect("rate_buckets poisoned");
+                    let mut buckets = lock_rate_buckets(&rate_buckets);
                     let key = (group.to_string(), client_ip);
                     let entry = buckets.entry(key).or_insert((0, now));
                     if now.duration_since(entry.1) >= window {
@@ -217,6 +237,36 @@ mod tests {
         assert!(constant_time_eq("hello", "hello"));
         assert!(constant_time_eq("", ""));
         assert!(constant_time_eq("Bearer abc123", "Bearer abc123"));
+    }
+
+    // ========================================================================
+    // MEDIUM-002 修复测试：rate_buckets Mutex 中毒恢复
+    //
+    // 验证策略：
+    // 1. 构造 Mutex 并通过持锁时 panic 使其中毒
+    // 2. 调用 lock_rate_buckets 验证不 panic 而是恢复（返回可用 guard）
+    // 3. 验证恢复后的 guard 可正常读写
+    // ========================================================================
+
+    #[test]
+    fn test_medium_002_lock_recovers_from_poisoned_mutex() {
+        let mutex: Mutex<RateBucketMap> = Mutex::new(AHashMap::new());
+
+        // 先毒化 mutex：持锁期间 panic
+        let result = std::panic::catch_unwind(|| {
+            let _guard = mutex.lock().unwrap();
+            panic!("intentional poison for MEDIUM-002 test");
+        });
+        assert!(result.is_err(), "前置条件：mutex 应已被毒化");
+
+        // MEDIUM-002: lock_rate_buckets 应从中毒状态恢复，不 panic
+        let mut guard = lock_rate_buckets(&mutex);
+        assert!(guard.is_empty(), "恢复后的 guard 应能访问 map");
+        guard.insert(
+            ("default".to_string(), "127.0.0.1".to_string()),
+            (1, Instant::now()),
+        );
+        assert_eq!(guard.len(), 1, "恢复后的 guard 应能正常写入");
     }
 
     #[test]

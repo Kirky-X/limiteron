@@ -7,6 +7,7 @@
 //! - 数值注入测试（负数消费拒绝、整数溢出保护）
 //! - 配置注入测试（恶意配置拒绝、配置验证覆盖）
 
+use limiteron::config::TrustedProxyConfig;
 use limiteron::error::LimiteronError;
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use limiteron::matchers::{Identifier, IdentifierExtractor, IpExtractor, RequestContext};
@@ -19,38 +20,62 @@ use limiteron::matchers::{Identifier, IdentifierExtractor, IpExtractor, RequestC
 // ============================================================================
 // IP 地址注入测试
 // ============================================================================
+//
+// vuln-0003 修复后，X-Forwarded-For 等转发头仅在直接 TCP 对端（client_ip）
+// 为可信代理时才被信任；非可信代理直连时必须忽略转发头，回退到直接对端 IP。
 
 /// 测试 X-Forwarded-For 头伪造攻击
 ///
 /// 攻击场景：攻击者尝试通过伪造 X-Forwarded-For 头来绕过 IP 限制
-/// 防御措施：系统应正确解析 IP 列表，取最左边的 IP（第一个代理添加的）
+/// 防御措施（vuln-0003 修复后）：
+/// - 非可信代理直连时必须忽略 X-Forwarded-For，使用直接 TCP 对端 IP
+/// - 可信代理转发时从右向左跳过可信代理 IP，取第一个非可信 IP 作为客户端 IP
 #[tokio::test]
 async fn test_x_forwarded_for_spoofing() {
+    // 场景1: 攻击者直连服务器，发送伪造的 X-Forwarded-For 头
+    // 修复前：返回 "1.2.3.4"（伪造成功，不安全）
+    // 修复后：返回攻击者真实 IP（直接对端，忽略伪造头）
     let extractor = IpExtractor::from_header("x-forwarded-for");
-
-    // 场景1: 攻击者在左边添加伪造 IP
-    // 格式: 伪造IP, 真实客户端IP, 代理IP
-    let ctx =
-        RequestContext::new().with_header("x-forwarded-for", "1.2.3.4, 192.168.1.100, 10.0.0.1");
+    let ctx = RequestContext::new()
+        .with_header("x-forwarded-for", "1.2.3.4, 192.168.1.100, 10.0.0.1")
+        .with_client_ip("203.0.113.99");
     let result = extractor.extract(&ctx);
-
-    // 系统应取最左边的 IP（攻击者伪造的 IP）
-    // 这是预期行为：假设第一个代理是可信的
     assert!(result.is_some());
-    let ip = result.unwrap();
-    assert_eq!(ip, Identifier::Ip("1.2.3.4".to_string()));
+    assert_eq!(
+        result.unwrap(),
+        Identifier::Ip("203.0.113.99".to_string()),
+        "非可信代理直连时必须忽略 X-Forwarded-For，使用直接对端 IP"
+    );
 
-    // 场景2: 正常的 X-Forwarded-For 头
+    // 场景2: 攻击者直连但未提供 client_ip（无 socket 信息）
+    // 修复后：无法验证对端，必须忽略 X-Forwarded-For，返回 None
     let ctx = RequestContext::new().with_header("x-forwarded-for", "192.168.1.100, 10.0.0.1");
     let result = extractor.extract(&ctx);
-    assert!(result.is_some());
-    assert_eq!(result.unwrap(), Identifier::Ip("192.168.1.100".to_string()));
+    assert!(
+        result.is_none(),
+        "缺少直接对端地址时必须忽略 X-Forwarded-For"
+    );
 
-    // 场景3: 单个 IP（无代理）
-    let ctx = RequestContext::new().with_header("x-forwarded-for", "192.168.1.100");
+    // 场景3: 可信代理转发，攻击者在头左边添加伪造 IP
+    // X-Forwarded-For: 伪造IP, 真实客户端IP, 可信代理IP
+    // 修复后：从右向左跳过可信代理，取第一个非可信 IP（即真实客户端 IP）
+    let config = TrustedProxyConfig {
+        enabled: true,
+        proxies: vec!["10.0.0.1".to_string()],
+        max_hops: 10,
+    };
+    let extractor =
+        IpExtractor::with_trusted_proxies(vec!["x-forwarded-for".to_string()], true, config);
+    let ctx = RequestContext::new()
+        .with_header("x-forwarded-for", "1.2.3.4, 192.168.1.100, 10.0.0.1")
+        .with_client_ip("10.0.0.1");
     let result = extractor.extract(&ctx);
     assert!(result.is_some());
-    assert_eq!(result.unwrap(), Identifier::Ip("192.168.1.100".to_string()));
+    assert_eq!(
+        result.unwrap(),
+        Identifier::Ip("192.168.1.100".to_string()),
+        "可信代理转发时应从右向左跳过可信代理，取真实客户端 IP（而非伪造的最左 IP）"
+    );
 }
 
 /// 测试无效 IP 地址注入
@@ -107,7 +132,14 @@ async fn test_invalid_ip_injection() {
 /// 验证系统正确处理 IPv6 地址格式
 #[tokio::test]
 async fn test_ipv6_injection() {
-    let extractor = IpExtractor::from_header("x-forwarded-for");
+    // vuln-0003: 通过可信代理转发时，验证 IPv6 地址可被正确提取
+    let config = TrustedProxyConfig {
+        enabled: true,
+        proxies: vec!["10.0.0.1".to_string()],
+        max_hops: 10,
+    };
+    let extractor =
+        IpExtractor::with_trusted_proxies(vec!["x-forwarded-for".to_string()], true, config);
 
     // 有效的 IPv6 地址
     let valid_ipv6 = vec![
@@ -120,7 +152,9 @@ async fn test_ipv6_injection() {
     ];
 
     for ip in valid_ipv6 {
-        let ctx = RequestContext::new().with_header("x-forwarded-for", ip);
+        let ctx = RequestContext::new()
+            .with_header("x-forwarded-for", ip)
+            .with_client_ip("10.0.0.1");
         let result = extractor.extract(&ctx);
         assert!(result.is_some(), "Valid IPv6 should be accepted: {}", ip);
     }
@@ -131,33 +165,55 @@ async fn test_ipv6_injection() {
 /// 验证系统正确处理包含多个 IP 的 X-Forwarded-For 头
 #[tokio::test]
 async fn test_ip_list_parsing_security() {
-    let extractor = IpExtractor::from_header("x-forwarded-for");
+    // vuln-0003: 通过可信代理转发时，验证 IP 列表解析与 DoS 防护
+    let config = TrustedProxyConfig {
+        enabled: true,
+        proxies: vec!["10.0.0.1".to_string()],
+        max_hops: 10,
+    };
+    let extractor =
+        IpExtractor::with_trusted_proxies(vec!["x-forwarded-for".to_string()], true, config);
 
     // 测试包含空格和空元素的 IP 列表
-    let ctx =
-        RequestContext::new().with_header("x-forwarded-for", "  192.168.1.1  ,  , 10.0.0.1  ");
+    // 从右向左查找：10.0.0.1 (可信) → 跳过；(空) → 跳过；192.168.1.1 (非可信) → 返回
+    let ctx = RequestContext::new()
+        .with_header("x-forwarded-for", "  192.168.1.1  ,  , 10.0.0.1  ")
+        .with_client_ip("10.0.0.1");
     let result = extractor.extract(&ctx);
     assert!(result.is_some());
-    // 应取第一个非空 IP
     assert_eq!(result.unwrap(), Identifier::Ip("192.168.1.1".to_string()));
 
     // 测试超大 IP 列表（DoS 防护）
-    // max_hops 默认是 10，超过应该返回 None（安全行为）
+    // max_hops 默认是 10，超过时 parse_forwarded_chain 拒绝解析整个 X-Forwarded-For 头。
+    // vuln-0003: 头解析失败后，extract() 回退到直接对端 IP（client_ip），始终可信。
+    // 因此超 max_hops 时不会返回 None，而是返回直接对端 IP（拒绝伪造头，使用真实对端）。
     let many_ips: String = (0..20)
         .map(|i| format!("192.168.{}.{}", i / 256, i % 256))
         .collect::<Vec<_>>()
         .join(", ");
-    let ctx = RequestContext::new().with_header("x-forwarded-for", &many_ips);
+    let ctx = RequestContext::new()
+        .with_header("x-forwarded-for", &many_ips)
+        .with_client_ip("10.0.0.1");
     let result = extractor.extract(&ctx);
-    // 超过 max_hops 限制，应该返回 None（DoS 防护）
-    assert!(result.is_none(), "超过 max_hops 限制应该被拒绝");
+    // 超过 max_hops 限制：X-Forwarded-For 头被拒绝，回退到直接对端 IP
+    assert!(
+        result.is_some(),
+        "超过 max_hops 限制时应回退到直接对端 IP，不应返回 None"
+    );
+    assert_eq!(
+        result.unwrap(),
+        Identifier::Ip("10.0.0.1".to_string()),
+        "超过 max_hops 限制时应忽略 X-Forwarded-For，使用直接对端 IP"
+    );
 
     // 测试在限制内的 IP 列表
     let few_ips: String = (0..5)
         .map(|i| format!("192.168.{}.{}", i / 256, i % 256))
         .collect::<Vec<_>>()
         .join(", ");
-    let ctx = RequestContext::new().with_header("x-forwarded-for", &few_ips);
+    let ctx = RequestContext::new()
+        .with_header("x-forwarded-for", &few_ips)
+        .with_client_ip("10.0.0.1");
     let result = extractor.extract(&ctx);
     // 在限制内，应该成功
     assert!(result.is_some());
@@ -168,26 +224,42 @@ async fn test_ip_list_parsing_security() {
 /// 验证系统在多代理场景下的 IP 提取行为
 #[tokio::test]
 async fn test_proxy_trust_chain() {
+    // vuln-0003: 通过可信代理转发时，验证头优先级与多代理链解析
+    let config = TrustedProxyConfig {
+        enabled: true,
+        proxies: vec!["10.0.0.1".to_string(), "10.0.0.2".to_string()],
+        max_hops: 10,
+    };
     // 创建从多个头提取的 extractor
-    let extractor = IpExtractor::from_headers(vec!["x-real-ip", "x-forwarded-for"]);
+    let extractor = IpExtractor::with_trusted_proxies(
+        vec!["x-real-ip".to_string(), "x-forwarded-for".to_string()],
+        true,
+        config,
+    );
 
     // 场景1: X-Real-IP 优先级高于 X-Forwarded-For
+    // 可信代理 10.0.0.1 直连，X-Real-IP 头优先被读取，单 IP 直接返回
     let ctx = RequestContext::new()
         .with_header("x-real-ip", "10.0.0.1")
-        .with_header("x-forwarded-for", "192.168.1.1, 10.0.0.2");
+        .with_header("x-forwarded-for", "192.168.1.1, 10.0.0.2")
+        .with_client_ip("10.0.0.1");
     let result = extractor.extract(&ctx);
     assert!(result.is_some());
     assert_eq!(result.unwrap(), Identifier::Ip("10.0.0.1".to_string()));
 
-    // 场景2: 只有 X-Forwarded-For
-    let ctx = RequestContext::new().with_header("x-forwarded-for", "192.168.1.1, 10.0.0.2");
+    // 场景2: 只有 X-Forwarded-For（可信代理 10.0.0.1 直连）
+    // 从右向左：10.0.0.2 (可信) → 跳过；192.168.1.1 (非可信) → 返回
+    let ctx = RequestContext::new()
+        .with_header("x-forwarded-for", "192.168.1.1, 10.0.0.2")
+        .with_client_ip("10.0.0.1");
     let result = extractor.extract(&ctx);
     assert!(result.is_some());
     assert_eq!(result.unwrap(), Identifier::Ip("192.168.1.1".to_string()));
 
-    // 场景3: 使用 client_ip 字段
+    // 场景3: 使用 client_ip 字段（默认配置，无可信代理，回退到直接对端 IP）
+    let extractor_default = IpExtractor::from_headers(vec!["x-real-ip", "x-forwarded-for"]);
     let ctx = RequestContext::new().with_client_ip("172.16.0.1");
-    let result = extractor.extract(&ctx);
+    let result = extractor_default.extract(&ctx);
     assert!(result.is_some());
     assert_eq!(result.unwrap(), Identifier::Ip("172.16.0.1".to_string()));
 }

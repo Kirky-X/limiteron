@@ -25,6 +25,9 @@ reqwest = { version = "0.13", features = ["json"] }
 tempfile = "3.27"
 # axum 用于 ban_http_api 示例后台运行 AdminServer（axum::serve）
 axum = "0.8"
+# vuln-0004 修复：CVE-2025-48369，强制 rustls-webpki >= 0.103.13
+# 安全优先于 x.x 版本格式规则；此为间接依赖的最低版本约束
+rustls-webpki = "0.103.13"
 
 [[bin]]
 name = "simple_rate_limit"

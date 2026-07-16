@@ -13,6 +13,7 @@ use crate::QuotaController;
 use super::config::AdminApiConfig;
 use super::routes;
 use axum::Router;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
@@ -93,7 +94,14 @@ impl AdminServer {
             address
         );
 
-        axum::serve(listener, router).await?;
+        // HIGH-001 修复：启用 ConnectInfo<SocketAddr> 注入，
+        // 使 routes middleware 可通过 req.extensions() 获取 TCP 连接远端 IP
+        // 用于 per-client rate limit 分桶
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await?;
 
         Ok(())
     }

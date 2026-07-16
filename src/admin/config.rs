@@ -36,6 +36,22 @@ pub struct AdminApiConfig {
     /// 回退到默认 `"admin-api"` 并记录 warn 日志（向后兼容）。
     #[serde(default)]
     pub api_key_operators: HashMap<String, String>,
+    /// 按路径分组的速率限制配置 (vuln-0002 修复)
+    ///
+    /// key = 分组名（"ban" / "quota" / "default"），value = (max_requests, window_secs)。
+    /// middleware 在鉴权之前检查速率限制，超限返回 429 + Retry-After。
+    /// 默认：ban=(100,60), quota=(50,60), default=(200,60)。
+    #[serde(default = "default_rate_limits")]
+    pub rate_limits: HashMap<String, (u64, u64)>,
+}
+
+/// 默认速率限制配置：ban=100/min, quota=50/min, default=200/min
+fn default_rate_limits() -> HashMap<String, (u64, u64)> {
+    let mut m = HashMap::new();
+    m.insert("ban".to_string(), (100, 60));
+    m.insert("quota".to_string(), (50, 60));
+    m.insert("default".to_string(), (200, 60));
+    m
 }
 
 fn default_host() -> String {
@@ -58,6 +74,7 @@ impl Default for AdminApiConfig {
             api_key: String::new(),
             enabled: default_enabled(),
             api_key_operators: HashMap::new(),
+            rate_limits: default_rate_limits(),
         }
     }
 }
@@ -70,6 +87,7 @@ impl AdminApiConfig {
             api_key: api_key.into(),
             enabled: true,
             api_key_operators: HashMap::new(),
+            rate_limits: default_rate_limits(),
         }
     }
 
@@ -116,6 +134,18 @@ impl AdminApiConfig {
     /// 返回 `None` 表示未配置映射，调用方应回退到默认 `"admin-api"` 并记录 warn。
     pub fn operator_for_api_key(&self, api_key: &str) -> Option<&str> {
         self.api_key_operators.get(api_key).map(|s| s.as_str())
+    }
+
+    /// 设置指定分组的速率限制 (vuln-0002 修复)
+    ///
+    /// # 参数
+    /// - `group`: 分组名（"ban" / "quota" / "default"）
+    /// - `max`: 窗口内最大请求数
+    /// - `window_secs`: 窗口时长（秒）
+    pub fn with_rate_limit(mut self, group: &str, max: u64, window_secs: u64) -> Self {
+        self.rate_limits
+            .insert(group.to_string(), (max, window_secs));
+        self
     }
 
     pub fn address(&self) -> String {

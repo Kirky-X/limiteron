@@ -7,6 +7,23 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+/// 转义 tenant_id 中的 ":" 为 "::" 防止命名空间前缀注入。
+///
+/// `Namespace::qualify_key` 将键格式化为 `tenant:{tenant_id}:env:{environment}:{key}`。
+/// 若 tenant_id 包含 ":"，可能与其它租户的前缀冲突（如 tenant_id="a:b" + env="c"
+/// 与 tenant_id="a" + env="b:c" 产生相同前缀）。转义后消除歧义。
+pub fn sanitize_tenant_id(tenant_id: &str) -> String {
+    tenant_id.replace(':', "::")
+}
+
+/// 转义 environment 中的 ":" 为 "::" 防止命名空间前缀注入。
+///
+/// 与 `sanitize_tenant_id` 同理：environment 字段也被插值到命名空间前缀中，
+/// 未转义的 ":" 会允许跨环境的前缀冲突。
+pub fn sanitize_environment(environment: &str) -> String {
+    environment.replace(':', "::")
+}
+
 /// 租户命名空间
 ///
 /// 用于标识请求所属的租户和环境，确保限流键在不同租户之间隔离。
@@ -62,7 +79,8 @@ impl Namespace {
 
     /// 生成命名空间的唯一前缀
     ///
-    /// 格式: `tenant:{tenant_id}:env:{environment}`
+    /// 格式: `tenant:{tenant_id}:env:{environment}`，其中 tenant_id 和 environment
+    /// 中的 ":" 被转义为 "::" 防止前缀注入（不同租户/环境的键冲突）。
     ///
     /// # 示例
     ///
@@ -73,7 +91,11 @@ impl Namespace {
     /// assert_eq!(ns.prefix(), "tenant:acme:env:prod");
     /// ```
     pub fn prefix(&self) -> String {
-        format!("tenant:{}:env:{}", self.tenant_id, self.environment)
+        format!(
+            "tenant:{}:env:{}",
+            sanitize_tenant_id(&self.tenant_id),
+            sanitize_environment(&self.environment)
+        )
     }
 
     /// 为给定的限流键添加命名空间前缀
@@ -200,10 +222,87 @@ mod tests {
 
     #[test]
     fn test_namespace_with_special_characters() {
+        // MEDIUM-fix: tenant_id/environment 中的 ":" 被转义为 "::" 防止前缀注入
         let ns = Namespace::new("tenant_a/b:c@d!", "prod-v1.2.3");
         assert_eq!(ns.tenant_id(), "tenant_a/b:c@d!");
         assert_eq!(ns.environment(), "prod-v1.2.3");
-        assert_eq!(ns.prefix(), "tenant:tenant_a/b:c@d!:env:prod-v1.2.3");
+        // ":" → "::" 转义；其他特殊字符（/ @ !）不变
+        assert_eq!(ns.prefix(), "tenant:tenant_a/b::c@d!:env:prod-v1.2.3");
+    }
+
+    // ========================================================================
+    // namespace key prefix injection 修复测试
+    //
+    // 验证策略：
+    // 1. sanitize_tenant_id / sanitize_environment 将 ":" 转义为 "::"
+    // 2. 无 ":" 的输入保持不变（向后兼容）
+    // 3. 不同 (tenant_id, environment) 对不再产生冲突的 qualified key
+    // ========================================================================
+
+    #[test]
+    fn test_sanitize_tenant_id_escapes_colon() {
+        assert_eq!(sanitize_tenant_id("a:b"), "a::b");
+        assert_eq!(sanitize_tenant_id("a:b:c"), "a::b::c");
+        assert_eq!(sanitize_tenant_id("::"), "::::");
+    }
+
+    #[test]
+    fn test_sanitize_tenant_id_no_colon_unchanged() {
+        assert_eq!(sanitize_tenant_id("acme"), "acme");
+        assert_eq!(sanitize_tenant_id(""), "");
+        assert_eq!(sanitize_tenant_id("tenant-123"), "tenant-123");
+    }
+
+    #[test]
+    fn test_sanitize_environment_escapes_colon() {
+        assert_eq!(sanitize_environment("prod:v2"), "prod::v2");
+        assert_eq!(sanitize_environment("a:b:c"), "a::b::c");
+    }
+
+    #[test]
+    fn test_sanitize_environment_no_colon_unchanged() {
+        assert_eq!(sanitize_environment("production"), "production");
+        assert_eq!(sanitize_environment(""), "");
+        assert_eq!(sanitize_environment("prod-v1.2.3"), "prod-v1.2.3");
+    }
+
+    #[test]
+    fn test_namespace_prefix_injection_environment_no_collision() {
+        // 无转义时，(env="prod", key="rl:user") 与 (env="prod:rl", key="user")
+        // 会产生相同的 qualified key —— 前缀注入漏洞。
+        // 转义后 environment 中的 ":" 变为 "::"，两个 key 必须不同。
+        let ns_normal = Namespace::new("acme", "prod");
+        let ns_injected = Namespace::new("acme", "prod:rl");
+        let key_normal = ns_normal.qualify_key("rl:user");
+        let key_injected = ns_injected.qualify_key("user");
+        assert_ne!(
+            key_normal, key_injected,
+            "environment 中的 ':' 必须被转义，防止 qualified key 冲突"
+        );
+    }
+
+    #[test]
+    fn test_namespace_prefix_injection_tenant_id_no_collision() {
+        // 无转义时，(tenant="a:env:b", env="c") 与 (tenant="a", env="b:env:c")
+        // 会产生相同的 prefix —— 前缀注入漏洞。
+        // 转义后 tenant_id 中的 ":" 变为 "::"，两个 prefix 必须不同。
+        let ns_injected_tenant = Namespace::new("a:env:b", "c");
+        let ns_injected_env = Namespace::new("a", "b:env:c");
+        assert_ne!(
+            ns_injected_tenant.prefix(),
+            ns_injected_env.prefix(),
+            "tenant_id 中的 ':' 必须被转义，防止 prefix 冲突"
+        );
+    }
+
+    #[test]
+    fn test_namespace_qualify_key_stable_for_safe_ids() {
+        // 无 ":" 的 tenant_id/environment 不受转义影响（向后兼容）
+        let ns = Namespace::new("acme-corp", "production");
+        assert_eq!(
+            ns.qualify_key("rl:user:123"),
+            "tenant:acme-corp:env:production:rl:user:123"
+        );
     }
 
     #[test]

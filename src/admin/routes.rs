@@ -5,10 +5,15 @@
 use axum::{
     Router,
     body::Body,
-    http::{Request, StatusCode, header::AUTHORIZATION},
+    http::{
+        Request, StatusCode,
+        header::{AUTHORIZATION, RETRY_AFTER},
+    },
     middleware::from_fn,
     routing::{delete, get, post, put},
 };
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use super::{config::AdminApiConfig, handlers, server::AppState};
 
@@ -29,6 +34,22 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
         result |= x ^ y;
     }
     result == 0
+}
+
+/// 按路径前缀分组（vuln-0002 修复）
+///
+/// 用于按端点分组应用不同的速率限制策略：
+/// - `/api/v1/ban*` → "ban"（默认 100/min）
+/// - `/api/v1/quota*` → "quota"（默认 50/min）
+/// - 其他 → "default"（默认 200/min）
+fn group_for_path(path: &str) -> &'static str {
+    if path.starts_with("/api/v1/ban") {
+        "ban"
+    } else if path.starts_with("/api/v1/quota") {
+        "quota"
+    } else {
+        "default"
+    }
 }
 
 pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
@@ -54,11 +75,49 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
 
     let api_key = config.api_key.clone();
     let operator_mapping = config.api_key_operators.clone();
+    let rate_limits = config.rate_limits.clone();
+    // vuln-0002 修复：全局速率限制状态（分组 → (计数, 窗口开始时间)）
+    let rate_buckets: Arc<Mutex<std::collections::HashMap<String, (u64, Instant)>>> =
+        Arc::new(Mutex::new(std::collections::HashMap::new()));
     router = router.layer(from_fn(
         move |mut req: Request<Body>, next: axum::middleware::Next| {
             let api_key = api_key.clone();
             let operator_mapping = operator_mapping.clone();
+            let rate_limits = rate_limits.clone();
+            let rate_buckets = rate_buckets.clone();
             async move {
+                // vuln-0002 修复：速率限制检查（在鉴权之前，防止暴力破解和 DDoS）
+                let path = req.uri().path();
+                let group = group_for_path(path);
+                let (max, window_secs) = rate_limits.get(group).copied().unwrap_or((200, 60));
+                let window = Duration::from_secs(window_secs);
+                let now = Instant::now();
+                {
+                    let mut buckets = rate_buckets.lock().expect("rate_buckets poisoned");
+                    let entry = buckets.entry(group.to_string()).or_insert((0, now));
+                    if now.duration_since(entry.1) >= window {
+                        // 窗口过期，重置计数
+                        *entry = (1, now);
+                    } else if entry.0 < max {
+                        entry.0 += 1;
+                    } else {
+                        // 超限：返回 429 + Retry-After
+                        let retry_after = window - now.duration_since(entry.1);
+                        let mut resp =
+                            axum::response::Response::new(Body::from("Rate limit exceeded"));
+                        *resp.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+                        if let Ok(val) = retry_after
+                            .as_secs()
+                            .to_string()
+                            .parse::<http::HeaderValue>()
+                        {
+                            resp.headers_mut().insert(RETRY_AFTER, val);
+                        }
+                        return resp;
+                    }
+                }
+
+                // 鉴权
                 let auth_header = req
                     .headers()
                     .get(AUTHORIZATION)
@@ -633,6 +692,140 @@ mod tests {
             resp.status(),
             StatusCode::OK,
             "delete_ban 的 operator 必须来自 API key mapping（admin-alice），而非 body（admin-bob）"
+        );
+    }
+
+    // ========================================================================
+    // vuln-0002 修复测试：Admin API 速率限制
+    //
+    // 验证策略：配置小限制值，发送超过限制的请求，断言第 N+1 次返回 429。
+    // 速率限制在鉴权之前执行，防止暴力破解和 DDoS。
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_vuln_0002_rate_limit_returns_429_after_max() {
+        let state = make_state().await;
+        // 配置 default 分组限制为 3 次/60s
+        let config =
+            AdminApiConfig::new("test-api-key-16chars!!").with_rate_limit("default", 3, 60);
+        let app = create_router(state, &config);
+
+        // 前 3 次成功（200 OK）
+        for i in 0..3 {
+            let req = Request::builder()
+                .uri("/api/v1/status")
+                .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+                .body(Body::empty())
+                .unwrap();
+            let resp = app.clone().oneshot(req).await.unwrap();
+            assert_eq!(
+                resp.status(),
+                StatusCode::OK,
+                "request {} should succeed within rate limit",
+                i
+            );
+        }
+
+        // 第 4 次被速率限制（429）
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "第 4 次请求应被速率限制"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_vuln_0002_rate_limit_includes_retry_after_header() {
+        let state = make_state().await;
+        // 配置 default 分组限制为 1 次/60s
+        let config =
+            AdminApiConfig::new("test-api-key-16chars!!").with_rate_limit("default", 1, 60);
+        let app = create_router(state, &config);
+
+        // 第 1 次成功
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 第 2 次被限制
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        // 验证 Retry-After header 存在且值 > 0
+        let retry_after = resp
+            .headers()
+            .get(RETRY_AFTER)
+            .expect("429 响应必须包含 Retry-After header");
+        let retry_secs: u64 = retry_after.to_str().unwrap().parse().unwrap();
+        assert!(
+            retry_secs > 0,
+            "Retry-After 应为正数（剩余窗口时间），实际: {}",
+            retry_secs
+        );
+    }
+
+    #[tokio::test]
+    async fn test_vuln_0002_rate_limit_groups_independent() {
+        let state = make_state().await;
+        // ban 和 default 都限制为 2 次/60s
+        let config = AdminApiConfig::new("test-api-key-16chars!!")
+            .with_rate_limit("ban", 2, 60)
+            .with_rate_limit("default", 2, 60);
+        let app = create_router(state, &config);
+
+        // 发 2 次 status 请求（default 分组），耗尽 default 配额
+        for _ in 0..2 {
+            let req = Request::builder()
+                .uri("/api/v1/status")
+                .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+                .body(Body::empty())
+                .unwrap();
+            let resp = app.clone().oneshot(req).await.unwrap();
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+
+        // default 分组已耗尽，第 3 次 status 返回 429
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "default 分组配额耗尽应返回 429"
+        );
+
+        // ban 分组未耗尽，ban 请求不应返回 429（独立计数）
+        let req = Request::builder()
+            .uri("/api/v1/ban")
+            .method("POST")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                r#"{"target":{"type":"ip","value":"1.2.3.4"},"reason":"test"}"#.to_string(),
+            ))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_ne!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "ban 分组应独立于 default 分组计数，不应返回 429"
         );
     }
 }

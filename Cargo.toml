@@ -155,6 +155,10 @@ ahash.workspace = true
 dbnexus = { workspace = true, optional = true }
 sea-orm = { workspace = true, optional = true }
 sqlx = { workspace = true, optional = true }
+# 安全约束（vuln-0004 修复 / MEDIUM-003）：CVE-2025-48369，强制 rustls-webpki >= 0.103.13
+# 通过 sqlx (tls-rustls) 间接引入，但显式约束最低版本以防止 Cargo 解析到脆弱版本。
+# 注：版本格式为例外（用户规则要求 x.x，但安全约束需要 patch 段），安全优先级高于代码质量规则。
+rustls-webpki = { version = "0.103.13", optional = true }
 
 # 缓存库（必需）
 oxcache.workspace = true
@@ -282,7 +286,8 @@ default = []
 # Storage Features (存储后端)
 # ============================================
 # PostgreSQL 存储 - 使用 dbnexus
-postgres = ["dep:dbnexus", "dep:sqlx", "dep:sea-orm"]
+# 含 rustls-webpki 显式约束（MEDIUM-003：CVE-2025-48369 最低版本锁）
+postgres = ["dep:dbnexus", "dep:sqlx", "dep:sea-orm", "dep:rustls-webpki"]
 
 # 缓存存储 - 通过 oxcache 切换后端 (memory/redis 等)
 cache-storage = ["cache-service", "oxcache/redis"]

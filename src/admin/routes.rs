@@ -6,6 +6,7 @@ use ahash::AHashMap;
 use axum::{
     Router,
     body::Body,
+    extract::ConnectInfo,
     http::{
         Request, StatusCode,
         header::{AUTHORIZATION, RETRY_AFTER},
@@ -13,6 +14,7 @@ use axum::{
     middleware::from_fn,
     routing::{delete, get, post, put},
 };
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -25,6 +27,12 @@ use super::{config::AdminApiConfig, handlers, server::AppState};
 /// 不再信任 JSON body 中的 `operator` 字段，防止身份伪造。
 #[derive(Debug, Clone)]
 pub struct OperatorIdentity(pub String);
+
+/// HIGH-001: per-client rate limit bucket 类型
+///
+/// key = (group, client_ip)，value = (request_count, window_start Instant)。
+/// 提取为 type alias 以避免 clippy::type_complexity 警告。
+type RateBuckets = Arc<Mutex<AHashMap<(String, String), (u64, Instant)>>>;
 
 fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
@@ -77,9 +85,16 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
     let api_key = config.api_key.clone();
     let operator_mapping = config.api_key_operators.clone();
     let rate_limits = config.rate_limits.clone();
-    // vuln-0002 修复：全局速率限制状态（分组 → (计数, 窗口开始时间)）
-    let rate_buckets: Arc<Mutex<AHashMap<String, (u64, Instant)>>> =
-        Arc::new(Mutex::new(AHashMap::new()));
+    // HIGH-001 修复：per-client rate buckets，key = (group, client_ip)
+    //
+    // vuln-0002 原实现按 group 全局共享计数器，单个恶意客户端耗尽配额后
+    // 所有合法管理员也被限制（DoS 放大器）。此处改为按 (group, client_ip)
+    // 分桶，每个客户端在每组内有独立配额。
+    //
+    // client_ip 来源：`ConnectInfo<SocketAddr>`（TCP 连接远端）。
+    // admin API 通常直接暴露，不信任 X-Forwarded-For（可伪造）。
+    // 无 connect info（如测试 oneshot）回退到 "unknown" 共享桶。
+    let rate_buckets: RateBuckets = Arc::new(Mutex::new(AHashMap::new()));
     router = router.layer(from_fn(
         move |mut req: Request<Body>, next: axum::middleware::Next| {
             let api_key = api_key.clone();
@@ -90,12 +105,19 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
                 // vuln-0002 修复：速率限制检查（在鉴权之前，防止暴力破解和 DDoS）
                 let path = req.uri().path();
                 let group = group_for_path(path);
+                // HIGH-001：提取 client IP 用于 per-client 分桶
+                let client_ip = req
+                    .extensions()
+                    .get::<ConnectInfo<SocketAddr>>()
+                    .map(|ci| ci.0.ip().to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
                 let (max, window_secs) = rate_limits.get(group).copied().unwrap_or((200, 60));
                 let window = Duration::from_secs(window_secs);
                 let now = Instant::now();
                 {
                     let mut buckets = rate_buckets.lock().expect("rate_buckets poisoned");
-                    let entry = buckets.entry(group.to_string()).or_insert((0, now));
+                    let key = (group.to_string(), client_ip);
+                    let entry = buckets.entry(key).or_insert((0, now));
                     if now.duration_since(entry.1) >= window {
                         // 窗口过期，重置计数
                         *entry = (1, now);
@@ -829,6 +851,196 @@ mod tests {
             resp.status(),
             StatusCode::TOO_MANY_REQUESTS,
             "ban 分组应独立于 default 分组计数，不应返回 429"
+        );
+    }
+
+    // ========================================================================
+    // HIGH-001 修复测试：per-client rate limit buckets
+    //
+    // 验证策略：
+    // 1. 不同 client_ip 的请求有独立计数器（一个耗尽不影响另一个）
+    // 2. 相同 client_ip 的请求共享计数器（per-client 而非 per-request）
+    // 3. 无 ConnectInfo 时回退到 "unknown" 共享桶（向后兼容测试场景）
+    // 4. per-client 隔离在 group 维度仍然成立
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_high_001_per_client_isolation_different_ips() {
+        let state = make_state().await;
+        // 配置 default 分组限制为 2 次/60s
+        let config =
+            AdminApiConfig::new("test-api-key-16chars!!").with_rate_limit("default", 2, 60);
+        let app = create_router(state, &config);
+
+        // client A: 127.0.0.1，发送 2 次请求耗尽配额
+        let client_a: SocketAddr = "127.0.0.1:1234".parse().unwrap();
+        for i in 0..2 {
+            let mut req = Request::builder()
+                .uri("/api/v1/status")
+                .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+                .body(Body::empty())
+                .unwrap();
+            req.extensions_mut().insert(ConnectInfo(client_a));
+            let resp = app.clone().oneshot(req).await.unwrap();
+            assert_eq!(
+                resp.status(),
+                StatusCode::OK,
+                "client A request {} should succeed within its own bucket",
+                i
+            );
+        }
+
+        // client A 第 3 次被限制（429）
+        let mut req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(client_a));
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "client A 第 3 次请求应被速率限制（自身配额耗尽）"
+        );
+
+        // client B: 192.168.1.1，发送请求应成功（独立计数）
+        let client_b: SocketAddr = "192.168.1.1:5678".parse().unwrap();
+        let mut req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(client_b));
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "client B 应独立于 client A 计数，不应因 client A 耗尽配额而被限制"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_high_001_same_ip_shares_bucket_across_ports() {
+        let state = make_state().await;
+        // 配置 default 分组限制为 2 次/60s
+        let config =
+            AdminApiConfig::new("test-api-key-16chars!!").with_rate_limit("default", 2, 60);
+        let app = create_router(state, &config);
+
+        // 同一 client IP 不同端口（应视为同一客户端，因为按 IP 分桶）
+        let client_port1: SocketAddr = "127.0.0.1:1111".parse().unwrap();
+        let client_port2: SocketAddr = "127.0.0.1:2222".parse().unwrap();
+
+        // 第 1 次请求（端口 1111）
+        let mut req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(client_port1));
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 第 2 次请求（端口 2222，同 IP 不同端口）
+        let mut req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(client_port2));
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 第 3 次请求（同 IP）应被限制（共享计数）
+        let mut req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(client_port1));
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "同 IP 不同端口应共享同一 rate bucket（按 IP 分桶，非按 socket 分桶）"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_high_001_unknown_fallback_when_no_connect_info() {
+        let state = make_state().await;
+        // 配置 default 分组限制为 1 次/60s
+        let config =
+            AdminApiConfig::new("test-api-key-16chars!!").with_rate_limit("default", 1, 60);
+        let app = create_router(state, &config);
+
+        // 不注入 ConnectInfo（模拟测试或无 connect info 的场景）
+        // 第 1 次成功
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 第 2 次被限制（共享 "unknown" 桶）
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "无 ConnectInfo 时应回退到 'unknown' 共享桶"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_high_001_per_client_isolation_across_groups() {
+        let state = make_state().await;
+        // 配置 ban=1, default=1
+        let config = AdminApiConfig::new("test-api-key-16chars!!")
+            .with_rate_limit("ban", 1, 60)
+            .with_rate_limit("default", 1, 60);
+        let app = create_router(state, &config);
+
+        let client: SocketAddr = "10.0.0.1:9999".parse().unwrap();
+
+        // 用 ban 请求耗尽 ban 组配额（POST /api/v1/ban）
+        // ban-manager feature 未启用时返回 503，但不影响速率限制计数（middleware 在鉴权后、handler 前计数）
+        let mut req = Request::builder()
+            .uri("/api/v1/ban")
+            .method("POST")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                r#"{"target":{"type":"ip","value":"1.2.3.4"},"reason":"test"}"#.to_string(),
+            ))
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(client));
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_ne!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "首次 ban 请求不应被速率限制"
+        );
+
+        // 同一 client 的 default 组请求应仍能成功（不同 group 独立计数）
+        let mut req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut().insert(ConnectInfo(client));
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "同一 client 的不同 group 应独立计数"
         );
     }
 }

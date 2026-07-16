@@ -3,12 +3,13 @@
 //! HTTP处理器
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, Query, State},
     http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
 
+use super::routes::OperatorIdentity;
 use super::server::AppState;
 #[cfg(feature = "ban-manager")]
 use crate::ban::{BanFilter, BanTarget};
@@ -130,7 +131,12 @@ pub async fn get_limiter_status(
 #[derive(Deserialize)]
 pub struct UnbanRequest {
     pub reason: Option<String>,
-    /// 操作者标识（用于授权检查与审计）
+    /// 操作者标识（已弃用，vuln-0001 修复后由 API key mapping 决定）
+    ///
+    /// 此字段保留仅为向后兼容（旧客户端仍可发送），但服务端会忽略其值。
+    /// 实际 operator 身份由 `OperatorIdentity`（来自鉴权 middleware）决定。
+    #[serde(default)]
+    #[allow(dead_code)]
     pub operator: Option<String>,
 }
 
@@ -150,9 +156,13 @@ pub struct BanTargetQuery {
 /// 路径 `target` 默认按 IP 解析，回退为 UserId；通过 `?type=` 可显式指定
 /// ip/user/mac/geo 之一，以解封非 IP/UserId 目标。
 /// 状态码：200=成功, 400=不支持的 type, 404=未找到, 503=未配置, 500=内部错误
+///
+/// vuln-0001 修复：operator 身份由 `OperatorIdentity`（鉴权 middleware 注入）决定，
+/// 不再使用 JSON body 中的 `operator` 字段。
 #[cfg(feature = "ban-manager")]
 pub async fn delete_ban(
     State(state): State<AppState>,
+    Extension(operator): Extension<OperatorIdentity>,
     Path(target): Path<String>,
     Query(query): Query<BanTargetQuery>,
     Json(req): Json<UnbanRequest>,
@@ -188,8 +198,8 @@ pub async fn delete_ban(
             }
         }
     };
-    let operator = req.operator.unwrap_or_else(|| "admin-api".to_string());
-    match ban_manager.delete_ban(&ban_target, operator).await {
+    // vuln-0001 修复：operator 来自 OperatorIdentity（API key mapping），而非 body
+    match ban_manager.delete_ban(&ban_target, operator.0).await {
         Ok(true) => (
             StatusCode::OK,
             Json(ApiResponse {
@@ -229,8 +239,12 @@ pub struct CreateBanRequest {
     pub target: crate::storage::BanTarget,
     /// 封禁原因
     pub reason: String,
-    /// 操作者标识（用于授权检查与审计），默认 "admin-api"
+    /// 操作者标识（已弃用，vuln-0001 修复后由 API key mapping 决定）
+    ///
+    /// 此字段保留仅为向后兼容（旧客户端仍可发送），但服务端会忽略其值。
+    /// 实际 operator 身份由 `OperatorIdentity`（来自鉴权 middleware）决定。
     #[serde(default)]
+    #[allow(dead_code)]
     pub operator: Option<String>,
     /// 封禁时长（秒），None = 使用退避算法自动计算
     #[serde(default)]
@@ -251,9 +265,13 @@ pub struct BanResponse {
 ///
 /// 创建封禁。支持 ip/user/mac/geo 四种 target 类型。
 /// 错误映射：ValidationError→400, AuthorizationError→403, 其他→500。
+///
+/// vuln-0001 修复：operator 身份由 `OperatorIdentity`（鉴权 middleware 注入）决定，
+/// 不再使用 JSON body 中的 `operator` 字段。
 #[cfg(feature = "ban-manager")]
 pub async fn create_ban(
     State(state): State<AppState>,
+    Extension(operator): Extension<OperatorIdentity>,
     Json(req): Json<CreateBanRequest>,
 ) -> (StatusCode, Json<ApiResponse<BanResponse>>) {
     use crate::ban::BanSource;
@@ -266,8 +284,10 @@ pub async fn create_ban(
         );
     };
 
-    let operator = req.operator.unwrap_or_else(|| "admin-api".to_string());
-    let source = BanSource::Manual { operator };
+    // vuln-0001 修复：operator 来自 OperatorIdentity（API key mapping），而非 body
+    let source = BanSource::Manual {
+        operator: operator.0,
+    };
     let duration = req.duration_secs.map(Duration::from_secs);
 
     match ban_manager
@@ -507,6 +527,7 @@ mod tests {
         };
         let resp = delete_ban(
             State(state),
+            Extension(OperatorIdentity("tester".to_string())),
             Path("192.168.1.1".to_string()),
             Query(Default::default()),
             Json(req),
@@ -537,6 +558,7 @@ mod tests {
         };
         let resp = delete_ban(
             State(state),
+            Extension(OperatorIdentity("tester".to_string())),
             Path("192.168.1.1".to_string()),
             Query(Default::default()),
             Json(req),
@@ -567,6 +589,7 @@ mod tests {
         };
         let resp = delete_ban(
             State(state),
+            Extension(OperatorIdentity("tester".to_string())),
             Path("user-123".to_string()),
             Query(Default::default()),
             Json(req),
@@ -718,6 +741,7 @@ mod tests {
         };
         let resp = delete_ban(
             State(state),
+            Extension(OperatorIdentity("admin".to_string())),
             Path("10.0.0.1".to_string()),
             Query(Default::default()),
             Json(req),
@@ -768,6 +792,7 @@ mod tests {
         });
         let resp = delete_ban(
             State(state),
+            Extension(OperatorIdentity("admin".to_string())),
             Path("00:1a:2b:3c:4d:5e".to_string()),
             query,
             Json(req),
@@ -818,7 +843,14 @@ mod tests {
         let query = Query(BanTargetQuery {
             target_type: Some("geo".to_string()),
         });
-        let resp = delete_ban(State(state), Path("CN".to_string()), query, Json(req)).await;
+        let resp = delete_ban(
+            State(state),
+            Extension(OperatorIdentity("admin".to_string())),
+            Path("CN".to_string()),
+            query,
+            Json(req),
+        )
+        .await;
         assert!(resp.1.0.success);
         assert_eq!(resp.1.0.message, "geo unban");
     }
@@ -845,8 +877,14 @@ mod tests {
         let query = Query(BanTargetQuery {
             target_type: Some("foo".to_string()),
         });
-        let (status, resp) =
-            delete_ban(State(state), Path("1.2.3.4".to_string()), query, Json(req)).await;
+        let (status, resp) = delete_ban(
+            State(state),
+            Extension(OperatorIdentity("tester".to_string())),
+            Path("1.2.3.4".to_string()),
+            query,
+            Json(req),
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(!resp.0.success);
         assert!(resp.0.message.contains("unsupported target type: foo"));
@@ -891,6 +929,7 @@ mod tests {
         };
         let (status, resp) = delete_ban(
             State(state),
+            Extension(OperatorIdentity("tester".to_string())),
             Path("aa:bb:cc:dd:ee:ff".to_string()),
             Query(Default::default()),
             Json(req),

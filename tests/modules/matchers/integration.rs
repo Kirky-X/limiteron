@@ -4,6 +4,7 @@
 //!
 //! 测试匹配器模块的基本功能
 
+use limiteron::config::TrustedProxyConfig;
 use limiteron::matchers::{
     ApiKeyExtractor, CompositeExtractor, Identifier, IdentifierExtractor, IpExtractor,
     MacExtractor, RequestContext, RuleMatcher, UserIdExtractor,
@@ -12,13 +13,23 @@ use limiteron::matchers::{
 // ============================================================================
 // IpExtractor Tests
 // ============================================================================
+//
+// vuln-0003 修复后，X-Forwarded-For 等转发头仅在直接 TCP 对端（client_ip）
+// 为可信代理时才被信任。下述测试均构造可信代理转发场景，以验证头提取行为。
 
 #[tokio::test]
 async fn test_ip_extractor_ipv4() {
-    let extractor = IpExtractor::from_header("X-Forwarded-For");
-    let mut ctx = RequestContext::new();
-    ctx.headers
-        .insert("x-forwarded-for".to_string(), "192.0.2.1".to_string());
+    // vuln-0003: 通过可信代理转发时，从 X-Forwarded-For 头提取 IPv4 地址
+    let config = TrustedProxyConfig {
+        enabled: true,
+        proxies: vec!["10.0.0.1".to_string()],
+        max_hops: 10,
+    };
+    let extractor =
+        IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
+    let ctx = RequestContext::new()
+        .with_header("x-forwarded-for", "192.0.2.1")
+        .with_client_ip("10.0.0.1");
     let id = extractor.extract(&ctx);
     assert!(id.is_some());
     assert!(matches!(id.unwrap(), Identifier::Ip(_)));
@@ -34,20 +45,36 @@ async fn test_ip_extractor_missing_ip() {
 
 #[tokio::test]
 async fn test_ip_extractor_ipv6() {
-    let extractor = IpExtractor::from_header("X-Real-IP");
-    let mut ctx = RequestContext::new();
-    ctx.headers
-        .insert("x-real-ip".to_string(), "::1".to_string());
+    // vuln-0003: 通过可信代理转发时，从 X-Real-IP 头提取 IPv6 地址
+    let config = TrustedProxyConfig {
+        enabled: true,
+        proxies: vec!["10.0.0.1".to_string()],
+        max_hops: 10,
+    };
+    let extractor = IpExtractor::with_trusted_proxies(vec!["X-Real-IP".to_string()], true, config);
+    let ctx = RequestContext::new()
+        .with_header("x-real-ip", "::1")
+        .with_client_ip("10.0.0.1");
     let id = extractor.extract(&ctx);
     assert!(id.is_some());
 }
 
 #[tokio::test]
 async fn test_ip_extractor_multiple_headers() {
-    let extractor = IpExtractor::from_headers(vec!["X-Real-IP", "X-Forwarded-For"]);
-    let mut ctx = RequestContext::new();
-    ctx.headers
-        .insert("x-real-ip".to_string(), "10.1.1.1".to_string());
+    // vuln-0003: 通过可信代理转发时，按头优先级提取 IP（X-Real-IP 优先于 X-Forwarded-For）
+    let config = TrustedProxyConfig {
+        enabled: true,
+        proxies: vec!["10.0.0.1".to_string()],
+        max_hops: 10,
+    };
+    let extractor = IpExtractor::with_trusted_proxies(
+        vec!["X-Real-IP".to_string(), "X-Forwarded-For".to_string()],
+        true,
+        config,
+    );
+    let ctx = RequestContext::new()
+        .with_header("x-real-ip", "10.1.1.1")
+        .with_client_ip("10.0.0.1");
     let id = extractor.extract(&ctx);
     assert!(id.is_some());
 }

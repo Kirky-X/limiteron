@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! Admin API configuration
 
+use ahash::AHashMap as HashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -28,6 +29,13 @@ pub struct AdminApiConfig {
     /// Whether to enable the admin API
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// API key → operator identity mapping (vuln-0001 修复)
+    ///
+    /// 当管理员通过不同 API key 鉴权时，绑定到对应的 operator 身份，
+    /// 防止客户端在 JSON body 中伪造 `operator` 字段。mapping 为空时
+    /// 回退到默认 `"admin-api"` 并记录 warn 日志（向后兼容）。
+    #[serde(default)]
+    pub api_key_operators: HashMap<String, String>,
 }
 
 fn default_host() -> String {
@@ -49,6 +57,7 @@ impl Default for AdminApiConfig {
             port: default_port(),
             api_key: String::new(),
             enabled: default_enabled(),
+            api_key_operators: HashMap::new(),
         }
     }
 }
@@ -60,6 +69,7 @@ impl AdminApiConfig {
             port: default_port(),
             api_key: api_key.into(),
             enabled: true,
+            api_key_operators: HashMap::new(),
         }
     }
 
@@ -81,6 +91,31 @@ impl AdminApiConfig {
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
+    }
+
+    /// 添加 API key → operator 映射（vuln-0001 修复）
+    pub fn with_api_key_operator(
+        mut self,
+        api_key: impl Into<String>,
+        operator: impl Into<String>,
+    ) -> Self {
+        self.api_key_operators
+            .insert(api_key.into(), operator.into());
+        self
+    }
+
+    /// 批量设置 API key → operator 映射
+    pub fn with_api_key_operators(mut self, mapping: HashMap<String, String>) -> Self {
+        self.api_key_operators = mapping;
+        self
+    }
+
+    /// 查找 API key 对应的 operator 身份
+    ///
+    /// 返回 `Some(operator)` 表示配置中存在显式映射；
+    /// 返回 `None` 表示未配置映射，调用方应回退到默认 `"admin-api"` 并记录 warn。
+    pub fn operator_for_api_key(&self, api_key: &str) -> Option<&str> {
+        self.api_key_operators.get(api_key).map(|s| s.as_str())
     }
 
     pub fn address(&self) -> String {
@@ -193,5 +228,61 @@ mod tests {
             ConfigError::ApiKeyTooShort(10).to_string(),
             "API key must be at least 16 characters, got 10"
         );
+    }
+
+    // ========================================================================
+    // vuln-0001 修复测试：api_key_operators 映射
+    // ========================================================================
+
+    #[test]
+    fn test_default_config_has_empty_api_key_operators() {
+        let config = AdminApiConfig::default();
+        assert!(config.api_key_operators.is_empty());
+    }
+
+    #[test]
+    fn test_with_api_key_operator_adds_mapping() {
+        let config = AdminApiConfig::new("my-secure-api-key-32chars")
+            .with_api_key_operator("my-secure-api-key-32chars", "admin-alice");
+        assert_eq!(
+            config.operator_for_api_key("my-secure-api-key-32chars"),
+            Some("admin-alice")
+        );
+    }
+
+    #[test]
+    fn test_with_api_key_operators_replaces_mapping() {
+        let mut mapping = HashMap::new();
+        mapping.insert("key-a-16chars-long".to_string(), "admin-a".to_string());
+        mapping.insert("key-b-16chars-long".to_string(), "admin-b".to_string());
+        let config = AdminApiConfig::new("primary-key-16chars!!!").with_api_key_operators(mapping);
+        assert_eq!(
+            config.operator_for_api_key("key-a-16chars-long"),
+            Some("admin-a")
+        );
+        assert_eq!(
+            config.operator_for_api_key("key-b-16chars-long"),
+            Some("admin-b")
+        );
+        // primary key 未在 mapping 中 → None（回退到默认 "admin-api"）
+        assert_eq!(config.operator_for_api_key("primary-key-16chars!!!"), None);
+    }
+
+    #[test]
+    fn test_operator_for_api_key_returns_none_when_not_configured() {
+        let config = AdminApiConfig::new("my-secure-api-key-32chars");
+        // 未配置 mapping → 任何 key 都返回 None
+        assert_eq!(
+            config.operator_for_api_key("my-secure-api-key-32chars"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_operator_for_api_key_returns_none_for_unknown_key() {
+        let config = AdminApiConfig::new("my-secure-api-key-32chars")
+            .with_api_key_operator("my-secure-api-key-32chars", "admin-alice");
+        // 未在 mapping 中的 key → None
+        assert_eq!(config.operator_for_api_key("unknown-key"), None);
     }
 }

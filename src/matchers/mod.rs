@@ -114,7 +114,10 @@ mod tests {
     #[test]
     fn test_ip_extractor_from_header() {
         let extractor = IpExtractor::from_header("X-Forwarded-For");
-        let context = RequestContext::new().with_header("X-Forwarded-For", "192.168.1.1");
+        // vuln-0003: 默认配置下转发头被忽略，使用直接对端 IP
+        let context = RequestContext::new()
+            .with_header("X-Forwarded-For", "192.168.1.1")
+            .with_client_ip("192.168.1.1");
 
         let identifier = extractor.extract(&context).unwrap();
         assert_eq!(identifier, Identifier::Ip("192.168.1.1".to_string()));
@@ -132,23 +135,33 @@ mod tests {
     #[test]
     fn test_ip_extractor_multiple_headers() {
         let extractor = IpExtractor::from_headers(vec!["X-Real-IP", "X-Forwarded-For"]);
+        // vuln-0003: 默认配置下转发头被忽略，使用直接对端 IP
         let context = RequestContext::new()
             .with_header("X-Forwarded-For", "192.168.1.1")
-            .with_header("X-Real-IP", "10.0.0.1");
+            .with_header("X-Real-IP", "10.0.0.1")
+            .with_client_ip("10.0.0.1");
 
         let identifier = extractor.extract(&context).unwrap();
-        // 应该优先从第一个header提取
+        // 直接对端 IP 被使用（转发头在非可信代理场景下被忽略）
         assert_eq!(identifier, Identifier::Ip("10.0.0.1".to_string()));
     }
 
     #[test]
     fn test_ip_extractor_parse_list() {
-        let extractor = IpExtractor::from_header("X-Forwarded-For");
+        // vuln-0003: 多 IP 列表解析仅在可信代理场景下生效
+        let config = crate::config::TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".to_string(), "172.16.0.1".to_string()],
+            max_hops: 10,
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
         let context = RequestContext::new()
-            .with_header("X-Forwarded-For", "192.168.1.1, 10.0.0.1, 172.16.0.1");
+            .with_header("X-Forwarded-For", "192.168.1.1, 10.0.0.1, 172.16.0.1")
+            .with_client_ip("172.16.0.1");
 
         let identifier = extractor.extract(&context).unwrap();
-        // 应该提取第一个IP
+        // 从右向左跳过可信代理，返回客户端 IP
         assert_eq!(identifier, Identifier::Ip("192.168.1.1".to_string()));
     }
 
@@ -618,8 +631,10 @@ mod tests {
     #[test]
     fn test_ip_extractor_ipv6() {
         let extractor = IpExtractor::from_header("X-Forwarded-For");
+        // vuln-0003: 默认配置下转发头被忽略，使用直接对端 IP
         let context = RequestContext::new()
-            .with_header("X-Forwarded-For", "2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+            .with_header("X-Forwarded-For", "2001:0db8:85a3:0000:0000:8a2e:0370:7334")
+            .with_client_ip("2001:0db8:85a3:0000:0000:8a2e:0370:7334");
 
         let identifier = extractor.extract(&context).unwrap();
         assert_eq!(
@@ -630,11 +645,20 @@ mod tests {
 
     #[test]
     fn test_ip_extractor_ipv6_list() {
-        let extractor = IpExtractor::from_header("X-Forwarded-For");
+        // vuln-0003: 多 IP 列表解析仅在可信代理场景下生效
+        let config = crate::config::TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["2001:db8::2".to_string(), "2001:db8::3".to_string()],
+            max_hops: 10,
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
         let context = RequestContext::new()
-            .with_header("X-Forwarded-For", "2001:db8::1, 2001:db8::2, 2001:db8::3");
+            .with_header("X-Forwarded-For", "2001:db8::1, 2001:db8::2, 2001:db8::3")
+            .with_client_ip("2001:db8::3");
 
         let identifier = extractor.extract(&context).unwrap();
+        // 从右向左跳过可信代理，返回客户端 IP
         assert_eq!(identifier, Identifier::Ip("2001:db8::1".to_string()));
     }
 
@@ -653,7 +677,10 @@ mod tests {
             .header_name("X-Forwarded-For")
             .validate(false)
             .build();
-        let context = RequestContext::new().with_header("X-Forwarded-For", "invalid-ip");
+        // vuln-0003: 默认配置下转发头被忽略；validate=false 时直接对端 IP 不做格式校验
+        let context = RequestContext::new()
+            .with_header("X-Forwarded-For", "invalid-ip")
+            .with_client_ip("invalid-ip");
 
         // 非验证模式下应该返回原始值
         let identifier = extractor.extract(&context).unwrap();
@@ -671,7 +698,10 @@ mod tests {
     #[test]
     fn test_ip_extractor_whitespace_handling() {
         let extractor = IpExtractor::from_header("X-Forwarded-For");
-        let context = RequestContext::new().with_header("X-Forwarded-For", "  192.168.1.1  ");
+        // vuln-0003: 默认配置下转发头被忽略；parse_direct_ip 会 trim 直接对端 IP 的空白
+        let context = RequestContext::new()
+            .with_header("X-Forwarded-For", "  192.168.1.1  ")
+            .with_client_ip("  192.168.1.1  ");
 
         let identifier = extractor.extract(&context).unwrap();
         assert_eq!(identifier, Identifier::Ip("192.168.1.1".to_string()));
@@ -679,24 +709,44 @@ mod tests {
 
     #[test]
     fn test_ip_extractor_list_with_spaces() {
-        let extractor = IpExtractor::from_header("X-Forwarded-For");
+        // vuln-0003: 多 IP 列表解析仅在可信代理场景下生效
+        let config = crate::config::TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".to_string(), "172.16.0.1".to_string()],
+            max_hops: 10,
+        };
+        let extractor =
+            IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
         let context = RequestContext::new()
-            .with_header("X-Forwarded-For", "  192.168.1.1 , 10.0.0.1  , 172.16.0.1 ");
+            .with_header("X-Forwarded-For", "  192.168.1.1 , 10.0.0.1  , 172.16.0.1 ")
+            .with_client_ip("172.16.0.1");
 
         let identifier = extractor.extract(&context).unwrap();
+        // 从右向左跳过可信代理，返回 trim 后的客户端 IP
         assert_eq!(identifier, Identifier::Ip("192.168.1.1".to_string()));
     }
 
     #[test]
     fn test_ip_extractor_header_priority() {
-        let extractor = IpExtractor::from_headers(vec!["X-Real-IP", "X-Forwarded-For"]);
+        // vuln-0003: 头优先级仅在可信代理场景下生效
+        let config = crate::config::TrustedProxyConfig {
+            enabled: true,
+            proxies: vec!["10.0.0.1".to_string()],
+            max_hops: 10,
+        };
+        let extractor = IpExtractor::with_trusted_proxies(
+            vec!["X-Real-IP".to_string(), "X-Forwarded-For".to_string()],
+            true,
+            config,
+        );
         let context = RequestContext::new()
             .with_header("X-Forwarded-For", "192.168.1.1")
-            .with_header("X-Real-IP", "10.0.0.1");
+            .with_header("X-Real-IP", "203.0.113.5")
+            .with_client_ip("10.0.0.1");
 
-        // 应该优先从第一个 header 提取
+        // 应该优先从第一个 header（X-Real-IP）提取
         let identifier = extractor.extract(&context).unwrap();
-        assert_eq!(identifier, Identifier::Ip("10.0.0.1".to_string()));
+        assert_eq!(identifier, Identifier::Ip("203.0.113.5".to_string()));
     }
 
     #[test]
@@ -716,7 +766,10 @@ mod tests {
             .validate(true)
             .build();
 
-        let context = RequestContext::new().with_header("X-Forwarded-For", "192.168.1.1");
+        // vuln-0003: 默认配置下转发头被忽略，使用直接对端 IP
+        let context = RequestContext::new()
+            .with_header("X-Forwarded-For", "192.168.1.1")
+            .with_client_ip("192.168.1.1");
 
         let identifier = extractor.extract(&context).unwrap();
         assert_eq!(identifier, Identifier::Ip("192.168.1.1".to_string()));
@@ -729,7 +782,10 @@ mod tests {
             true,
         );
 
-        let context = RequestContext::new().with_header("X-Real-IP", "10.0.0.1");
+        // vuln-0003: 默认配置下转发头被忽略，使用直接对端 IP
+        let context = RequestContext::new()
+            .with_header("X-Real-IP", "10.0.0.1")
+            .with_client_ip("10.0.0.1");
 
         let identifier = extractor.extract(&context).unwrap();
         assert_eq!(identifier, Identifier::Ip("10.0.0.1".to_string()));
@@ -2385,9 +2441,10 @@ mod tests {
         // X-Forwarded-For: 客户端IP, 代理1, 代理2
         // 格式: client, proxy1, proxy2
         // 代理1 (10.0.0.1) 和代理2 (172.16.0.1) 都是可信的
-        // 应该返回客户端 IP
+        // 直接对端是可信代理 172.16.0.1，应返回客户端 IP
         let context = RequestContext::new()
-            .with_header("X-Forwarded-For", "192.168.1.100, 10.0.0.1, 172.16.0.1");
+            .with_header("X-Forwarded-For", "192.168.1.100, 10.0.0.1, 172.16.0.1")
+            .with_client_ip("172.16.0.1");
         let result = extractor.extract(&context);
         assert_eq!(result, Some(Identifier::Ip("192.168.1.100".to_string())));
     }
@@ -2402,8 +2459,10 @@ mod tests {
         let extractor =
             IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
 
-        // 所有 IP 都是可信代理，返回最右边的
-        let context = RequestContext::new().with_header("X-Forwarded-For", "10.0.0.1, 10.0.0.1");
+        // 所有 IP 都是可信代理，直接对端是可信代理 10.0.0.1，返回最右边的
+        let context = RequestContext::new()
+            .with_header("X-Forwarded-For", "10.0.0.1, 10.0.0.1")
+            .with_client_ip("10.0.0.1");
         let result = extractor.extract(&context);
         assert_eq!(result, Some(Identifier::Ip("10.0.0.1".to_string())));
     }
@@ -2418,10 +2477,12 @@ mod tests {
         let extractor =
             IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
 
-        // 禁用时，使用最左边的 IP
-        let context = RequestContext::new().with_header("X-Forwarded-For", "10.0.0.1, 192.168.1.1");
+        // vuln-0003: 禁用可信代理模式时，转发头被忽略，使用直接对端 IP
+        let context = RequestContext::new()
+            .with_header("X-Forwarded-For", "10.0.0.1, 192.168.1.1")
+            .with_client_ip("192.168.1.1");
         let result = extractor.extract(&context);
-        assert_eq!(result, Some(Identifier::Ip("10.0.0.1".to_string())));
+        assert_eq!(result, Some(Identifier::Ip("192.168.1.1".to_string())));
     }
 
     #[test]
@@ -2437,7 +2498,10 @@ mod tests {
             .trusted_proxy_config(config)
             .build();
 
-        let context = RequestContext::new().with_header("X-Forwarded-For", "192.168.1.1, 10.0.0.1");
+        // 直接对端是可信代理 10.0.0.1，解析 X-Forwarded-For 链
+        let context = RequestContext::new()
+            .with_header("X-Forwarded-For", "192.168.1.1, 10.0.0.1")
+            .with_client_ip("10.0.0.1");
         let result = extractor.extract(&context);
         assert_eq!(result, Some(Identifier::Ip("192.168.1.1".to_string())));
     }
@@ -2477,10 +2541,12 @@ mod tests {
             IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
 
         // X-Forwarded-For 包含 3 个 IP,在 max_hops = 5 限制内
+        // 直接对端是可信代理 10.0.0.1
         let context = RequestContext::new()
-            .with_header("X-Forwarded-For", "192.168.1.1, 192.168.1.2, 10.0.0.1");
+            .with_header("X-Forwarded-For", "192.168.1.1, 192.168.1.2, 10.0.0.1")
+            .with_client_ip("10.0.0.1");
         let result = extractor.extract(&context);
-        // 应该正常返回客户端 IP
+        // 应该正常返回客户端 IP（从右向左跳过可信代理 10.0.0.1）
         assert_eq!(result, Some(Identifier::Ip("192.168.1.2".to_string())));
     }
 

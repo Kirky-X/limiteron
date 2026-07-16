@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! Route definitions
 
+use ahash::AHashMap;
 use axum::{
     Router,
     body::Body,
@@ -77,8 +78,8 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
     let operator_mapping = config.api_key_operators.clone();
     let rate_limits = config.rate_limits.clone();
     // vuln-0002 修复：全局速率限制状态（分组 → (计数, 窗口开始时间)）
-    let rate_buckets: Arc<Mutex<std::collections::HashMap<String, (u64, Instant)>>> =
-        Arc::new(Mutex::new(std::collections::HashMap::new()));
+    let rate_buckets: Arc<Mutex<AHashMap<String, (u64, Instant)>>> =
+        Arc::new(Mutex::new(AHashMap::new()));
     router = router.layer(from_fn(
         move |mut req: Request<Body>, next: axum::middleware::Next| {
             let api_key = api_key.clone();

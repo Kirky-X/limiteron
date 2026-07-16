@@ -28,8 +28,10 @@ pub mod routes;
 pub mod server;
 #[cfg(all(feature = "admin-api", test))]
 mod test_support;
+#[cfg(all(feature = "admin-api", feature = "ban-manager", test))]
+pub use test_support::make_state_with_ban_manager;
 #[cfg(all(feature = "admin-api", test))]
-pub use test_support::{make_governor, make_state, make_state_with_ban_manager};
+pub use test_support::{make_governor, make_state};
 
 #[cfg(feature = "admin-api")]
 pub use config::AdminApiConfig;

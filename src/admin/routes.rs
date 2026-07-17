@@ -35,6 +35,12 @@ pub struct OperatorIdentity(pub String);
 type RateBucketMap = AHashMap<(String, String), (u64, Instant)>;
 type RateBuckets = Arc<Mutex<RateBucketMap>>;
 
+/// HIGH-001 修复补强：per-client bucket 内存上限。
+///
+/// 原实现从不删除过期 entry，攻击者用轮换源 IP 可令 map 单调膨胀至 OOM（内存耗尽 DoS）。
+/// 此处设硬上限：超过则先清扫已过期窗口的 entry；若清扫后仍超限，移除最旧（最小 window_start）的 entry。
+const RATE_BUCKET_MAX_ENTRIES: usize = 10_000;
+
 fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
@@ -136,6 +142,18 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
                 let now = Instant::now();
                 {
                     let mut buckets = lock_rate_buckets(&rate_buckets);
+                    // HIGH-001 补强：先清扫本窗口已过期 entry，防止 map 无限膨胀（OOM DoS）。
+                    buckets.retain(|_, (_, start)| now.duration_since(*start) < window);
+                    // 清扫后若仍超容量上限，淘汰最旧（window_start 最小）的 entry。
+                    if buckets.len() >= RATE_BUCKET_MAX_ENTRIES {
+                        if let Some(oldest) = buckets
+                            .iter()
+                            .min_by_key(|(_, (_, start))| *start)
+                            .map(|(k, _)| k.clone())
+                        {
+                            buckets.remove(&oldest);
+                        }
+                    }
                     let key = (group.to_string(), client_ip);
                     let entry = buckets.entry(key).or_insert((0, now));
                     if now.duration_since(entry.1) >= window {
@@ -171,9 +189,12 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
                     Some(token) if constant_time_eq(token, &expected) => {
                         // vuln-0001 修复：API key 鉴权通过后，
                         // 将 operator 身份从 mapping 解析并写入 request extensions。
+                        // 必须用请求中实际提交的 token（而非全局单一 api_key）查映射，
+                        // 否则多 key 部署下所有 key 都落到同一 operator，丧失身份隔离。
                         // mapping 为空 → 回退到默认 "admin-api"（向后兼容），记录 warn。
+                        let raw_key = token.strip_prefix("Bearer ").unwrap_or(token);
                         let operator =
-                            operator_mapping.get(&api_key).cloned().unwrap_or_else(|| {
+                            operator_mapping.get(raw_key).cloned().unwrap_or_else(|| {
                                 log::warn!(
                                     target: "admin-api",
                                     "API key 未配置 operator 映射，回退到默认 'admin-api'；\

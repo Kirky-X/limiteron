@@ -18,12 +18,12 @@ use limiteron::limiters::{
     TokenBucketLimiter,
 };
 use limiteron::matchers::{ConditionEvaluator, MatchCondition, RequestContext, Rule, RuleMatcher};
-use oxcache::Cache;
+use limiteron::oxcache::Cache;
+use limiteron::tokio::runtime::Runtime;
 use std::alloc::{GlobalAlloc, System};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use tokio::runtime::Runtime;
 
 // ============================================================================
 // 内存分配跟踪器

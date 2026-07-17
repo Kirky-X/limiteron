@@ -4,9 +4,9 @@
 //!
 //! 测试控制器模块的基本功能
 
-use async_trait::async_trait;
 use limiteron::GovernorStats;
 use limiteron::Limiter;
+use limiteron::async_trait::async_trait;
 use limiteron::config::{
     Action, ActionConfig, CacheBackend, ConfigMatcher as Matcher, FlowControlConfig, LimiterConfig,
     MetricsBackend, Rule, StorageType,

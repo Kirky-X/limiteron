@@ -15,11 +15,11 @@ use limiteron::limiters::{
     FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, SlidingWindowLimiter,
     TokenBucketLimiter,
 };
-use oxcache::Cache;
+use limiteron::oxcache::Cache;
+use limiteron::tokio::runtime::Runtime;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::runtime::Runtime;
 
 // ============================================================================
 // 单线程吞吐量测试

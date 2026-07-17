@@ -6,7 +6,7 @@
 
 use crate::common::{MockStorage, create_test_cache};
 use limiteron::Storage;
-use oxcache::Cache;
+use limiteron::oxcache::Cache;
 use std::sync::Arc;
 use std::time::Duration;
 

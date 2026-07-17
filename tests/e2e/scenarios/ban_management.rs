@@ -7,9 +7,9 @@
 #[cfg(feature = "ban-manager")]
 use ahash::AHashMap;
 #[cfg(feature = "ban-manager")]
-use chrono::Utc;
-#[cfg(feature = "ban-manager")]
 use limiteron::ban::{BanFilter, BanManager, BanManagerConfig, BanSource, BanTarget};
+#[cfg(feature = "ban-manager")]
+use limiteron::chrono::Utc;
 #[cfg(feature = "ban-manager")]
 use limiteron::error::StorageError;
 #[cfg(feature = "ban-manager")]

@@ -11,12 +11,12 @@ use crate::common::{MockBanStorage, MockQuotaStorage, create_ban_record};
 use limiteron::limiters::{
     FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter,
 };
+use limiteron::tokio::sync::Barrier;
+use limiteron::tokio::time::timeout;
 use limiteron::{BanStorage, QuotaStorage};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::sync::Barrier;
-use tokio::time::timeout;
 
 use limiteron::error::ConsumeResult;
 

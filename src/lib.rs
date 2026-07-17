@@ -277,8 +277,17 @@ pub use middleware::{
 };
 
 // Re-export underlying dependencies used in public API and trait definitions.
-// Allows examples and downstream crates to use `limiteron::oxcache::Cache`,
-// `limiteron::async_trait::async_trait`, etc. instead of declaring direct deps.
+//
+// Scope: only type references (L1) — e.g. `use limiteron::oxcache::Cache`,
+// `use limiteron::tokio::sync::Mutex`. Macro attributes (L2, `#[tokio::main]`,
+// `#[async_trait]`) and macro invocations (L3, `tokio::spawn`,
+// `#[derive(serde::Serialize)]`) reference absolute crate paths at expansion
+// time and cannot be routed through a re-export alias; downstream crates must
+// still declare direct dependencies for those uses (e.g. benches/regression.rs
+// keeps `use serde::{Deserialize, Serialize}` because serde is not re-exported
+// and derive macros need the canonical path). This re-export narrows the
+// direct-dependency surface to the macro path only; it does not eliminate it.
+//
 // Each re-export is feature-gated to features that actually pull it in.
 
 // oxcache is a non-optional core dependency.

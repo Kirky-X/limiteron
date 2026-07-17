@@ -15,13 +15,13 @@ use limiteron::limiters::{
     FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, SlidingWindowLimiter,
     TokenBucketLimiter,
 };
+use limiteron::tokio::runtime::Runtime;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use tokio::runtime::Runtime;
 
 // ============================================================================
 // 历史基准数据结构

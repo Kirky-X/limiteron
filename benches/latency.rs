@@ -17,11 +17,11 @@ use limiteron::matchers::{
     ConditionEvaluator, IdentifierExtractor, IpExtractor, IpRange, MatchCondition, RequestContext,
     Rule, RuleMatcher, UserIdExtractor,
 };
-use oxcache::Cache;
+use limiteron::oxcache::Cache;
+use limiteron::tokio::runtime::Runtime;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::Runtime;
 
 // ============================================================================
 // 延迟分布基准测试 (P50/P90/P99/P99.9)

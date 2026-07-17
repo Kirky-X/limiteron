@@ -19,6 +19,14 @@ repos:
         args: ['--branch', 'master']
         # Only protect master branch, allow main for development
 
+  # Detect secrets（高熵字符串/各类 token；baseline 记录已知误报，新增真实密钥才报警）
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
+        exclude: '^Cargo\.lock$'
+
   # Rust formatting - using local rustfmt
   - repo: local
     hooks:

@@ -22,8 +22,8 @@
 //! ```
 
 use limiteron::fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
+use limiteron::oxcache::Cache;
 use limiteron::LimiteronError;
-use oxcache::Cache;
 use std::sync::Arc;
 use std::time::Duration;
 

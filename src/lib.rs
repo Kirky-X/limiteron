@@ -275,3 +275,24 @@ pub use middleware::{
     IntoRequestContext, RateLimitConfig, RateLimitHeaderValues, RateLimitLayer, RateLimitService,
     inject_rate_limit_headers,
 };
+
+// Re-export underlying dependencies used in public API and trait definitions.
+// Allows examples and downstream crates to use `limiteron::oxcache::Cache`,
+// `limiteron::async_trait::async_trait`, etc. instead of declaring direct deps.
+// Each re-export is feature-gated to features that actually pull it in.
+
+// oxcache is a non-optional core dependency.
+pub use oxcache;
+
+// async_trait is non-optional; always available.
+pub use async_trait;
+
+// chrono is non-optional; always available.
+pub use chrono;
+
+// tokio is non-optional core dependency.
+pub use tokio;
+
+// tower is optional; re-export only when a feature pulling it in is enabled.
+#[cfg(any(feature = "tower-middleware", feature = "admin-api"))]
+pub use tower;

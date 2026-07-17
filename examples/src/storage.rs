@@ -5,12 +5,12 @@
 //! Provides in-memory storage implementations for demonstration purposes.
 
 use ahash::AHashMap as HashMap;
-use async_trait::async_trait;
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use limiteron::async_trait::async_trait;
+use limiteron::chrono::{DateTime, Duration as ChronoDuration, Utc};
 use limiteron::error::{ConsumeResult, StorageError};
+use limiteron::tokio::sync::RwLock;
 use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage};
 use std::time::Duration;
-use tokio::sync::RwLock;
 
 /// In-memory quota storage for examples
 pub struct MemoryQuotaStorage {

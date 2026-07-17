@@ -73,7 +73,7 @@ async fn test_quota_persists_state() {
 #[tokio::test]
 #[cfg(feature = "quota-control")]
 async fn test_quota_concurrent_consumption() {
-    use tokio::task::JoinSet;
+    use limiteron::tokio::task::JoinSet;
 
     let storage: Arc<dyn QuotaStorage> = Arc::new(MockQuotaStorage::new());
     let user_id = "user_concurrent_test";

@@ -9,11 +9,11 @@
 
 use limiteron::MockClock;
 use limiteron::limiters::{FixedWindowLimiter, Limiter, TokenBucketLimiter};
+use limiteron::tokio::sync::Barrier;
 use proptest::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::sync::Barrier;
 
 /// 并发测试辅助函数: 同时启动N个任务,统计允许的数量
 async fn concurrent_allow_test(limiter: Arc<dyn Limiter>, num_tasks: usize) -> u64 {

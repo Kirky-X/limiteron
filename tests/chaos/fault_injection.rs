@@ -10,8 +10,8 @@
 //! - `Continuous`: 持续故障,一旦触发就一直失败直到恢复
 //! - `Bursty`: 突发性故障,短时间内大量失败
 
-use async_trait::async_trait;
 use limiteron::Storage;
+use limiteron::async_trait::async_trait;
 use limiteron::error::StorageError;
 use parking_lot::Mutex;
 use std::ops::Range;

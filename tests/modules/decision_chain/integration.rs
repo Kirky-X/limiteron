@@ -4,7 +4,7 @@
 //!
 //! 测试决策链模块的完整功能
 
-use async_trait::async_trait;
+use limiteron::async_trait::async_trait;
 use limiteron::decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
 use limiteron::error::{Decision, LimiteronError};
 use limiteron::limiters::{Limiter, TokenBucketLimiter};

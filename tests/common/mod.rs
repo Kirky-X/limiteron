@@ -14,11 +14,11 @@ use limiteron::limiters::{
     ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
     TokenBucketLimiter,
 };
+use limiteron::tokio::sync::RwLock;
 use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, QuotaStorage, Storage};
 use rand::Rng;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
 
 // ==================== Mock Storage ====================
 
@@ -694,7 +694,7 @@ pub fn assert_false(value: bool, msg: &str) {
     assert!(!value, "{}", msg);
 }
 
-use oxcache::Cache;
+use limiteron::oxcache::Cache;
 
 pub async fn create_test_cache() -> Cache<String, String> {
     Cache::builder()

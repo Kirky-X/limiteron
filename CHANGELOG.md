@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-07-17
+
+### 安全修复
+
+- **[vuln-0001]** Admin API operator 身份绑定改用请求中实际提交的 token 查 `api_key_operators` 映射（原实现用全局单一 `api_key` 查，多 key 部署下身份隔离失效）
+- **[vuln-0002]** Admin API 按路径分组的速率限制（per-client 分桶）
+- **[vuln-0003]** X-Forwarded-For IP 伪造防护（仅可信代理直连才信任转发头）
+- **[vuln-0004]** rustls-webpki 升级修复 CVE-2025-48369
+- **[HIGH-001]** per-client 速率分桶增加内存上限（`RATE_BUCKET_MAX_ENTRIES=10000`）+ 过期窗口清扫，防止轮换源 IP 导致 map 无限膨胀的 OOM DoS
+- **[MEDIUM-002]** `rate_buckets` Mutex 中毒时恢复而非 panic
+- **[MEDIUM-003]** 显式锁定 rustls-webpki 版本约束
+- 修复 namespace key prefix injection 漏洞
+- 修复统计计数器 `Ordering::Relaxed` 高并发下不准确问题
+
+### 重构
+
+- examples/tests/benches：扩展 L1 重导出隔离
+- lib.rs：修正 `#[async_trait]` L2 分类文档
+
 ## [0.2.6] - 2026-07-13
 
 ### Added

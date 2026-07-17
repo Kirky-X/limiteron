@@ -17,7 +17,7 @@
 //! cargo run --bin custom_matchers
 //! ```
 
-use async_trait::async_trait;
+use limiteron::async_trait::async_trait;
 use limiteron::error::LimiteronError;
 use limiteron::matchers::custom::{
     CustomMatcher, CustomMatcherRegistry, HeaderMatcher, TimeWindowMatcher,

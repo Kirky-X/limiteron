@@ -20,10 +20,10 @@
 
 use http::{Request, Response, StatusCode};
 use limiteron::middleware::{IntoRequestContext, RateLimitConfig, RateLimitLayer};
+use limiteron::tower::{Layer, Service};
 use limiteron::Governor;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tower::{Layer, Service};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

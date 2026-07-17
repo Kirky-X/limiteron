@@ -17,7 +17,7 @@
 //! cargo run --bin authorization_demo
 //! ```
 
-use async_trait::async_trait;
+use limiteron::async_trait::async_trait;
 use limiteron::authorization::{AuthorizationProvider, SimpleAuthorizationProvider};
 use limiteron::error::LimiteronError;
 use std::sync::Arc;

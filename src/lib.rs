@@ -279,14 +279,19 @@ pub use middleware::{
 // Re-export underlying dependencies used in public API and trait definitions.
 //
 // Scope: only type references (L1) — e.g. `use limiteron::oxcache::Cache`,
-// `use limiteron::tokio::sync::Mutex`. Macro attributes (L2, `#[tokio::main]`,
-// `#[async_trait]`) and macro invocations (L3, `tokio::spawn`,
-// `#[derive(serde::Serialize)]`) reference absolute crate paths at expansion
-// time and cannot be routed through a re-export alias; downstream crates must
-// still declare direct dependencies for those uses (e.g. benches/regression.rs
-// keeps `use serde::{Deserialize, Serialize}` because serde is not re-exported
-// and derive macros need the canonical path). This re-export narrows the
-// direct-dependency surface to the macro path only; it does not eliminate it.
+// `use limiteron::tokio::sync::Mutex`, `use limiteron::async_trait::async_trait`.
+// Macro attributes that expand to canonical crate paths (L2, e.g.
+// `#[tokio::main]` expands to `tokio::runtime::...`, `#[derive(serde::Serialize)]`
+// expands to `impl serde::Serialize`) and macro invocations (L3, e.g.
+// `tokio::spawn`) reference absolute crate paths at expansion time and cannot
+// be routed through a re-export alias; downstream crates must still declare
+// direct dependencies for those uses (e.g. benches/regression.rs keeps
+// `use serde::{Deserialize, Serialize}` because serde is not re-exported and
+// derive macros need the canonical path). Note: `#[async_trait]` is an
+// attribute macro whose expansion does NOT reference `async_trait::` paths, so
+// it can be used via the re-export (`use limiteron::async_trait::async_trait`).
+// This re-export narrows the direct-dependency surface to the macro path only;
+// it does not eliminate it.
 //
 // Each re-export is feature-gated to features that actually pull it in.
 

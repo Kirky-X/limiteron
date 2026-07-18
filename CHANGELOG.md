@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.9] - 2026-07-18
 
+### 新增（macros-version-sync）
+
+- `limiteron-macros` 版本同步：0.2.7 → 0.2.9（与 workspace 主 crate 版本一致，便于发布）
+
 ### 新增（patch-macro-extensions）
 
 - **[T006]** `#[flow_control]` 宏 `on_exceed` 参数实现：`reject`（默认）超限返回错误，`log_only` 超限继续执行，`throttle` 生成 `compile_error!`（`LimiteronError::Throttled` 变体不存在）。parse 阶段拒绝未知 `on_exceed` 值（Rule 12）

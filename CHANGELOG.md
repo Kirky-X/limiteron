@@ -7,14 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### 新增
+## [0.2.9] - 2026-07-18
+
+### 新增（patch-macro-extensions）
 
 - **[T006]** `#[flow_control]` 宏 `on_exceed` 参数实现：`reject`（默认）超限返回错误，`log_only` 超限继续执行，`throttle` 生成 `compile_error!`（`LimiteronError::Throttled` 变体不存在）。parse 阶段拒绝未知 `on_exceed` 值（Rule 12）
 - **[T007]** `#[flow_control]` 宏新增 `key_prefix = "namespace"` 参数，用于多模块同名函数的 key 隔离
 - **[T008]** `#[flow_control]` 宏新增 `tracing = false` / `metrics = false` 参数，可独立禁用 span 和 metrics 记录
 - `LimiterManager` 全局单例（`GLOBAL_LIMITER_MANAGER`）：按 key 缓存 rate/quota/concurrency 限流器，供 `#[flow_control]` 宏生成的代码使用
 
-### 修复
+### 修复（patch-macro-extensions）
 
 - 宏生成代码 bug 1：`rate="100/m"` 的 unit 信息丢失（hardcoded unit_secs=1 导致被当作 100/s 处理）
 - 宏生成代码 bug 2：`quota_check` 使用 `allow(1)` 不消费配额（改为 `check(&key)` 调用 `check_and_consume`）
@@ -27,6 +29,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **二次收敛**：移除 `tests/modules/l1_cache/` 目录（`integration.rs` 使用过时的同步 API，与当前异步 API 不匹配；src/l1_cache.rs 已有 42 个单元测试覆盖）
 - **二次收敛 bug 修复**：原占位 `mod.rs` 未声明 `pub mod integration;`，导致 `fallback`/`telemetry` 目录下的真实集成测试从未被编译运行（Rule 12 违规：死代码隐藏失败）。修复 `fallback/mod.rs` 和 `telemetry/mod.rs` 为正确声明
 - **二次收敛**：修复 `tests/modules/fallback/integration.rs` 中 `ComponentType::Storage`（不存在）→ `ComponentType::Redis` + 修复 `test_fallback_config_builder` 错误断言（`Default::default()` 设置 `enabled=true`，原断言 `!config.enabled` 错误）
+
+### 新增（audit-macro-followup）
+
+- **[T001]** `#[flow_control]` 宏抽 `build_exceed_handler` 辅助函数，合并 3 个重复的 exceed handler match 表达式（架构-H2 DRY）
+- **[T002]** `#[flow_control]` 宏新增 `sanitize_key_component` 辅助函数（ASCII alphanumeric + `_` `-` `.` + take 128），防御性过滤 `key_prefix` 和 `fname` 中的特殊字符（安全-M1，防止 key 注入和 Unicode 同形字符攻击）
+- **[T003]** `#[flow_control]` 宏 `key_prefix=None` 时无前导冒号修复（架构-M5 breaking change 恢复）
+- **[T005]** `#[flow_control]` 宏 `log_only` 模式下不调用 `allow`/`check`/`acquire`，不消费配额/速率/并发（安全-M2 语义修复）
+- **[T006]** `#[flow_control]` 宏条件生成 `#[allow(unreachable_code)]` attr（仅 reject 模式生成，架构-L1）
+- **[T008]** `LimiterManager::get_*_limiter` 新增参数一致性 `assert!`（Rule 12 显性化）+ get() 快速路径读锁优化
+- **[T009]** `QuotaLimiter` 新增 `max()` / `period()` getter（仅供 manager 参数校验使用）
+- **[T010]** `LimiterManager` 新增 LRU 淘汰机制（`MAX_LIMITER_ENTRIES=100_000` / `CLEANUP_THRESHOLD=110_000` / `CLEANUP_RATIO=0.1`），`*_access_times` 用 `AtomicU64` 无锁更新，cleanup 用 `retain` + `select_nth_unstable_by_key`（性能-HIGH-2）
+- **[T012]** `LimiterManager::clear()` 改为 `#[cfg(test)] pub fn clear_for_test()`，仅测试可用（安全-L1）
+- 新增 13 个单元测试（3 个并发一致性 + 3 个 LRU 淘汰 + 4 个 redact_key + 2 个 QuotaLimiter 边界 + 1 个 sanitize 边界）
+
+### 修复（audit-macro-followup）
+
+- **[CRITICAL H-002]** `LimiterManager::get_*_limiter` 慢路径 TOCTOU 限流绕过：并发场景下返回本地 `Arc::new(...)` 而非 DashMap 中的，导致限流被绕过。改用 `entry().or_insert_with(|| Arc::new(...)).clone()` 模式（tiangang 安全审查）
+- **[HIGH H-001]** `LimiterManager::get_*_limiter` panic 消息中泄露 key 原文：新增 `redact_key` 函数脱敏（短 key 仅暴露字符数，长 key 暴露前 8 字符 + 总长度），用 `chars().take(8).collect()` 避免 UTF-8 边界切片 panic（tiangang 安全审查）
+- **[CRITICAL C-001]** `LimiterManager::get_*_limiter` 快速路径 `access_times.insert()` 引入写锁 + 堆分配：改用 `DashMap<String, AtomicU64>` 存纳秒时间戳，`store(Ordering::Relaxed)` 无锁更新（diting 性能审查）
+- **[HIGH H-001]** `LimiterManager::cleanup_*_limiters_to` 期间 `iter().collect()` 持有所有 shard 读锁 + 4.4MB 分配：改用 `retain` 替代 `iter+remove`，`select_nth_unstable_by_key` 替代全排序（diting 性能审查）
+- **[HIGH H-002]** `LimiterManager::cleanup` 同步执行阻塞请求 50-200ms：用 `AtomicBool` + `compare_exchange` CAS 限制并发 cleanup（diting 性能审查）
+- **[MEDIUM M-001]** `sanitize_key_component` 用 `is_alphanumeric()` 允许 Unicode 同形字符攻击：改用 `is_ascii_alphanumeric()`（tiangang 安全审查）
+- **[MEDIUM M-001]** 3 个 `cleanup_*_limiters_to` 高度重复：抽 `cleanup_lru<L>` 泛型函数（diting 架构审查 DRY）
+- **[MEDIUM M-003]** 3 个 `*_limiter_count()` 注释"主要用于测试"但未 cfg-gate：改为 `#[cfg(test)] pub`（diting 架构审查）
+- **[MEDIUM M-004/M-003]** LRU 全排序 O(n log n)：用 `select_nth_unstable_by_key` 优化为 O(n) 平均（diting 架构/性能审查）
+- **[MEDIUM M-005]** `assert!` panic 风险：在 `# Panic` 章节文档化"参数不一致是代码 bug，应在开发阶段发现"（diting 架构审查）
+- **[MEDIUM M-008]** 参数一致性校验不完整（`unit_secs` 未校验）：在模块 `# 限制` 章节文档化已知限制（diting 架构审查）
+- **[LOW L-001/性能 M-001]** `key.to_string()` 在 `get_*_limiter` 中调用 3 次：函数开头 `let key = key.to_string()` 缓存（diting 架构审查）
+- **[LOW L-002]** `sanitize_key_component` 缺边界单元测试：新增 `test_sanitize_key_component_edge_cases` + `test_sanitize_key_component_defense_in_depth`（diting 架构审查）
+- **[LOW L-003]** `let _ = rate_limiter;` 写法不够地道：改为 `let _ = &rate_limiter;`（3 处，diting 架构审查）
+- **[LOW L-007]** `build_exceed_handler` 的 `error_variant` 参数可简化：签名从 `syn::Ident` 改为 `&str`（diting 架构审查）
+- **[LOW L-003]** `QuotaLimiter::new` 未校验 `window_size=0`：新增 `assert!(config.window_size > 0)`（tiangang 安全审查）
+- **[MEDIUM M-002]** `QuotaLimiter::max/period` getter 暴露内部配置：添加"仅供 LimiterManager 参数校验使用"注释（diting 架构审查）
+- **[MEDIUM M-006]** 缺并发场景 LRU 一致性测试：新增 3 个 `test_concurrent_get_*_limiter_consistency`（10 线程并发 get 同 key 验证 `Arc::ptr_eq`，diting 架构审查）
+- **[MEDIUM M-007]** `cleanup_quota/concurrency_limiters_to` 缺测试：新增 `test_lru_eviction_quota` + `test_lru_eviction_concurrency`（diting 架构审查）
+
+### 测试覆盖
+
+- 主 crate：1958 passed / 0 failed / 6 ignored（`cargo test --features full --lib`）
+- macros crate：43 passed / 0 failed / 0 ignored（`cargo test --lib`）
 
 ## [0.2.8] - 2026-07-17
 

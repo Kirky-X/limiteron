@@ -882,14 +882,6 @@ mod tests {
     }
 
     #[tokio::test]
-    // Note: add_node/remove_node methods not implemented in refactored DecisionChain
-    // This test is disabled until those methods are implemented
-    #[cfg(feature = "legacy_tests")]
-    async fn test_decision_chain_add_remove_node_disabled() {
-        // Test disabled - methods not implemented
-    }
-
-    #[tokio::test]
     async fn test_decision_chain_add_node() {
         let limiter = Arc::new(TokenBucketLimiter::new(10, 1));
         let node = DecisionNode::with_dependencies(
@@ -934,7 +926,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg(feature = "legacy_tests")] // TODO: short_circuit behavior not fully implemented in refactored check()
     async fn test_decision_chain_set_short_circuit() {
         let limiter1 = Arc::new(MockLimiter::new(true));
         let limiter2_spy = Arc::new(SpyLimiter::new());

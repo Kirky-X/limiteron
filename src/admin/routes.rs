@@ -91,11 +91,6 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
     let mut router = Router::new()
         // 系统状态
         .route("/api/v1/status", get(handlers::get_status))
-        // 限流器状态
-        .route(
-            "/api/v1/status/limiter/{key}",
-            get(handlers::get_limiter_status),
-        )
         // 封禁管理
         .route("/api/v1/ban", post(handlers::create_ban))
         .route("/api/v1/ban/{target}", delete(handlers::delete_ban))
@@ -367,25 +362,6 @@ mod tests {
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["data"]["total_requests"].as_u64().unwrap(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_router_limiter_status_endpoint() {
-        let state = make_state().await;
-        let config = AdminApiConfig::new("test-api-key-16chars!!");
-        let app = create_router(state, &config);
-
-        let req = Request::builder()
-            .uri("/api/v1/status/limiter/my-test-key")
-            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
-        // 端点尚未实现，返回 501 Not Implemented
-        assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
-        let body = resp.into_body().collect().await.unwrap().to_bytes();
-        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(!json["success"].as_bool().unwrap());
     }
 
     #[tokio::test]

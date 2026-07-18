@@ -192,6 +192,8 @@ pub use limiters::Limiter;
 #[cfg(feature = "quota-control")]
 pub use limiters::QuotaLimiter;
 #[cfg(feature = "macros")]
+pub use limiters::manager::{GLOBAL_LIMITER_MANAGER, LimiterManager};
+#[cfg(feature = "macros")]
 pub use macros::{
     FlowControlConfig as MacroFlowControlConfig, QuotaLimit, RateLimit, flow_control,
     parse_quota_limit, parse_rate_limit,

@@ -23,15 +23,11 @@ pub mod circuit_breaker;
 #[allow(unused_imports)]
 pub mod config;
 #[allow(unused_imports)]
-pub mod custom_limiter;
-#[allow(unused_imports)]
 pub mod decision_chain;
 #[allow(unused_imports)]
 pub mod fallback;
 #[allow(unused_imports)]
 pub mod governor;
-#[allow(unused_imports)]
-pub mod l1_cache;
 #[allow(unused_imports)]
 pub mod limiters;
 #[allow(unused_imports)]
@@ -61,15 +57,11 @@ pub use circuit_breaker::*;
 #[allow(unused_imports)]
 pub use config::*;
 #[allow(unused_imports)]
-pub use custom_limiter::*;
-#[allow(unused_imports)]
 pub use decision_chain::*;
 #[allow(unused_imports)]
 pub use fallback::*;
 #[allow(unused_imports)]
 pub use governor::*;
-#[allow(unused_imports)]
-pub use l1_cache::*;
 #[allow(unused_imports)]
 pub use limiters::*;
 #[allow(unused_imports)]

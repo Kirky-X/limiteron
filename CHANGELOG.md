@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 新增
+
+- **[T006]** `#[flow_control]` 宏 `on_exceed` 参数实现：`reject`（默认）超限返回错误，`log_only` 超限继续执行，`throttle` 生成 `compile_error!`（`LimiteronError::Throttled` 变体不存在）。parse 阶段拒绝未知 `on_exceed` 值（Rule 12）
+- **[T007]** `#[flow_control]` 宏新增 `key_prefix = "namespace"` 参数，用于多模块同名函数的 key 隔离
+- **[T008]** `#[flow_control]` 宏新增 `tracing = false` / `metrics = false` 参数，可独立禁用 span 和 metrics 记录
+- `LimiterManager` 全局单例（`GLOBAL_LIMITER_MANAGER`）：按 key 缓存 rate/quota/concurrency 限流器，供 `#[flow_control]` 宏生成的代码使用
+
+### 修复
+
+- 宏生成代码 bug 1：`rate="100/m"` 的 unit 信息丢失（hardcoded unit_secs=1 导致被当作 100/s 处理）
+- 宏生成代码 bug 2：`quota_check` 使用 `allow(1)` 不消费配额（改为 `check(&key)` 调用 `check_and_consume`）
+- 宏生成代码 bug 3：`concurrency_check` 的 permit 在 match 作用域结束即 drop（改为持有到函数结束）
+- 移除未实现的 `get_limiter_status` admin 端点（原返回 501 Not Implemented，无文档承诺，无代码依赖）
+- 移除 `test_decision_chain_add_remove_node_disabled` 空占位测试（`remove_node` 未实现且无文档/代码引用）
+- 移除 `test_decision_chain_set_short_circuit` 上过时的 TODO 注释和 `legacy_tests` 门控（short_circuit 行为已实现且测试通过）
+- **二次收敛**：移除 `tests/on_exceed_modes_test.rs` 中 5 个 `assert!(true)` 占位文档测试（违反 Rule 9：测试必须验证有意义的属性）
+- **二次收敛**：移除 `tests/modules/custom_limiter/` 目录（引用的 `CustomLimiterRegistry`/`LimiterStats` 类型在 src/ 中完全不存在）
+- **二次收敛**：移除 `tests/modules/l1_cache/` 目录（`integration.rs` 使用过时的同步 API，与当前异步 API 不匹配；src/l1_cache.rs 已有 42 个单元测试覆盖）
+- **二次收敛 bug 修复**：原占位 `mod.rs` 未声明 `pub mod integration;`，导致 `fallback`/`telemetry` 目录下的真实集成测试从未被编译运行（Rule 12 违规：死代码隐藏失败）。修复 `fallback/mod.rs` 和 `telemetry/mod.rs` 为正确声明
+- **二次收敛**：修复 `tests/modules/fallback/integration.rs` 中 `ComponentType::Storage`（不存在）→ `ComponentType::Redis` + 修复 `test_fallback_config_builder` 错误断言（`Default::default()` 设置 `enabled=true`，原断言 `!config.enabled` 错误）
+
 ## [0.2.8] - 2026-07-17
 
 ### 安全修复

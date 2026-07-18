@@ -1,8 +1,10 @@
 [package]
 name = "limiteron-examples"
-version = "0.2.1"
-edition = "2021"
-authors = ["Kirky.X"]
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Limiteron usage examples - demonstrates rate limiting, circuit breaking, quota control, and ban management"
 publish = false
 

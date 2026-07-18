@@ -93,6 +93,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - examples/tests/benches：扩展 L1 重导出隔离
 - lib.rs：修正 `#[async_trait]` L2 分类文档
 
+## [0.2.7] - 2026-07-15
+
+### 维护
+
+- CI：action-gh-release 3.0.1 → 3.0.2
+- release.yml：publish 步骤幂等化（`already exists`/`already published` 视为 warning 而非失败）
+- clippy 修复：`unsafe-op-in-unsafe-fn`（benches/memory.rs）、`collapsible_if`（benches/regression.rs、tests/common）、misc clippy fixes
+- 文档同步：README 版本号、feature 表补全（distributed/kit/i18n/inklog）
+
 ## [0.2.6] - 2026-07-13
 
 ### Added
@@ -378,7 +387,10 @@ let ban_manager = BanManager::new().await.unwrap();
 - Monitoring with Prometheus metrics and OpenTelemetry tracing
 - Parallel ban checking for improved performance
 
-[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.2.6...HEAD
+[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.2.9...HEAD
+[0.2.9]: https://github.com/Kirky-X/limiteron/compare/v0.2.8...v0.2.9
+[0.2.8]: https://github.com/Kirky-X/limiteron/compare/v0.2.7...v0.2.8
+[0.2.7]: https://github.com/Kirky-X/limiteron/compare/v0.2.6...v0.2.7
 [0.2.6]: https://github.com/Kirky-X/limiteron/compare/v0.2.5...v0.2.6
 [0.2.5]: https://github.com/Kirky-X/limiteron/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/Kirky-X/limiteron/compare/v0.2.3...v0.2.4

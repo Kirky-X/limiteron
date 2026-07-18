@@ -4,17 +4,7 @@
   <img src="docs/image/limiteron.png" alt="Limiteron Logo" width="200">
 </p>
 
-<p>
-  <img src="https://img.shields.io/badge/version-0.2.1-blue.svg" alt="Version">
-  <img src="https://img.shields.io/badge/rust-1.75%2B-orange.svg" alt="Rust Version">
-  <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License">
-  <a href="https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml"><img src="https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://codecov.io/gh/Kirky-X/limiteron"><img src="https://codecov.io/gh/Kirky-X/limiteron/branch/main/graph/badge.svg?token=limiteron" alt="Coverage"></a>
-  <a href="https://github.com/Kirky-X/limiteron/actions/workflows/benchmark.yml"><img src="https://github.com/Kirky-X/limiteron/actions/workflows/benchmark.yml/badge.svg" alt="Benchmarks"></a>
-  <img src="https://img.shields.io/github/stars/Kirky-X/limiteron?style=social" alt="GitHub Stars">
-  <img src="https://img.shields.io/github/forks/Kirky-X/limiteron?style=social" alt="GitHub Forks">
-  <img src="https://img.shields.io/github/issues/Kirky-X/limiteron" alt="GitHub Issues">
-</p>
+[![Version](https://img.shields.io/github/v/release/Kirky-X/limiteron)](https://github.com/Kirky-X/limiteron/releases) [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/) [![License](https://img.shields.io/crates/l/limiteron)](LICENSE) [![CI](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg)](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml) [![Coverage](https://codecov.io/gh/Kirky-X/limiteron/branch/main/graph/badge.svg?token=limiteron)](https://codecov.io/gh/Kirky-X/limiteron) [![Benchmarks](https://github.com/Kirky-X/limiteron/actions/workflows/benchmark.yml/badge.svg)](https://github.com/Kirky-X/limiteron/actions/workflows/benchmark.yml) ![Stars](https://img.shields.io/github/stars/Kirky-X/limiteron?style=social) ![Forks](https://img.shields.io/github/forks/Kirky-X/limiteron?style=social) ![Issues](https://img.shields.io/github/issues/Kirky-X/limiteron)
 
 [中文](./README.md)
 

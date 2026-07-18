@@ -21,8 +21,8 @@ async fn test_component_type_variants() {
 
 #[tokio::test]
 async fn test_fallback_config() {
-    let config = FallbackConfig::new(ComponentType::Storage, FallbackStrategy::FailClosed);
-    assert_eq!(config.component, ComponentType::Storage);
+    let config = FallbackConfig::new(ComponentType::Redis, FallbackStrategy::FailClosed);
+    assert_eq!(config.component, ComponentType::Redis);
     assert_eq!(config.strategy, FallbackStrategy::FailClosed);
     assert!(config.enabled);
 }
@@ -32,5 +32,7 @@ async fn test_fallback_config_builder() {
     let config = FallbackConfig::new(ComponentType::Config, FallbackStrategy::FailOpen)
         .timeout(std::time::Duration::from_secs(5))
         .max_retries(3);
-    assert!(!config.enabled); // still uses default
+    assert!(config.enabled); // Default::default() sets enabled=true
+    assert_eq!(config.timeout, std::time::Duration::from_secs(5));
+    assert_eq!(config.max_retries, 3);
 }

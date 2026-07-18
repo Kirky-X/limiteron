@@ -38,7 +38,7 @@ cargo add limiteron
 
 ```toml
 [dependencies]
-limiteron = { version = "0.2.6", features = ["macros"] }
+limiteron = { version = "0.2", features = ["macros"] }
 ```
 
 ### 基础使用

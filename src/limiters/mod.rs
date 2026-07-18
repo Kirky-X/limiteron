@@ -13,7 +13,7 @@
 //! - `fixed_window`: 固定窗口限流器
 //! - `concurrency`: 并发控制器
 //! - `factory`: 限流器工厂
-//! - `manager`: 限流器管理器
+//! - `manager`: 全局限流器管理器（供 `#[flow_control]` 宏使用）
 
 // 子模块
 pub mod concurrency;
@@ -22,7 +22,7 @@ pub mod fixed_window;
 #[cfg(feature = "gcra")]
 pub mod gcra;
 #[cfg(feature = "macros")]
-pub(crate) mod manager;
+pub mod manager;
 pub mod sharded_sliding_window;
 #[allow(deprecated)]
 pub mod sliding_window;

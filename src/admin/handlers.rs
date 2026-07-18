@@ -99,32 +99,6 @@ pub async fn get_status(State(state): State<AppState>) -> Json<ApiResponse<Syste
     }))
 }
 
-// ==================== 限流器状态 ====================
-
-/// 限流器状态响应
-#[derive(Serialize)]
-pub struct LimiterStatus {
-    pub key: String,
-    pub limit: u64,
-    pub remaining: u64,
-    pub reset_at: u64,
-}
-
-/// GET /api/v1/status/limiter/{key}
-///
-/// 注意：此端点尚未实现真实存储查询，返回 501 Not Implemented。
-/// 禁止用 200 OK 掩盖未完成功能（Rule 12: 失败必须显性化）。
-pub async fn get_limiter_status(
-    State(_state): State<AppState>,
-    Path(key): Path<String>,
-) -> (StatusCode, Json<ApiResponse<LimiterStatus>>) {
-    let _ = key;
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        Json(ApiResponse::error("limiter status query not implemented")),
-    )
-}
-
 // ==================== 封禁管理 ====================
 
 /// 解除封禁请求
@@ -506,15 +480,6 @@ mod tests {
         assert_eq!(data.total_requests, 0);
         assert_eq!(data.blocked_requests, 0);
         assert_eq!(data.success_rate, 1.0);
-    }
-
-    #[tokio::test]
-    async fn test_get_limiter_status_returns_key() {
-        let state = make_state().await;
-        let (status, resp) = get_limiter_status(State(state), Path("my-key".to_string())).await;
-        // 端点尚未实现，返回 501
-        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
-        assert!(!resp.0.success);
     }
 
     #[cfg(feature = "ban-manager")]

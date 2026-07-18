@@ -298,6 +298,64 @@ impl QuotaLimit {
     }
 }
 
+/// 构造 on_exceed 模式的 exceed handler 代码
+///
+/// - `mode`: "reject" / "log_only" / "throttle"
+/// - `error_variant`: LimiteronError 变体名（如 `"RateLimitExceeded"`），作为 `&str` 传入，
+///   函数内部转换为 `syn::Ident` 插值到 quote!（audit-L-007：简化调用点签名）
+/// - `reject_message`: reject 模式下的错误消息
+fn build_exceed_handler(
+    mode: &str,
+    error_variant: &str,
+    reject_message: &str,
+) -> proc_macro2::TokenStream {
+    let error_variant = syn::Ident::new(error_variant, proc_macro2::Span::call_site());
+    match mode {
+        "reject" => {
+            let msg = reject_message.to_string();
+            quote! {
+                return Err(limiteron::error::LimiteronError::#error_variant(#msg.to_string()));
+            }
+        }
+        "log_only" => quote! {
+            // log_only: 不拒绝，记录 metrics 后继续执行原函数
+        },
+        "throttle" => {
+            let err_msg = syn::LitStr::new(
+                "on_exceed = \"throttle\" is not yet supported in this version (LimiteronError::Throttled variant not available); use \"reject\" or \"log_only\"",
+                proc_macro2::Span::call_site(),
+            );
+            quote! { compile_error!(#err_msg); }
+        }
+        _ => {
+            let err_msg = syn::LitStr::new(
+                &format!(
+                    "Unknown on_exceed mode: '{}'; expected one of: reject, log_only, throttle",
+                    mode
+                ),
+                proc_macro2::Span::call_site(),
+            );
+            quote! { compile_error!(#err_msg); }
+        }
+    }
+}
+
+/// Sanitize key component: ASCII alphanumeric + `_` `-` `.`, max 128 chars
+///
+/// 用于在宏展开期对 `key_prefix` 和 `fname` 进行防御性过滤，
+/// 与生成代码中运行时的 `sanitize` 闭包保持一致的字符集与长度上限。
+///
+/// # 安全
+///
+/// 仅允许 ASCII 字符（`is_ascii_alphanumeric`），拒绝 Unicode 同形字符攻击
+/// （如西里尔字母 `а`、希腊字母 `о` 等）（audit-M-001）。
+fn sanitize_key_component(s: &str) -> String {
+    s.chars()
+        .filter(|c: &char| c.is_ascii_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
+        .take(128)
+        .collect::<String>()
+}
+
 /// 生成流量控制代码
 fn generate_flow_control(
     input_fn: &ItemFn,
@@ -315,39 +373,16 @@ fn generate_flow_control(
     let on_exceed_mode = config.on_exceed.as_str();
     let key_prefix_str = config.key_prefix.clone().unwrap_or_default();
     let fn_name_str = fn_name.to_string();
+    // audit-M1/L2: 宏展开期对 prefix 和 fname 做防御性 sanitize（与运行时 sanitize 闭包一致）
+    let sanitized_prefix = sanitize_key_component(&key_prefix_str);
+    let sanitized_fname = sanitize_key_component(&fn_name_str);
 
     // 根据 on_exceed 模式生成 rate check 失败时的处理代码
     // - "reject": 返回 RateLimitExceeded 错误（默认行为）
     // - "log_only": 不返回错误，继续执行原函数
     // - "throttle": 当前版本未实现（LimiteronError::Throttled 变体不存在），生成 compile_error
-    let rate_exceed_handler = match on_exceed_mode {
-        "reject" => {
-            let msg = reject_message.clone();
-            quote! {
-                return Err(limiteron::error::LimiteronError::RateLimitExceeded(#msg.to_string()));
-            }
-        }
-        "log_only" => quote! {
-            // log_only: 不拒绝，记录 metrics 后继续执行原函数
-        },
-        "throttle" => {
-            let err_msg = syn::LitStr::new(
-                "on_exceed = \"throttle\" is not yet supported in this version (LimiteronError::Throttled variant not available); use \"reject\" or \"log_only\"",
-                proc_macro2::Span::call_site(),
-            );
-            quote! { compile_error!(#err_msg); }
-        }
-        _ => {
-            let err_msg = syn::LitStr::new(
-                &format!(
-                    "Unknown on_exceed mode: '{}'; expected one of: reject, log_only, throttle",
-                    on_exceed_mode
-                ),
-                proc_macro2::Span::call_site(),
-            );
-            quote! { compile_error!(#err_msg); }
-        }
-    };
+    let rate_exceed_handler =
+        build_exceed_handler(on_exceed_mode, "RateLimitExceeded", &reject_message);
 
     let rate_check = if let Some(ref rate) = config.rate {
         let amount = rate.amount;
@@ -359,131 +394,143 @@ fn generate_flow_control(
             "h" => 3600,
             _ => 1,
         };
-        let prefix = key_prefix_str.clone();
-        let fname = fn_name_str.clone();
+        let fname = sanitized_fname.clone();
+        // audit-M5: key_prefix=None 时生成 "rate:fn:xxx"（无前导冒号，恢复旧行为）
+        // key_prefix=Some(p) 时生成 "p:rate:fn:xxx"
+        let key_tpl = if config.key_prefix.is_some() {
+            let p = sanitized_prefix.clone();
+            quote! { format!("{}:rate:{}:{}", #p, #fname, sanitize(&identifier)) }
+        } else {
+            quote! { format!("rate:{}:{}", #fname, sanitize(&identifier)) }
+        };
+        // audit-M2: log_only 模式下不消费 rate token（语义=仅记录，不产生副作用）
+        // reject / throttle 模式下消费 token 并检查
+        let check_logic = if on_exceed_mode == "log_only" {
+            quote! {
+                let _ = &rate_limiter;  // audit-L-003：引用避免 unused 警告（更地道写法）
+            }
+        } else {
+            quote! {
+                if !rate_limiter.allow(1).await? {
+                    #rate_exceed_handler
+                }
+            }
+        };
         quote! {
             let rate_key = {
+                // audit-M-001: 仅 ASCII alphanumeric，拒绝 Unicode 同形字符攻击
                 let sanitize = |s: &str| s
                     .chars()
-                    .filter(|c: &char| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
+                    .filter(|c: &char| c.is_ascii_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
                     .take(128)
                     .collect::<String>();
-                format!("{}:rate:{}:{}", #prefix, #fname, sanitize(&identifier))
+                #key_tpl
             };
             let rate_limiter = limiteron::GLOBAL_LIMITER_MANAGER.get_rate_limiter(&rate_key, #amount, #unit_secs);
-            if !rate_limiter.allow(1).await? {
-                #rate_exceed_handler
-            }
+            #check_logic
         }
     } else {
         quote!()
     };
 
-    let quota_exceed_handler = match on_exceed_mode {
-        "reject" => {
-            let msg = reject_message.clone();
-            quote! {
-                return Err(limiteron::error::LimiteronError::QuotaExceeded(#msg.to_string()));
-            }
-        }
-        "log_only" => quote! {
-            // log_only: 不拒绝，记录 metrics 后继续执行原函数
-        },
-        "throttle" => {
-            let err_msg = syn::LitStr::new(
-                "on_exceed = \"throttle\" is not yet supported in this version (LimiteronError::Throttled variant not available); use \"reject\" or \"log_only\"",
-                proc_macro2::Span::call_site(),
-            );
-            quote! { compile_error!(#err_msg); }
-        }
-        _ => {
-            let err_msg = syn::LitStr::new(
-                &format!(
-                    "Unknown on_exceed mode: '{}'; expected one of: reject, log_only, throttle",
-                    on_exceed_mode
-                ),
-                proc_macro2::Span::call_site(),
-            );
-            quote! { compile_error!(#err_msg); }
-        }
-    };
+    let quota_exceed_handler =
+        build_exceed_handler(on_exceed_mode, "QuotaExceeded", &reject_message);
 
     let quota_check = if let Some(ref quota) = config.quota {
         let max = quota.max;
         let duration = quota.to_duration();
-        let prefix = key_prefix_str.clone();
-        let fname = fn_name_str.clone();
+        let fname = sanitized_fname.clone();
+        // audit-M5: key_prefix=None 时生成 "quota:fn:xxx"（无前导冒号，恢复旧行为）
+        // key_prefix=Some(p) 时生成 "p:quota:fn:xxx"
+        let key_tpl = if config.key_prefix.is_some() {
+            let p = sanitized_prefix.clone();
+            quote! { format!("{}:quota:{}:{}", #p, #fname, sanitize(&identifier)) }
+        } else {
+            quote! { format!("quota:{}:{}", #fname, sanitize(&identifier)) }
+        };
+        // audit-M2: log_only 模式下不消费配额（语义=仅记录，不产生副作用）
+        // reject / throttle 模式下消费配额并检查
+        let check_logic = if on_exceed_mode == "log_only" {
+            quote! {
+                let _ = &quota_limiter;  // audit-L-003：引用避免 unused 警告（更地道写法）
+            }
+        } else {
+            quote! {
+                // T006 修复: 使用 check(&key) 真正消费配额，而非 allow(1)（默认返回 Ok(true) 不消费）
+                if quota_limiter.check(&quota_key).await.is_err() {
+                    #quota_exceed_handler
+                }
+            }
+        };
         quote! {
             let quota_key = {
+                // audit-M-001: 仅 ASCII alphanumeric，拒绝 Unicode 同形字符攻击
                 let sanitize = |s: &str| s
                     .chars()
-                    .filter(|c: &char| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
+                    .filter(|c: &char| c.is_ascii_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
                     .take(128)
                     .collect::<String>();
-                format!("{}:quota:{}:{}", #prefix, #fname, sanitize(&identifier))
+                #key_tpl
             };
             let quota_limiter = limiteron::GLOBAL_LIMITER_MANAGER.get_quota_limiter(&quota_key, #duration, #max);
-            // T006 修复: 使用 check(&key) 真正消费配额，而非 allow(1)（默认返回 Ok(true) 不消费）
-            if quota_limiter.check(&quota_key).await.is_err() {
-                #quota_exceed_handler
-            }
+            #check_logic
         }
     } else {
         quote!()
     };
 
-    let concurrency_exceed_handler = match on_exceed_mode {
-        "reject" => {
-            let msg = reject_message.clone();
-            quote! {
-                return Err(limiteron::error::LimiteronError::ConcurrencyLimitExceeded(#msg.to_string()));
-            }
-        }
-        "log_only" => quote! {
-            // log_only: 不拒绝，也不持有 permit，继续执行原函数
-        },
-        "throttle" => {
-            let err_msg = syn::LitStr::new(
-                "on_exceed = \"throttle\" is not yet supported in this version (LimiteronError::Throttled variant not available); use \"reject\" or \"log_only\"",
-                proc_macro2::Span::call_site(),
-            );
-            quote! { compile_error!(#err_msg); }
-        }
-        _ => {
-            let err_msg = syn::LitStr::new(
-                &format!(
-                    "Unknown on_exceed mode: '{}'; expected one of: reject, log_only, throttle",
-                    on_exceed_mode
-                ),
-                proc_macro2::Span::call_site(),
-            );
-            quote! { compile_error!(#err_msg); }
-        }
-    };
+    let concurrency_exceed_handler =
+        build_exceed_handler(on_exceed_mode, "ConcurrencyLimitExceeded", &reject_message);
 
     let concurrency_check = if let Some(concurrency) = config.concurrency {
-        let prefix = key_prefix_str.clone();
-        let fname = fn_name_str.clone();
+        let fname = sanitized_fname.clone();
+        // audit-M5: key_prefix=None 时生成 "concurrency:fn:xxx"（无前导冒号，恢复旧行为）
+        // key_prefix=Some(p) 时生成 "p:concurrency:fn:xxx"
+        let key_tpl = if config.key_prefix.is_some() {
+            let p = sanitized_prefix.clone();
+            quote! { format!("{}:concurrency:{}:{}", #p, #fname, sanitize(&identifier)) }
+        } else {
+            quote! { format!("concurrency:{}:{}", #fname, sanitize(&identifier)) }
+        };
+        // audit-L1: 仅 reject 模式下 match 的 None 分支为 unreachable（exceed_handler 中 return Err 提前返回）
+        // 其他模式不生成 #[allow(unreachable_code)]，避免掩盖真实 unreachable 代码
+        let allow_attr = if on_exceed_mode == "reject" {
+            quote! { #[allow(unreachable_code)] }
+        } else {
+            quote! {}
+        };
+        // audit-M2: log_only 模式下不持有 permit（语义=不产生副作用，不占用并发槽位）
+        // reject / throttle 模式下 acquire permit 并持有到函数结束
+        let check_logic = if on_exceed_mode == "log_only" {
+            quote! {
+                let _ = &concurrency_limiter;  // audit-L-003：引用避免 unused 警告（更地道写法）
+            }
+        } else {
+            quote! {
+                // T006 修复: 持有 permit 到函数结束（用 Option 包装）
+                // 之前 _permit 在 match 作用域结束即 drop，并发控制失效
+                #allow_attr
+                let _concurrency_permit = match concurrency_limiter.acquire(1).await {
+                    Ok(permit) => Some(permit),
+                    Err(_) => {
+                        #concurrency_exceed_handler
+                        None
+                    }
+                };
+            }
+        };
         quote! {
             let concurrency_key = {
+                // audit-M-001: 仅 ASCII alphanumeric，拒绝 Unicode 同形字符攻击
                 let sanitize = |s: &str| s
                     .chars()
-                    .filter(|c: &char| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
+                    .filter(|c: &char| c.is_ascii_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
                     .take(128)
                     .collect::<String>();
-                format!("{}:concurrency:{}:{}", #prefix, #fname, sanitize(&identifier))
+                #key_tpl
             };
             let concurrency_limiter = limiteron::GLOBAL_LIMITER_MANAGER.get_concurrency_limiter(&concurrency_key, #concurrency as u64);
-            // T006 修复: 持有 permit 到函数结束（用 Option 包装，log_only 模式下不持有）
-            // 之前 _permit 在 match 作用域结束即 drop，并发控制失效
-            #[allow(unreachable_code)]
-            let _concurrency_permit = match concurrency_limiter.acquire(1).await {
-                Ok(permit) => Some(permit),
-                Err(_) => {
-                    #concurrency_exceed_handler
-                    None
-                }
-            };
+            #check_logic
         }
     } else {
         quote!()
@@ -718,7 +765,8 @@ mod tests {
 
     #[test]
     fn test_generate_rate_check_log_only_mode() {
-        // T006: on_exceed = "log_only" 不应生成 RateLimitExceeded 错误
+        // T006 + audit-M2: on_exceed = "log_only" 不应生成 RateLimitExceeded 错误
+        // 且不调用 rate_limiter.allow()（语义=仅记录，不消费 token）
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -737,10 +785,10 @@ mod tests {
             "log_only mode should NOT generate RateLimitExceeded; tokens = {}",
             tokens_str
         );
-        // log_only 模式下仍应调用 rate_limiter.allow（记录但不拒绝）
+        // audit-M2: log_only 模式下不应调用 rate_limiter.allow（不消费 token）
         assert!(
-            tokens_str.contains("allow"),
-            "log_only mode should still call allow() for metrics; tokens = {}",
+            !tokens_str.contains(".allow"),
+            "log_only mode should NOT call .allow() (audit-M2: no side effects); tokens = {}",
             tokens_str
         );
     }
@@ -947,7 +995,7 @@ mod tests {
 
     #[test]
     fn test_generate_no_key_prefix_keeps_original_format() {
-        // T007: 未设置 key_prefix 时，key 格式应保持空前缀（兼容原有行为）
+        // audit-M5: 未设置 key_prefix 时，key 格式应为 "rate:fn:xxx"（无前导冒号，恢复旧行为）
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -960,10 +1008,16 @@ mod tests {
         let tokens = generate_flow_control(&input_fn, &config).unwrap();
         let tokens_str = tokens.to_string();
 
-        // 应生成 ":rate:test_fn_no_prefix:..." 格式（前缀为空字符串）
+        // 应生成 format!("rate:{}:{}", ...)（无前导冒号）
         assert!(
-            tokens_str.contains(":rate:"),
-            "rate key format should contain ':rate:' separator; tokens = {}",
+            tokens_str.contains(r#""rate:{}:{}""#),
+            "rate key should use 'rate:{{}}:{{}}' format (no leading colon); tokens = {}",
+            tokens_str
+        );
+        // 不应生成旧的前导冒号格式 format!("{}:rate:{}:{}", ...)
+        assert!(
+            !tokens_str.contains(r#""{}:rate:{}:{}""#),
+            "should NOT generate leading-colon format '{{}}:rate:{{}}:{{}}'; tokens = {}",
             tokens_str
         );
     }
@@ -1125,6 +1179,395 @@ mod tests {
         assert!(
             !tokens_str.contains("try_global"),
             "metrics=false should NOT generate try_global()"
+        );
+    }
+
+    // ========================================================================
+    // audit-macro-followup T001: build_exceed_handler DRY 验证
+    // ========================================================================
+
+    #[test]
+    fn test_build_exceed_handler_dry() {
+        // T001: 三个 error variant 都应通过辅助函数正确生成
+        let config = FlowControlConfig {
+            rate: Some(RateLimit {
+                amount: 100,
+                unit: "s".to_string(),
+            }),
+            quota: Some(QuotaLimit {
+                max: 1000,
+                period: "h".to_string(),
+            }),
+            concurrency: Some(10),
+            on_exceed: "reject".to_string(),
+            reject_message: "exceeded".to_string(),
+            ..Default::default()
+        };
+        let input_fn = make_test_fn("test_all_three");
+        let tokens = generate_flow_control(&input_fn, &config).unwrap();
+        let tokens_str = tokens.to_string();
+        // 三个 error variant 都应出现（验证辅助函数对三个调用都生效）
+        assert!(
+            tokens_str.contains("RateLimitExceeded"),
+            "RateLimitExceeded should be generated; tokens = {}",
+            tokens_str
+        );
+        assert!(
+            tokens_str.contains("QuotaExceeded"),
+            "QuotaExceeded should be generated; tokens = {}",
+            tokens_str
+        );
+        assert!(
+            tokens_str.contains("ConcurrencyLimitExceeded"),
+            "ConcurrencyLimitExceeded should be generated; tokens = {}",
+            tokens_str
+        );
+    }
+
+    // ========================================================================
+    // audit-macro-followup T002: key_prefix sanitize 验证
+    // ========================================================================
+
+    #[test]
+    fn test_generate_key_prefix_sanitized() {
+        // T002: key_prefix 中的特殊字符（: ! 等）应在宏展开期被过滤
+        let config = FlowControlConfig {
+            rate: Some(RateLimit {
+                amount: 100,
+                unit: "s".to_string(),
+            }),
+            key_prefix: Some("ns:with!special".to_string()),
+            ..Default::default()
+        };
+        let input_fn = make_test_fn("test_fn_sanitized");
+        let tokens = generate_flow_control(&input_fn, &config).unwrap();
+        let tokens_str = tokens.to_string();
+        // 原始未 sanitize 的字符串字面量不应出现（说明 sanitize 已生效）
+        assert!(
+            !tokens_str.contains(r#""ns:with!special""#),
+            "raw key_prefix with special chars should NOT appear as literal; tokens = {}",
+            tokens_str
+        );
+        assert!(
+            !tokens_str.contains(r#""ns:with""#),
+            "partial raw prefix with ':' should NOT appear as literal; tokens = {}",
+            tokens_str
+        );
+        // 过滤后的合法字符应作为字面量出现（ns:with!special -> nswithspecial）
+        assert!(
+            tokens_str.contains(r#""nswithspecial""#),
+            "sanitized prefix 'nswithspecial' should appear as literal; tokens = {}",
+            tokens_str
+        );
+    }
+
+    // ========================================================================
+    // audit-macro-followup T003: key_prefix=None 时无前导冒号验证
+    // ========================================================================
+
+    #[test]
+    fn test_generate_key_prefix_none_no_leading_colon() {
+        // T003: key_prefix=None 时所有三类 key 都不应有前导冒号
+        // rate: "rate:fn:xxx"，quota: "quota:fn:xxx"，concurrency: "concurrency:fn:xxx"
+        let config = FlowControlConfig {
+            rate: Some(RateLimit {
+                amount: 100,
+                unit: "s".to_string(),
+            }),
+            quota: Some(QuotaLimit {
+                max: 1000,
+                period: "h".to_string(),
+            }),
+            concurrency: Some(10),
+            key_prefix: None,
+            ..Default::default()
+        };
+        let input_fn = make_test_fn("test_fn_no_prefix_all");
+        let tokens = generate_flow_control(&input_fn, &config).unwrap();
+        let tokens_str = tokens.to_string();
+
+        // 应生成无前导冒号格式
+        assert!(
+            tokens_str.contains(r#""rate:{}:{}""#),
+            "rate key should use 'rate:{{}}:{{}}' format; tokens = {}",
+            tokens_str
+        );
+        assert!(
+            tokens_str.contains(r#""quota:{}:{}""#),
+            "quota key should use 'quota:{{}}:{{}}' format; tokens = {}",
+            tokens_str
+        );
+        assert!(
+            tokens_str.contains(r#""concurrency:{}:{}""#),
+            "concurrency key should use 'concurrency:{{}}:{{}}' format; tokens = {}",
+            tokens_str
+        );
+
+        // 不应生成任何带前导冒号的旧格式
+        assert!(
+            !tokens_str.contains(r#""{}:rate:{}:{}""#),
+            "should NOT generate leading-colon rate format; tokens = {}",
+            tokens_str
+        );
+        assert!(
+            !tokens_str.contains(r#""{}:quota:{}:{}""#),
+            "should NOT generate leading-colon quota format; tokens = {}",
+            tokens_str
+        );
+        assert!(
+            !tokens_str.contains(r#""{}:concurrency:{}:{}""#),
+            "should NOT generate leading-colon concurrency format; tokens = {}",
+            tokens_str
+        );
+    }
+
+    #[test]
+    fn test_generate_key_prefix_some_has_prefix() {
+        // T003 配套：key_prefix=Some(p) 时应生成 "p:rate:fn:xxx" 格式
+        let config = FlowControlConfig {
+            rate: Some(RateLimit {
+                amount: 100,
+                unit: "s".to_string(),
+            }),
+            key_prefix: Some("myns".to_string()),
+            ..Default::default()
+        };
+        let input_fn = make_test_fn("test_fn_with_prefix");
+        let tokens = generate_flow_control(&input_fn, &config).unwrap();
+        let tokens_str = tokens.to_string();
+
+        // 应生成带前缀的格式 "{}:rate:{}:{}"
+        assert!(
+            tokens_str.contains(r#""{}:rate:{}:{}""#),
+            "key_prefix=Some should generate '{{}}:rate:{{}}:{{}}' format; tokens = {}",
+            tokens_str
+        );
+        // 应包含 sanitized 前缀字面量 "myns"
+        assert!(
+            tokens_str.contains(r#""myns""#),
+            "sanitized prefix 'myns' should appear as literal; tokens = {}",
+            tokens_str
+        );
+    }
+
+    // ========================================================================
+    // audit-macro-followup T004: fname sanitize 验证
+    // ========================================================================
+
+    #[test]
+    fn test_generate_fname_sanitized_in_key() {
+        // T004: fname 经 sanitize_key_component 处理后应作为字面量出现在 key 中
+        // Rust 标识符字符集已受限（字母数字下划线），sanitize 后应保持不变
+        // 这里通过合法标识符 test_fn 验证 sanitize 路径已生效
+        let config = FlowControlConfig {
+            rate: Some(RateLimit {
+                amount: 100,
+                unit: "s".to_string(),
+            }),
+            key_prefix: Some("ns".to_string()),
+            ..Default::default()
+        };
+        let input_fn = make_test_fn("test_fn");
+        let tokens = generate_flow_control(&input_fn, &config).unwrap();
+        let tokens_str = tokens.to_string();
+        // sanitized fname "test_fn" 应作为字面量出现在 key 模板中
+        assert!(
+            tokens_str.contains(r#""test_fn""#),
+            "sanitized fname 'test_fn' should appear as literal in key; tokens = {}",
+            tokens_str
+        );
+    }
+
+    // ========================================================================
+    // audit-macro-followup T005: log_only 模式下不消费配额验证
+    // ========================================================================
+
+    #[test]
+    fn test_generate_log_only_rate_no_allow_call() {
+        // T005: log_only 模式下 rate_check 不应调用 rate_limiter.allow()
+        let config = FlowControlConfig {
+            rate: Some(RateLimit {
+                amount: 100,
+                unit: "s".to_string(),
+            }),
+            on_exceed: "log_only".to_string(),
+            ..Default::default()
+        };
+        let input_fn = make_test_fn("test_fn_log_only_rate");
+        let tokens = generate_flow_control(&input_fn, &config).unwrap();
+        let tokens_str = tokens.to_string();
+        assert!(
+            !tokens_str.contains(".allow"),
+            "log_only mode should NOT call .allow() on rate_limiter (audit-M2); tokens = {}",
+            tokens_str
+        );
+    }
+
+    #[test]
+    fn test_generate_log_only_quota_no_check_call() {
+        // T005: log_only 模式下 quota_check 不应调用 quota_limiter.check()
+        let config = FlowControlConfig {
+            quota: Some(QuotaLimit {
+                max: 1000,
+                period: "h".to_string(),
+            }),
+            on_exceed: "log_only".to_string(),
+            ..Default::default()
+        };
+        let input_fn = make_test_fn("test_fn_log_only_quota");
+        let tokens = generate_flow_control(&input_fn, &config).unwrap();
+        let tokens_str = tokens.to_string();
+        assert!(
+            !tokens_str.contains(".check"),
+            "log_only mode should NOT call .check() on quota_limiter (audit-M2); tokens = {}",
+            tokens_str
+        );
+    }
+
+    #[test]
+    fn test_generate_log_only_concurrency_no_acquire_call() {
+        // T005: log_only 模式下 concurrency_check 不应调用 concurrency_limiter.acquire()
+        let config = FlowControlConfig {
+            concurrency: Some(10),
+            on_exceed: "log_only".to_string(),
+            ..Default::default()
+        };
+        let input_fn = make_test_fn("test_fn_log_only_conc");
+        let tokens = generate_flow_control(&input_fn, &config).unwrap();
+        let tokens_str = tokens.to_string();
+        assert!(
+            !tokens_str.contains(".acquire"),
+            "log_only mode should NOT call .acquire() on concurrency_limiter (audit-M2); tokens = {}",
+            tokens_str
+        );
+    }
+
+    // ========================================================================
+    // audit-macro-followup T006: 条件生成 #[allow(unreachable_code)] 验证
+    // ========================================================================
+
+    #[test]
+    fn test_generate_reject_mode_has_unreachable_allow_attr() {
+        // T006: reject 模式下应生成 #[allow(unreachable_code)] attr
+        let config = FlowControlConfig {
+            concurrency: Some(10),
+            on_exceed: "reject".to_string(),
+            ..Default::default()
+        };
+        let input_fn = make_test_fn("test_fn_reject_conc");
+        let tokens = generate_flow_control(&input_fn, &config).unwrap();
+        let tokens_str = tokens.to_string();
+        assert!(
+            tokens_str.contains("unreachable_code"),
+            "reject mode should generate #[allow(unreachable_code)] attr; tokens = {}",
+            tokens_str
+        );
+    }
+
+    #[test]
+    fn test_generate_log_only_no_unreachable_allow_attr() {
+        // T006: log_only 模式下不应生成 #[allow(unreachable_code)] attr
+        // 因为 log_only 不调用 acquire，没有 unreachable 分支
+        let config = FlowControlConfig {
+            concurrency: Some(10),
+            on_exceed: "log_only".to_string(),
+            ..Default::default()
+        };
+        let input_fn = make_test_fn("test_fn_log_only_no_attr");
+        let tokens = generate_flow_control(&input_fn, &config).unwrap();
+        let tokens_str = tokens.to_string();
+        assert!(
+            !tokens_str.contains("unreachable_code"),
+            "log_only mode should NOT generate #[allow(unreachable_code)] attr; tokens = {}",
+            tokens_str
+        );
+    }
+
+    // ========================================================================
+    // audit-macro-followup 修复16 (L-002): sanitize_key_component 边界测试
+    // ========================================================================
+
+    #[test]
+    fn test_sanitize_key_component_edge_cases() {
+        // audit-L-002：覆盖 sanitize_key_component 的所有边界条件
+        // 包括空字符串、纯特殊字符、合法字符、超长截断、Unicode 过滤
+
+        // 空字符串
+        assert_eq!(sanitize_key_component(""), "");
+
+        // 纯特殊字符（全部被过滤，结果为空）
+        assert_eq!(sanitize_key_component("!!!"), "");
+        assert_eq!(sanitize_key_component(":!@$%^&*()"), "");
+
+        // 合法字符集（alphanumeric + _ - .）
+        assert_eq!(sanitize_key_component("abc123"), "abc123");
+        assert_eq!(sanitize_key_component("ABC_xyz"), "ABC_xyz");
+        assert_eq!(sanitize_key_component("ns.test-1"), "ns.test-1");
+        assert_eq!(sanitize_key_component("admin"), "admin");
+
+        // 超长字符串截断到 128 字符
+        let long = "a".repeat(200);
+        let sanitized = sanitize_key_component(&long);
+        assert_eq!(sanitized.len(), 128, "should truncate to 128 chars");
+        assert_eq!(sanitized, "a".repeat(128));
+
+        // 混合合法与非法字符（仅保留合法字符）
+        // "xyz!789@uvw" → "!" "@" 被过滤，alphanumeric 字符保留（避免 hex 误报）
+        assert_eq!(sanitize_key_component("xyz!789@uvw"), "xyz789uvw");
+        // "ns:user:123" → ":" 被过滤
+        assert_eq!(sanitize_key_component("ns:user:123"), "nsuser123");
+
+        // Unicode 字符被过滤（audit-M-001: is_ascii_alphanumeric）
+        // 中文应被过滤
+        assert_eq!(sanitize_key_component("\u{4e2d}\u{6587}_test"), "_test");
+        // 日文应被过滤
+        assert_eq!(
+            sanitize_key_component("\u{30e6}\u{30fc}\u{30b6}\u{30fc}_test"),
+            "_test"
+        );
+        // 西里尔字母应被过滤（同形字符攻击防护：'а' vs 'a'）
+        // 'аdmin' 第一个字符是西里尔字母 'а'（U+0430），应被过滤，结果为 'dmin'
+        let cyrillic_a_first = "\u{430}dmin"; // 'а' 是西里尔字母（U+0430），'dmin' 是 ASCII
+        let sanitized = sanitize_key_component(cyrillic_a_first);
+        assert_eq!(
+            sanitized, "dmin",
+            "cyrillic 'а' should be filtered (homoglyph attack prevention), got '{}'",
+            sanitized
+        );
+        // 全 ASCII 的 'admin' 应保持不变
+        assert_eq!(sanitize_key_component("admin"), "admin");
+
+        // 边界：恰好 128 字符不截断
+        let exact_128 = "a".repeat(128);
+        assert_eq!(sanitize_key_component(&exact_128).len(), 128);
+
+        // 边界：129 字符截断为 128
+        let over_128 = "a".repeat(129);
+        assert_eq!(sanitize_key_component(&over_128).len(), 128);
+    }
+
+    #[test]
+    fn test_sanitize_key_component_defense_in_depth() {
+        // audit-M-001: 防御性测试 - 同形字符攻击场景
+        // 攻击者可能用 'аdmin'（西里尔字母 а）冒充 'admin'（视觉相同但 Unicode 不同），
+        // 试图绕过基于 key 的隔离。sanitize 后西里尔字母 'а' 被过滤，
+        // 'аdmin' → 'dmin'，与合法 'admin' 不同：
+        // 1. 攻击者无法让恶意 key 与合法 key 碰撞（绕过限流）
+        // 2. 攻击者也无法让恶意 key 与合法 key 完全相同（视觉欺骗）
+        let legit_admin = sanitize_key_component("admin");
+        let homoglyph_admin = sanitize_key_component("аdmin"); // 西里尔字母 а + dmin
+
+        assert_eq!(
+            legit_admin, "admin",
+            "legit 'admin' should remain unchanged"
+        );
+        assert_eq!(
+            homoglyph_admin, "dmin",
+            "homoglyph 'аdmin' should be sanitized to 'dmin' (cyrillic 'а' filtered)"
+        );
+        assert_ne!(
+            legit_admin, homoglyph_admin,
+            "homoglyph attack should NOT produce same result as legit"
         );
     }
 }

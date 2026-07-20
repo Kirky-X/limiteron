@@ -67,7 +67,7 @@ secrecy = "0.10"
 
 # 宏相关
 proc-macro2 = "1.0"
-syn = { version = "2.0", features = ["full", "extra-traits"] }
+syn = { version = "3.0", features = ["full", "extra-traits"] }
 quote = "1.0"
 
 # 开发依赖

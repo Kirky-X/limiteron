@@ -29,7 +29,7 @@
 //! - `init_telemetry` 在 `enable_tracing=true` 时会尝试初始化 tracing subscriber，
 //!   重复初始化会被安全忽略
 
-use limiteron::telemetry::{init_telemetry, Metrics, TelemetryConfig, Tracer};
+use limiteron::telemetry::{Metrics, TelemetryConfig, Tracer, init_telemetry};
 use std::time::Duration;
 
 #[tokio::main]

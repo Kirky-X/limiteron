@@ -21,9 +21,9 @@
 //! cargo run --bin fallback_demo --features fallback
 //! ```
 
+use limiteron::LimiteronError;
 use limiteron::fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
 use limiteron::oxcache::Cache;
-use limiteron::LimiteronError;
 use std::sync::Arc;
 use std::time::Duration;
 

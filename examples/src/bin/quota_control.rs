@@ -9,9 +9,9 @@
 //!
 //! Run: cargo run --bin quota_control --features quota-control
 
+use limiteron::QuotaStorage;
 use limiteron::error::LimiteronError;
 use limiteron::quota::{AlertChannel, AlertConfig, QuotaConfig, QuotaController, QuotaType};
-use limiteron::QuotaStorage;
 use limiteron_examples::MemoryQuotaStorage;
 use std::sync::Arc;
 

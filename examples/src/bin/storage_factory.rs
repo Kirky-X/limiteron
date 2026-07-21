@@ -26,8 +26,8 @@
 //! `initialize` 会返回错误并被捕获展示。
 
 use limiteron::adapters::{
-    create_ban_storage_from_dsn, create_quota_storage_from_dsn, create_storage_from_dsn,
-    StorageFactory, StorageFactoryConfig, StorageType,
+    StorageFactory, StorageFactoryConfig, StorageType, create_ban_storage_from_dsn,
+    create_quota_storage_from_dsn, create_storage_from_dsn,
 };
 
 #[tokio::main]

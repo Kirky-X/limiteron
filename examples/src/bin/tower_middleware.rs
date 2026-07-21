@@ -19,9 +19,9 @@
 //! ```
 
 use http::{Request, Response, StatusCode};
+use limiteron::Governor;
 use limiteron::middleware::{IntoRequestContext, RateLimitConfig, RateLimitLayer};
 use limiteron::tower::{Layer, Service};
-use limiteron::Governor;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 

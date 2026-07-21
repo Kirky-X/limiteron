@@ -42,11 +42,11 @@
 //! [`AdminServer`]: limiteron::admin::AdminServer
 //! [`AdminApiConfig`]: limiteron::admin::AdminApiConfig
 
+use limiteron::Governor;
 use limiteron::admin::{AdminApiConfig, AdminServer};
 use limiteron::ban::{BanManager, BanManagerConfig};
 use limiteron::config::{FlowControlConfig, GlobalConfig, RuleBuilder};
 use limiteron::storage::{BanStorage, MemoryBanStorage, MemoryStorage, Storage};
-use limiteron::Governor;
 use std::sync::Arc;
 
 /// 管理 API 的 API Key（必须 ≥16 字符，否则 AdminApiConfig::validate 会失败）

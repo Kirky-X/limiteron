@@ -20,11 +20,11 @@
 //! cargo run --bin validation_demo --features validation
 //! ```
 
+use limiteron::BanTarget;
 use limiteron::validation::{
     validate_api_key, validate_ban_reason, validate_ban_target, validate_header_value,
     validate_ip_address, validate_length, validate_mac_address, validate_path, validate_user_id,
 };
-use limiteron::BanTarget;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -19,10 +19,10 @@
 
 use limiteron::async_trait::async_trait;
 use limiteron::error::LimiteronError;
+use limiteron::matchers::RequestContext;
 use limiteron::matchers::custom::{
     CustomMatcher, CustomMatcherRegistry, HeaderMatcher, TimeWindowMatcher,
 };
-use limiteron::matchers::RequestContext;
 use serde_json::Value;
 
 #[tokio::main]

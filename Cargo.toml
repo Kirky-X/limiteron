@@ -27,7 +27,6 @@ repository = "https://github.com/Kirky-X/limiteron"
 # 异步运行时
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "time", "net", "signal", "sync", "io-util"] }
 tokio-util = { version = "0.7", features = ["rt"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
 async-trait = "0.1"
 
 # 序列化
@@ -51,10 +50,6 @@ futures = "0.3"
 tracing = "0.1"
 log = "0.4"
 scopeguard = "1.2"
-tracing-opentelemetry = "0.33"
-
-# 验证和工具
-validator = "0.20"
 
 # 数据结构
 dashmap = "6.2"
@@ -79,8 +74,7 @@ trybuild = "1.0"
 serial_test = { version = "~3.5", default-features = false }
 
 # 数据库
-sea-orm = { version = "2.0.0-rc.42", default-features = false, features = ["macros", "with-chrono"] }
-sqlx = { version = "0.9", features = ["postgres", "runtime-tokio", "tls-rustls"] }
+sea-orm = { version = "2.0", default-features = false, features = ["macros", "with-chrono"] }
 
 # 缓存库
 oxcache = { version = "0.3", default-features = false, features = ["core"] }
@@ -94,9 +88,6 @@ limiteron-macros = { path = "macros", version = "0.2" }
 # 监控
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 prometheus = { version = "0.14" }
-opentelemetry = { version = "0.32" }
-opentelemetry-jaeger = { version = "0.22", features = ["rt-tokio"] }
-opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 
 # 工具
 reqwest = { version = "0.13", features = ["json"] }
@@ -105,7 +96,6 @@ proptest = "1.11"
 
 # HTTP 框架
 axum = { version = "0.8", features = ["json"] }
-tower-http = { version = "0.7", features = ["cors", "auth"] }
 tower = { version = "0.5" }
 tower-layer = { version = "0.3" }
 http = { version = "1.4" }
@@ -145,7 +135,6 @@ thiserror.workspace = true
 parking_lot.workspace = true
 tracing.workspace = true
 log.workspace = true
-validator.workspace = true
 
 # 并发和数据结构（核心依赖）
 dashmap.workspace = true
@@ -154,9 +143,8 @@ ahash.workspace = true
 # 数据库操作（可选）
 dbnexus = { workspace = true, optional = true }
 sea-orm = { workspace = true, optional = true }
-sqlx = { workspace = true, optional = true }
 # 安全约束（vuln-0004 修复 / MEDIUM-003）：CVE-2025-48369，强制 rustls-webpki >= 0.103.13
-# 通过 sqlx (tls-rustls) 间接引入，但显式约束最低版本以防止 Cargo 解析到脆弱版本。
+# 通过 dbnexus/sea-orm/reqwest 的 TLS 依赖间接引入，显式约束最低版本以防止 Cargo 解析到脆弱版本。
 # 注：版本格式为例外（用户规则要求 x.x，但安全约束需要 patch 段），安全优先级高于代码质量规则。
 rustls-webpki = { version = "0.103.13", optional = true }
 
@@ -164,28 +152,19 @@ rustls-webpki = { version = "0.103.13", optional = true }
 oxcache.workspace = true
 
 # 宏依赖（可选）
-proc-macro2 = { workspace = true, optional = true }
-syn = { workspace = true, optional = true }
-quote = { workspace = true, optional = true }
 limiteron-macros = { workspace = true, optional = true }
 
 # 监控依赖（可选）
 tracing-subscriber = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
-opentelemetry = { workspace = true, optional = true }
-opentelemetry-jaeger = { workspace = true, optional = true }
-opentelemetry_sdk = { workspace = true, optional = true }
-tracing-opentelemetry = { workspace = true, optional = true }
 scopeguard = { workspace = true, optional = true }
 
 # 工具依赖（可选）
 reqwest = { workspace = true, optional = true }
 notify = { workspace = true, optional = true }
-tokio-stream = { workspace = true, optional = true }
 
 # HTTP框架 - 管理API（可选）
 axum = { workspace = true, optional = true }
-tower-http = { workspace = true, optional = true }
 
 # 安全相关（可选）
 regex = { workspace = true, optional = true }
@@ -287,7 +266,7 @@ default = []
 # ============================================
 # PostgreSQL 存储 - 使用 dbnexus
 # 含 rustls-webpki 显式约束（MEDIUM-003：CVE-2025-48369 最低版本锁）
-postgres = ["dep:dbnexus", "dep:sqlx", "dep:sea-orm", "dep:rustls-webpki"]
+postgres = ["dep:dbnexus", "dep:sea-orm", "dep:rustls-webpki"]
 
 # 缓存存储 - 通过 oxcache 切换后端 (memory/redis 等)
 cache-storage = ["cache-service", "oxcache/redis"]
@@ -331,17 +310,13 @@ device-matching = ["dep:woothee", "dep:regex"]
 # ============================================
 # Admin API (管理控制面)
 # ============================================
-admin-api = ["dep:axum", "dep:tower-http", "dep:tower", "dep:http"]
+admin-api = ["dep:axum", "dep:tower", "dep:http"]
 
 # ============================================
 # Observability Features (可观测性)
 # ============================================
 telemetry = [
     "dep:tracing-subscriber",
-    "dep:opentelemetry",
-    "dep:opentelemetry-jaeger",
-    "dep:opentelemetry_sdk",
-    "dep:tracing-opentelemetry",
     "dep:scopeguard",
 ]
 monitoring = ["dep:prometheus", "dep:scopeguard"]
@@ -352,14 +327,14 @@ audit-log = ["telemetry", "dep:hmac", "dep:sha2", "dep:hex"]
 # ============================================
 # Tooling Features (工具)
 # ============================================
-macros = ["dep:limiteron-macros", "dep:proc-macro2", "dep:syn", "dep:quote"]
+macros = ["dep:limiteron-macros"]
 config-watcher = ["dep:notify"]
 webhook = ["dep:reqwest"]
 
 # ============================================
 # Event System (事件系统)
 # ============================================
-event-system = ["dep:tokio-stream"]
+event-system = []
 
 # ============================================
 # Multi-Tenant Features (多租户)

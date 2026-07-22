@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 测试
+
+- 新增 `tests/e2e_advanced.rs`（76 个测试）：覆盖 limiter_boundary(12)、gcra_limiter(9)、concurrency_limiter(10)、decision_chain(9)、fallback_strategy(9)、multi_tenant(10)、distributed_limiter(14)、cross_module(4) 共 8 个模块的边界与异常场景
+
 ## [0.2.9] - 2026-07-18
 
 ### 新增（macros-version-sync）

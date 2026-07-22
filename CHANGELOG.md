@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-07-22
+
 ### 测试
 
 - 新增 `tests/e2e_advanced.rs`（76 个测试）：覆盖 limiter_boundary(12)、gcra_limiter(9)、concurrency_limiter(10)、decision_chain(9)、fallback_strategy(9)、multi_tenant(10)、distributed_limiter(14)、cross_module(4) 共 8 个模块的边界与异常场景
+
+### 维护
+
+- 移除未使用依赖：opentelemetry/opentelemetry-jaeger/opentelemetry_sdk/tracing-opentelemetry（死依赖）、sqlx、tokio-stream、tower-http、validator、proc-macro2/syn/quote（主包）
+- 更新 sea-orm 到 2.0 稳定版
 
 ## [0.2.9] - 2026-07-18
 
@@ -391,7 +398,8 @@ let ban_manager = BanManager::new().await.unwrap();
 - Monitoring with Prometheus metrics and OpenTelemetry tracing
 - Parallel ban checking for improved performance
 
-[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.2.9...HEAD
+[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.2.10...HEAD
+[0.2.10]: https://github.com/Kirky-X/limiteron/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/Kirky-X/limiteron/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/Kirky-X/limiteron/compare/v0.2.7...v0.2.8
 [0.2.7]: https://github.com/Kirky-X/limiteron/compare/v0.2.6...v0.2.7

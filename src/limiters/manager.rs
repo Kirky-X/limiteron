@@ -35,7 +35,7 @@
 
 use crate::limiters::{ConcurrencyLimiter, TokenBucketLimiter};
 use dashmap::DashMap;
-use std::collections::HashSet;
+use ahash::AHashSet;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -109,7 +109,7 @@ fn cleanup_lru<L>(
     // index 为 to_remove - 1（0-based），划分后前 to_remove 个即待淘汰
     entries.select_nth_unstable_by_key(to_remove - 1, |e| e.1);
 
-    let to_remove_keys: HashSet<String> = entries
+    let to_remove_keys: AHashSet<String> = entries
         .into_iter()
         .take(to_remove)
         .map(|(k, _)| k)
@@ -224,11 +224,7 @@ impl LimiterManager {
         unit_secs: u64,
     ) -> Arc<TokenBucketLimiter> {
         let key = key.to_string(); // audit-L-001：缓存一次，避免慢路径多次 to_string
-        let refill_rate = if unit_secs > 0 {
-            (amount / unit_secs).max(1)
-        } else {
-            amount
-        };
+        let refill_rate = amount.checked_div(unit_secs).map(|v| v.max(1)).unwrap_or(amount);
 
         // 快速路径：get() 读锁，避免每次都走 entry() 写锁
         if let Some(existing) = self.rate_limiters.get(&key) {

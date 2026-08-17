@@ -34,8 +34,8 @@
 //!   原子过滤以最小化窗口（audit-L-001 已缓解）。
 
 use crate::limiters::{ConcurrencyLimiter, TokenBucketLimiter};
-use dashmap::DashMap;
 use ahash::AHashSet;
+use dashmap::DashMap;
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -224,7 +224,10 @@ impl LimiterManager {
         unit_secs: u64,
     ) -> Arc<TokenBucketLimiter> {
         let key = key.to_string(); // audit-L-001：缓存一次，避免慢路径多次 to_string
-        let refill_rate = amount.checked_div(unit_secs).map(|v| v.max(1)).unwrap_or(amount);
+        let refill_rate = amount
+            .checked_div(unit_secs)
+            .map(|v| v.max(1))
+            .unwrap_or(amount);
 
         // 快速路径：get() 读锁，避免每次都走 entry() 写锁
         if let Some(existing) = self.rate_limiters.get(&key) {

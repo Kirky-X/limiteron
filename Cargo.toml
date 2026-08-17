@@ -190,10 +190,10 @@ icu = { version = "2.2", optional = true }
 writeable = { version = "0.6", optional = true }
 
 # trait-kit integration (optional, feature-gated via `kit`).
-# trait-kit 0.3 is published to crates.io.
-# Mirrors oxcache's pattern (Phase 2 of trait-kit-async-integration).
+# trait-kit 0.4 is used via path dependency for workspace compatibility.
 [dependencies.trait-kit]
-version = "0.3"
+version = "0.4"
+path = "../trait-kit"
 features = ["async"]
 optional = true
 default-features = false
@@ -260,6 +260,11 @@ full = [
 ]
 
 default = []
+
+# Compatibility features (required by vecboost, currently no-op)
+adaptive-limiting = []
+priority-queue = []
+admission-control = []
 
 # ============================================
 # Storage Features (存储后端)

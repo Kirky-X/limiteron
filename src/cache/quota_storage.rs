@@ -150,7 +150,11 @@ impl QuotaStorage for CacheQuotaStorage {
             .num_seconds()
             .max(1) as u64;
         self.backend
-            .set(&key, data, Some(Duration::from_secs(ttl)))
+            .set(
+                Arc::from(key.as_str()),
+                Arc::new(data),
+                Some(Duration::from_secs(ttl)),
+            )
             .await
             .map_err(map_error)?;
 
@@ -188,7 +192,11 @@ impl QuotaStorage for CacheQuotaStorage {
             .num_seconds()
             .max(1) as u64;
         self.backend
-            .set(&key, data, Some(Duration::from_secs(ttl)))
+            .set(
+                Arc::from(key.as_str()),
+                Arc::new(data),
+                Some(Duration::from_secs(ttl)),
+            )
             .await
             .map_err(map_error)
     }
@@ -414,7 +422,11 @@ mod tests {
         };
         let data = serde_json::to_vec(&info_to_json(&info)).unwrap();
         backend
-            .set(&key, data, Some(Duration::from_secs(3600)))
+            .set(
+                Arc::from(key.as_str()),
+                Arc::new(data),
+                Some(Duration::from_secs(3600)),
+            )
             .await
             .unwrap();
         let r = qs
@@ -435,7 +447,11 @@ mod tests {
         // 写入有效 JSON 但缺少必需字段，使 info_from_json 返回 None
         let bad_data = serde_json::to_vec(&json!({ "foo": "bar" })).unwrap();
         backend
-            .set(&key, bad_data, Some(Duration::from_secs(3600)))
+            .set(
+                Arc::from(key.as_str()),
+                Arc::new(bad_data),
+                Some(Duration::from_secs(3600)),
+            )
             .await
             .unwrap();
         let r = qs
@@ -460,7 +476,11 @@ mod tests {
         };
         let data = serde_json::to_vec(&info_to_json(&info)).unwrap();
         backend
-            .set(&key, data, Some(Duration::from_secs(3600)))
+            .set(
+                Arc::from(key.as_str()),
+                Arc::new(data),
+                Some(Duration::from_secs(3600)),
+            )
             .await
             .unwrap();
         let q = qs.get_quota("u_get", "api").await.unwrap().unwrap();
@@ -475,7 +495,11 @@ mod tests {
         let qs = CacheQuotaStorage::new(backend.clone());
         let key = quota_key("u_bad", "api");
         backend
-            .set(&key, b"not json".to_vec(), Some(Duration::from_secs(60)))
+            .set(
+                Arc::from(key.as_str()),
+                Arc::new(b"not json".to_vec()),
+                Some(Duration::from_secs(60)),
+            )
             .await
             .unwrap();
         let result = qs.get_quota("u_bad", "api").await;
@@ -489,7 +513,11 @@ mod tests {
         let qs = CacheQuotaStorage::new(backend.clone());
         let key = quota_key("u_invjson", "api");
         backend
-            .set(&key, b"invalid".to_vec(), Some(Duration::from_secs(60)))
+            .set(
+                Arc::from(key.as_str()),
+                Arc::new(b"invalid".to_vec()),
+                Some(Duration::from_secs(60)),
+            )
             .await
             .unwrap();
         let result = qs

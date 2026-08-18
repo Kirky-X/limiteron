@@ -510,6 +510,7 @@ impl TelemetryConfig {
 ///     let (metrics, tracer) = init_telemetry(&config).await.unwrap();
 /// }
 /// ```
+#[cfg(feature = "telemetry")]
 pub async fn init_telemetry(config: &TelemetryConfig) -> Result<(Metrics, Tracer), String> {
     info!("Initializing telemetry system");
 
@@ -550,6 +551,7 @@ pub async fn init_telemetry(config: &TelemetryConfig) -> Result<(Metrics, Tracer
 }
 
 /// 初始化Jaeger追踪器
+#[cfg(feature = "telemetry")]
 async fn init_jaeger_tracer(config: &TelemetryConfig, endpoint: &str) -> Result<(), String> {
     #[cfg(feature = "telemetry")]
     {
@@ -579,6 +581,7 @@ async fn init_jaeger_tracer(config: &TelemetryConfig, endpoint: &str) -> Result<
 ///
 /// 使用 OpenTelemetry SDK 的控制台 exporter 输出 traces。
 /// 适用于开发环境或调试目的。
+#[cfg(feature = "telemetry")]
 fn init_console_tracer(config: &TelemetryConfig) -> Result<(), String> {
     #[cfg(feature = "telemetry")]
     {

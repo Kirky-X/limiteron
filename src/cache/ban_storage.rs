@@ -94,7 +94,7 @@ impl CacheBanStorage {
         let data =
             serde_json::to_vec(keys).map_err(|e| StorageError::QueryError(format!("{e}")))?;
         self.backend
-            .set(BAN_INDEX_KEY, data, None)
+            .set(Arc::from(BAN_INDEX_KEY), Arc::new(data), None)
             .await
             .map_err(map_error)
     }
@@ -133,7 +133,11 @@ impl CacheBanStorage {
                     let data = serde_json::to_vec(&record_to_json(&record))
                         .map_err(|e| StorageError::QueryError(format!("{e}")))?;
                     self.backend
-                        .set(&key, data, Some(std::time::Duration::from_secs(ttl)))
+                        .set(
+                            Arc::from(key.as_str()),
+                            Arc::new(data),
+                            Some(std::time::Duration::from_secs(ttl)),
+                        )
                         .await
                         .map_err(map_error)?;
                 }
@@ -168,7 +172,11 @@ impl BanStorage for CacheBanStorage {
         let data = serde_json::to_vec(&record_to_json(record))
             .map_err(|e| StorageError::QueryError(format!("{e}")))?;
         self.backend
-            .set(&key, data, Some(std::time::Duration::from_secs(ttl)))
+            .set(
+                Arc::from(key.as_str()),
+                Arc::new(data),
+                Some(std::time::Duration::from_secs(ttl)),
+            )
             .await
             .map_err(map_error)?;
         self.add_to_index(&key).await
@@ -483,7 +491,10 @@ mod tests {
             "last_banned_at": 1234567890i64,
         });
         let data = serde_json::to_vec(&history_data).unwrap();
-        backend.set(&key, data, None).await.unwrap();
+        backend
+            .set(Arc::from(key.as_str()), Arc::new(data), None)
+            .await
+            .unwrap();
         let h = bs.get_history(&target).await.unwrap().unwrap();
         assert_eq!(h.ban_times, 3);
     }
@@ -498,7 +509,10 @@ mod tests {
         // 只含部分字段，触发 unwrap_or(0) 路径
         let history_data = json!({ "ban_times": 5u64 });
         let data = serde_json::to_vec(&history_data).unwrap();
-        backend.set(&key, data, None).await.unwrap();
+        backend
+            .set(Arc::from(key.as_str()), Arc::new(data), None)
+            .await
+            .unwrap();
         let h = bs.get_history(&target).await.unwrap().unwrap();
         assert_eq!(h.ban_times, 5);
         // last_banned_at 走 unwrap_or_default() → epoch
@@ -513,7 +527,11 @@ mod tests {
         let target = BanTarget::UserId("hist_invalid".into());
         let key = format!("{}{}", BAN_HISTORY_PREFIX, target_json_str(&target));
         backend
-            .set(&key, b"not valid json".to_vec(), None)
+            .set(
+                Arc::from(key.as_str()),
+                Arc::new(b"not valid json".to_vec()),
+                None,
+            )
             .await
             .unwrap();
         let result = bs.get_history(&target).await;

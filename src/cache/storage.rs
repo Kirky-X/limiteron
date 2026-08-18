@@ -39,7 +39,7 @@ impl Storage for CacheStorage {
     async fn set(&self, key: &str, value: &str, ttl: Option<u64>) -> Result<(), StorageError> {
         let ttl = ttl.map(Duration::from_secs);
         self.backend
-            .set(key, value.as_bytes().to_vec(), ttl)
+            .set(Arc::from(key), Arc::new(value.as_bytes().to_vec()), ttl)
             .await
             .map_err(map_error)
     }
@@ -126,8 +126,8 @@ mod tests {
     impl CacheWriter for MockBackend {
         async fn set(
             &self,
-            _key: &str,
-            _value: Vec<u8>,
+            _key: Arc<str>,
+            _value: Arc<Vec<u8>>,
             _ttl: Option<Duration>,
         ) -> Result<(), OxCacheError> {
             let factory = self.write_factory.lock().unwrap();

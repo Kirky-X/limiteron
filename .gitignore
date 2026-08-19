@@ -56,8 +56,8 @@ di.md
 .worktrees/
 .qoder/
 openspec/
-# specmark: 忽略活动变更目录，但保留归档和主 specs 用于可追溯性
-specmark/changes/
+# specmark: 工作流目录不入 git（含归档，规则30）
+specmark/
 IFLOW.md
 TEST_SUMMARY_2026_01_17.md
 AGENTS.md

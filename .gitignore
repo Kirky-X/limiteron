@@ -79,3 +79,6 @@ CODEIUM.md
 .github/copilot/
 strix_runs
 lcov.info
+
+# Reviews (security/quality scan artifacts)
+reviews/

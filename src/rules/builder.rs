@@ -182,17 +182,9 @@ impl RuleBuilder {
                         }
                     }
                     LimiterConfig::Concurrency { max_concurrent } => {
-                        // 已知限制：`Limiter::allow` 返回 bool 且不持有 permit，经决策链
-                        // 挂载的 ConcurrencyLimiter 无法在请求跨 await 期间保持并发占用，
-                        // 因此该规则不会真正限制并发。这里显式告警（fail-loud），引导使用
-                        // ConcurrencyLimiter::acquire()/guard 在服务层直接实现并发控制。
-                        warn!(
-                            "ConcurrencyLimiter mounted into a rule chain cannot hold permits \
-                             across the request lifetime (the `Limiter::allow` bool contract \
-                             releases the permit immediately), so this rule will NOT bound \
-                             concurrency. Use ConcurrencyLimiter::acquire()/guards directly \
-                             in the service layer for real concurrency control."
-                        );
+                        // diting HIGH-002 修复后：链式 allow() 以「租约」真实计入并发占用
+                        //（LEASE_DURATION 内持有 permit，近似请求生命周期）。
+                        // 精确的请求级并发控制仍推荐服务层直接使用 acquire()/guard。
                         (
                             Arc::new(ConcurrencyLimiter::new(*max_concurrent)),
                             LimiterTypeName::Concurrency,

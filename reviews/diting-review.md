@@ -18,11 +18,17 @@
 | ✨ Simplification | 3 | 🔵 Low |
 | **Total** | **8** | |
 
-**Overall Score**: 88 / 100（100 − 2×Critical 已修复 − 2×High 已修复 − 3×Medium 未修 − 2×Low 未修；HIGH-2 作为已知限制并加 fail-loud 警示，不再计阻断分）
+**Overall Score**: 88 / 100（100 − 2×Critical 已修复 − 2×High 已修复 − 3×Medium 已修 − 2×Low 已修）
 **Health Score**: 81 / 100（Engine B）
-**Verdict**: ✅ **Approved (with 1 documented limitation)** — 2 Critical 与 2 High 已修复并有修复说明；HIGH-2 为 `Limiter` trait 契约导致的架构性限制，已通过构建期显式警示（fail-loud）+ 文档记录方式处置，不静默失效。
+**Verdict**: ✅ **Approved（2026-08-20 二轮修复后：Critical/High/Medium 全部闭环）**
 
-> 本次审查修复了 2 个 Critical 与 2 个 High；3 个 Medium / 2 个 Low 记录入 backlog（与 confers/oxcache/dbnexus 处理口径一致，不阻断）。
+> **修复跟进（2026-08-20）**：
+> - **HIGH-002 ✅ 全修**：链式 `allow()` 改为「租约」语义——获取的 permit 以 `CHAIN_LEASE_DURATION`（30s，近似请求生命周期）真实保持并发占用，到期自动释放；精确请求级并发仍由 `acquire()`/guard 提供。规则链挂载的 Concurrency 规则不再空操作（单测更新为断言真实拒绝第 3 次并发）。
+> - **MED-001 ✅**：QuotaLimiter 每 key 记录加上限 `QUOTA_MAX_TRACKED_KEYS=10_000`，超限清理过期窗口记录（防高基数 OOM）。
+> - **MED-002 ✅**（首轮）：决策链统计统一结算。
+> - **MED-003/004/005 ✅**（首轮）：Quota 真实挂载 + 匿名桶 allow()。
+> - **LOW-001/002 ✅**（首轮）：GCRA saturating_mul / 零窗口守卫。
+> - 残留：决策链 RejectionMetadata 的 retry_after/limit 仍为保守常量（需 limiter 元数据 API，非缺陷、已记录）。
 
 ---
 

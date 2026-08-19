@@ -226,12 +226,18 @@ impl Limiter for GcraLimiter {
             let mut tat = self.tat.write();
 
             // Calculate Earliest Arrival Time (EAT)
-            let eat =
-                (*tat).saturating_sub((self.capacity.saturating_sub(1)) * self.refill_interval_us);
+            // 防御：公开构造器可能传入超大 capacity/cost，乘法用 saturating_mul 防溢出
+            // （debug panic / release 回绕破坏限流不变量）。
+            let eat = (*tat).saturating_sub(
+                self.capacity
+                    .saturating_sub(1)
+                    .saturating_mul(self.refill_interval_us),
+            );
 
             if now_us >= eat {
                 // Request allowed, update TAT
-                *tat = std::cmp::max(*tat, now_us) + cost * self.refill_interval_us;
+                *tat = std::cmp::max(*tat, now_us)
+                    .saturating_add(cost.saturating_mul(self.refill_interval_us));
                 true
             } else {
                 // Request denied

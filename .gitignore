@@ -78,3 +78,4 @@ CODEIUM.md
 .codeium/
 .github/copilot/
 strix_runs
+lcov.info

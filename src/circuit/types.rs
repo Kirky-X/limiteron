@@ -367,15 +367,21 @@ impl CircuitBreaker {
         // 检查熔断器状态
         let state = self.state.read().await;
 
+        // 标记本次调用是否作为"探针"（半开态准入受 half_open_max_calls 限制）
+        let mut half_open_probe = false;
+
         match *state {
             CircuitState::Open => {
                 // 检查是否可以尝试恢复
                 let last_failure = self.last_failure_time.read().await;
                 if let Some(last_failure) = *last_failure {
                     if self.clock.now().duration_since(last_failure) >= self.config.timeout {
-                        // 超时，切换到半开状态
+                        // 超时到期：尝试切换到半开状态。
+                        // 切换幂等（CAS guarded）；所有并发调用者随后一致地进入
+                        // 下方的半开准入检查，被 half_open_max_calls 限流，避免惊群。
                         drop(state);
                         self.transition_to_half_open().await;
+                        half_open_probe = true;
                     } else {
                         // 仍在熔断状态，拒绝请求
                         drop(state);
@@ -384,25 +390,36 @@ impl CircuitBreaker {
                             "熔断器打开，请求被拒绝".to_string(),
                         ));
                     }
+                } else {
+                    // 无失败时间戳（不应出现在 Open 态），保守拒绝
+                    drop(state);
+                    warn!("熔断器打开，拒绝请求");
+                    return Err(LimiteronError::LimitError(
+                        "熔断器打开，请求被拒绝".to_string(),
+                    ));
                 }
             }
             CircuitState::HalfOpen => {
-                // 检查半开状态下的调用次数
-                let calls = self.half_open_calls.load(Ordering::Relaxed);
-                if calls >= self.config.half_open_max_calls {
-                    drop(state);
-                    warn!("半开状态调用次数已达上限，拒绝请求");
-                    return Err(LimiteronError::LimitError(
-                        "半开状态调用次数已达上限".to_string(),
-                    ));
-                }
-                self.half_open_calls.fetch_add(1, Ordering::Relaxed);
+                half_open_probe = true;
                 drop(state);
             }
             CircuitState::Closed => {
                 // 正常状态，继续执行
                 drop(state);
             }
+        }
+
+        // 半开准入检查：对 Open 超时转来的调用者与 HalfOpen 调用者一视同仁，
+        // 只放行 half_open_max_calls 个并发探针，其余拒绝。
+        if half_open_probe {
+            let calls = self.half_open_calls.load(Ordering::Relaxed);
+            if calls >= self.config.half_open_max_calls {
+                warn!("半开状态调用次数已达上限，拒绝请求");
+                return Err(LimiteronError::LimitError(
+                    "半开状态调用次数已达上限".to_string(),
+                ));
+            }
+            self.half_open_calls.fetch_add(1, Ordering::Relaxed);
         }
 
         // 执行操作
@@ -567,9 +584,9 @@ impl CircuitBreaker {
             }
             CircuitState::HalfOpen => {
                 self.success_count.store(0, Ordering::Relaxed);
-                // 重置半开状态调用计数
-                // 注意：将计数设置为1，因为当前请求（探针请求）将被允许通过
-                self.half_open_calls.store(1, Ordering::Relaxed);
+                // 重置半开状态调用计数为 0：所有探针（含本次触发的过渡请求）
+                // 统一经过 execute() 的半开准入检查来计数，受 half_open_max_calls 限制。
+                self.half_open_calls.store(0, Ordering::Relaxed);
                 info!("熔断器状态变更: {:?} -> HalfOpen", old_state);
             }
             CircuitState::Closed => {

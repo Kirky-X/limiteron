@@ -329,8 +329,9 @@ fn sanitize_identifier(identifier: &str) -> String {
         let parts: Vec<&str> = identifier.split('@').collect();
         if parts.len() == 2 {
             let username = parts[0];
-            let masked_username = if username.len() > 3 {
-                format!("{}***", &username[..3])
+            // 按字符截取而非字节，避免多字节 UTF-8 字符被切断导致 panic
+            let masked_username = if username.chars().count() > 3 {
+                format!("{}***", username.chars().take(3).collect::<String>())
             } else {
                 "***".to_string()
             };
@@ -338,23 +339,24 @@ fn sanitize_identifier(identifier: &str) -> String {
         }
     }
 
+    // 按字符掩码（保留前3位和后3位），避免字节切片切断多字节 UTF-8 字符导致 panic
+    fn mask_chars(identifier: &str) -> String {
+        let chars: Vec<char> = identifier.chars().collect();
+        let n = chars.len();
+        let head: String = chars[..3].iter().collect();
+        let tail: String = chars[n - 3..].iter().collect();
+        format!("{}***{}", head, tail)
+    }
+
     // 检查是否是 User ID（假设是数字或UUID）
-    if identifier.len() > 10 {
+    if identifier.chars().count() > 10 {
         // User ID：只显示前3位和后3位
-        return format!(
-            "{}***{}",
-            &identifier[..3],
-            &identifier[identifier.len() - 3..]
-        );
+        return mask_chars(identifier);
     }
 
     // 其他情况：部分掩码
-    if identifier.len() > 6 {
-        format!(
-            "{}***{}",
-            &identifier[..3],
-            &identifier[identifier.len() - 3..]
-        )
+    if identifier.chars().count() > 6 {
+        mask_chars(identifier)
     } else {
         "***".to_string()
     }
@@ -710,10 +712,9 @@ impl AuditLogger {
                                 }
                                 Err(e) => {
                                     stats.verification_failures.fetch_add(1, Ordering::Relaxed);
-                                    warn!("审计日志签名验证失败: {}", e);
-                                    // 根据配置决定是否继续
-                                    // 这里选择记录警告但继续处理
-                                    entries.push(entry);
+                                    warn!("审计日志签名验证失败，丢弃篡改条目: {}", e);
+                                    // 签名验证失败即视为篡改：丢弃该条目，
+                                    // 保证 read_and_verify 返回的条目全部通过验证
                                 }
                             }
                         } else {
@@ -1329,6 +1330,18 @@ mod tests {
         assert_eq!(sanitize_identifier("abcdefghijklmnop"), "abc***nop");
     }
 
+    #[test]
+    fn test_sanitize_identifier_multibyte_utf8_no_panic() {
+        // 多字节 UTF-8 标识符不得触发字节切片 panic（回归：v0.2.10 会 panic）
+        assert_eq!(sanitize_identifier("用户ab"), "***");
+        assert_eq!(sanitize_identifier("a测@example.com"), "***@example.com");
+        assert_eq!(
+            sanitize_identifier("中文用户名一二三四五六"),
+            "中文用***四五六"
+        );
+        assert_eq!(sanitize_identifier("emoji😀id"), "emo***😀id");
+    }
+
     // ================================================================
     // === AuditLogStats — all getters + reset ===
     // ================================================================
@@ -1575,7 +1588,8 @@ mod tests {
             .signing_key("wrong-key-32-bytes-long!!!!!".into());
         let stats2 = AuditLogStats::default();
         let entries2 = AuditLogger::read_and_verify(p, &config2, &stats2).unwrap();
-        assert_eq!(entries2.len(), 1);
+        // 签名验证失败（篡改/密钥不匹配）的条目必须被丢弃，不进入返回列表
+        assert_eq!(entries2.len(), 0);
         assert_eq!(stats2.verification_failures(), 1);
     }
 

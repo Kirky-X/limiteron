@@ -654,7 +654,8 @@ cargo bench
 
 2. **使用 L1 缓存:**
    ```rust
-   // Governor 默认启用 L1 缓存
+   // L1 缓存默认启用，且为负缓存语义——仅缓存"拒绝/封禁"决策，
+   // "允许"决策永不入缓存，因此任何一次请求都会重新执行限流/封禁检查。
    let governor = Governor::builder()
        .with_l1_cache_enabled(true)
        .build()

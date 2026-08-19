@@ -1,0 +1,14 @@
+# Clippy configuration
+warn-on-all-wildcard-imports = true
+disallowed-methods = [
+    "std::iter::Iterator::cloned",
+]
+disallowed-types = [
+    "std::collections::HashMap",
+    "std::collections::BTreeMap",
+    "std::collections::HashSet",
+    "std::collections::BTreeSet",
+]
+too-many-arguments-threshold = 7
+type-complexity-threshold = 250
+single-char-binding-names-threshold = 4

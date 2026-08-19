@@ -239,12 +239,29 @@ impl Limiter for ConcurrencyLimiter {
             ));
         }
 
-        match self.semaphore.try_acquire_many(cost_u32) {
-            Ok(_permit) => Ok(true),
+        // diting HIGH-002 修复：链式 allow() 无法感知请求结束，此前 permit 在本函数
+        // 返回即被释放 → 并发限制完全不生效。现改为「租约」语义：获取的 permit 在
+        // CHAIN_LEASE_DURATION 内保持并发占用（近似请求生命周期），到期自动释放。
+        // 精确的请求级并发控制仍由 acquire()/guard API 提供（Drop 即释放）。
+        match self.semaphore.clone().try_acquire_many_owned(cost_u32) {
+            Ok(permit) => {
+                // 无 tokio 运行时（如非异步单测）时退回即时释放，避免 spawn panic
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.spawn(async move {
+                        tokio::time::sleep(CHAIN_LEASE_DURATION).await;
+                        drop(permit);
+                    });
+                }
+                Ok(true)
+            }
             Err(_) => Ok(false),
         }
     }
 }
+
+/// 链式 `allow()` 的许可租约时长：近似一次请求的生命周期。
+/// 期间并发占用被真实计入并受 max_concurrent 限制。
+const CHAIN_LEASE_DURATION: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[cfg(test)]
 mod tests {
@@ -352,11 +369,11 @@ mod tests {
     async fn test_concurrency_limiter_trait() {
         use super::super::traits::Limiter;
         let limiter = ConcurrencyLimiter::new(2);
-        // allow() uses try_acquire_many which immediately releases the permit,
-        // so each call should succeed independently
+        // diting HIGH-002 修复后：allow() 以租约持有 permit（CHAIN_LEASE_DURATION），
+        // 并发占用被真实计入 —— 前 2 次允许，第 3 次在租约窗口内被拒绝
         assert!(limiter.allow(1).await.unwrap());
         assert!(limiter.allow(1).await.unwrap());
-        assert!(limiter.allow(1).await.unwrap());
+        assert!(!limiter.allow(1).await.unwrap());
     }
 
     #[tokio::test]

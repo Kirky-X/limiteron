@@ -37,6 +37,9 @@ pub struct QuotaLimiter {
 /// 避免与真实用户键冲突的低概率前缀。
 const ANONYMOUS_QUOTA_KEY: &str = "__limiteron_anonymous_quota__";
 
+/// 每 key 用量记录的跟踪上限（diting MED-001：高基数 key 内存约束）
+const QUOTA_MAX_TRACKED_KEYS: usize = 10_000;
+
 impl QuotaLimiter {
     /// Creates a new QuotaLimiter with the given configuration.
     ///
@@ -109,6 +112,13 @@ impl QuotaLimiter {
     async fn check_and_consume(&self, key: &str) -> Result<bool, LimiteronError> {
         let now = Instant::now();
         let window_duration = Duration::from_secs(self.config.window_size);
+
+        // diting MED-001：防攻击者可控的高基数 key 无限增长（OOM DoS）——
+        // 超过跟踪上限时清理已过期窗口的记录，把内存约束在 ~上限 + 单窗口新增以内。
+        if self.usage.len() > QUOTA_MAX_TRACKED_KEYS {
+            self.usage
+                .retain(|_, rec| now.duration_since(rec.window_start) < window_duration);
+        }
 
         let mut record = self
             .usage

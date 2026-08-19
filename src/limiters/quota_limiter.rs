@@ -33,6 +33,10 @@ pub struct QuotaLimiter {
     usage: Arc<DashMap<String, QuotaRecord>>,
 }
 
+/// 链式/无 key 场景（`Limiter::allow` 不提供 key）使用的匿名配额桶键。
+/// 避免与真实用户键冲突的低概率前缀。
+const ANONYMOUS_QUOTA_KEY: &str = "__limiteron_anonymous_quota__";
+
 impl QuotaLimiter {
     /// Creates a new QuotaLimiter with the given configuration.
     ///
@@ -145,10 +149,14 @@ impl QuotaLimiter {
 #[async_trait]
 impl crate::limiters::Limiter for QuotaLimiter {
     async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
-        // For quota limiter, we need a key to track, but the allow() method doesn't provide one
-        // This is a limitation - quota tracking requires a key
-        // Return true to allow the request (quota enforcement happens via check() with key)
-        Ok(true)
+        // 链式/无 key 场景下无法按用户键跟踪：对内部匿名桶消耗配额，
+        // 使配额规则经决策链挂载时真实生效（diting MED-004/005 修复）。
+        // 超出限制映射为 Ok(false)（拒绝语义），而非错误语义。
+        match self.check_and_consume(ANONYMOUS_QUOTA_KEY).await {
+            Ok(ok) => Ok(ok),
+            Err(LimiteronError::QuotaExceeded(_)) => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 
     async fn check(&self, key: &str) -> Result<(), LimiteronError> {
@@ -238,31 +246,36 @@ mod tests {
 
     #[tokio::test]
     async fn test_quota_limiter_allow_method() {
-        // allow() 方法不跟踪配额，总是返回 Ok(true)
-        let config = create_test_config();
+        // allow() 现在对匿名桶消耗配额（diting MED-005 修复）：
+        // 到上限后返回 Ok(false)（拒绝语义），使链式挂载真实生效。
+        let config = create_test_config(); // limit = 10
         let limiter = QuotaLimiter::new(config);
 
-        let result = limiter.allow(1).await;
-        assert!(result.is_ok());
-        assert!(result.unwrap());
-
-        // 即使多次调用也应返回 Ok(true)
-        for _ in 0..100 {
+        // 前 10 次允许
+        for _ in 0..10 {
             let result = limiter.allow(1).await;
             assert!(result.is_ok());
             assert!(result.unwrap());
         }
+
+        // 第 11 次拒绝
+        let result = limiter.allow(1).await;
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
     }
 
     #[tokio::test]
     async fn test_quota_limiter_allow_with_zero_cost() {
-        let config = create_test_config();
+        // cost 参数在配额语义下不影响消耗：与正常调用一致受匿名桶限制
+        let config = create_test_config(); // limit = 10
         let limiter = QuotaLimiter::new(config);
 
-        // allow() 不验证 cost，总是返回 Ok(true)
+        for _ in 0..10 {
+            let result = limiter.allow(0).await;
+            assert!(result.unwrap());
+        }
         let result = limiter.allow(0).await;
-        assert!(result.is_ok());
-        assert!(result.unwrap());
+        assert!(!result.unwrap());
     }
 
     #[tokio::test]

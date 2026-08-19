@@ -288,14 +288,16 @@ impl DecisionChain {
         for node in enabled_nodes {
             match node.limiter.allow(node.cost).await {
                 Ok(false) => {
-                    // 节点拒绝 - 使用原子操作更新统计
-                    self.stats.increment_total();
-                    self.stats.increment_rejected();
+                    // 节点拒绝 - 节点级指标立即更新；请求级统计（total/rejected）在
+                    // 末尾统一结算，避免多节点非短路拒绝时对同一请求重复计数
+                    // （diting MED-002）
                     self.stats.increment_node_rejection(&node.id);
 
                     // 检查短路标志
                     if node.short_circuit {
                         // 短路：立即返回拒绝，不执行后续节点
+                        self.stats.increment_total();
+                        self.stats.increment_rejected();
                         return Ok(Decision::Rejected(RejectionMetadata {
                             reason: format!("Rejected by {}: rate limit exceeded", node.name),
                             retry_after: 60,
@@ -329,15 +331,16 @@ impl DecisionChain {
             }
         }
 
-        // 所有节点都允许 - 使用原子操作更新统计
-        self.stats.increment_total();
-
-        // 如果有任何非短路拒绝，返回最后的拒绝结果
+        // 如果有非短路拒绝，请求级统计结算为"拒绝"
+        // （不重复计数、不误计为允许；diting MED-002）
         if let Some(rejection) = last_rejection {
-            self.stats.increment_allowed();
+            self.stats.increment_total();
+            self.stats.increment_rejected();
             return Ok(Decision::Rejected(rejection));
         }
 
+        // 所有节点都允许
+        self.stats.increment_total();
         self.stats.increment_allowed();
         Ok(Decision::allowed_default())
     }
@@ -1816,7 +1819,9 @@ mod tests {
         }
 
         let stats = chain.stats_sync();
-        assert_eq!(stats.total_checks, 5);
+        // 每次 check 恰好计入一次 total（3 次允许 + 1 次非短路拒绝 = 4），
+        // 拒绝不再被重复计数或误计为 allowed（diting MED-002）
+        assert_eq!(stats.total_checks, 4);
         assert_eq!(stats.rejected_count, 1);
     }
 

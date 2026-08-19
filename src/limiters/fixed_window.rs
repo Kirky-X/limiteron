@@ -91,7 +91,9 @@ impl FixedWindowLimiter {
     fn check_and_reset_window(&self) {
         let now = self.clock.unix_timestamp_nanos();
 
-        let window_size_nanos = self.window_size.as_nanos() as u64;
+        // 防御：Duration::ZERO 窗口会导致下方 `elapsed / window_size_nanos` 除零 panic。
+        // 用具名构造器传入 0 窗口时退化到 1ns（每次即被视为新窗口，不崩溃）。
+        let window_size_nanos = self.window_size.as_nanos().max(1) as u64;
 
         loop {
             let current_start = self.window_start.load(Ordering::Acquire);

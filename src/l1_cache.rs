@@ -628,34 +628,33 @@ where
 
     /// 使匹配前缀的所有缓存失效
     ///
-    /// 注意：oxcache 不支持批量前缀删除，此方法需要遍历所有键
+    /// 通过 oxcache 的 `keys(pattern)` 枚举所有匹配键并逐个删除。
     ///
     /// # 参数
     ///
     /// - `prefix`: 键前缀
     pub async fn invalidate_by_prefix(&self, prefix: &str) -> Result<(), OxCacheError> {
-        // oxcache 不支持前缀删除，需要先获取所有键再删除
-        // 由于 oxcache API 限制，这里使用简单实现
-        // 实际生产环境可能需要额外的键追踪机制
-        log::warn!(
-            "invalidate_by_prefix called with prefix: {}. Note: This is a no-op in oxcache-based L1Cache",
-            prefix
-        );
+        let keys = self.cache.keys(&format!("{}*", prefix)).await?;
+        for key in keys {
+            self.cache.delete(&key).await?;
+        }
         Ok(())
     }
 
     /// 使包含指定字符串的所有缓存失效
     ///
-    /// 注意：oxcache 不支持模式匹配删除，此方法需要遍历所有键
+    /// 通过 oxcache 的 `keys("*")` 枚举全部键，过滤包含 pattern 的项并删除。
     ///
     /// # 参数
     ///
     /// - `pattern`: 要匹配的字符串模式
     pub async fn invalidate_containing(&self, pattern: &str) -> Result<(), OxCacheError> {
-        log::warn!(
-            "invalidate_containing called with pattern: {}. Note: This is a no-op in oxcache-based L1Cache",
-            pattern
-        );
+        let keys = self.cache.keys("*").await?;
+        for key in keys {
+            if key.contains(pattern) {
+                self.cache.delete(&key).await?;
+            }
+        }
         Ok(())
     }
 

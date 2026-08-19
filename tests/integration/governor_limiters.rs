@@ -386,7 +386,8 @@ async fn test_fixed_window_integration() {
 async fn test_governor_l1_cache_hit() {
     let governor = create_governor().await;
 
-    // 确保 L1 缓存启用
+    // L1 缓存默认关闭（负缓存语义，仅缓存拒绝/封禁决策），此处显式启用
+    governor.enable_l1_cache();
     assert!(governor.is_l1_cache_enabled());
 
     // 清空缓存

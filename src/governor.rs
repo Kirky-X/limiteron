@@ -236,7 +236,7 @@ impl GovernorBuilder {
             #[cfg(feature = "parallel-checker")]
             parallel_ban_checker: None,
             l1_cache_config: None,
-            l1_cache_enabled: true, // 默认启用 L1 缓存
+            l1_cache_enabled: true, // 默认启用 L1 缓存（负缓存语义：仅缓存拒绝/封禁决策）
             #[cfg(feature = "fallback")]
             fallback_manager: None,
             #[cfg(feature = "event-system")]
@@ -870,21 +870,10 @@ impl Governor {
                 .collect::<Vec<_>>()
         };
 
-        // 尝试从 L1 缓存获取结果
-        if self.is_l1_cache_enabled() && !matched_rules.is_empty() {
-            // 使用第一个规则构建缓存键
-            let first_rule = &matched_rules[0];
-            let cache_key = self.build_cache_key(&identifier, &first_rule.id);
-
-            if let Ok(Some(cached_decision)) = self.l1_cache.get(&cache_key).await {
-                trace!("L1 缓存命中: key={}", cache_key);
-                let decision = cached_decision.to_decision();
-                self.update_stats_for_decision(&Result::Ok(decision.clone()));
-                return Ok(decision);
-            }
-        }
-
         // 并行封禁检查 (仅当 parallel-checker 特性启用时)
+        //
+        // 必须先于 L1 缓存读取执行：即使缓存中存在条目，被封禁的标识符也
+        // 不会被缓存击中而绕过封禁检查。
         #[cfg(feature = "parallel-checker")]
         {
             // 尝试转换为 BanTarget 进行检查
@@ -906,6 +895,28 @@ impl Governor {
                     self.stats.increment_banned();
                     return Ok(Decision::Banned(info));
                 }
+            }
+        }
+
+        // 尝试从 L1 缓存获取结果
+        //
+        // 只缓存"拒绝/封禁"决策（负缓存，fail-closed）：任何一次请求都必须重新
+        // 执行限流器与封禁检查来消耗令牌/更新状态；缓存命中只能返回非"允许"的
+        // 结果，从而不会绕过限流或封禁语义。缓存键包含该标识符匹配的全部规则。
+        if self.is_l1_cache_enabled() && !matched_rules.is_empty() {
+            let cache_key = self.build_cache_key_multi(&identifier, &matched_rules);
+
+            if let Ok(Some(cached_decision)) = self.l1_cache.get(&cache_key).await {
+                let decision = cached_decision.to_decision();
+                if !matches!(decision, Decision::Allowed(_)) {
+                    trace!("L1 缓存命中(拒绝决策): key={}", cache_key);
+                    self.update_stats_for_decision(&Result::Ok(decision.clone()));
+                    return Ok(decision);
+                }
+                trace!(
+                    "L1 缓存命中但为允许决策，忽略并重新执行完整检查: key={}",
+                    cache_key
+                );
             }
         }
 
@@ -937,6 +948,17 @@ impl Governor {
                         // 拒绝、封禁或错误，直接返回
                         self.update_stats_for_decision(&result);
 
+                        // 负缓存：仅缓存拒绝/封禁决策（fail-closed），"允许"决策永不入缓存
+                        if self.is_l1_cache_enabled() {
+                            if let Ok(ref decision) = result {
+                                let cache_key =
+                                    self.build_cache_key_multi(&identifier, &matched_rules);
+                                let cacheable = CacheableDecision::from_decision(decision);
+                                let _ = self.l1_cache.set(cache_key, cacheable).await;
+                                trace!("L1 缓存已更新: decision=rejected");
+                            }
+                        }
+
                         // 发射事件
                         #[cfg(feature = "event-system")]
                         {
@@ -964,14 +986,6 @@ impl Governor {
         // 所有规则都允许
         self.stats.increment_allowed();
         let decision = Decision::allowed_default();
-
-        // 缓存允许的决策
-        if self.is_l1_cache_enabled() && !matched_rules.is_empty() {
-            let cache_key = self.build_cache_key(&identifier, &matched_rules[0].id);
-            let cacheable_decision = CacheableDecision::from_decision(&decision);
-            let _ = self.l1_cache.set(cache_key, cacheable_decision).await;
-            trace!("L1 缓存已更新: decision=allowed");
-        }
 
         Ok(decision)
     }
@@ -1091,7 +1105,9 @@ impl Governor {
 
     /// 构建缓存键
     ///
-    /// 根据标识符类型和规则 ID 生成缓存键。
+    /// 根据标识符类型和规则 ID 生成缓存键。仅用于降级路径（fallback）的
+    /// `check_l1_cache_only`；常规检查路径统一使用 `build_cache_key_multi`。
+    #[cfg(feature = "fallback")]
     fn build_cache_key(&self, identifier: &crate::matchers::Identifier, rule_id: &str) -> String {
         match identifier {
             crate::matchers::Identifier::UserId(user_id) => {
@@ -1102,6 +1118,32 @@ impl Governor {
                 RateLimitCacheKey::api_key_rate_limit(api_key, rule_id)
             }
             _ => RateLimitCacheKey::generic(&identifier.key(), rule_id),
+        }
+    }
+
+    /// 构建缓存键（基于全部匹配规则）
+    ///
+    /// 与 `build_cache_key` 不同，键包含该标识符在本请求中匹配的**全部**规则 ID，
+    /// 避免同一标识符在不同规则集合下复用彼此的缓存条目，产生错误的决策复用。
+    fn build_cache_key_multi(
+        &self,
+        identifier: &crate::matchers::Identifier,
+        rules: &[crate::Rule],
+    ) -> String {
+        let rule_part = rules
+            .iter()
+            .map(|r| r.id.as_str())
+            .collect::<Vec<_>>()
+            .join("|");
+        match identifier {
+            crate::matchers::Identifier::UserId(user_id) => {
+                RateLimitCacheKey::user_rate_limit(user_id, &rule_part)
+            }
+            crate::matchers::Identifier::Ip(ip) => RateLimitCacheKey::ip_rate_limit(ip, &rule_part),
+            crate::matchers::Identifier::ApiKey(api_key) => {
+                RateLimitCacheKey::api_key_rate_limit(api_key, &rule_part)
+            }
+            _ => RateLimitCacheKey::generic(&identifier.key(), &rule_part),
         }
     }
 
@@ -3166,9 +3208,11 @@ mod governor_construction_tests {
     }
 
     // ============================================================================
-    // build_cache_key - All Identifier Types
+    // build_cache_key / build_cache_key_multi - All Identifier Types
     // ============================================================================
 
+    // build_cache_key 仅存在于 fallback 特性下（降级路径专用）
+    #[cfg(feature = "fallback")]
     #[tokio::test]
     async fn test_build_cache_key_all_types() {
         let governor = Governor::builder()
@@ -3198,6 +3242,35 @@ mod governor_construction_tests {
         let device = crate::matchers::Identifier::DeviceId("device-001".to_string());
         let key = governor.build_cache_key(&device, "rule_1");
         assert_eq!(key, "rl:generic:device_id:device-001:rule_1");
+    }
+
+    /// 基于全部匹配规则构建缓存键（生产路径，任何特性组合下都存在）
+    #[tokio::test]
+    async fn test_build_cache_key_multi_all_types() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let rule = |id: &str| crate::Rule {
+            id: id.to_string(),
+            name: id.to_string(),
+            priority: 1,
+            condition: Box::new(crate::MatchCondition::User(vec![])),
+            enabled: true,
+        };
+        let rules = vec![rule("rule_a"), rule("rule_b")];
+
+        let user_id = crate::matchers::Identifier::UserId("user123".to_string());
+        let key = governor.build_cache_key_multi(&user_id, &rules);
+        assert_eq!(key, "rl:user:user123:rule_a|rule_b");
+
+        let ip = crate::matchers::Identifier::Ip("192.168.1.1".to_string());
+        let key = governor.build_cache_key_multi(&ip, &rules);
+        assert_eq!(key, "rl:ip:192.168.1.1:rule_a|rule_b");
     }
 
     // ============================================================================
@@ -3963,17 +4036,31 @@ mod governor_feature_gated_tests {
             .await
             .expect("build should succeed");
 
-        // 先用 check() 填充 L1 缓存（check_internal 会 set cache）
+        // 负缓存语义：check() 的"允许"结果永不写入 L1 缓存（只缓存拒绝/封禁决策）。
+        // 先验证允许请求不会填充缓存。
         let ctx = create_ip_request_context("10.0.0.1");
         let _ = governor.check(&ctx).await;
 
-        // 再次调用 check_l1_cache_only，应命中缓存
-        // （注意：check_l1_cache_only 用相同 identifier 和 rule_id 构建 cache_key）
+        // 允许决策未入缓存 → check_l1_cache_only（非 island mode）应未命中并返回 Err
+        let miss = governor.check_l1_cache_only(&ctx).await;
+        assert!(miss.is_err(), "expected miss, got: {:?}", miss);
+
+        // 再验证负缓存命中：手动放入"拒绝"决策（键格式与 check_l1_cache_only 一致），
+        // check_l1_cache_only 应命中并返回 Rejected。
+        use crate::l1_cache::CacheableDecision;
+        let cache_key = "rl:ip:10.0.0.1:ip_rule".to_string();
+        let rejected = CacheableDecision::rejected("rate limit exceeded");
+        governor
+            .l1_cache
+            .set(cache_key, rejected)
+            .await
+            .expect("cache set should succeed");
+
         let result = governor.check_l1_cache_only(&ctx).await;
         assert!(result.is_ok(), "expected Ok, got: {:?}", result.err());
         match result.unwrap() {
-            Decision::Allowed(_) => {}
-            other => panic!("expected Allowed, got: {:?}", other),
+            Decision::Rejected(_) => {}
+            other => panic!("expected Rejected, got: {:?}", other),
         }
     }
 

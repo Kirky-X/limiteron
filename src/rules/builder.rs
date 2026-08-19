@@ -147,10 +147,23 @@ impl RuleBuilder {
                         );
                         continue;
                     }
-                    LimiterConfig::Concurrency { max_concurrent } => (
-                        Arc::new(ConcurrencyLimiter::new(*max_concurrent)),
-                        LimiterTypeName::Concurrency,
-                    ),
+                    LimiterConfig::Concurrency { max_concurrent } => {
+                        // 已知限制：`Limiter::allow` 返回 bool 且不持有 permit，经决策链
+                        // 挂载的 ConcurrencyLimiter 无法在请求跨 await 期间保持并发占用，
+                        // 因此该规则不会真正限制并发。这里显式告警（fail-loud），引导使用
+                        // ConcurrencyLimiter::acquire()/guard 在服务层直接实现并发控制。
+                        warn!(
+                            "ConcurrencyLimiter mounted into a rule chain cannot hold permits \
+                             across the request lifetime (the `Limiter::allow` bool contract \
+                             releases the permit immediately), so this rule will NOT bound \
+                             concurrency. Use ConcurrencyLimiter::acquire()/guards directly \
+                             in the service layer for real concurrency control."
+                        );
+                        (
+                            Arc::new(ConcurrencyLimiter::new(*max_concurrent)),
+                            LimiterTypeName::Concurrency,
+                        )
+                    }
                     LimiterConfig::Custom { name, config: _ } => {
                         // CustomLimiter integration requires custom-limiter feature and
                         // manual registration via CustomLimiterRegistry

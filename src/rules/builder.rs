@@ -13,6 +13,8 @@
 use crate::config::{FlowControlConfig, LimiterConfig, LimiterTypeName, Matcher as ConfigMatcher};
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::LimiteronError;
+#[cfg(feature = "quota-control")]
+use crate::limiters::QuotaLimiter;
 use crate::limiters::{
     ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
     TokenBucketLimiter,
@@ -134,18 +136,50 @@ impl RuleBuilder {
                         )
                     }
                     LimiterConfig::Quota {
-                        quota_type: _,
-                        limit: _,
-                        window: _,
+                        quota_type: _quota_type,
+                        limit: _limit,
+                        window: _window,
                         alert_threshold: _,
-                        overdraft: _,
+                        overdraft: _overdraft,
                     } => {
-                        // Quota limiter requires quota-control feature
-                        warn!(
-                            "QuotaLimiter requires 'quota-control' feature to be enabled, \
-                             skipping Quota configuration"
-                        );
-                        continue;
+                        // quota-control 特性开启时真实挂载配额限流器（不再静默跳过；
+                        // diting MED-004 修复）。链式场景经 QuotaLimiter 的匿名桶生效。
+                        #[cfg(feature = "quota-control")]
+                        {
+                            let window_secs = Self::parse_duration(_window)?.as_secs().max(1);
+                            let limit_val: u64 = *_limit;
+                            // 配置侧 overdraft 为 {enabled, max_overdraft}；
+                            // 按"透支量/配额上限"映射为百分比后接入 QuotaConfig
+                            let overdraft_percent: u8 = _overdraft
+                                .as_ref()
+                                .filter(|o| o.enabled)
+                                .map(|o| {
+                                    let percent = o
+                                        .max_overdraft
+                                        .saturating_mul(100)
+                                        .checked_div(limit_val.max(1))
+                                        .unwrap_or(0);
+                                    percent.min(100) as u8
+                                })
+                                .unwrap_or(0);
+                            let config = crate::quota::QuotaConfig {
+                                quota_type: *_quota_type,
+                                limit: limit_val,
+                                window_size: window_secs,
+                                allow_overdraft: _overdraft.as_ref().is_some_and(|o| o.enabled),
+                                overdraft_limit_percent: overdraft_percent,
+                                ..crate::quota::QuotaConfig::default()
+                            };
+                            (Arc::new(QuotaLimiter::new(config)), LimiterTypeName::Quota)
+                        }
+                        #[cfg(not(feature = "quota-control"))]
+                        {
+                            warn!(
+                                "QuotaLimiter requires 'quota-control' feature to be enabled, \
+                                 skipping Quota configuration"
+                            );
+                            continue;
+                        }
                     }
                     LimiterConfig::Concurrency { max_concurrent } => {
                         // 已知限制：`Limiter::allow` 返回 bool 且不持有 permit，经决策链
@@ -800,6 +834,10 @@ mod tests {
         assert_eq!(chains.len(), 1);
         assert!(chains.contains_key("quota-rule"));
         let chain = chains.get("quota-rule").unwrap();
+        // quota-control 特性开启时配额规则被真实挂载（diting MED-004 修复）
+        #[cfg(feature = "quota-control")]
+        assert_eq!(chain.node_count(), 1);
+        #[cfg(not(feature = "quota-control"))]
         assert_eq!(chain.node_count(), 0);
     }
 
@@ -923,6 +961,11 @@ mod tests {
         let chains = RuleBuilder::build_rule_chains(&config).unwrap();
         assert_eq!(chains.len(), 1);
         let chain = chains.get("all-types").unwrap();
+        // 6 个 limiter 配置：Custom 始终跳过；
+        // quota-control 开启时 Quota 真实挂载 → 5 节点，否则 4 节点
+        #[cfg(feature = "quota-control")]
+        assert_eq!(chain.node_count(), 5);
+        #[cfg(not(feature = "quota-control"))]
         assert_eq!(chain.node_count(), 4);
     }
 

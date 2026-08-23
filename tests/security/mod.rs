@@ -9,6 +9,7 @@
 //! - privacy_tests: 数据隐私测试
 //! - visibility_tests: 模块可见性测试
 
+#[cfg(feature = "cache-storage")]
 mod concurrency_tests;
 mod input_validation_tests;
 mod privacy_tests;

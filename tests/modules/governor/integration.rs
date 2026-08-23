@@ -17,90 +17,6 @@ use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, Storage
 use std::sync::Arc;
 use std::time::Duration;
 
-// ==================== Mock Storage ====================
-
-#[derive(Clone, Default)]
-struct MockStorage {
-    data: std::sync::Arc<tokio::sync::RwLock<ahash::AHashMap<String, String>>>,
-}
-
-#[async_trait]
-impl Storage for MockStorage {
-    async fn get(&self, key: &str) -> Result<Option<String>, StorageError> {
-        let data = self.data.read().await;
-        Ok(data.get(key).cloned())
-    }
-
-    async fn set(&self, key: &str, value: &str, _ttl: Option<u64>) -> Result<(), StorageError> {
-        let mut data = self.data.write().await;
-        data.insert(key.to_string(), value.to_string());
-        Ok(())
-    }
-
-    async fn delete(&self, key: &str) -> Result<(), StorageError> {
-        let mut data = self.data.write().await;
-        data.remove(key);
-        Ok(())
-    }
-}
-
-#[derive(Clone, Default)]
-struct MockBanStorage {
-    #[allow(dead_code)]
-    bans: Arc<tokio::sync::RwLock<ahash::AHashMap<BanTarget, BanRecord>>>,
-}
-
-impl MockBanStorage {
-    fn new() -> Self {
-        Self {
-            bans: Arc::new(tokio::sync::RwLock::new(ahash::AHashMap::new())),
-        }
-    }
-}
-
-#[async_trait]
-impl BanStorage for MockBanStorage {
-    async fn is_banned(&self, _target: &BanTarget) -> Result<Option<BanRecord>, StorageError> {
-        Ok(None)
-    }
-
-    async fn save(&self, _record: &BanRecord) -> Result<(), StorageError> {
-        Ok(())
-    }
-
-    async fn get_history(&self, _target: &BanTarget) -> Result<Option<BanHistory>, StorageError> {
-        Ok(None)
-    }
-
-    async fn increment_ban_times(&self, _target: &BanTarget) -> Result<u64, StorageError> {
-        Ok(1)
-    }
-
-    async fn get_ban_times(&self, _target: &BanTarget) -> Result<u64, StorageError> {
-        Ok(0)
-    }
-
-    async fn remove_ban(&self, _target: &BanTarget) -> Result<(), StorageError> {
-        Ok(())
-    }
-
-    async fn cleanup_expired_bans(&self) -> Result<u64, StorageError> {
-        Ok(0)
-    }
-
-    async fn list_bans(
-        &self,
-        _active_only: bool,
-        _offset: u64,
-        _limit: u64,
-    ) -> Result<Vec<BanRecord>, StorageError> {
-        Ok(vec![])
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
 
 // ==================== Test Helpers ====================
 
@@ -131,8 +47,8 @@ async fn create_governor() -> Arc<limiteron::Governor> {
         }],
     };
 
-    let storage: Arc<dyn Storage> = Arc::new(MockStorage::default());
-    let ban_storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
+    let storage: Arc<dyn Storage> = Arc::new(limiteron::storage::MemoryStorage::new());
+    let ban_storage: Arc<dyn BanStorage> = Arc::new(limiteron::storage::MemoryBanStorage::new());
 
     Arc::new(
         limiteron::Governor::builder()

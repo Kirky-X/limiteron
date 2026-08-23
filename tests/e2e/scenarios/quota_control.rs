@@ -19,7 +19,7 @@ use std::sync::Arc;
 #[cfg(feature = "quota-control")]
 use std::time::Duration as StdDuration;
 
-// ==================== Mock Storage ====================
+// ==================== 存储（产品内存实现） ====================
 
 #[cfg(feature = "quota-control")]
 #[derive(Clone)]

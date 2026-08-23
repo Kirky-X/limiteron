@@ -14,7 +14,9 @@ pub mod storage;
 
 #[cfg(feature = "cache-storage")]
 pub use ban_storage::CacheBanStorage;
+pub mod memory_cache;
 pub use cache_service::CacheService;
+pub use memory_cache::MemoryCache;
 #[cfg(feature = "cache-storage")]
 pub use quota_storage::CacheQuotaStorage;
 #[cfg(feature = "cache-storage")]

@@ -13,11 +13,16 @@ mod tests {
     use super::common::*;
     #[allow(unused_imports)]
     use super::modules::*;
-    use limiteron::{BanStorage, QuotaStorage};
+    use limiteron::BanStorage;
+    #[cfg(feature = "cache-storage")]
+    use limiteron::QuotaStorage;
+    #[cfg(feature = "cache-storage")]
+    use std::sync::Arc;
 
     #[tokio::test]
-    async fn test_mock_quota_storage() {
-        let storage = MockQuotaStorage::new();
+    #[cfg(feature = "cache-storage")]
+    async fn test_quota_storage_consume_semantics() {
+        let storage = limiteron::cache::CacheQuotaStorage::new(Arc::new(limiteron::oxcache::backend::dashmap_memory()));
 
         // 消费配额
         let result = storage
@@ -62,11 +67,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mock_ban_storage() {
+    async fn test_ban_storage_lifecycle() {
         use limiteron::{BanRecord, BanTarget};
         use std::time::Duration;
 
-        let storage = MockBanStorage::new();
+        let storage = limiteron::storage::MemoryBanStorage::new();
 
         // 添加封禁
         let ban = BanRecord {

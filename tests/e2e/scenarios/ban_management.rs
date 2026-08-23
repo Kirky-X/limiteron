@@ -19,7 +19,7 @@ use std::sync::Arc;
 #[cfg(feature = "ban-manager")]
 use std::time::Duration;
 
-// ==================== Mock Storage ====================
+// ==================== 存储（产品内存实现） ====================
 
 #[cfg(feature = "ban-manager")]
 #[derive(Clone)]

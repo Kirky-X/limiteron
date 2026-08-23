@@ -4,7 +4,8 @@
 //!
 //! 测试 Governor 与各种限流器的集成，验证完整决策流程和多限流器协作。
 
-use crate::common::{MockBanStorage, MockQuotaStorage, RequestContextBuilder, create_governor};
+use crate::common::{RequestContextBuilder, create_governor};
+use limiteron::storage::MemoryBanStorage;
 use limiteron::config::{
     Action, ActionConfig, CacheBackend, ConfigMatcher as Matcher, FlowControlConfig, LimiterConfig,
     MetricsBackend, Rule, StorageType,
@@ -39,8 +40,8 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
         }],
     };
 
-    let storage: Arc<dyn Storage> = Arc::new(MockQuotaStorage::new());
-    let ban_storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
+    let storage: Arc<dyn Storage> = Arc::new(limiteron::storage::MemoryStorage::new());
+    let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
 
     let governor = Arc::new(
         limiteron::Governor::builder()

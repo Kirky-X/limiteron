@@ -10,6 +10,10 @@ use super::*;
 #[cfg(feature = "monitoring")]
 static GLOBAL_METRICS: std::sync::OnceLock<Arc<Metrics>> = std::sync::OnceLock::new();
 
+/// 空对象 Metrics 首次 `gather()` 已告警哨兵（避免每次调用重复刷屏）
+#[cfg(not(feature = "monitoring"))]
+static METRICS_NOOP_WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
 #[cfg(not(feature = "monitoring"))]
 impl Metrics {
     pub fn new() -> Self {
@@ -17,6 +21,12 @@ impl Metrics {
     }
 
     pub fn gather(&self) -> String {
+        let _ = METRICS_NOOP_WARNED.get_or_init(|| {
+            warn!(
+                "Metrics 处于空对象状态：`monitoring` feature 未启用，本次及后续 gather() \
+                 返回空串，指标数据被丢弃。请在 Cargo.toml 启用 `monitoring` feature 以收集真实指标。"
+            );
+        });
         String::new()
     }
 
@@ -964,6 +974,43 @@ mod tests_init_telemetry {
         let result = init_console_tracer(&config);
         // init_console_tracer 不论 try_init 成功失败都返回 Ok(())
         assert!(result.is_ok());
+    }
+}
+
+#[cfg(all(test, not(feature = "monitoring")))]
+mod tests_noop_metrics {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_noop_metrics_gather_is_empty() {
+        let metrics = Metrics::new();
+        assert_eq!(metrics.gather(), "");
+    }
+
+    #[test]
+    fn test_noop_metrics_gather_warns_once() {
+        let metrics = Metrics::new();
+        // 首次调用触发告警哨兵
+        metrics.gather();
+        assert!(METRICS_NOOP_WARNED.get().is_some());
+        // 后续调用不再重复触发
+        metrics.gather();
+        metrics.gather();
+        assert!(METRICS_NOOP_WARNED.get().is_some());
+    }
+
+    #[test]
+    fn test_noop_metrics_record_does_not_panic() {
+        let metrics = Metrics::new();
+        metrics.record_check(Duration::from_secs(1), true);
+        metrics.record_error("test");
+        metrics.record_ban();
+        metrics.update_quota_usage(50.0);
+        metrics.update_concurrent_connections(3);
+        metrics.update_token_bucket_tokens(1.0);
+        metrics.update_sliding_window_requests(2.0);
+        metrics.update_fixed_window_requests(4.0);
     }
 }
 

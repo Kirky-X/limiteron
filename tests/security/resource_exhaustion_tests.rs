@@ -7,7 +7,7 @@
 //! - CPU 耗尽测试（复杂模式处理测试、CPU 限制验证）
 //! - 连接耗尽测试（大量连接处理测试、优雅降级验证）
 
-use crate::common::MockQuotaStorage;
+use limiteron::storage::MemoryStorage;
 use limiteron::Storage;
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use limiteron::tokio::sync::Barrier;
@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 /// 验证系统在创建大量键时的内存行为
 #[tokio::test]
 async fn test_large_key_creation_memory() {
-    let storage = Arc::new(MockQuotaStorage::new());
+    let storage = Arc::new(MemoryStorage::new());
     let key_count = 10000;
     let barrier = Arc::new(Barrier::new(100));
 
@@ -67,56 +67,12 @@ async fn test_large_key_creation_memory() {
         "Most key creations should succeed"
     );
 }
-
-/// 测试内存限制验证
-///
-/// 验证系统在内存限制下的行为
-#[tokio::test]
-async fn test_memory_limit_validation() {
-    // 设置最大条目限制
-    use crate::common::MockQuotaBehavior;
-
-    let behavior = MockQuotaBehavior::new().with_max_entries(100);
-    let storage = Arc::new(MockQuotaStorage::with_behavior(behavior));
-
-    let mut success_count = 0;
-    let mut limit_reached_count = 0;
-
-    // 尝试创建超过限制的条目
-    for i in 0..200 {
-        let key = format!("user_{}", i);
-        let value = format!("value_{}", i);
-
-        match storage.set(&key, &value, Some(60)).await {
-            Ok(_) => success_count += 1,
-            Err(_) => limit_reached_count += 1,
-        }
-    }
-
-    println!(
-        "Memory limit test: {} success, {} limit reached",
-        success_count, limit_reached_count
-    );
-
-    // 成功数不应超过限制
-    assert!(
-        success_count <= 100,
-        "Success count should not exceed limit"
-    );
-
-    // 应有一些请求因限制被拒绝
-    assert!(
-        limit_reached_count > 0,
-        "Some requests should be rejected due to limit"
-    );
-}
-
 /// 测试大键值的内存处理
 ///
 /// 验证系统处理大键值时的行为
 #[tokio::test]
 async fn test_large_value_memory_handling() {
-    let storage = Arc::new(MockQuotaStorage::new());
+    let storage = Arc::new(MemoryStorage::new());
 
     // 创建大值（1KB）
     let large_value = "x".repeat(1024);
@@ -155,7 +111,7 @@ async fn test_large_value_memory_handling() {
 /// 验证系统在内存压力下保持稳定
 #[tokio::test]
 async fn test_memory_pressure_stability() {
-    let storage = Arc::new(MockQuotaStorage::new());
+    let storage = Arc::new(MemoryStorage::new());
     let operations = Arc::new(AtomicU64::new(0));
     let errors = Arc::new(AtomicU64::new(0));
 
@@ -379,7 +335,7 @@ async fn test_compute_intensive_cpu_behavior() {
 /// 验证系统处理大量并发连接的能力
 #[tokio::test]
 async fn test_many_concurrent_connections() {
-    let storage = Arc::new(MockQuotaStorage::new());
+    let storage = Arc::new(MemoryStorage::new());
     let connections = Arc::new(AtomicU64::new(0));
     let successful = Arc::new(AtomicU64::new(0));
     let barrier = Arc::new(Barrier::new(500));
@@ -436,7 +392,7 @@ async fn test_many_concurrent_connections() {
 /// 验证系统在连接超时时的行为
 #[tokio::test]
 async fn test_connection_timeout_handling() {
-    let storage = Arc::new(MockQuotaStorage::new());
+    let storage = Arc::new(MemoryStorage::new());
     let timeout_count = Arc::new(AtomicU64::new(0));
     let success_count = Arc::new(AtomicU64::new(0));
 
@@ -479,72 +435,12 @@ async fn test_connection_timeout_handling() {
         "All requests should be accounted for"
     );
 }
-
-/// 测试优雅降级验证
-///
-/// 验证系统在资源不足时能优雅降级
-#[tokio::test]
-async fn test_graceful_degradation() {
-    use crate::common::MockQuotaBehavior;
-
-    // 设置严格的资源限制
-    let behavior = MockQuotaBehavior::new()
-        .with_max_entries(10)
-        .with_fail_mode(false);
-
-    let storage = Arc::new(MockQuotaStorage::with_behavior(behavior));
-    let accepted = Arc::new(AtomicU64::new(0));
-    let degraded = Arc::new(AtomicU64::new(0));
-
-    let mut handles = vec![];
-
-    for i in 0..100 {
-        let storage = Arc::clone(&storage);
-        let accepted = Arc::clone(&accepted);
-        let degraded = Arc::clone(&degraded);
-
-        handles.push(tokio::spawn(async move {
-            let key = format!("degrade_key_{}", i);
-            let value = format!("degrade_value_{}", i);
-
-            match storage.set(&key, &value, Some(60)).await {
-                Ok(_) => accepted.fetch_add(1, Ordering::SeqCst),
-                Err(_) => degraded.fetch_add(1, Ordering::SeqCst),
-            };
-        }));
-    }
-
-    for handle in handles {
-        handle.await.expect("Task should complete");
-    }
-
-    let total_accepted = accepted.load(Ordering::SeqCst);
-    let total_degraded = degraded.load(Ordering::SeqCst);
-
-    println!(
-        "Graceful degradation test: {} accepted, {} degraded",
-        total_accepted, total_degraded
-    );
-
-    // 应有一些请求被接受
-    assert!(total_accepted > 0, "Some requests should be accepted");
-
-    // 应有一些请求被降级
-    assert!(total_degraded > 0, "Some requests should be degraded");
-
-    // 接受数不应超过限制
-    assert!(
-        total_accepted <= 10,
-        "Accepted count should not exceed limit"
-    );
-}
-
 /// 测试连接池耗尽恢复
 ///
 /// 验证系统在连接池耗尽后的恢复能力
 #[tokio::test]
 async fn test_connection_pool_exhaustion_recovery() {
-    let storage = Arc::new(MockQuotaStorage::new());
+    let storage = Arc::new(MemoryStorage::new());
     let phase1_success = Arc::new(AtomicU64::new(0));
     let phase2_success = Arc::new(AtomicU64::new(0));
 
@@ -615,7 +511,7 @@ async fn test_connection_pool_exhaustion_recovery() {
 #[tokio::test]
 async fn test_comprehensive_resource_usage() {
     let limiter = Arc::new(TokenBucketLimiter::new(50000, 5000));
-    let storage = Arc::new(MockQuotaStorage::new());
+    let storage = Arc::new(MemoryStorage::new());
 
     let operations = Arc::new(AtomicU64::new(0));
     let success = Arc::new(AtomicU64::new(0));
@@ -691,7 +587,7 @@ async fn test_comprehensive_resource_usage() {
 /// 验证系统正确清理资源
 #[tokio::test]
 async fn test_resource_cleanup() {
-    let storage = Arc::new(MockQuotaStorage::new());
+    let storage = Arc::new(MemoryStorage::new());
 
     // 创建大量条目
     for i in 0..100 {

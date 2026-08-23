@@ -84,11 +84,7 @@ mod tests {
     /// 验证测试工具可用
     #[test]
     fn test_common_tools_available() {
-        // 验证 MockQuotaStorage 可用
-        let _storage = common::MockQuotaStorage::new();
 
-        // 验证 MockBanStorage 可用
-        let _ban_storage = common::MockBanStorage::new();
 
         // 验证 RequestContextBuilder 可用
         let _ctx = common::RequestContextBuilder::new()

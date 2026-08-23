@@ -4,7 +4,7 @@
 //!
 //! 测试规则匹配器与限流器的集成，验证规则匹配与限流联动。
 
-use crate::common::{MockQuotaStorage, RequestContextBuilder, create_governor};
+use crate::common::{RequestContextBuilder, create_governor};
 use limiteron::config::{
     Action, ActionConfig, CacheBackend, ConfigMatcher as Matcher, FlowControlConfig, LimiterConfig,
     MetricsBackend, Rule, StorageType,
@@ -40,8 +40,8 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
         }],
     };
 
-    let storage: Arc<dyn Storage> = Arc::new(MockQuotaStorage::new());
-    let ban_storage: Arc<dyn BanStorage> = Arc::new(crate::common::MockBanStorage::new());
+    let storage: Arc<dyn Storage> = Arc::new(limiteron::storage::MemoryStorage::new());
+    let ban_storage: Arc<dyn BanStorage> = Arc::new(limiteron::storage::MemoryBanStorage::new());
 
     let governor = Arc::new(
         limiteron::Governor::builder()

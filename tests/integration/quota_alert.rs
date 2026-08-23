@@ -6,7 +6,8 @@
 
 #[cfg(feature = "quota-control")]
 mod quota_control_tests {
-    use crate::common::MockQuotaStorage;
+    use limiteron::cache::CacheQuotaStorage;
+    use limiteron::oxcache::backend::dashmap_memory;
 
     use limiteron::quota::{AlertChannel, AlertConfig, QuotaConfig, QuotaController, QuotaType};
     use std::sync::Arc;
@@ -16,7 +17,7 @@ mod quota_control_tests {
 
     /// 创建测试用的 QuotaController
     fn create_quota_controller(limit: u64, window_size: u64) -> QuotaController {
-        let storage = Arc::new(MockQuotaStorage::new());
+        let storage: Arc<dyn limiteron::QuotaStorage> = Arc::new(CacheQuotaStorage::new(Arc::new(dashmap_memory())));
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit,
@@ -39,7 +40,7 @@ mod quota_control_tests {
         thresholds: Vec<u8>,
         dedup_window: u64,
     ) -> QuotaController {
-        let storage = Arc::new(MockQuotaStorage::new());
+        let storage: Arc<dyn limiteron::QuotaStorage> = Arc::new(CacheQuotaStorage::new(Arc::new(dashmap_memory())));
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit,
@@ -58,7 +59,7 @@ mod quota_control_tests {
 
     /// 创建禁用告警的 QuotaController
     fn create_quota_controller_no_alerts(limit: u64) -> QuotaController {
-        let storage = Arc::new(MockQuotaStorage::new());
+        let storage: Arc<dyn limiteron::QuotaStorage> = Arc::new(CacheQuotaStorage::new(Arc::new(dashmap_memory())));
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit,
@@ -272,7 +273,7 @@ mod quota_control_tests {
     /// 测试透支模式下的告警
     #[tokio::test]
     async fn test_alert_with_overdraft() {
-        let storage = Arc::new(MockQuotaStorage::new());
+        let storage: Arc<dyn limiteron::QuotaStorage> = Arc::new(CacheQuotaStorage::new(Arc::new(dashmap_memory())));
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -414,7 +415,7 @@ mod quota_control_tests {
     #[tokio::test]
     async fn test_different_quota_types_alerts() {
         // Token 类型
-        let storage = Arc::new(MockQuotaStorage::new());
+        let storage: Arc<dyn limiteron::QuotaStorage> = Arc::new(CacheQuotaStorage::new(Arc::new(dashmap_memory())));
         let config = QuotaConfig {
             quota_type: QuotaType::Token,
             limit: 1000,
@@ -433,7 +434,7 @@ mod quota_control_tests {
         assert!(result.alert_triggered);
 
         // Money 类型
-        let storage = Arc::new(MockQuotaStorage::new());
+        let storage: Arc<dyn limiteron::QuotaStorage> = Arc::new(CacheQuotaStorage::new(Arc::new(dashmap_memory())));
         let config = QuotaConfig {
             quota_type: QuotaType::Money,
             limit: 10000,

@@ -8,7 +8,6 @@ use crate::cache::CacheService;
 use crate::error::StorageError;
 use async_trait::async_trait;
 use dashmap::DashMap;
-use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// In-memory cache entry with TTL
@@ -43,13 +42,6 @@ impl CacheEntry {
         }
     }
 
-    fn value(&self) -> Option<&str> {
-        if self.is_expired() {
-            None
-        } else {
-            Some(&self.value)
-        }
-    }
 }
 
 /// In-memory cache implementation using DashMap
@@ -79,17 +71,13 @@ impl MemoryCache {
 
     /// Get a value without checking expiration (internal use)
     fn get_raw(&self, key: &str) -> Option<String> {
-        if let Some(entry) = self.storage.get(key) {
-            if !entry.is_expired() {
-                Some(entry.value.clone())
-            } else {
-                // Remove expired entry
-                self.storage.remove(key);
-                None
-            }
-        } else {
-            None
+        // 过期判定与移除分两步：guard 在语句结束释放后再 remove，
+        // 避免持有 DashMap 读 guard 时获取同 shard 写锁导致自死锁
+        if !self.storage.get(key)?.is_expired() {
+            return self.storage.get(key).map(|entry| entry.value.clone());
         }
+        self.storage.remove(key);
+        None
     }
 }
 
@@ -112,7 +100,9 @@ impl CacheService for MemoryCache {
     }
 
     async fn set_with_ttl(&self, key: &str, value: &str, ttl: Duration) -> Result<(), StorageError> {
-        let ttl_seconds = Some(ttl.as_secs());
+        // CacheEntry 过期时间为秒级时间戳：亚秒 TTL 至少存活 1 秒，
+        // 避免 as_secs() 截断为 0 导致条目立即过期
+        let ttl_seconds = Some(ttl.as_secs().max(1));
         let entry = CacheEntry::new(value.to_string(), ttl_seconds);
         self.storage.insert(key.to_string(), entry);
         Ok(())

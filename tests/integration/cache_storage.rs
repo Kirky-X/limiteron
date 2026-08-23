@@ -4,8 +4,8 @@
 //!
 //! 测试缓存与存储的集成，验证缓存一致性。
 
-use crate::common::{MockStorage, create_test_cache};
-use limiteron::Storage;
+use crate::common::create_test_cache;
+use limiteron::{Storage, storage::MemoryStorage};
 use limiteron::oxcache::Cache;
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,8 +13,8 @@ use std::time::Duration;
 // ==================== 辅助函数 ====================
 
 /// 创建测试用的存储和缓存
-async fn create_storage_with_cache() -> (Arc<MockStorage>, Cache<String, String>) {
-    let storage = Arc::new(MockStorage::new());
+async fn create_storage_with_cache() -> (Arc<MemoryStorage>, Cache<String, String>) {
+    let storage = Arc::new(MemoryStorage::new());
     let cache = create_test_cache().await;
     (storage, cache)
 }
@@ -27,10 +27,10 @@ fn make_cache_key(prefix: &str, key: &str) -> String {
 
 // ==================== 缓存一致性验证 ====================
 
-/// 测试 Mock Storage 基本读写
+/// 测试内存存储 基本读写
 #[tokio::test]
 async fn test_mock_storage_basic_operations() {
-    let storage = MockStorage::new();
+    let storage = MemoryStorage::new();
 
     // 写入
     storage.set("key1", "value1", None).await.unwrap();
@@ -45,10 +45,10 @@ async fn test_mock_storage_basic_operations() {
     assert!(result.is_none());
 }
 
-/// 测试 Mock Storage TTL 功能
+/// 测试内存存储 TTL 功能
 #[tokio::test]
 async fn test_mock_storage_ttl() {
-    let storage = MockStorage::new();
+    let storage = MemoryStorage::new();
 
     // 写入带 TTL
     storage
@@ -68,10 +68,10 @@ async fn test_mock_storage_ttl() {
     assert!(result.is_none());
 }
 
-/// 测试 Mock Storage 批量操作
+/// 测试内存存储 批量操作
 #[tokio::test]
 async fn test_mock_storage_batch_operations() {
-    let storage = MockStorage::new();
+    let storage = MemoryStorage::new();
 
     // 批量写入
     for i in 0..100 {
@@ -88,10 +88,10 @@ async fn test_mock_storage_batch_operations() {
     }
 }
 
-/// 测试 Mock Storage 并发访问
+/// 测试内存存储 并发访问
 #[tokio::test]
 async fn test_mock_storage_concurrent_access() {
-    let storage = Arc::new(MockStorage::new());
+    let storage = Arc::new(MemoryStorage::new());
     let mut handles = vec![];
 
     // 并发写入
@@ -133,34 +133,10 @@ async fn test_cache_namespace_isolation() {
     assert_eq!(result2, Some("value2".to_string()));
 }
 
-/// 测试 Mock Storage 错误注入
-#[tokio::test]
-async fn test_mock_storage_error_injection() {
-    let storage = MockStorage::new();
-
-    // 注入错误
-    storage
-        .inject_error(limiteron::error::StorageError::ConnectionError(
-            "模拟连接错误".to_string(),
-        ))
-        .await;
-
-    // 操作应该失败
-    let result = storage.get("any_key").await;
-    assert!(result.is_err());
-
-    // 清除错误
-    storage.clear_error().await;
-
-    // 操作应该成功
-    let result = storage.get("any_key").await;
-    assert!(result.is_ok());
-}
-
-/// 测试 Mock Storage 高并发场景
+/// 测试内存存储 高并发场景
 #[tokio::test]
 async fn test_mock_storage_high_concurrency() {
-    let storage = Arc::new(MockStorage::new());
+    let storage = Arc::new(MemoryStorage::new());
     let mut handles = vec![];
 
     // 高并发写入
@@ -196,11 +172,11 @@ async fn test_mock_storage_high_concurrency() {
     }
 }
 
-/// 测试 Mock Storage 数据隔离
+/// 测试内存存储 数据隔离
 #[tokio::test]
 async fn test_mock_storage_data_isolation() {
-    let storage1 = MockStorage::new();
-    let storage2 = MockStorage::new();
+    let storage1 = MemoryStorage::new();
+    let storage2 = MemoryStorage::new();
 
     // 在不同存储中写入相同键
     storage1.set("key", "value1", None).await.unwrap();

@@ -47,8 +47,8 @@ impl DBNexusQuotaStorageAdapter {
     /// Convert model to QuotaInfo
     fn model_to_info(model: &QuotaRecordModel) -> QuotaInfo {
         QuotaInfo {
-            consumed: model.consumed,
-            limit: model.limit,
+            consumed: model.consumed as u64,
+            limit: model.limit as u64,
             window_start: model.window_start,
             window_end: model.window_end,
         }
@@ -113,16 +113,16 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
 
         if let Some(record) = existing_record {
             // Check if within limit
-            let new_consumed = record.consumed.saturating_add(cost);
+            let new_consumed = (record.consumed as u64).saturating_add(cost);
             if new_consumed > limit {
                 let usage = if limit > 0 {
-                    (record.consumed as f64 / limit as f64) * 100.0
+                    (record.consumed as u64 as f64 / limit as f64) * 100.0
                 } else {
                     0.0
                 };
                 return Ok(ConsumeResult {
                     allowed: false,
-                    remaining: limit.saturating_sub(record.consumed),
+                    remaining: limit.saturating_sub(record.consumed as u64),
                     alert_triggered: false,
                     usage_percent: usage,
                 });
@@ -130,7 +130,7 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
 
             // Update existing record
             let mut active_model: QuotaRecordActiveModel = record.into();
-            active_model.consumed = Set(new_consumed);
+            active_model.consumed = Set(new_consumed as i64);
             active_model.updated_at = Set(now);
 
             active_model
@@ -173,15 +173,17 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             user_id: user_id.to_string(),
             resource: resource.to_string(),
             quota_key,
-            limit,
-            consumed: cost,
+            limit: limit as i64,
+            consumed: cost as i64,
             window_start: now,
             window_end,
             created_at: now,
             updated_at: now,
         };
 
-        let active_model: QuotaRecordActiveModel = model.into();
+        let mut active_model: QuotaRecordActiveModel = model.into();
+        // 主键由 BIGSERIAL 序列生成：显式 Set(0) 会导致重复主键崩溃
+        active_model.id = sea_orm::NotSet;
         active_model
             .insert(conn)
             .await
@@ -221,8 +223,8 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             id: 0,
             user_id: user_id.to_string(),
             resource: resource.to_string(),
-            quota_key,
-            limit,
+            quota_key: quota_key.clone(),
+            limit: limit as i64,
             consumed: 0,
             window_start: now,
             window_end,
@@ -230,7 +232,32 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             updated_at: now,
         };
 
-        let active_model: QuotaRecordActiveModel = model.into();
+        // 先查现有记录：存在则重置并更新（同一 quota_key 直接 insert 会 duplicate 崩溃），
+        // 不存在才插入新记录（主键由 BIGSERIAL 序列生成）。
+        let condition = Condition::all().add(QuotaColumn::QuotaKey.eq(quota_key));
+        let existing = QuotaRecordModel::find_by_condition(&session, condition)
+            .await
+            .map_err(Self::map_err)?
+            .into_iter()
+            .next();
+
+        if let Some(record) = existing {
+            let mut am: QuotaRecordActiveModel = record.into();
+            am.consumed = sea_orm::Set(0);
+            am.limit = sea_orm::Set(limit as i64);
+            am.window_start = sea_orm::Set(now);
+            am.window_end = sea_orm::Set(window_end);
+            am.created_at = sea_orm::Set(now);
+            am.updated_at = sea_orm::Set(now);
+            am.save(conn).await.map_err(|e| {
+                StorageError::QueryError(format!("Failed to reset quota: {}", e))
+            })?;
+            return Ok(());
+        }
+
+        let mut active_model: QuotaRecordActiveModel = model.into();
+        // 主键由 BIGSERIAL 序列生成：显式 Set(0) 会导致重复主键崩溃
+        active_model.id = sea_orm::NotSet;
         active_model
             .insert(conn)
             .await
@@ -253,8 +280,8 @@ mod tests {
             user_id: user_id.to_string(),
             resource: resource.to_string(),
             quota_key: create_quota_key(user_id, resource),
-            limit,
-            consumed,
+            limit: limit as i64,
+            consumed: consumed as i64,
             window_start,
             window_end,
             created_at: window_start,

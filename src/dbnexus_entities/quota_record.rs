@@ -27,9 +27,9 @@ pub struct Model {
     #[sea_orm(column_name = "quota_key")]
     pub quota_key: String,
     /// Total quota limit
-    pub limit: u64,
+    pub limit: i64,
     /// Amount of quota consumed
-    pub consumed: u64,
+    pub consumed: i64,
     /// Quota window start time (UTC)
     #[sea_orm(column_name = "window_start")]
     pub window_start: DateTimeUtc,
@@ -54,7 +54,7 @@ pub fn create_table_ddl() -> &'static str {
         user_id VARCHAR(255) NOT NULL,
         resource VARCHAR(255) NOT NULL,
         quota_key VARCHAR(511) NOT NULL UNIQUE,
-        limit BIGINT NOT NULL,
+        "limit" BIGINT NOT NULL,
         consumed BIGINT NOT NULL DEFAULT 0,
         window_start TIMESTAMP WITH TIME ZONE NOT NULL,
         window_end TIMESTAMP WITH TIME ZONE NOT NULL,

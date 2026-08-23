@@ -277,14 +277,14 @@ admission-control = []
 # 拉入 dbnexus/postgres server-side 驱动；其它 feature（如 metrics）只激活 dbnexus 非
 # 驱动能力，不会与下游嵌入式数据库（sqlite/duckdb/ladybug）特性冲突）。
 # 含 rustls-webpki 显式约束（MEDIUM-003：CVE-2025-48369 最低版本锁）
-postgres = ["dep:dbnexus", "dbnexus/postgres", "dep:sea-orm", "dep:rustls-webpki"]
+postgres = ["dep:dbnexus", "dbnexus/postgres", "dbnexus/runtime-tokio-rustls", "dep:sea-orm", "dep:rustls-webpki"]
 
 # SQLite 存储 - 使用 dbnexus 嵌入式驱动（默认本地后端，无需外部服务）。
 # 与 postgres 互斥（dbnexus 禁止 embedded 与 server-side 驱动共存于同一构建，
 # Cargo 无 feature 互斥语法 → `--all-features` 会同时启用二者触发 dbnexus
 # compile_error，多后端 crate 不适用 --all-features 验证，用两组显式 features）。
 # 本地开发 / 单机部署 / 测试默认使用本 feature。
-sqlite = ["dep:dbnexus", "dbnexus/sqlite", "dep:sea-orm"]
+sqlite = ["dep:dbnexus", "dbnexus/sqlite", "dbnexus/runtime-tokio-rustls", "dep:sea-orm"]
 
 # 缓存存储 - 通过 oxcache 切换后端 (memory/redis 等)
 cache-storage = ["cache-service", "oxcache/redis"]

@@ -10,6 +10,7 @@
 #[cfg(test)]
 #[cfg(feature = "postgres")]
 mod tests {
+    use serial_test::serial;
     use limiteron::adapters::StorageFactory;
     use limiteron::error::StorageError;
     use limiteron::{BanRecord, BanStorage, BanTarget, QuotaStorage, Storage};
@@ -47,6 +48,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_storage_connection() {
         let factory = create_storage_factory().await;
         assert!(
@@ -57,20 +59,21 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_storage_crud() {
         let (storage, _, _) = create_all_storages().await.expect("Should create storages");
 
-        let test_key = "test:storage:crud";
+        let test_key = format!("test:storage:crud_{}", std::process::id());
 
         // Create
         storage
-            .set(test_key, "test_value", None)
+            .set(&test_key, "test_value", None)
             .await
             .expect("Should set value");
 
         // Read
         let result = storage
-            .get(test_key)
+            .get(&test_key)
             .await
             .expect("Should get value")
             .expect("Value should exist");
@@ -78,40 +81,41 @@ mod tests {
 
         // Update
         storage
-            .set(test_key, "updated_value", None)
+            .set(&test_key, "updated_value", None)
             .await
             .expect("Should update value");
 
         let result = storage
-            .get(test_key)
+            .get(&test_key)
             .await
             .expect("Should get value")
             .expect("Value should exist");
         assert_eq!(result, "updated_value");
 
         // Delete
-        storage.delete(test_key).await.expect("Should delete value");
+        storage.delete(&test_key).await.expect("Should delete value");
 
-        let result = storage.get(test_key).await.expect("Should get value");
+        let result = storage.get(&test_key).await.expect("Should get value");
         assert!(result.is_none(), "Value should be None after deletion");
     }
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_storage_ttl() {
         let (storage, _, _) = create_all_storages().await.expect("Should create storages");
 
-        let test_key = "test:storage:ttl";
+        let test_key = format!("test:storage:ttl_{}", std::process::id());
 
         // 设置带 TTL 的值（2秒）
         storage
-            .set(test_key, "ttl_value", Some(2))
+            .set(&test_key, "ttl_value", Some(2))
             .await
             .expect("Should set value with TTL");
 
         // 立即获取应该存在
         let result = storage
-            .get(test_key)
+            .get(&test_key)
             .await
             .expect("Should get value")
             .expect("Value should exist before TTL expires");
@@ -121,12 +125,13 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // 过期后应该返回 None
-        let result = storage.get(test_key).await.expect("Should get value");
+        let result = storage.get(&test_key).await.expect("Should get value");
         assert!(result.is_none(), "Value should be None after TTL expires");
     }
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_storage_concurrent_access() {
         let factory = create_storage_factory()
             .await
@@ -136,17 +141,16 @@ mod tests {
             .await
             .expect("Should create storage");
 
-        let test_key = "test:storage:concurrent";
+        let test_key = format!("test:storage:concurrent_{}", std::process::id());
         let storage: Arc<dyn Storage> = storage;
 
         // 并发写入
         let mut handles = vec![];
         for i in 0..10 {
             let storage_clone = Arc::clone(&storage);
+            let key = test_key.clone();
             let handle = tokio::spawn(async move {
-                storage_clone
-                    .set(test_key, &format!("value_{}", i), None)
-                    .await
+                storage_clone.set(&key, &format!("value_{}", i), None).await
             });
             handles.push(handle);
         }
@@ -161,7 +165,7 @@ mod tests {
 
         // 验证最终值存在
         let result = storage
-            .get(test_key)
+            .get(&test_key)
             .await
             .expect("Should get value")
             .expect("Value should exist");
@@ -170,12 +174,13 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_storage_multiple_keys() {
         let (storage, _, _) = create_all_storages().await.expect("Should create storages");
 
         // 设置多个密钥
         for i in 0..5 {
-            let key = format!("test:storage:multi:key_{}", i);
+            let key = format!("test:storage:multi:key_{}_{}", std::process::id(), i);
             let value = format!("value_{}", i);
             storage
                 .set(&key, &value, None)
@@ -185,7 +190,7 @@ mod tests {
 
         // 验证所有密钥
         for i in 0..5 {
-            let key = format!("test:storage:multi:key_{}", i);
+            let key = format!("test:storage:multi:key_{}_{}", std::process::id(), i);
             let expected = format!("value_{}", i);
             let result = storage
                 .get(&key)
@@ -205,6 +210,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_ban_storage_connection() {
         let factory = create_storage_factory().await;
         assert!(
@@ -215,6 +221,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_ban_storage_crud() {
         let (_, ban_storage, _) = create_all_storages().await.expect("Should create storages");
 
@@ -280,6 +287,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_ban_storage_expiry() {
         let (_, ban_storage, _) = create_all_storages().await.expect("Should create storages");
 
@@ -317,6 +325,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_ban_storage_list_bans() {
         let (_, ban_storage, _) = create_all_storages().await.expect("Should create storages");
 
@@ -345,7 +354,8 @@ mod tests {
             .expect("Should list bans");
         assert!(bans.len() >= 5, "Should have at least 5 bans");
 
-        // 测试分页
+        // 测试分页。limiteron_bans 为共享表（其它测试也可能写入），
+        // 故不断言绝对总数，仅验证：页大小固定、翻页不回退不重复。
         let bans_page1 = ban_storage
             .list_bans(false, 0, 3)
             .await
@@ -356,11 +366,19 @@ mod tests {
             .expect("Should list bans page 2");
 
         assert_eq!(bans_page1.len(), 3);
-        assert_eq!(bans_page2.len(), 2); // 剩下的 2 个
+        assert!(!bans_page2.is_empty(), "second page should have entries");
+        let page1_keys: Vec<String> = bans_page1.iter().map(|b| format!("{:?}", b.target)).collect();
+        assert!(
+            bans_page2
+                .iter()
+                .all(|b| !page1_keys.contains(&format!("{:?}", b.target))),
+            "pagination should not repeat entries across pages"
+        );
     }
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_ban_storage_cleanup_expired() {
         let (_, ban_storage, _) = create_all_storages().await.expect("Should create storages");
 
@@ -396,6 +414,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_quota_storage_connection() {
         let factory = create_storage_factory().await;
         assert!(
@@ -406,15 +425,16 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_quota_storage_crud() {
         let (_, _, quota_storage) = create_all_storages().await.expect("Should create storages");
 
-        let user_id = "test_user_quota";
+        let user_id = format!("test_user_quota_{}", std::process::id());
         let resource = "api_calls";
 
         // Create - 消费配额
         let result = quota_storage
-            .consume(user_id, resource, 10, 100, Duration::from_secs(3600))
+            .consume(&user_id, resource, 10, 100, Duration::from_secs(3600))
             .await
             .expect("Should consume quota");
 
@@ -423,7 +443,7 @@ mod tests {
 
         // Read - 获取配额信息
         let quota = quota_storage
-            .get_quota(user_id, resource)
+            .get_quota(&user_id, resource)
             .await
             .expect("Should get quota")
             .expect("Quota should exist");
@@ -433,7 +453,7 @@ mod tests {
 
         // Consume more
         let result = quota_storage
-            .consume(user_id, resource, 50, 100, Duration::from_secs(3600))
+            .consume(&user_id, resource, 50, 100, Duration::from_secs(3600))
             .await
             .expect("Should consume more quota");
 
@@ -442,7 +462,7 @@ mod tests {
 
         // Try to exceed limit
         let result = quota_storage
-            .consume(user_id, resource, 50, 100, Duration::from_secs(3600))
+            .consume(&user_id, resource, 50, 100, Duration::from_secs(3600))
             .await
             .expect("Should try to exceed quota");
 
@@ -452,21 +472,22 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_quota_storage_reset() {
         let (_, _, quota_storage) = create_all_storages().await.expect("Should create storages");
 
-        let user_id = "test_user_reset";
+        let user_id = format!("test_user_reset_{}", std::process::id());
         let resource = "api_calls_reset";
 
         // 消费一些配额
         quota_storage
-            .consume(user_id, resource, 50, 100, Duration::from_secs(3600))
+            .consume(&user_id, resource, 50, 100, Duration::from_secs(3600))
             .await
             .expect("Should consume quota");
 
         // 验证消费
         let quota = quota_storage
-            .get_quota(user_id, resource)
+            .get_quota(&user_id, resource)
             .await
             .expect("Should get quota")
             .expect("Quota should exist");
@@ -474,13 +495,13 @@ mod tests {
 
         // 重置配额
         quota_storage
-            .reset(user_id, resource, 100, Duration::from_secs(3600))
+            .reset(&user_id, resource, 100, Duration::from_secs(3600))
             .await
             .expect("Should reset quota");
 
         // 验证重置后为新窗口
         let quota = quota_storage
-            .get_quota(user_id, resource)
+            .get_quota(&user_id, resource)
             .await
             .expect("Should get quota")
             .expect("Quota should exist after reset");
@@ -490,16 +511,17 @@ mod tests {
 
     #[tokio::test]
     #[ignore]
+    #[serial]
     async fn test_postgres_quota_storage_multiple_users() {
         let (_, _, quota_storage) = create_all_storages().await.expect("Should create storages");
 
         // 多个用户独立消费配额
         for i in 0..5 {
-            let user_id = &format!("test_user_multi_{}", i);
+            let user_id = format!("test_user_multi_{}_{}", std::process::id(), i);
             let resource = "api_calls_multi";
 
             let result = quota_storage
-                .consume(user_id, resource, 10, 100, Duration::from_secs(3600))
+                .consume(&user_id, resource, 10, 100, Duration::from_secs(3600))
                 .await
                 .expect("Should consume quota");
 
@@ -508,11 +530,11 @@ mod tests {
 
         // 验证每个用户的配额独立
         for i in 0..5 {
-            let user_id = &format!("test_user_multi_{}", i);
+            let user_id = format!("test_user_multi_{}_{}", std::process::id(), i);
             let resource = "api_calls_multi";
 
             let quota = quota_storage
-                .get_quota(user_id, resource)
+                .get_quota(&user_id, resource)
                 .await
                 .expect("Should get quota")
                 .expect("Quota should exist");

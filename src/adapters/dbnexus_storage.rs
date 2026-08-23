@@ -5,7 +5,7 @@
 //! This adapter provides a complete Storage trait implementation using DBNexus
 //! for all database operations. It handles key-value storage with optional TTL.
 
-use crate::dbnexus_entities::{KeyValueActiveModel, KeyValueEntity, KeyValueModel};
+use crate::dbnexus_entities::{key_value, KeyValueActiveModel, KeyValueEntity};
 use crate::error::StorageError;
 use crate::storage::Storage;
 use async_trait::async_trait;
@@ -77,32 +77,51 @@ impl Storage for DBNexusStorageAdapter {
         // Calculate expiration time
         let expires_at = ttl.map(|seconds| now + chrono::Duration::seconds(seconds as i64));
 
-        // Check if record exists
-        let exists = KeyValueEntity::find_by_id(key.to_string())
-            .one(conn)
-            .await
-            .is_ok();
-
-        let model = KeyValueModel {
-            key: key.to_string(),
-            value: value.to_string(),
-            expires_at,
-            created_at: now,
-            updated_at: now,
+        // Check if record exists（注意：Ok(None) 表示不存在，is_ok() 会把无记录误判为存在）
+        let existing = match KeyValueEntity::find_by_id(key.to_string()).one(conn).await {
+            Ok(m) => m,
+            Err(e) => return Err(StorageError::QueryError(e.to_string())),
         };
 
-        if exists {
-            // Update existing record using sea-orm ActiveModel
-            let active_model: KeyValueActiveModel = model.into();
+        if let Some(existing) = existing {
+            // Update existing record：基于查询到的记录（含主键）更新，save 才能定位到行
+            let mut active_model: KeyValueActiveModel = existing.into();
+            active_model.value = sea_orm::Set(value.to_string());
+            active_model.expires_at = sea_orm::Set(expires_at);
+            active_model.updated_at = sea_orm::Set(now);
             active_model.save(conn).await.map_err(|e| {
                 StorageError::QueryError(format!("Failed to update key-value: {}", e))
             })?;
         } else {
-            // Insert new record
+            // 原子 UPSERT：ON CONFLICT(key) DO UPDATE——避免 check-then-insert
+            // 竞态（并发写入同一 key 时 duplicate 崩溃）
+            // 原子 UPSERT：ON CONFLICT(key) DO UPDATE——避免 check-then-insert
+            // 竞态（并发写入同一 key 时 duplicate 崩溃）
+            use sea_orm::EntityTrait;
+            use sea_orm::sea_query::OnConflict;
+            let model = key_value::Model {
+                key: key.to_string(),
+                value: value.to_string(),
+                expires_at,
+                created_at: now,
+                updated_at: now,
+            };
             let active_model: KeyValueActiveModel = model.into();
-            active_model.insert(conn).await.map_err(|e| {
-                StorageError::QueryError(format!("Failed to insert key-value: {}", e))
-            })?;
+            KeyValueEntity::insert(active_model)
+                .on_conflict(
+                    OnConflict::column(key_value::Column::Key)
+                        .update_columns([
+                            key_value::Column::Value,
+                            key_value::Column::ExpiresAt,
+                            key_value::Column::UpdatedAt,
+                        ])
+                        .to_owned(),
+                )
+                .exec(conn)
+                .await
+                .map_err(|e| {
+                    StorageError::QueryError(format!("Failed to insert/upsert key-value: {}", e))
+                })?;
         }
 
         Ok(())

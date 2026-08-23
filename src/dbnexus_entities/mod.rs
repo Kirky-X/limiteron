@@ -16,9 +16,7 @@ pub use ban_record::{
     ActiveModel as BanRecordActiveModel, Column as BanColumn, Entity as BanRecordEntity,
     Model as BanRecordModel, create_target_key,
 };
-pub use key_value::{
-    ActiveModel as KeyValueActiveModel, Entity as KeyValueEntity, Model as KeyValueModel,
-};
+pub use key_value::{ActiveModel as KeyValueActiveModel, Entity as KeyValueEntity};
 pub use quota_record::{
     ActiveModel as QuotaRecordActiveModel, Column as QuotaColumn, Model as QuotaRecordModel,
     create_quota_key,

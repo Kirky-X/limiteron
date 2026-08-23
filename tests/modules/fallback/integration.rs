@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
+#![cfg(feature = "fallback")]
 //! 降级模块集成测试
 
 use limiteron::fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};

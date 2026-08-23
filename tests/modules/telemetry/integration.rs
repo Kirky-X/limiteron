@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
+#![cfg(feature = "telemetry")]
 //! 遥测模块集成测试
 
 use limiteron::telemetry::{Metrics, TelemetryConfig};

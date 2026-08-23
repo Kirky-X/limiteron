@@ -179,8 +179,9 @@ impl BanStorage for DBNexusBanStorageAdapter {
                 StorageError::QueryError(format!("Failed to update ban record: {}", e))
             })?;
         } else {
-            // Insert new record
-            let active_model: BanRecordActiveModel = model.into();
+            // Insert new record（主键由 BIGSERIAL 序列生成，勿显式 Set(0) 否则重复主键崩溃）
+            let mut active_model: BanRecordActiveModel = model.into();
+            active_model.id = sea_orm::NotSet;
             active_model.insert(conn).await.map_err(|e| {
                 StorageError::QueryError(format!("Failed to insert ban record: {}", e))
             })?;

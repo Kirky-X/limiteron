@@ -601,14 +601,14 @@ mod adapter_construction_tests {
 #[cfg(test)]
 mod model_structure_tests {
     use crate::dbnexus_entities::{
-        BanRecordModel, KeyValueModel, QuotaRecordModel, RateLimitModel,
+        key_value, BanRecordModel, QuotaRecordModel, RateLimitModel,
     };
     use chrono::Utc;
 
     #[test]
     fn test_key_value_model_structure() {
         let now = Utc::now();
-        let model = KeyValueModel {
+        let model = key_value::Model {
             key: "test_key".to_string(),
             value: "test_value".to_string(),
             expires_at: None,
@@ -628,7 +628,7 @@ mod model_structure_tests {
         let now = Utc::now();
         let expires_at = now + Duration::hours(1);
 
-        let model = KeyValueModel {
+        let model = key_value::Model {
             key: "test_key".to_string(),
             value: "test_value".to_string(),
             expires_at: Some(expires_at),

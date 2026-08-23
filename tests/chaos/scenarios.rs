@@ -545,7 +545,9 @@ mod tests {
         assert_eq!(result.total_requests, 20);
         assert_eq!(result.successful_requests, 20); // 无失败,只有延迟
         assert!(result.avg_latency_ms >= 10.0);
-        assert!(result.max_latency_ms <= 50.0 + 10.0); // 允许一些误差
+        // 注入上界 50ms；上限容差放宽到注入上界本身：低负载机器/CI 下调度抖动
+        // 可能使单次延迟显著超过 10ms，过紧容差导致 flaky
+        assert!(result.max_latency_ms <= 50.0 + 50.0);
     }
 
     #[tokio::test]

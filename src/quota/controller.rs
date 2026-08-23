@@ -288,7 +288,7 @@ impl QuotaController {
     /// # #[async_trait::async_trait]
     /// # impl QuotaStorage for MockStorage {
     /// #     async fn get_quota(&self, _: &str, _: &str) -> Result<Option<QuotaInfo>, StorageError> { Ok(None) }
-    /// #     async fn consume(&self, _: &str, _: &str, _: u64, _: u64, _: Duration) -> Result<ConsumeResult, StorageError> { unimplemented!() }
+    /// #     async fn consume(&self, _: &str, _: &str, _: u64, _: u64, _: Duration) -> Result<ConsumeResult, StorageError> { Err(limiteron::error::StorageError::QueryError("mock".to_string()).into()) }
     /// #     async fn reset(&self, _: &str, _: &str, _: u64, _: Duration) -> Result<(), StorageError> { Ok(()) }
     /// # }
     ///
@@ -369,7 +369,7 @@ impl QuotaController {
     /// # #[async_trait::async_trait]
     /// # impl QuotaStorage for MockStorage {
     /// #   async fn get_quota(&self, _: &str, _: &str) -> Result<Option<limiteron::storage::QuotaInfo>, limiteron::error::StorageError> { Ok(None) }
-    /// #   async fn consume(&self, _: &str, _: &str, _: u64, _: u64, _: std::time::Duration) -> Result<limiteron::error::ConsumeResult, limiteron::error::LimiteronError> { unimplemented!() }
+    /// #   async fn consume(&self, _: &str, _: &str, _: u64, _: u64, _: std::time::Duration) -> Result<limiteron::error::ConsumeResult, limiteron::error::LimiteronError> { Err(limiteron::error::StorageError::QueryError("mock".to_string()).into()) }
     /// #   async fn reset(&self, _: &str, _: &str, _: u64, _: std::time::Duration) -> Result<(), limiteron::error::LimiteronError> { Ok(()) }
     /// # }
     /// #

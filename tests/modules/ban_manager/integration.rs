@@ -68,7 +68,7 @@ async fn test_backoff_config_default() {
 #[tokio::test]
 #[cfg(feature = "ban-manager")]
 async fn test_create_and_read_ban() {
-    let storage: Arc<dyn BanStorage> = Arc::new(crate::common::MockBanStorage::new());
+    let storage: Arc<dyn BanStorage> = Arc::new(limiteron::storage::MemoryBanStorage::new());
     let config = BanManagerConfig {
         enable_auto_unban: false,
         ..BanManagerConfig::default()
@@ -99,7 +99,7 @@ async fn test_create_and_read_ban() {
 #[tokio::test]
 #[cfg(feature = "ban-manager")]
 async fn test_update_ban_reason() {
-    let storage: Arc<dyn BanStorage> = Arc::new(crate::common::MockBanStorage::new());
+    let storage: Arc<dyn BanStorage> = Arc::new(limiteron::storage::MemoryBanStorage::new());
     let config = BanManagerConfig {
         enable_auto_unban: false,
         ..BanManagerConfig::default()

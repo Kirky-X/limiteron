@@ -6,9 +6,9 @@
 
 #[cfg(feature = "ban-manager")]
 mod ban_manager_tests {
-    use crate::common::{MockBanStorage, create_ban_record};
+    use crate::common::create_ban_record;
     use limiteron::BanManagerConfig;
-    use limiteron::BanStorage;
+    use limiteron::{BanStorage, storage::MemoryBanStorage};
     use limiteron::ban::BanManager;
     use std::sync::Arc;
     use std::time::Duration;
@@ -17,7 +17,7 @@ mod ban_manager_tests {
 
     /// 创建测试用的 BanManager
     async fn create_ban_manager() -> BanManager {
-        let storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
+        let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
         BanManager::with_dependencies(storage, BanManagerConfig::default())
             .await
             .unwrap()
@@ -26,7 +26,7 @@ mod ban_manager_tests {
     /// 创建带有自定义配置的 BanManager
     #[allow(dead_code)]
     async fn create_ban_manager_with_config(config: BanManagerConfig) -> BanManager {
-        let storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
+        let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
         BanManager::with_dependencies(storage, config)
             .await
             .unwrap()
@@ -273,10 +273,10 @@ mod ban_manager_tests {
 
     // ==================== 存储集成测试 ====================
 
-    /// 测试与 Mock 存储的集成
+    /// 测试与内存存储的集成
     #[tokio::test]
     async fn test_mock_storage_integration() {
-        let storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
+        let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
         let manager = BanManager::with_dependencies(storage.clone(), BanManagerConfig::default())
             .await
             .unwrap();
@@ -308,7 +308,7 @@ mod ban_manager_tests {
     /// 禁用 auto-unban 后台任务以避免后台清理干扰测试断言。
     #[tokio::test]
     async fn test_cleanup_expired_bans() {
-        let storage: Arc<dyn BanStorage> = Arc::new(MockBanStorage::new());
+        let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
         let config = BanManagerConfig {
             enable_auto_unban: false,
             ..Default::default()

@@ -169,7 +169,7 @@ pub use circuit::{CircuitBreaker, CircuitBreakerConfig};
 pub use logging::audit::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
 // 导出配置相关类型
 #[cfg(feature = "cache-service")]
-pub use cache::{Cache, CacheKey, CacheService};
+pub use cache::{Cache, CacheKey, CacheService, MemoryCache};
 pub use config::ConfigLoader;
 pub use config::{
     ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, ConfigMatcher,

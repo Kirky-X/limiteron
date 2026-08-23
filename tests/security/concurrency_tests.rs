@@ -7,7 +7,7 @@
 //! - 死锁测试（多锁场景死锁检测、超时恢复验证）
 
 #[allow(unused_imports)]
-use crate::common::{MockBanStorage, MockQuotaStorage, create_ban_record};
+use crate::common::create_ban_record;
 use limiteron::limiters::{
     FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, TokenBucketLimiter,
 };
@@ -151,7 +151,7 @@ async fn test_fixed_window_concurrent_safety() {
 /// 测试配额消费的并发安全性
 #[tokio::test]
 async fn test_quota_concurrent_safety() {
-    let storage = Arc::new(MockQuotaStorage::new());
+    let storage = Arc::new(limiteron::cache::CacheQuotaStorage::new(Arc::new(limiteron::oxcache::backend::dashmap_memory())));
     let consumed = Arc::new(AtomicU64::new(0));
     let barrier = Arc::new(Barrier::new(100));
 
@@ -193,8 +193,8 @@ async fn test_quota_concurrent_safety() {
 /// 测试多锁场景下的死锁检测
 #[tokio::test]
 async fn test_no_deadlock_in_multi_lock_scenario() {
-    let quota_storage = Arc::new(MockQuotaStorage::new());
-    let ban_storage = Arc::new(MockBanStorage::new());
+    let quota_storage = Arc::new(limiteron::cache::CacheQuotaStorage::new(Arc::new(limiteron::oxcache::backend::dashmap_memory())));
+    let ban_storage = Arc::new(limiteron::storage::MemoryBanStorage::new());
     let counter = Arc::new(AtomicU64::new(0));
     let barrier = Arc::new(Barrier::new(20));
 
@@ -240,7 +240,7 @@ async fn test_no_deadlock_in_multi_lock_scenario() {
 /// 测试锁获取超时恢复
 #[tokio::test]
 async fn test_lock_timeout_recovery() {
-    let storage = Arc::new(MockQuotaStorage::new());
+    let storage = Arc::new(limiteron::cache::CacheQuotaStorage::new(Arc::new(limiteron::oxcache::backend::dashmap_memory())));
     let barrier = Arc::new(Barrier::new(100));
 
     let mut handles = vec![];
@@ -284,7 +284,7 @@ async fn test_lock_timeout_recovery() {
 #[cfg(feature = "ban-manager")]
 #[tokio::test]
 async fn test_ban_manager_concurrent_safety() {
-    let storage = Arc::new(MockBanStorage::new());
+    let storage = Arc::new(limiteron::storage::MemoryBanStorage::new());
     let ban_manager = BanManager::builder()
         .with_storage(storage)
         .build()

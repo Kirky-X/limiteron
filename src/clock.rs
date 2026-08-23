@@ -4,8 +4,11 @@
 //!
 //! 提供时钟 trait 和实现,支持时间注入用于测试。
 
+#[cfg(any(test, feature = "test-clock"))]
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+#[cfg(any(test, feature = "test-clock"))]
+use std::time::Duration;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// 时钟 trait
 ///
@@ -75,11 +78,13 @@ impl Clock for SystemClock {
 ///
 /// assert_eq!(clock.now().duration_since(start), Duration::from_secs(10));
 /// ```
+#[cfg(any(test, feature = "test-clock"))]
 pub struct MockClock {
     current_time: parking_lot::RwLock<Instant>,
     unix_timestamp: parking_lot::RwLock<u64>,
 }
 
+#[cfg(any(test, feature = "test-clock"))]
 impl Clone for MockClock {
     fn clone(&self) -> Self {
         Self {
@@ -89,6 +94,7 @@ impl Clone for MockClock {
     }
 }
 
+#[cfg(any(test, feature = "test-clock"))]
 impl MockClock {
     /// 创建新的模拟时钟,初始时间为当前系统时间
     pub fn new() -> Self {
@@ -136,12 +142,14 @@ impl MockClock {
     }
 }
 
+#[cfg(any(test, feature = "test-clock"))]
 impl Default for MockClock {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(any(test, feature = "test-clock"))]
 impl Clock for MockClock {
     fn now(&self) -> Instant {
         *self.current_time.read()

@@ -66,6 +66,11 @@
 //! - **trait-kit integration**: AsyncKit `LimiteronModule` (requires `kit` feature)
 //! - **Internationalization**: Locale-aware number/date/plural/sort formatting (requires `i18n` feature)
 //! - **inklog logging**: inklog structured logging integration (requires `inklog` feature)
+//!
+//! > **⚠️ 已声明未实现的 no-op features**：以下 feature 仅为下游兼容（vecboost 等）而
+//! > 声明，**启用无任何效果**，不提供对应功能，请勿依赖它们做能力判断：
+//! > `adaptive-limiting`、`priority-queue`、`admission-control`。若你实际需要其中某项
+//! > 能力，请在 limiteron 仓库提出 issue 寻求实现。
 
 #![allow(clippy::collapsible_if)]
 
@@ -264,8 +269,12 @@ pub use rules::RuleBuilder;
 // Re-export stats manager
 pub use rules::{StatsManager, StatsSnapshot};
 
-// Re-export clock types
-pub use clock::{Clock, MockClock, SystemClock};
+// Re-export clock types（MockClock 为测试时钟：仅 cfg(test)/test-clock feature 可见，
+// 生产二进制不含；迁移说明见 crate 文档）
+pub use clock::SystemClock;
+pub use clock::Clock;
+#[cfg(any(test, feature = "test-clock"))]
+pub use clock::MockClock;
 
 // Re-export tenant types (feature-gated)
 #[cfg(feature = "multi-tenant")]

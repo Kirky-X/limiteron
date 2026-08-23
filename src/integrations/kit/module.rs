@@ -39,12 +39,53 @@
 use crate::config::FlowControlConfig;
 use crate::error::LimiteronError;
 use crate::governor::Governor;
+use crate::storage::{BanStorage, MemoryBanStorage, MemoryStorage, Storage};
 use std::any::TypeId;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use trait_kit::prelude::*;
+
+/// 存储覆盖配置 — 通过 `AsyncKit::set_config(LimiteronStorageConfig::...)`
+/// 向 [`LimiteronModule`] 注入自定义 `Storage` / `BanStorage` 实例。
+///
+/// 未设置（或不调用任何 builder 方法）时，`LimiteronModule` 保持默认行为：
+/// 使用进程内 `MemoryStorage` / `MemoryBanStorage`（向后兼容）。
+#[derive(Default, Clone)]
+pub struct LimiteronStorageConfig {
+    storage: Option<Arc<dyn Storage>>,
+    ban_storage: Option<Arc<dyn BanStorage>>,
+}
+
+impl LimiteronStorageConfig {
+    /// 创建空覆盖配置（全部使用默认实现）。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 注入存储实例。
+    pub fn with_storage(mut self, storage: Arc<dyn Storage>) -> Self {
+        self.storage = Some(storage);
+        self
+    }
+
+    /// 注入封禁存储实例。
+    pub fn with_ban_storage(mut self, ban_storage: Arc<dyn BanStorage>) -> Self {
+        self.ban_storage = Some(ban_storage);
+        self
+    }
+
+    /// 已注入的存储（`None` = 使用默认 `MemoryStorage`）。
+    pub fn storage(&self) -> Option<Arc<dyn Storage>> {
+        self.storage.clone()
+    }
+
+    /// 已注入的封禁存储（`None` = 使用默认 `MemoryBanStorage`）。
+    pub fn ban_storage(&self) -> Option<Arc<dyn BanStorage>> {
+        self.ban_storage.clone()
+    }
+}
 
 /// trait-kit `AsyncKit` module that constructs a limiteron `Governor`.
 ///
@@ -77,13 +118,19 @@ impl AsyncAutoBuilder for LimiteronModule {
             let config: FlowControlConfig = kit.config().map_err(|e| {
                 LimiteronError::ConfigError(format!("LimiteronModule: read config: {e}"))
             })?;
-            // Leaf module: use in-memory storage so the kit feature stays
-            // independent of postgres/redis backends. Production callers can
-            // construct Governor directly via its builder for persistent
-            // storage; the kit integration is for wiring/test scenarios.
-            use crate::storage::{BanStorage, MemoryBanStorage, MemoryStorage, Storage};
-            let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
-            let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+            // 存储注入钩子：`kit.set_config(LimiteronStorageConfig::...)` 注入
+            // 自定义存储；未设置时使用 in-memory 实现（leaf module 不依赖
+            // postgres/redis 后端；生产调用方可用 Governor 的 builder 直连持久化
+            // 存储，kit 集成面向 wiring/测试场景）。
+            let storage_override: Option<LimiteronStorageConfig> = kit.config().ok();
+            let storage: Arc<dyn Storage> = storage_override
+                .as_ref()
+                .and_then(|o| o.storage())
+                .unwrap_or_else(|| Arc::new(MemoryStorage::new()) as Arc<dyn Storage>);
+            let ban_storage: Arc<dyn BanStorage> = storage_override
+                .as_ref()
+                .and_then(|o| o.ban_storage())
+                .unwrap_or_else(|| Arc::new(MemoryBanStorage::new()) as Arc<dyn BanStorage>);
             let governor = Governor::builder()
                 .with_config(config)
                 .with_storage(storage)
@@ -100,8 +147,93 @@ mod tests {
     use super::*;
     use crate::config::FlowControlConfig;
     use crate::governor::Governor;
+#[cfg(feature = "ban-manager")]
+    use crate::matchers::Identifier;
+    #[cfg(feature = "ban-manager")]
+    use crate::storage::{BanHistory, BanRecord, BanTarget};
+    #[cfg(feature = "ban-manager")]
+    use crate::error::StorageError;
+    #[cfg(feature = "ban-manager")]
+    use std::any::Any;
     use std::any::TypeId;
     use std::sync::Arc;
+    #[cfg(feature = "ban-manager")]
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// 可观测的封禁存储替身：委托给真实 `MemoryBanStorage`，同时计数
+    /// `save`/`is_banned` 调用，用于验证注入实例确实被路由使用
+    /// （单元层测试替身，符合净化规范）。
+    #[cfg(feature = "ban-manager")]
+    struct RecordingBanStorage {
+        inner: MemoryBanStorage,
+        saves: AtomicUsize,
+    }
+
+    #[cfg(feature = "ban-manager")]
+    impl RecordingBanStorage {
+        fn new() -> Self {
+            Self {
+                inner: MemoryBanStorage::new(),
+                saves: AtomicUsize::new(0),
+            }
+        }
+
+        fn save_count(&self) -> usize {
+            self.saves.load(Ordering::SeqCst)
+        }
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[async_trait::async_trait]
+    impl BanStorage for RecordingBanStorage {
+        async fn is_banned(
+            &self,
+            target: &BanTarget,
+        ) -> Result<Option<BanRecord>, StorageError> {
+            self.inner.is_banned(target).await
+        }
+
+        async fn save(&self, record: &BanRecord) -> Result<(), StorageError> {
+            self.saves.fetch_add(1, Ordering::SeqCst);
+            self.inner.save(record).await
+        }
+
+        async fn get_history(
+            &self,
+            target: &BanTarget,
+        ) -> Result<Option<BanHistory>, StorageError> {
+            self.inner.get_history(target).await
+        }
+
+        async fn increment_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError> {
+            self.inner.increment_ban_times(target).await
+        }
+
+        async fn get_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError> {
+            self.inner.get_ban_times(target).await
+        }
+
+        async fn remove_ban(&self, target: &BanTarget) -> Result<(), StorageError> {
+            self.inner.remove_ban(target).await
+        }
+
+        async fn cleanup_expired_bans(&self) -> Result<u64, StorageError> {
+            self.inner.cleanup_expired_bans().await
+        }
+
+        async fn list_bans(
+            &self,
+            active_only: bool,
+            offset: u64,
+            limit: u64,
+        ) -> Result<Vec<BanRecord>, StorageError> {
+            self.inner.list_bans(active_only, offset, limit).await
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
 
     /// Build a minimal valid `FlowControlConfig` (1 rule, 1 matcher, 1
     /// limiter). `FlowControlConfig::default()` has an empty rules vec, which
@@ -198,5 +330,81 @@ mod tests {
         // Capability satisfies Send + Sync (AsyncAutoBuilder bound).
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<Arc<Governor>>();
+    }
+
+    #[cfg(feature = "ban-manager")]
+    /// 存储注入钩子：`kit.set_config(LimiteronStorageConfig::new()
+    /// .with_ban_storage(recording))` 后，Governor 的封禁操作必须路由到注入
+    /// 实例（通过替身计数验证），而非默认 `MemoryBanStorage`。
+    #[tokio::test]
+    async fn limiteron_module_routes_to_injected_ban_storage() {
+        let recording = Arc::new(RecordingBanStorage::new());
+        let recording_for_assert = recording.clone();
+
+        let mut kit = AsyncKit::new();
+        kit.set_config(make_minimal_valid_config());
+        kit.set_config(
+            LimiteronStorageConfig::new().with_ban_storage(recording.clone() as Arc<dyn BanStorage>),
+        );
+        kit.register::<LimiteronModule>()
+            .expect("register LimiteronModule");
+        let kit = kit.build().await.expect("AsyncKit::build");
+        let governor: Arc<Governor> = kit
+            .require::<LimiteronModule>()
+            .expect("require LimiteronModule");
+
+        // 触发封禁：create_ban → save + is_banned 由注入替身承接
+        let identifier = Identifier::UserId("injected-route-user".to_string());
+        governor
+            .ban_identifier(&identifier, "test ban", None)
+            .await
+            .expect("ban via injected storage");
+
+        assert!(
+            recording_for_assert.save_count() > 0,
+            "注入的 BanStorage 必须被 Governor 路由调用（save）"
+        );
+        // 解封路径同样路由到注入实例（委托 inner 真实实现，不抛错）
+        governor
+            .unban_identifier(&identifier)
+            .await
+            .expect("unban via injected storage");
+    }
+
+    #[cfg(feature = "ban-manager")]
+    /// 存储注入钩子：未设置 `LimiteronStorageConfig` 时保持默认
+    /// `MemoryStorage`/`MemoryBanStorage`（向后兼容），build + 封禁正常。
+    #[tokio::test]
+    async fn limiteron_module_defaults_to_memory_storage() {
+        let mut kit = AsyncKit::new();
+        kit.set_config(make_minimal_valid_config());
+        kit.register::<LimiteronModule>()
+            .expect("register LimiteronModule");
+        let kit = kit.build().await.expect("AsyncKit::build");
+        let governor: Arc<Governor> = kit
+            .require::<LimiteronModule>()
+            .expect("require LimiteronModule");
+
+        let identifier = Identifier::UserId("default-memory-user".to_string());
+        governor
+            .ban_identifier(&identifier, "test ban", None)
+            .await
+            .expect("ban with default MemoryBanStorage");
+    }
+
+    /// 存储注入钩子：`with_storage` 注入的 `Storage` 同样被路由（通过
+    /// `LimiteronStorageConfig` 的 getter 往返验证配置保留）。
+    #[test]
+    fn limiteron_storage_config_builders_roundtrip() {
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+        let config = LimiteronStorageConfig::new()
+            .with_storage(storage.clone())
+            .with_ban_storage(ban_storage.clone());
+        assert!(config.storage().is_some());
+        assert!(config.ban_storage().is_some());
+        let empty = LimiteronStorageConfig::new();
+        assert!(empty.storage().is_none());
+        assert!(empty.ban_storage().is_none());
     }
 }

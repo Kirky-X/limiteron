@@ -223,10 +223,18 @@ proptest.workspace = true
 tower = { workspace = true, features = ["util"] }
 http-body-util = "0.1"
 serial_test.workspace = true
+# 自依赖开启 test-clock：src 内联测试经 cfg(test) 可见，tests/ 目录的
+# property/chaos 用例经此 feature 编译（MockClock 门控后外部 tests 需要）
+limiteron = { path = ".", default-features = false, features = ["test-clock"] }
 
 [features]
 # ============================================
 # Feature Presets (预定义组合)
+# ============================================
+
+# 测试时钟 MockClock 的公开门控 feature（不入任何生产 preset；
+# src 内联测试经 cfg(test) 可见，tests/ 外部用例经 self dev-dep 开启）
+test-clock = []
 # ============================================
 # Minimal: 核心限流功能（无外部存储依赖）
 minimal = []

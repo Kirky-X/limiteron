@@ -110,9 +110,12 @@ Limiteron 默认不启用任何可选功能，按需开启：
 | `geo-matching` | 地理位置匹配 |
 | `device-matching` | 设备信息匹配 |
 | `distributed` | 分布式限流器支持（DistributedLimiter trait + InMemoryDistributedLimiter 实现） |
-| `kit` | trait-kit AsyncKit integration (LimiteronModule) |
+| `kit` | trait-kit AsyncKit integration (LimiteronModule)；`LimiteronStorageConfig` 注入钩子（`with_storage`/`with_ban_storage`，默认 Memory 向后兼容） |
 | `i18n` | Internationalization support |
 | `inklog` | inklog log integration |
+| `test-clock` | 测试时钟（`MockClock`）外部消费者专用：默认公共 API 已移除 MockClock（BREAKING），外部 property/chaos 测试需显式启用本 feature |
+
+> ⚠️ **已声明未实现的 no-op features**：`adaptive-limiting`、`priority-queue`、`admission-control` 仅为下游兼容声明，启用无任何效果，请勿依赖其做能力判断。
 
 完整特性列表见 [Cargo.toml](Cargo.toml) 的 `[features]` 段。
 

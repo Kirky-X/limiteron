@@ -82,7 +82,7 @@ jobs:
       - name: Publish limiteron-macros
         if: env.HAS_CARGO_TOKEN == 'true' || env.HAS_CRATES_TOKEN == 'true'
         run: |
-          OUTPUT=$(cargo publish --token ${{ steps.token.outputs.token }} --manifest-path macros/Cargo.toml --allow-dirty 2>&1) || {
+          OUTPUT=$(cargo publish --token ${{ steps.token.outputs.token }} --manifest-path macros/Cargo.toml 2>&1) || {
             if echo "$OUTPUT" | grep -qE "already exists|already published"; then
               echo "::warning::limiteron-macros already published, continuing"
             else
@@ -100,7 +100,7 @@ jobs:
       - name: Publish limiteron
         if: env.HAS_CARGO_TOKEN == 'true' || env.HAS_CRATES_TOKEN == 'true'
         run: |
-          OUTPUT=$(cargo publish --token ${{ steps.token.outputs.token }} --all-features --allow-dirty 2>&1) || {
+          OUTPUT=$(cargo publish --token ${{ steps.token.outputs.token }} --all-features 2>&1) || {
             if echo "$OUTPUT" | grep -qE "already exists|already published"; then
               echo "::warning::limiteron already published, continuing"
             else

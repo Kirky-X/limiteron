@@ -5,21 +5,24 @@
 //! 下沉理由：max_entries 容量上限注入属故障/边界模拟（产品无容量上限配置），
 //! 单元层正当场景；e2e/集成面禁 mock。断言与原用例一致。
 
+use ahash::AHashMap as HashMap;
 use limiteron::Storage;
 use limiteron::error::StorageError;
-use ahash::AHashMap as HashMap;
 use std::sync::Arc;
 
 /// 带容量上限的 Storage 测试替身（unit 层专用）
 #[derive(Clone, Default)]
 struct BoundedStorage {
-    data: Arc<std::sync::RwLock<HashMap<String, String>>> ,
+    data: Arc<std::sync::RwLock<HashMap<String, String>>>,
     max_entries: usize,
 }
 
 impl BoundedStorage {
     fn with_max_entries(max: usize) -> Self {
-        Self { data: Default::default(), max_entries: max }
+        Self {
+            data: Default::default(),
+            max_entries: max,
+        }
     }
 }
 
@@ -59,8 +62,14 @@ async fn test_memory_limit_validation() {
             Err(_) => limit_reached_count += 1,
         }
     }
-    assert!(success_count <= 100, "Success count should not exceed limit");
-    assert!(limit_reached_count > 0, "Some requests should be rejected due to limit");
+    assert!(
+        success_count <= 100,
+        "Success count should not exceed limit"
+    );
+    assert!(
+        limit_reached_count > 0,
+        "Some requests should be rejected due to limit"
+    );
 }
 
 /// 限流容量下并发写入部分接受部分降级（原用例断言不变）
@@ -78,15 +87,24 @@ async fn test_graceful_degradation() {
         handles.push(tokio::spawn(async move {
             let key = format!("degrade_key_{}", i);
             match storage.set(&key, &key, Some(60)).await {
-                Ok(_) => { accepted.fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
-                Err(_) => { degraded.fetch_add(1, std::sync::atomic::Ordering::SeqCst); }
+                Ok(_) => {
+                    accepted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+                Err(_) => {
+                    degraded.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
             }
         }));
     }
-    for handle in handles { handle.await.expect("Task should complete"); }
+    for handle in handles {
+        handle.await.expect("Task should complete");
+    }
     let total_accepted = accepted.load(std::sync::atomic::Ordering::SeqCst);
     let total_degraded = degraded.load(std::sync::atomic::Ordering::SeqCst);
     assert!(total_accepted > 0, "Some requests should be accepted");
     assert!(total_degraded > 0, "Some requests should be degraded");
-    assert!(total_accepted <= 10, "Accepted count should not exceed limit");
+    assert!(
+        total_accepted <= 10,
+        "Accepted count should not exceed limit"
+    );
 }

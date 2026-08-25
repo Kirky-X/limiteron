@@ -17,7 +17,6 @@ use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, Storage
 use std::sync::Arc;
 use std::time::Duration;
 
-
 // ==================== Test Helpers ====================
 
 async fn create_governor() -> Arc<limiteron::Governor> {

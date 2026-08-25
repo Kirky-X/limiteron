@@ -41,7 +41,6 @@ impl CacheEntry {
             false
         }
     }
-
 }
 
 /// In-memory cache implementation using DashMap
@@ -99,7 +98,12 @@ impl CacheService for MemoryCache {
         Ok(())
     }
 
-    async fn set_with_ttl(&self, key: &str, value: &str, ttl: Duration) -> Result<(), StorageError> {
+    async fn set_with_ttl(
+        &self,
+        key: &str,
+        value: &str,
+        ttl: Duration,
+    ) -> Result<(), StorageError> {
         // CacheEntry 过期时间为秒级时间戳：亚秒 TTL 至少存活 1 秒，
         // 避免 as_secs() 截断为 0 导致条目立即过期
         let ttl_seconds = Some(ttl.as_secs().max(1));
@@ -118,7 +122,7 @@ impl Default for MemoryCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::time::{sleep, Duration};
+    use tokio::time::{Duration, sleep};
 
     #[tokio::test]
     async fn test_memory_cache_basic_operations() {
@@ -139,7 +143,10 @@ mod tests {
     async fn test_memory_cache_with_ttl() {
         let cache = MemoryCache::new(Some(1)); // 1-second TTL
 
-        cache.set("expiring_key", "expiring_value", None).await.unwrap();
+        cache
+            .set("expiring_key", "expiring_value", None)
+            .await
+            .unwrap();
         let result = cache.get("expiring_key").await.unwrap();
         assert_eq!(result, Some("expiring_value".to_string()));
 
@@ -170,7 +177,10 @@ mod tests {
     async fn test_memory_cache_no_expiry() {
         let cache = MemoryCache::no_expiry();
 
-        cache.set("permanent_key", "permanent_value", None).await.unwrap();
+        cache
+            .set("permanent_key", "permanent_value", None)
+            .await
+            .unwrap();
         let result = cache.get("permanent_key").await.unwrap();
         assert_eq!(result, Some("permanent_value".to_string()));
 

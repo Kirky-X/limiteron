@@ -22,7 +22,9 @@ mod tests {
     #[tokio::test]
     #[cfg(feature = "cache-storage")]
     async fn test_quota_storage_consume_semantics() {
-        let storage = limiteron::cache::CacheQuotaStorage::new(Arc::new(limiteron::oxcache::backend::dashmap_memory()));
+        let storage = limiteron::cache::CacheQuotaStorage::new(Arc::new(
+            limiteron::oxcache::backend::dashmap_memory(),
+        ));
 
         // 消费配额
         let result = storage

@@ -10,10 +10,10 @@
 #[cfg(test)]
 #[cfg(feature = "postgres")]
 mod tests {
-    use serial_test::serial;
     use limiteron::adapters::StorageFactory;
     use limiteron::error::StorageError;
     use limiteron::{BanRecord, BanStorage, BanTarget, QuotaStorage, Storage};
+    use serial_test::serial;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -93,7 +93,10 @@ mod tests {
         assert_eq!(result, "updated_value");
 
         // Delete
-        storage.delete(&test_key).await.expect("Should delete value");
+        storage
+            .delete(&test_key)
+            .await
+            .expect("Should delete value");
 
         let result = storage.get(&test_key).await.expect("Should get value");
         assert!(result.is_none(), "Value should be None after deletion");
@@ -367,7 +370,10 @@ mod tests {
 
         assert_eq!(bans_page1.len(), 3);
         assert!(!bans_page2.is_empty(), "second page should have entries");
-        let page1_keys: Vec<String> = bans_page1.iter().map(|b| format!("{:?}", b.target)).collect();
+        let page1_keys: Vec<String> = bans_page1
+            .iter()
+            .map(|b| format!("{:?}", b.target))
+            .collect();
         assert!(
             bans_page2
                 .iter()

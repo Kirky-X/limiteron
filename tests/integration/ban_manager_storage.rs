@@ -8,8 +8,8 @@
 mod ban_manager_tests {
     use crate::common::create_ban_record;
     use limiteron::BanManagerConfig;
-    use limiteron::{BanStorage, storage::MemoryBanStorage};
     use limiteron::ban::BanManager;
+    use limiteron::{BanStorage, storage::MemoryBanStorage};
     use std::sync::Arc;
     use std::time::Duration;
 

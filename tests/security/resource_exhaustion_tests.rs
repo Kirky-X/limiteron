@@ -7,9 +7,9 @@
 //! - CPU 耗尽测试（复杂模式处理测试、CPU 限制验证）
 //! - 连接耗尽测试（大量连接处理测试、优雅降级验证）
 
-use limiteron::storage::MemoryStorage;
 use limiteron::Storage;
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
+use limiteron::storage::MemoryStorage;
 use limiteron::tokio::sync::Barrier;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};

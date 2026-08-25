@@ -84,8 +84,6 @@ mod tests {
     /// 验证测试工具可用
     #[test]
     fn test_common_tools_available() {
-
-
         // 验证 RequestContextBuilder 可用
         let _ctx = common::RequestContextBuilder::new()
             .user_id("test_user")

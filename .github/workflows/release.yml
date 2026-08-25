@@ -25,10 +25,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Verify build (all features)
-        run: cargo build --release --all-features --workspace
+        run: cargo build --release --workspace --no-default-features --features full
 
       - name: Verify tests pass
-        run: cargo test --all-features --workspace --no-fail-fast
+        run: cargo test --workspace --no-fail-fast --no-default-features --features full
 
   github-release:
     name: Create GitHub Release
@@ -100,7 +100,7 @@ jobs:
       - name: Publish limiteron
         if: env.HAS_CARGO_TOKEN == 'true' || env.HAS_CRATES_TOKEN == 'true'
         run: |
-          OUTPUT=$(cargo publish --token ${{ steps.token.outputs.token }} --all-features 2>&1) || {
+          OUTPUT=$(cargo publish --token ${{ steps.token.outputs.token }} --no-default-features --features full 2>&1) || {
             if echo "$OUTPUT" | grep -qE "already exists|already published"; then
               echo "::warning::limiteron already published, continuing"
             else

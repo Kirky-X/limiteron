@@ -36,7 +36,9 @@ async fn test_quota_controller_module_import() {
 #[tokio::test]
 #[cfg(all(feature = "quota-control", feature = "cache-storage"))]
 async fn test_quota_persists_state() {
-    let storage: Arc<dyn QuotaStorage> = Arc::new(ProductQuotaStorage::new(Arc::new(limiteron::oxcache::backend::dashmap_memory())));
+    let storage: Arc<dyn QuotaStorage> = Arc::new(ProductQuotaStorage::new(Arc::new(
+        limiteron::oxcache::backend::dashmap_memory(),
+    )));
     let user_id = "user_persistence_test";
     let resource = "api_calls";
     let limit = 1000u64;
@@ -76,7 +78,9 @@ async fn test_quota_persists_state() {
 async fn test_quota_concurrent_consumption() {
     use limiteron::tokio::task::JoinSet;
 
-    let storage: Arc<dyn QuotaStorage> = Arc::new(ProductQuotaStorage::new(Arc::new(limiteron::oxcache::backend::dashmap_memory())));
+    let storage: Arc<dyn QuotaStorage> = Arc::new(ProductQuotaStorage::new(Arc::new(
+        limiteron::oxcache::backend::dashmap_memory(),
+    )));
     let user_id = "user_concurrent_test";
     let resource = "concurrent_api";
     let limit = 1000u64;
@@ -118,7 +122,9 @@ async fn test_quota_concurrent_consumption() {
 #[tokio::test]
 #[cfg(all(feature = "quota-control", feature = "cache-storage"))]
 async fn test_quota_recovers_after_restart() {
-    let storage: Arc<dyn QuotaStorage> = Arc::new(ProductQuotaStorage::new(Arc::new(limiteron::oxcache::backend::dashmap_memory())));
+    let storage: Arc<dyn QuotaStorage> = Arc::new(ProductQuotaStorage::new(Arc::new(
+        limiteron::oxcache::backend::dashmap_memory(),
+    )));
     let user_id = "user_restart_test";
     let resource = "restart_api";
     let limit = 1000u64;

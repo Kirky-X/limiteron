@@ -95,7 +95,6 @@ pub fn create_ban_record(target: BanTarget, duration_secs: u64, reason: &str) ->
     }
 }
 
-
 // Removed duplicate definitions
 
 pub fn assert_ok<T, E: std::fmt::Debug>(result: Result<T, E>) -> T {
@@ -161,7 +160,6 @@ pub fn assert_approx_eq(actual: u64, expected: u64, tolerance_percent: f64) {
         actual
     );
 }
-
 
 // ==================== RequestContext 构建器 ====================
 
@@ -538,4 +536,3 @@ impl Default for TestFixture {
         Self::new()
     }
 }
-

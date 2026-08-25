@@ -271,10 +271,10 @@ pub use rules::{StatsManager, StatsSnapshot};
 
 // Re-export clock types（MockClock 为测试时钟：仅 cfg(test)/test-clock feature 可见，
 // 生产二进制不含；迁移说明见 crate 文档）
-pub use clock::SystemClock;
 pub use clock::Clock;
 #[cfg(any(test, feature = "test-clock"))]
 pub use clock::MockClock;
+pub use clock::SystemClock;
 
 // Re-export tenant types (feature-gated)
 #[cfg(feature = "multi-tenant")]

@@ -249,9 +249,9 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             am.window_end = sea_orm::Set(window_end);
             am.created_at = sea_orm::Set(now);
             am.updated_at = sea_orm::Set(now);
-            am.save(conn).await.map_err(|e| {
-                StorageError::QueryError(format!("Failed to reset quota: {}", e))
-            })?;
+            am.save(conn)
+                .await
+                .map_err(|e| StorageError::QueryError(format!("Failed to reset quota: {}", e)))?;
             return Ok(());
         }
 

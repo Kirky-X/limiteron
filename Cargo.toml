@@ -16,7 +16,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.2.10"
+version = "0.3.0-rc.1"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Kirky.X"]
@@ -77,13 +77,13 @@ serial_test = { version = "4.0", default-features = false }
 sea-orm = { version = "2.0", default-features = false, features = ["macros", "with-chrono"] }
 
 # 缓存库
-oxcache = { version = "0.4", path = "../oxcache", default-features = false, features = ["core"] }
+oxcache = { version = "0.5.0-rc.1", path = "../oxcache", default-features = false, features = ["core"] }
 
 # 数据库抽象层 — dbnexus 0.5。注意：此处不启用 postgres/mysql/sqlite 等数据库驱动，
 # 驱动由各 feature 显式请求（limiteron 的 `postgres` feature 会启用 dbnexus/postgres）。
 # 若在此写死 "postgres"，会强制 server-side 驱动，与下游（如 agentstem memory 的
 # dbnexus/sqlite）在同一次构建中合并，触发 dbnexus 的 embedded/server-side 互斥编译错误。
-dbnexus = { version = "0.5", path = "../dbnexus", default-features = false, features = ["macros", "sql-parser", "permission"] }
+dbnexus = { version = "0.6.0-rc.1", path = "../dbnexus", default-features = false, features = ["macros", "sql-parser", "permission"] }
 
 # 宏
 limiteron-macros = { path = "macros", version = "0.2" }
@@ -195,7 +195,7 @@ writeable = { version = "0.6", optional = true }
 # trait-kit integration (optional, feature-gated via `kit`).
 # trait-kit 0.4 is used via path dependency for workspace compatibility.
 [dependencies.trait-kit]
-version = "0.4"
+version = "0.5.0-rc.1"
 path = "../trait-kit"
 features = ["async"]
 optional = true
@@ -206,7 +206,7 @@ default-features = false
 # the `http`/`cli` features — limiteron only needs the core LoggerManager +
 # log/tracing bridge. Mirrors the trait-kit optional-dependency pattern.
 [dependencies.inklog]
-version = "0.2"
+version = "0.3.0-rc.1"
 path = "../inklog"
 default-features = false
 optional = true

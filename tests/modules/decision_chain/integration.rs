@@ -37,7 +37,6 @@ async fn single_node_rejected() {
 
 #[tokio::test]
 async fn chain_runs_all_nodes_until_rejection() {
-
     let node1 = DecisionNode::new(
         "n1".to_string(),
         "node1".to_string(),
@@ -68,7 +67,6 @@ async fn chain_runs_all_nodes_until_rejection() {
 
 #[tokio::test]
 async fn disabled_node_is_skipped() {
-
     let mut node1 = DecisionNode::new(
         "n1".to_string(),
         "node1".to_string(),

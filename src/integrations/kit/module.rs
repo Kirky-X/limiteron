@@ -146,13 +146,13 @@ impl AsyncAutoBuilder for LimiteronModule {
 mod tests {
     use super::*;
     use crate::config::FlowControlConfig;
+    #[cfg(feature = "ban-manager")]
+    use crate::error::StorageError;
     use crate::governor::Governor;
-#[cfg(feature = "ban-manager")]
+    #[cfg(feature = "ban-manager")]
     use crate::matchers::Identifier;
     #[cfg(feature = "ban-manager")]
     use crate::storage::{BanHistory, BanRecord, BanTarget};
-    #[cfg(feature = "ban-manager")]
-    use crate::error::StorageError;
     #[cfg(feature = "ban-manager")]
     use std::any::Any;
     use std::any::TypeId;
@@ -186,10 +186,7 @@ mod tests {
     #[cfg(feature = "ban-manager")]
     #[async_trait::async_trait]
     impl BanStorage for RecordingBanStorage {
-        async fn is_banned(
-            &self,
-            target: &BanTarget,
-        ) -> Result<Option<BanRecord>, StorageError> {
+        async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, StorageError> {
             self.inner.is_banned(target).await
         }
 
@@ -344,7 +341,8 @@ mod tests {
         let mut kit = AsyncKit::new();
         kit.set_config(make_minimal_valid_config());
         kit.set_config(
-            LimiteronStorageConfig::new().with_ban_storage(recording.clone() as Arc<dyn BanStorage>),
+            LimiteronStorageConfig::new()
+                .with_ban_storage(recording.clone() as Arc<dyn BanStorage>),
         );
         kit.register::<LimiteronModule>()
             .expect("register LimiteronModule");

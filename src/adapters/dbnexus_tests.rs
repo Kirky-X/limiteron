@@ -600,9 +600,7 @@ mod adapter_construction_tests {
 
 #[cfg(test)]
 mod model_structure_tests {
-    use crate::dbnexus_entities::{
-        key_value, BanRecordModel, QuotaRecordModel, RateLimitModel,
-    };
+    use crate::dbnexus_entities::{BanRecordModel, QuotaRecordModel, RateLimitModel, key_value};
     use chrono::Utc;
 
     #[test]

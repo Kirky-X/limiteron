@@ -5,7 +5,7 @@
 //! This adapter provides a complete Storage trait implementation using DBNexus
 //! for all database operations. It handles key-value storage with optional TTL.
 
-use crate::dbnexus_entities::{key_value, KeyValueActiveModel, KeyValueEntity};
+use crate::dbnexus_entities::{KeyValueActiveModel, KeyValueEntity, key_value};
 use crate::error::StorageError;
 use crate::storage::Storage;
 use async_trait::async_trait;

@@ -5,9 +5,9 @@
 //! 故障注入属单元层正当场景（unit 层允许测试替身）；断言与原集成用例
 //! 完全一致：注入错误 → 操作失败 → 清除错误 → 操作恢复。
 
+use ahash::AHashMap as HashMap;
 use limiteron::Storage;
 use limiteron::error::StorageError;
-use ahash::AHashMap as HashMap;
 use std::sync::Arc;
 
 /// 可注入错误的 Storage 测试替身（unit 层专用，非生产代码）
@@ -46,7 +46,10 @@ impl Storage for ErrorInjectingStorage {
 
     async fn set(&self, key: &str, value: &str, _ttl: Option<u64>) -> Result<(), StorageError> {
         self.check_error().await?;
-        self.data.write().unwrap().insert(key.to_string(), value.to_string());
+        self.data
+            .write()
+            .unwrap()
+            .insert(key.to_string(), value.to_string());
         Ok(())
     }
 
@@ -85,7 +88,9 @@ async fn test_storage_error_injection_write_path() {
     let storage = ErrorInjectingStorage::default();
     storage.set("key", "value", None).await.unwrap();
 
-    storage.inject_error(StorageError::ConnectionError("连接断开".to_string())).await;
+    storage
+        .inject_error(StorageError::ConnectionError("连接断开".to_string()))
+        .await;
     assert!(storage.set("key", "value2", None).await.is_err());
     assert!(storage.delete("key").await.is_err());
 

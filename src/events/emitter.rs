@@ -101,6 +101,7 @@ impl EventEmitter {
     /// # 返回
     /// - `Ok(usize)`: 成功接收事件的订阅者数量
     /// - `Err(broadcast::error::SendError<Event>)`: 发送失败
+    #[allow(clippy::result_large_err)]
     pub async fn emit(&self, event: Event) -> Result<usize, broadcast::error::SendError<Event>> {
         if !self.config.enabled {
             debug!("Event system is disabled, dropping event: {}", event.name());

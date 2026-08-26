@@ -30,7 +30,7 @@ jobs:
         with:
           components: clippy
       - uses: swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo clippy --all-targets --no-default-features --features full -- -D warnings
 
   test:
     name: Test
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
-      - run: cargo test --all-features
+      - run: cargo test --no-default-features --features full
 
   # 跨平台构建验证 — 确保 apple/windows/linux 平台都能编译
   cross-platform:
@@ -56,7 +56,7 @@ jobs:
         with:
           shared-key: cross-${{ runner.os }}
       - name: Build (all features)
-        run: cargo build --all-features --lib
+        run: cargo build --no-default-features --features full --lib
       - name: Build (no default features)
         run: cargo build --no-default-features --lib
 

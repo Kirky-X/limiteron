@@ -83,3 +83,6 @@ lcov.info
 # Reviews (security/quality scan artifacts)
 reviews/
 .cargo/
+
+# WorkBuddy AI local notes
+.workbuddy-ai/

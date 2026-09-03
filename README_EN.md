@@ -211,7 +211,7 @@ Suitable for web applications that need to prevent malicious users and crawlers.
 
 ```toml
 [dependencies]
-limiteron = { version = "0.2", features = ["macros"] }
+limiteron = { version = "0.3.0-rc.2", features = ["macros"] }
 ```
 
 </td>
@@ -221,7 +221,7 @@ limiteron = { version = "0.2", features = ["macros"] }
 
 ```toml
 [dependencies]
-limiteron = { version = "0.2", features = ["postgres", "redis-storage", "macros"] }
+limiteron = { version = "0.3.0-rc.2", features = ["postgres", "macros"] }
 ```
 
 </td>
@@ -245,13 +245,13 @@ Limiteron uses feature flags to control functionality. Only in-memory storage is
 **Preset Combinations**
 ```toml
 # Minimal: core rate limiting only
-limiteron = { version = "0.2", features = ["minimal"] }
+limiteron = { version = "0.3.0-rc.2", features = ["minimal"] }
 
 # Standard: core + basic advanced features
-limiteron = { version = "0.2", features = ["standard"] }
+limiteron = { version = "0.3.0-rc.2", features = ["standard"] }
 
 # Full: all features
-limiteron = { version = "0.2", features = ["full"] }
+limiteron = { version = "0.3.0-rc.2", features = ["full"] }
 ```
 
 </td>
@@ -260,13 +260,13 @@ limiteron = { version = "0.2", features = ["full"] }
 **Individual Features**
 ```toml
 # Storage backends
-limiteron = { version = "0.2", features = ["postgres", "redis-storage"] }
+limiteron = { version = "0.3.0-rc.2", features = ["postgres"] }
 
 # Advanced features
-limiteron = { version = "0.2", features = ["ban-manager", "quota-control", "circuit-breaker"] }
+limiteron = { version = "0.3.0-rc.2", features = ["ban-manager", "quota-control", "circuit-breaker"] }
 
 # Macro support
-limiteron = { version = "0.2", features = ["macros"] }
+limiteron = { version = "0.3.0-rc.2", features = ["macros"] }
 ```
 
 </td>
@@ -281,7 +281,6 @@ limiteron = { version = "0.2", features = ["macros"] }
 | Feature | Description | Default |
 |---------|-------------|---------|
 | `postgres` | PostgreSQL storage (DBNexus) | ❌ |
-| `redis-storage` | RedisStorage backend (Storage/BanStorage/QuotaStorage) | ❌ |
 | `ban-manager` | Ban management | ❌ |
 | `quota-control` | Quota control | ❌ |
 | `circuit-breaker` | Circuit breaker | ❌ |
@@ -327,7 +326,7 @@ limiteron = { version = "0.2", features = ["macros"] }
 
 ```toml
 [dependencies]
-limiteron = { version = "0.2", features = ["macros"] }
+limiteron = { version = "0.3.0-rc.2", features = ["macros"] }
 ```
 
 </td>
@@ -597,24 +596,8 @@ Limiteron supports multiple storage backends through trait abstraction for plugg
 |----------------|--------|---------|-------------|
 | **MemoryStorage** | `src/storage/mod.rs` | (always available) | In-memory storage, suitable for single-instance development and testing |
 | **DBNexusStorageAdapter** | `src/adapters/dbnexus_storage.rs` | `postgres` | PostgreSQL via DBNexus, production-grade persistence |
-| **RedisStorage** | `src/storage/redis.rs` | `redis-storage` | Redis storage backend, implements `Storage`/`BanStorage`/`QuotaStorage` traits, suitable for multi-instance distributed scenarios |
 
-**RedisStorage Usage Example:**
-
-```rust
-use limiteron::storage::RedisStorage;
-use limiteron::storage::Storage;
-
-let redis_storage = RedisStorage::new("redis://127.0.0.1:6379").await?;
-// Or create from an existing client
-// let redis_storage = RedisStorage::from_client(client).await?;
-
-// RedisStorage implements Storage / BanStorage / QuotaStorage traits
-let governor = Governor::builder()
-    .with_storage(Arc::new(redis_storage))
-    .build()
-    .await?;
-```
+> **Note:** `RedisStorage` and the `redis-storage` feature were removed in v0.2.1. Caching is now unified through oxcache (enable `cache-storage` to access the Redis cache backend).
 
 </details>
 
@@ -913,7 +896,7 @@ gantt
 - [x] Unit and integration tests
 - [x] Macro support
 - [x] PostgreSQL storage via DBNexus
-- [x] RedisStorage backend (v0.2.0)
+- [x] RedisStorage backend (v0.2.0, **removed in v0.2.1** — replaced by oxcache-backed cache)
 - [x] Governor graceful shutdown & health check (v0.2.0)
 - [x] ConfigLoader environment variable override (v0.2.0)
 - [x] CircuitBreaker `new()` default constructor (v0.2.0)
@@ -935,17 +918,17 @@ gantt
 <tr>
 <td width="50%">
 
-### 🔜 v0.2.1 Planned
-
-- [ ] Tower middleware integration refinement
-- [ ] Event system enhancements
-- [ ] More storage backend test coverage
-- [ ] Performance benchmark updates
+### ✅ v0.2.1 Shipped
+- [x] Tower middleware integration refinement
+- [x] Event system enhancements
+- [x] More storage backend test coverage
+- [x] Performance benchmark updates
+- [x] `RedisStorage` 移除（改用 oxcache 统一管理）
 
 </td>
 <td width="50%">
 
-### 🎯 v0.3.0 Planned
+### 🚀 v0.3.0-rc.2 (Current)
 
 - [ ] Distributed rate limiting (cross-instance Redis Lua coordination)
 - [ ] Governor shutdown full implementation (background task await/state flush/connection release/Drop trait)

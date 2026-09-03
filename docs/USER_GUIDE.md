@@ -83,7 +83,7 @@
 <td width="50%">
 
 **必需**
-- ✅ Rust 1.75+ (stable)
+- ✅ Rust 1.85+ (stable)
 - ✅ Cargo (随 Rust 一起安装)
 - ✅ Git
 
@@ -106,11 +106,11 @@
 ```bash
 # 检查 Rust 版本
 rustc --version
-# 预期: rustc 1.75.0 (或更高)
+# 预期: rustc 1.85.0 (或更高)
 
 # 检查 Cargo 版本
 cargo --version
-# 预期: cargo 1.75.0 (或更高)
+# 预期: cargo 1.85.0 (或更高)
 
 # 检查 Git 版本
 git --version
@@ -136,7 +136,7 @@ git --version
 ```bash
 # 添加到 Cargo.toml
 [dependencies]
-limiteron = { version = "0.3", features = ["macros"] }
+limiteron = { version = "0.3.0-rc.2", features = ["macros"] }
 
 # 或通过命令安装
 cargo add limiteron --features macros
@@ -163,7 +163,7 @@ cargo build --release
 **启用特性**
 ```toml
 [dependencies]
-limiteron = { version = "0.3", features = ["postgres", "ban-manager"] }
+limiteron = { version = "0.3.0-rc.2", features = ["postgres", "ban-manager"] }
 ```
 
 **本地开发**

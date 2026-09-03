@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0-rc.2] - 2026-09-03
+
+### Documentation
+
+- 同步 README/USER_GUIDE/FAQ/API_REFERENCE 等文档中的版本号 0.2 → 0.3.0-rc.2
+- 同步 MSRV 文档描述 1.75+ → 1.85+（与 `Cargo.toml` `rust-version = "1.85"` 对齐）
+- 同步 README_EN.md 的 `redis-storage` 特性 / `RedisStorage` 用法示例：v0.2.1 已移除，改用 oxcache 统一管理
+- 同步 README_EN.md 路线图：`v0.2.1 Planned` → `Shipped`、`v0.3.0 Planned` → `v0.3.0-rc.2 (Current)`
+
+### Changed
+
+- 依赖路径本地化：`oxcache` / `dbnexus` / `trait-kit` / `inklog` 在 `[workspace.dependencies]` 改用 `path` + `version` 双写，供本地联调与 CI 发布模式共用
+- `Cargo.lock` 加入版本控制（库 crate 现在生成并提交）
+- 版本号递增至 `0.3.0-rc.2`（下一个 minor 预发布）
+
 ## [0.2.10] - 2026-07-22
 
 ### 测试

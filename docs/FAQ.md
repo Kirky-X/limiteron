@@ -226,7 +226,7 @@
 
 ```toml
 [dependencies]
-limiteron = { version = "0.2", features = ["macros"] }
+limiteron = { version = "0.3.0-rc.2", features = ["macros"] }
 ```
 
 或使用 cargo:
@@ -275,7 +275,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 </tr>
 <tr>
 <td>Rust 版本</td>
-<td>1.75+</td>
+<td>1.85+</td>
 <td>最新稳定版</td>
 </tr>
 <tr>
@@ -323,7 +323,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 3. **检查 Rust 版本:**
    ```bash
    rustc --version
-   # 应该是 1.75.0 或更高
+   # 应该是 1.85.0 或更高
    ```
 
 4. **验证依赖:**
@@ -345,7 +345,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 **可以！** 这是一个示例 Dockerfile:
 
 ```dockerfile
-FROM rust:1.75-slim as builder
+FROM rust:1.85-slim as builder
 
 WORKDIR /app
 COPY . .
@@ -1045,7 +1045,7 @@ bug 的清晰描述
 
 ### 环境
 - OS: Ubuntu 22.04
-- Rust version: 1.75.0
+- Rust version: 1.85.0
 - Project version: 1.0.0
 
 ### 其他上下文

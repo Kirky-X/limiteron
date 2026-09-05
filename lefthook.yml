@@ -1,26 +1,30 @@
-# Lefthook configuration — Git hooks manager (Go binary, no runtime deps)
-# Install: brew install lefthook && lefthook install
-# Docs: https://github.com/evilmartians/lefthook
-# Mirrors .pre-commit-config.yaml core subset; both can coexist (pick one).
-
+# lefthook 配置 — 7 仓库统一基线(见 base/CONFIG_BASELINE.md)
+# 启用: lefthook install(或 bash scripts/install-pre-commit.sh)
+# 与 .pre-commit-config.yaml 功能等价,二选一即可。
 pre-commit:
   parallel: true
   commands:
-    cargo-fmt:
+    rustfmt-check:
+      glob: "*.rs"
       run: cargo fmt --all -- --check
+    clippy:
       glob: "*.rs"
-    cargo-check:
-      run: cargo check --lib
-      glob: "*.rs"
-    cargo-clippy:
-      run: cargo clippy --lib -- -D warnings
-      glob: "*.rs"
-    detect-private-key:
-      run: grep -rE "BEGIN (RSA |EC |OPENSSH |DSA |)PRIVATE KEY" --include="*.rs" --include="*.toml" --include="*.yml" --include="*.yaml" src/ && exit 1 || exit 0
+      # CLIPPY_GATE 为本仓库零告警门槛 feature 组合(与 CI clippy job 一致)
+      run: cargo clippy --all-targets --no-default-features --features full -- -D warnings
+    cargo-deny:
+      run: cargo deny check
+    no-private-key:
+      run: "! git diff --cached --name-only | xargs -r grep -IlE 'BEGIN (RSA|OPENSSH|PGP|EC|PRIVATE) PRIVATE KEY|sk-[A-Za-z0-9]{20,}'"
+
+commit-msg:
+  commands:
+    conventional:
+      run: 'grep -qE "^(feat|fix|refactor|docs|test|chore|perf|ci|build|revert|style)(\(.+\))?!?: .+" {1}'
 
 pre-push:
   commands:
-    cargo-test:
-      run: cargo test --lib --features full
-    cargo-deny:
-      run: cargo deny check advisories bans licenses sources
+    cargo-audit:
+      run: cargo audit
+    coverage-80:
+      name: coverage ≥80% lines
+      run: cargo llvm-cov --fail-under-lines 80

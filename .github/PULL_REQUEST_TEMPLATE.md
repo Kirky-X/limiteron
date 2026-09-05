@@ -1,56 +1,29 @@
-## Description
+## 变更描述
 
-<!-- Brief description of what this PR does and why. -->
+<!-- 简要描述本次 PR 做了什么,以及为什么 -->
 
-## Type of Change
+## 变更类型
 
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation update
-- [ ] Refactor / code simplification
-- [ ] Test coverage improvement
-- [ ] Dependency update
-- [ ] CI/CD change
+- [ ] feat: 新功能
+- [ ] fix: Bug 修复
+- [ ] refactor: 重构
+- [ ] perf: 性能优化
+- [ ] docs: 文档
+- [ ] test: 测试
+- [ ] chore: 杂项
+- [ ] ci: CI/CD
+- [ ] breaking: 破坏性变更
 
-## Related Issues
+## 检查清单
 
-<!-- Link to issues this PR addresses. Use "Closes #123" or "Fixes #123" to auto-close. -->
+- [ ] 代码通过 `cargo fmt --all -- --check`
+- [ ] 代码通过 `cargo clippy --all-targets -- <feature 组合> -- -D warnings`
+- [ ] 测试通过 `cargo test --workspace <feature 组合>`
+- [ ] 新增功能有对应的测试覆盖
+- [ ] 新增功能有对应的示例
+- [ ] 文档已更新(如有需要)
+- [ ] CHANGELOG.md 已更新(如为用户可见变更)
 
-## Changes Made
+## 相关 Issue
 
-<!-- List the key changes in bullet points. -->
-
--
--
--
-
-## Testing
-
-- [ ] `cargo fmt --all -- --check` passes
-- [ ] `cargo clippy --all-features --all-targets -- -D warnings` passes
-- [ ] `cargo test --lib --features full` passes
-- [ ] `cargo test --doc --features full` passes
-- [ ] New tests added for new functionality
-- [ ] All existing tests pass
-
-## Checklist
-
-- [ ] My code follows the project's style guidelines (4-space indent, 100-char max line, ahash over std HashMap)
-- [ ] I have performed a self-review of my own code
-- [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] I have updated the documentation accordingly
-- [ ] My changes generate no new warnings
-- [ ] I have added tests that prove my fix is effective or that my feature works
-- [ ] New and existing unit tests pass locally with my changes
-
-## Breaking Change
-
-<!-- If this is a breaking change, describe: -->
-<!-- 1. What breaks -->
-<!-- 2. Migration path -->
-<!-- 3. Why the break is necessary -->
-
-## Additional Notes
-
-<!-- Anything else reviewers should know. -->
+<!-- 关联的 issue 编号,例如 Closes #123 -->

@@ -177,19 +177,18 @@ impl<B> IntoRequestContext<B> for CustomConverter {
             .with_method(request.method().as_str());
 
         // 从自定义头提取租户 ID
-        if let Some(tenant) = request.headers().get("x-tenant-id") {
-            if let Ok(value) = tenant.to_str() {
-                ctx = ctx.with_header("X-Tenant-Id", value);
-            }
+        if let Some(tenant) = request.headers().get("x-tenant-id")
+            && let Ok(value) = tenant.to_str()
+        {
+            ctx = ctx.with_header("X-Tenant-Id", value);
         }
 
         // 从 X-Forwarded-For 提取 IP
-        if let Some(forwarded) = request.headers().get("x-forwarded-for") {
-            if let Ok(value) = forwarded.to_str() {
-                if let Some(first_ip) = value.split(',').next() {
-                    ctx = ctx.with_client_ip(first_ip.trim());
-                }
-            }
+        if let Some(forwarded) = request.headers().get("x-forwarded-for")
+            && let Ok(value) = forwarded.to_str()
+            && let Some(first_ip) = value.split(',').next()
+        {
+            ctx = ctx.with_client_ip(first_ip.trim());
         }
         ctx
     }

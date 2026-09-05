@@ -1,31 +1,23 @@
 ---
-name: Question
-about: Ask a question about Limiteron usage
-title: "[QUESTION] "
-labels: ["question", "triage"]
+name: 使用问题
+about: 使用方式咨询(不是 bug,不是功能提议)
+title: "[q] "
+labels: ["question"]
 assignees: []
 ---
 
-## Question
+**问题**
 
-<!-- Your question here. Be as specific as possible. -->
+<!-- 想了解什么? -->
 
-## Context
-
-<!-- What are you trying to achieve? -->
-
-## What I've Tried
-
-<!-- What have you already tried? What documentation have you read? -->
-
-## Environment
-
-- Limiteron version: [e.g., 0.2.0]
-- Rust version: [e.g., 1.75.0]
-- Features enabled: [e.g., full, postgres]
-
-## Code Sample (if applicable)
+**已尝试的做法**
 
 ```rust
-// Your code here
+// 已尝试的代码与 feature 组合
 ```
+
+**环境**
+
+- rustc 版本:
+- crate 版本:
+- 启用的 features:

@@ -2,11 +2,15 @@
 name = "limiteron-examples"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Limiteron usage examples - demonstrates rate limiting, circuit breaking, quota control, and ban management"
 publish = false
+
+[lints]
+workspace = true
 
 [dependencies]
 limiteron = { path = ".." }

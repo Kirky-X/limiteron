@@ -175,7 +175,7 @@ async fn demo_custom_provider() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// 演示通过 Arc<dyn AuthorizationProvider> 实现依赖注入
+/// 演示通过 `Arc<dyn AuthorizationProvider>` 实现依赖注入
 async fn demo_dependency_injection() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- 4. Dependency Injection ---\n");
 

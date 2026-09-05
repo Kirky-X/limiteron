@@ -18,7 +18,7 @@ exclude = [
 [workspace.package]
 version = "0.3.0-rc.2"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.97.1"
 authors = ["Kirky.X"]
 license = "MIT"
 repository = "https://github.com/Kirky-X/limiteron"
@@ -86,7 +86,7 @@ oxcache = { version = "0.5.0-rc.2", path = "../oxcache", default-features = fals
 dbnexus = { version = "0.6.0-rc.2", path = "../dbnexus", default-features = false, features = ["macros", "sql-parser", "permission"] }
 
 # 宏
-limiteron-macros = { path = "macros", version = "0.2" }
+limiteron-macros = { path = "macros", version = "0.3.0-rc.2" }
 
 # 监控
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -116,12 +116,20 @@ woothee = { version = "0.13" }
 name = "limiteron"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Unified flow control framework for Rust"
 keywords = ["rate-limiting", "quota", "throttling", "circuit-breaker"]
 categories = ["web-programming", "concurrency"]
+
+[lints]
+workspace = true
+
+[workspace.lints.rust]
+
+[workspace.lints.clippy]
 
 [dependencies]
 tokio.workspace = true
@@ -425,24 +433,11 @@ name = "regression"
 path = "benches/regression.rs"
 required-features = ["full"]
 
-# Coverage configuration
-[package.metadata.tarpaulin]
-timeout = "300"
-out = ["Html", "Json"]
-output-dir = "coverage"
-exclude-files = [
-    "**/tests/**",
-    "**/examples/**",
-    "**/benches/**",
-    "**/src/bin/**",
-    "**/macros/**",
-    # 以下模块需要外部基础设施（Redis/Postgres/MaxMind DB），
-    # 其覆盖率由集成测试（tests/ 目录，需 Docker）覆盖，不在单元测试覆盖率统计内。
-    "**/storage/redis.rs",
-    "**/adapters/dbnexus_storage.rs",
-    "**/adapters/dbnexus_ban_storage.rs",
-    "**/adapters/dbnexus_quota_storage.rs",
-    "**/adapters/storage_factory.rs",
-    "**/matchers/geo.rs",
-]
-fail-under = 95
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+
+[profile.bench]
+inherits = "release"

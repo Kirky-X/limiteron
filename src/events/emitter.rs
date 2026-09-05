@@ -77,7 +77,7 @@ impl EventEmitter {
 
     /// 创建事件发射器构建器
     ///
-    /// 返回 [`EventEmitterBuilder`]，用于链式配置事件发射器。
+    /// 返回 `EventEmitterBuilder`，用于链式配置事件发射器。
     ///
     /// # 示例
     ///

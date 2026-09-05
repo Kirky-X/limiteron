@@ -1,7 +1,8 @@
 [package]
 name = "limiteron-macros"
-version = "0.2.10"
+version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -9,6 +10,9 @@ description = "Procedural macros for limiteron rate limiting"
 
 [lib]
 proc-macro = true
+
+[lints]
+workspace = true
 
 [dependencies]
 syn.workspace = true

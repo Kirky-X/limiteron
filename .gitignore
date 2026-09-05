@@ -1,8 +1,10 @@
-# Rust
+# Build artifacts
 target/
 **/*.rs.bk
 *.pdb
-Cargo.lock
+
+# Cargo — Cargo.lock 与 rust-toolchain.toml 纳入版本控制(统一基线,禁止忽略)
+.cargo/
 
 # IDEs
 .idea/
@@ -19,16 +21,21 @@ Cargo.lock
 .DS_Store
 Thumbs.db
 
-# GeoIP database
+# GeoIP database(仓库特有)
 data/
 
 # Logs
 *.log
+logs/
 
 # Coverage
-*.profraw
 coverage/
-# Tarpaulin reports (large HTML/JSON files, kept locally only)
+*.profraw
+*.profdata
+*.gcda
+*.gcno
+lcov.info
+# Tarpaulin 已废除(改用 llvm-cov);历史本地报告规则保留无害
 tarpaulin-report.html
 tarpaulin-report.json
 tarpaulin/
@@ -38,7 +45,7 @@ cobertura.xml
 test-results/
 temp/
 
-# Documentation
+# Documentation(仓库特有)
 docs/prd.md
 docs/task.md
 docs/tdd.md
@@ -60,14 +67,14 @@ openspec/
 specmark/
 IFLOW.md
 TEST_SUMMARY_2026_01_17.md
-AGENTS.md
-.gitnexus
 
 # AI / Agent Tools (not for version control)
 AGENTS.md
 CLAUDE.md
 GEMINI.md
 CODEIUM.md
+.codenexus/
+.gitnexus/
 .claude/
 .trae/
 .qoder/
@@ -78,11 +85,12 @@ CODEIUM.md
 .codeium/
 .github/copilot/
 strix_runs
-lcov.info
 
 # Reviews (security/quality scan artifacts)
 reviews/
-.cargo/
+
+# mimosa 安全扫描工具产物
+.mimosa/
 
 # WorkBuddy AI local notes
 .workbuddy-ai/

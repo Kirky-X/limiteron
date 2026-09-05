@@ -1,5 +1,5 @@
-# Rustfmt configuration
-edition = "2021"
+# Rustfmt 配置 — 7 仓库统一基线(见 base/CONFIG_BASELINE.md)
+edition = "2024"
 max_width = 100
 hard_tabs = false
 tab_spaces = 4
@@ -8,5 +8,5 @@ use_small_heuristics = "Default"
 reorder_imports = true
 reorder_modules = true
 remove_nested_parens = true
+merge_derives = true
 force_explicit_abi = true
-# format_strings = true  # requires nightly, disabled for stable Rust

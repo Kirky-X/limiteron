@@ -11,9 +11,9 @@
 //! - [`BanFileLoader::load_once`] - 一次性加载封禁规则
 //! - [`BanFileLoader::start_watching`] - 启动文件变更热重载
 //! - [`BanFileLoader::stop_watching`] - 停止热重载
-//! - [`BanTarget::Ip`] / [`BanTarget::UserId`] / [`BanTarget::Mac`] / [`BanTarget::Geo`]
+//! - `BanTarget::Ip` / `BanTarget::UserId` / `BanTarget::Mac` / `BanTarget::Geo`
 //!   - 4 种封禁目标在 YAML 中的写法
-//! - [`LoadResult`] - 加载结果（成功/失败计数与失败详情）
+//! - `LoadResult` - 加载结果（成功/失败计数与失败详情）
 //!
 //! # YAML 格式
 //!

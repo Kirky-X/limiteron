@@ -14,8 +14,8 @@ repos:
       - id: detect-private-key
       - id: check-merge-conflict
         args: ['--assume-in-merge']
-      - id: no-commit-to-branch
-        args: ['--branch', 'main', '--branch', 'master']
+      # no-commit-to-branch 已移除：本项目工作流为 main 直提(无 PR 流程，
+      # 与 475c173/1f532a4 既定决策一致)，该护栏与工作流冲突。
 
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0

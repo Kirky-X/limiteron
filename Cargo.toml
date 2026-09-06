@@ -413,6 +413,17 @@ i18n = ["dep:icu", "dep:writeable"]
 # limiteron retains its original `log`/`tracing` behavior unchanged.
 inklog = ["dep:inklog"]
 
+# ============================================================================
+# 测试目标显式注册（阶段 2 验收）
+# ============================================================================
+# e2e_advanced 迁入 tests/e2e/ 目录承载（e2e_* 不得裸放顶层）；顶层文件迁入
+# 子目录后脱离 Cargo 自动发现范围（仅自动发现顶层 *.rs 与 */main.rs），
+# 不注册则 65 个测试静默消失。文件按 mod 域组织，仅 gcra 域有
+# #[cfg(feature = "gcra")] 门控，其余用默认 feature API，无需 required-features。
+[[test]]
+name = "e2e_advanced"
+path = "tests/e2e/e2e_advanced.rs"
+
 [[bench]]
 name = "throughput"
 path = "benches/throughput.rs"

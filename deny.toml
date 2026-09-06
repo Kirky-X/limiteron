@@ -25,6 +25,19 @@ allow = [
 confidence-threshold = 0.8
 unused-allowed-license = "warn"
 
+# 7 仓统一 license：MIT + Commons Clause v1.0（license-file 形态，见 base/CONFIG_BASELINE.md）。
+# cargo-deny 不识别 manifest 的 license-file，对工作区 crate 用 clarify 绑定
+# LICENSE 文件内容 hash（防篡改）放行；path 相对被 clarify 的 crate 目录解析。
+[[licenses.clarify]]
+name = "limiteron"
+expression = "MIT"
+license-files = [{ path = "LICENSE", hash = 0xfb13e7ad }]
+
+[[licenses.clarify]]
+name = "oxcache"
+expression = "MIT"
+license-files = [{ path = "LICENSE", hash = 0xfb13e7ad }]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

@@ -25,7 +25,7 @@ repository = "https://github.com/Kirky-X/limiteron"
 
 [workspace.dependencies]
 # 异步运行时
-tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "time", "net", "signal", "sync", "io-util"] }
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "time", "net", "signal", "sync", "io-util"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 async-trait = "0.1"
 
@@ -54,7 +54,7 @@ scopeguard = "1.2"
 # 数据结构
 dashmap = "6.2"
 ahash = { version = "0.8", features = ["serde"] }
-regex = "1.12"
+regex = "1.13"
 ipnet = "2.12"
 
 # 安全
@@ -109,7 +109,7 @@ sha2 = { version = "0.11" }
 hex = { version = "0.4" }
 
 # 高级匹配
-maxminddb = { version = "0.29" }
+maxminddb = { version = "0.30" }
 woothee = { version = "0.13" }
 
 [package]
@@ -197,7 +197,7 @@ http = { workspace = true, optional = true }
 # 国际化 (optional, feature-gated via `i18n`).
 # ICU4X 2.x 提供 locale 感知的数字/日期/复数/排序格式化。
 # Mirrors trait-kit/oxcache i18n pattern.
-icu = { version = "2.2", optional = true }
+icu = { version = "2.3", optional = true }
 writeable = { version = "0.6", optional = true }
 
 # trait-kit integration (optional, feature-gated via `kit`).

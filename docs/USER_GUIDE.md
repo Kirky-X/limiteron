@@ -1,16 +1,15 @@
-<div align="center">
+# 📖 Limiteron 用户指南
 
-# 📖 用户指南
+本指南是 Limiteron（Rust 统一流量控制框架）的完整使用教程，覆盖从安装、核心概念到高级用法、最佳实践与故障排查的全部内容。快速概览请见 [README](../README.md)，API 细节请见 [API 参考](API_REFERENCE.md)。
 
-### Limiteron 完整使用指南
-
-[🏠 首页](../README.md) • [📚 文档](README.md) • [🎯 示例](../examples/) • [❓ 常见问题](FAQ.md)
+[🏠 首页](../README.md) • [🎯 示例](../examples/) • [❓ 常见问题](FAQ.md)
 
 ---
 
-</div>
-
 ## 📋 目录
+
+<details open>
+<summary>点击展开</summary>
 
 - [简介](#简介)
 - [快速开始](#快速开始)
@@ -31,6 +30,8 @@
 - [故障排除](#故障排除)
 - [下一步](#下一步)
 
+</details>
+
 ---
 
 ## 简介
@@ -44,22 +45,18 @@
 <table>
 <tr>
 <td width="25%" align="center">
-<img src="https://img.icons8.com/fluency/96/000000/rocket.png" width="64"><br>
 <b>快速开始</b><br>
 5 分钟上手
 </td>
 <td width="25%" align="center">
-<img src="https://img.icons8.com/fluency/96/000000/settings.png" width="64"><br>
 <b>配置</b><br>
 自定义配置
 </td>
 <td width="25%" align="center">
-<img src="https://img.icons8.com/fluency/96/000000/code.png" width="64"><br>
 <b>最佳实践</b><br>
 学习正确的方法
 </td>
 <td width="25%" align="center">
-<img src="https://img.icons8.com/fluency/96/000000/rocket-take-off.png" width="64"><br>
 <b>高级主题</b><br>
 掌握细节
 </td>
@@ -83,7 +80,7 @@
 <td width="50%">
 
 **必需**
-- ✅ Rust 1.85+ (stable)
+- ✅ Rust 1.97.1+ (stable)
 - ✅ Cargo (随 Rust 一起安装)
 - ✅ Git
 
@@ -106,7 +103,7 @@
 ```bash
 # 检查 Rust 版本
 rustc --version
-# 预期: rustc 1.85.0 (或更高)
+# 预期: rustc 1.97.1 (或更高)
 
 # 检查 Cargo 版本
 cargo --version
@@ -1199,21 +1196,18 @@ let cache = L2Cache::new(1000, 3600)?;
 <tr>
 <td width="33%" align="center">
 <a href="../examples/">
-<img src="https://img.icons8.com/fluency/96/000000/code.png" width="64"><br>
 <b>💻 示例</b>
 </a><br>
 实际代码示例
 </td>
 <td width="33%" align="center">
 <a href="API_REFERENCE.md">
-<img src="https://img.icons8.com/fluency/96/000000/api.png" width="64"><br>
 <b>📚 API 参考</b>
 </a><br>
 完整 API 文档
 </td>
 <td width="33%" align="center">
 <a href="FAQ.md">
-<img src="https://img.icons8.com/fluency/96/000000/question.png" width="64"><br>
 <b>❓ 常见问题</b>
 </a><br>
 常见问题解答
@@ -1229,6 +1223,6 @@ let cache = L2Cache::new(1000, 3600)?;
 
 由项目团队制作
 
-[⬆ 返回顶部](#-用户指南)
+[⬆ 返回顶部](#-limiteron-用户指南)
 
 </div>

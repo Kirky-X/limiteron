@@ -1,16 +1,15 @@
-<div align="center">
+# ❓ Limiteron 常见问题
 
-# ❓ 常见问题 (FAQ)
-
-### 常见问题快速解答
+本文档按主题汇总 Limiteron 的常见问题与解答，覆盖通用问题、安装设置、使用功能、性能、安全与故障排除。系统性教程请见 [用户指南](USER_GUIDE.md)。
 
 [🏠 首页](../README.md) • [📖 用户指南](USER_GUIDE.md) • [📚 API 参考](API_REFERENCE.md)
 
 ---
 
-</div>
-
 ## 📋 目录
+
+<details open>
+<summary>点击展开</summary>
 
 - [一般问题](#一般问题)
 - [安装和设置](#安装和设置)
@@ -20,6 +19,8 @@
 - [故障排除](#故障排除)
 - [贡献](#贡献)
 - [许可证](#许可证)
+
+</details>
 
 ---
 
@@ -636,7 +637,7 @@ async fn api_handler() -> Result<String, Box<dyn std::error::Error>> {
 cargo bench
 ```
 
-**另请参阅:** [性能指南](../README.md#性能)
+**另请参阅:** [性能指南](../README.md#-性能)
 
 </details>
 
@@ -773,7 +774,7 @@ let governor = Governor::builder()
 </tr>
 </table>
 
-**更多详情:** [安全指南](../README.md#安全)
+**更多详情:** [安全指南](../README.md#-安全)
 
 </details>
 
@@ -942,7 +943,7 @@ for i in 0..100 {
   let limiter = Arc::new(TokenBucketLimiter::new(10, 1));
   ```
 
-**更多帮助:** [性能指南](../README.md#性能)
+**更多帮助:** [性能指南](../README.md#-性能)
 
 </details>
 
@@ -1112,15 +1113,9 @@ Bug 报告和功能请求
 
 <br>
 
-**双重许可证:**
+**本项目基于 MIT 许可证发布**（自 v0.2.3 起，此前为 Apache-2.0，详见 [更新日志](CHANGELOG.md)）。
 
-<table>
-<tr>
-<td width="50%" align="center">
-
-**MIT 许可证**
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE-MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
 
 **权限:**
 - ✅ 商业使用
@@ -1128,24 +1123,7 @@ Bug 报告和功能请求
 - ✅ 分发
 - ✅ 私有使用
 
-</td>
-<td width="50%" align="center">
-
-**Apache 2.0 许可证**
-
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](../LICENSE-APACHE)
-
-**权限:**
-- ✅ 商业使用
-- ✅ 修改
-- ✅ 分发
-- ✅ 专利授权
-
-</td>
-</tr>
-</table>
-
-**你可以选择任一许可证使用。**
+**唯一条件:** 保留许可证与版权声明（Copyright (c) 2026 Kirky.X）。
 
 </details>
 
@@ -1154,7 +1132,7 @@ Bug 报告和功能请求
 
 <br>
 
-**可以！** MIT 和 Apache 2.0 许可证都允许商业使用。
+**可以！** MIT 许可证允许商业使用。
 
 **你需要做的:**
 1. ✅ 包含许可证文本
@@ -1178,19 +1156,16 @@ Bug 报告和功能请求
 <tr>
 <td width="33%" align="center">
 <a href="../../issues">
-<img src="https://img.icons8.com/fluency/96/000000/bug.png" width="48"><br>
 <b>创建 Issue</b>
 </a>
 </td>
 <td width="33%" align="center">
 <a href="../../discussions">
-<img src="https://img.icons8.com/fluency/96/000000/chat.png" width="48"><br>
 <b>开始讨论</b>
 </a>
 </td>
 <td width="33%" align="center">
 <a href="https://github.com/kirkyx/limiteron">
-<img src="https://img.icons8.com/fluency/96/000000/github.png" width="48"><br>
 <b>GitHub</b>
 </a>
 </td>
@@ -1203,6 +1178,6 @@ Bug 报告和功能请求
 
 由文档团队制作
 
-[⬆ 返回顶部](#-常见问题-faq)
+[⬆ 返回顶部](#-limiteron-常见问题)
 
 </div>

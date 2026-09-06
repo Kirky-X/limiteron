@@ -1,29 +1,40 @@
-# Limiteron 测试指南
+# 🧪 Limiteron 测试指南
 
-本文档说明如何运行 Limiteron 项目的测试，包括按 feature 运行测试的详细说明。
+本文档说明如何运行 Limiteron 项目的测试，包括按 feature 运行测试的详细说明。测试策略与覆盖率数据另见 [覆盖率报告](COVERAGE_REPORT.md)。
 
-## 目录
+## 📋 目录
+
+<details open>
+<summary>点击展开</summary>
 
 - [快速开始](#快速开始)
 - [按 Feature 运行测试](#按-feature-运行测试)
 - [集成测试](#集成测试)
 - [单元测试](#单元测试)
 - [测试覆盖率](#测试覆盖率)
+- [测试最佳实践](#测试最佳实践)
+- [CI/CD 集成](#cicd-集成)
+- [故障排查](#故障排查)
+- [更多信息](#更多信息)
+
+</details>
 
 ## 快速开始
 
-### 运行所有测试
+### 常用测试命令
 
 ```bash
-# 运行所有测试（包括所有 features）
-cargo test --all-features
+# 运行库单元测试（full 特性）
+cargo test --features full --lib
 
-# 运行库的单元测试
-cargo test --lib
+# 运行统一集成测试（按 feature 显式启用）
+cargo test --test unified_tests --features "ban-manager,quota-control,circuit-breaker"
 
-# 运行所有集成测试
-cargo test --test '*_tests'
+# 运行基准测试
+cargo bench
 ```
+
+> 📌 `postgres` 与 `sqlite` 互斥，`--all-features` 会触发 DBNexus 编译错误，请始终使用显式特性组合。
 
 ## 按 Feature 运行测试
 
@@ -83,8 +94,8 @@ cargo test --features circuit-breaker test_circuit
 # 运行多个 features 的测试
 cargo test --features "ban-manager,quota-control,circuit-breaker"
 
-# 运行所有可选 features
-cargo test --all-features
+# 运行完整功能集（full 含 postgres，不含 sqlite，可安全编译）
+cargo test --features full
 
 # 运行标准功能集
 cargo test --features standard
@@ -100,7 +111,9 @@ cargo test --features standard
 | `monitoring` | 监控指标功能 | `cargo test --features monitoring` |
 | `telemetry` | 遥测功能 | `cargo test --features telemetry` |
 | `postgres` | PostgreSQL 存储 | `cargo test --features postgres` |
-| `redis` | Redis 缓存 | `cargo test --features redis` |
+| `cache-storage` | Redis 缓存后端（经 oxcache） | `cargo test --features cache-storage` |
+| `distributed` | 分布式部署 | `cargo test --features distributed` |
+| `gcra` | GCRA 限流算法 | `cargo test --features gcra` |
 | `parallel-checker` | 并行封禁检查 | `cargo test --features parallel-checker` |
 | `audit-log` | 审计日志 | `cargo test --features audit-log` |
 | `fallback` | 降级策略 | `cargo test --features fallback` |
@@ -169,25 +182,44 @@ cargo test --lib limiteron::governor
 
 ## 测试覆盖率
 
+### 当前测试状态
+
+项目当前测试状态: **1209 个测试全部通过 ✅**
+
+| 测试类型 | 测试数量 | 状态 |
+|---------|---------|------|
+| 单元测试 | 523 | ✅ 通过 |
+| 集成测试 (unified_tests) | 192 | ✅ 通过 |
+| 集成测试 (integration_tests) | 247 | ✅ 通过 |
+| 安全测试 | 82 | ✅ 通过 |
+| E2E 测试 | 165 | ✅ 通过 |
+
+详细报告请查看: [COVERAGE_REPORT.md](./COVERAGE_REPORT.md)
+
 ### 使用 cargo-tarpaulin (任务 5.1)
 
 ```bash
 # 安装 cargo-tarpaulin
 cargo install cargo-tarpaulin
 
-# 生成覆盖率报告（所有 features）
-cargo tarpaulin --all-features --out Html
+# 生成覆盖率报告（显式指定特性组合；postgres 与 sqlite 互斥，不可使用 --all-features）
+cargo tarpaulin --features "ban-manager,quota-control,circuit-breaker" --out Html
+cargo tarpaulin --features full --out Html
 
 # 生成特定 feature 的覆盖率报告
 cargo tarpaulin --features ban-manager --out Html
 cargo tarpaulin --features quota-control --out Html
 cargo tarpaulin --features circuit-breaker --out Html
 
-# 生成终端输出
-cargo tarpaulin --all-features --out Stdout
+# 生成终端输出与 JSON 报告
+cargo tarpaulin --out Stdout --features full
+cargo tarpaulin --out Json --features minimal
 
 # 设置最低覆盖率阈值
-cargo tarpaulin --all-features --threshold 70
+cargo tarpaulin --features full --threshold 70
+
+# 查看 HTML 报告
+open tarpaulin-report.html
 ```
 
 ### 覆盖率目标
@@ -195,6 +227,12 @@ cargo tarpaulin --all-features --threshold 70
 - 核心模块：> 70% 覆盖率
 - 关键路径：> 80% 覆盖率
 - 工具函数：> 60% 覆盖率
+
+| 阶段 | 目标覆盖率 | 状态 |
+|------|-----------|------|
+| P0 | 所有测试通过 | ✅ 已达成 (1209 tests) |
+| P1 | 代码覆盖率 60% | 🔄 进行中 |
+| P2 | 代码覆盖率 75% | 📋 计划中 |
 
 ## 测试最佳实践
 
@@ -205,20 +243,20 @@ cargo tarpaulin --all-features --threshold 70
 cargo fmt --check
 
 # 运行 clippy 检查
-cargo clippy --all-features
+cargo clippy --no-default-features --features full
 
 # 运行编译检查
-cargo check --all-features
+cargo check --no-default-features --features full
 ```
 
 ### 2. 并行运行测试
 
 ```bash
 # 使用多线程加速测试
-cargo test --all-features -- --test-threads=4
+cargo test --features full -- --test-threads=4
 
 # 显示测试输出
-cargo test --all-features -- --show-output
+cargo test --features full -- --show-output
 ```
 
 ### 3. 调试失败的测试
@@ -238,10 +276,10 @@ RUST_LOG=debug cargo test --features circuit-breaker -- --nocapture
 
 ```bash
 # 只运行未通过的测试
-cargo test --all-features -- --ignored
+cargo test --features full -- --ignored
 
 # 运行特定包的测试
-cargo test -p limiteron --all-features
+cargo test -p limiteron --features full
 ```
 
 ## CI/CD 集成
@@ -295,45 +333,8 @@ cargo test --test unified_tests -- --test-threads=1
 
 ```bash
 # 减少并行测试线程
-cargo test --all-features -- --test-threads=1
+cargo test --features full -- --test-threads=1
 ```
-
-## 测试覆盖率
-
-### 覆盖率报告
-
-项目当前测试状态: **1209 个测试全部通过 ✅**
-
-| 测试类型 | 测试数量 | 状态 |
-|---------|---------|------|
-| 单元测试 | 523 | ✅ 通过 |
-| 集成测试 (unified_tests) | 192 | ✅ 通过 |
-| 集成测试 (integration_tests) | 247 | ✅ 通过 |
-| 安全测试 | 82 | ✅ 通过 |
-| E2E 测试 | 165 | ✅ 通过 |
-
-详细报告请查看: [COVERAGE_REPORT.md](./COVERAGE_REPORT.md)
-
-### 生成覆盖率报告
-
-```bash
-# 安装 tarpaulin
-cargo install cargo-tarpaulin
-
-# 生成覆盖率报告
-cargo tarpaulin --out Html --out Json --features minimal
-
-# 查看 HTML 报告
-open tarpaulin-report.html
-```
-
-### 覆盖率目标
-
-| 阶段 | 目标覆盖率 | 状态 |
-|------|-----------|------|
-| P0 | 所有测试通过 | ✅ 已达成 (1209 tests) |
-| P1 | 代码覆盖率 60% | 🔄 进行中 |
-| P2 | 代码覆盖率 75% | 📋 计划中 |
 
 ## 更多信息
 

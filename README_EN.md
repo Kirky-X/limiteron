@@ -1,24 +1,14 @@
 <div align="center">
 
-<p>
-  <img src="docs/image/limiteron.png" alt="Limiteron Logo" width="200">
-</p>
+<img src="docs/assets/limiteron.png" alt="Limiteron Logo" width="200">
 
-[![Version](https://img.shields.io/github/v/release/Kirky-X/limiteron)](https://github.com/Kirky-X/limiteron/releases) [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/) [![License](https://img.shields.io/crates/l/limiteron)](LICENSE) [![CI](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg)](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml) [![Coverage](https://codecov.io/gh/Kirky-X/limiteron/branch/main/graph/badge.svg?token=limiteron)](https://codecov.io/gh/Kirky-X/limiteron) [![Benchmarks](https://github.com/Kirky-X/limiteron/actions/workflows/benchmark.yml/badge.svg)](https://github.com/Kirky-X/limiteron/actions/workflows/benchmark.yml) ![Stars](https://img.shields.io/github/stars/Kirky-X/limiteron?style=social) ![Forks](https://img.shields.io/github/forks/Kirky-X/limiteron?style=social) ![Issues](https://img.shields.io/github/issues/Kirky-X/limiteron)
+[![CI Status](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg)](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml) [![Version](https://img.shields.io/crates/v/limiteron.svg)](https://crates.io/crates/limiteron) [![Docs.rs](https://docs.rs/limiteron/badge.svg)](https://docs.rs/limiteron) [![Downloads](https://img.shields.io/crates/d/limiteron.svg)](https://crates.io/crates/limiteron) [![License](https://img.shields.io/crates/l/limiteron.svg)](LICENSE) [![Rust](https://img.shields.io/badge/rust-1.97.1%2B-orange.svg)](https://www.rust-lang.org/)
 
-[中文](./README.md)
+[中文](README.md) | **English**
 
-<p align="center">
-  <strong>Rust Unified Flow Control Framework</strong>
-</p>
+**Rust Unified Flow Control Framework** — Rate limiting, quota management, circuit breaking, and ban management in one solution.
 
-<p align="center">
-  <a href="#-features">Features</a> •
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-documentation">Documentation</a> •
-  <a href="#-examples">Examples</a> •
-  <a href="#-contributing">Contributing</a>
-</p>
+[✨ Features](#-features) • [🚀 Quick Start](#-quick-start) • [📚 Documentation](#-documentation) • [💻 Examples](#-examples) • [🤝 Contributing](#-contributing)
 
 </div>
 
@@ -29,28 +19,32 @@
 <details open>
 <summary>Click to expand</summary>
 
-- [✨ Features](#✨-features)
-- [🎯 Use Cases](#🎯-use-cases)
-- [🚀 Quick Start](#🚀-quick-start)
-  - [Installation](#installation)
-  - [Basic Usage](#basic-usage)
-- [📚 Documentation](#📚-documentation)
-- [🎨 Examples](#🎨-examples)
-- [🏗️ Architecture](#🏗️-architecture)
-- [⚙️ Configuration](#⚙️-configuration)
-- [🧪 Testing](#🧪-testing)
-- [📊 Performance](#📊-performance)
-- [🔒 Security](#🔒-security)
-- [🗺️ Roadmap](#🗺️-roadmap)
-- [🤝 Contributing](#🤝-contributing)
-- [📄 License](#📄-license)
-- [🙏 Acknowledgments](#🙏-acknowledgments)
+- [✨ Features](#-features)
+- [🚀 Quick Start](#-quick-start)
+  - [📦 Installation](#-installation)
+  - [💡 Basic Usage](#-basic-usage)
+- [🎨 Feature Flags](#-feature-flags)
+- [📚 Documentation](#-documentation)
+- [💻 Examples](#-examples)
+- [🏗️ Architecture](#️-architecture)
+- [🎯 Use Cases](#-use-cases)
+- [⚙️ Configuration](#️-configuration)
+- [🧪 Testing](#-testing)
+- [📊 Performance](#-performance)
+- [🔒 Security](#-security)
+- [🗺️ Roadmap](#️-roadmap)
+- [🤝 Contributing](#-contributing)
+- [📋 Changelog](#-changelog)
+- [📄 License](#-license)
+- [🙏 Acknowledgments](#-acknowledgments)
+- [📞 Contact & Support](#-contact--support)
+- [⭐ Star History](#-star-history)
 
 </details>
 
 ---
 
-## <span id="✨-features">✨ Features</span>
+## ✨ Features
 
 <table>
 <tr>
@@ -58,30 +52,29 @@
 
 ### 🎯 Core Features
 
-- ✅ **Multiple Rate Limiting Algorithms** - Token bucket, fixed window, sliding window, concurrency control
-- ✅ **Ban Management** - IP ban, automatic ban, ban priority
-- ✅ **Quota Control** - Quota allocation, quota alerts, quota overdraw
-- ✅ **Circuit Breaker** - Automatic failover, state recovery, fallback strategy
+- ✅ **Multiple Rate Limiting Algorithms** — Token bucket, fixed window, sliding window, concurrency control, GCRA
+- ✅ **Ban Management** — IP / User / MAC / Geo bans, automatic bans, priority system (IP > User > MAC > Device > APIKey), YAML file bulk loading with hot reload
+- ✅ **Quota Control** — Periodic quota allocation, quota alerts, quota overdraw
+- ✅ **Circuit Breaker** — Automatic failover, state recovery, fallback strategy
+- ✅ **Identifier Matching** — IP, user ID, device ID, API key, geolocation, device info, custom matchers
+- ✅ **Admin REST API** — Ban / quota / status management endpoints
 
 </td>
 <td width="50%">
 
 ### ⚡ Advanced Features
 
-- 🚀 **High Performance** - Latency < 200μs P99
-- 🔐 **Secure and Reliable** - Memory safety, SQL injection protection
-- 🌐 **Multi-Storage Support** - PostgreSQL via DBNexus, Redis storage, in-memory storage
-- 📦 **Easy to Use** - Macro support, clean API
+- 🚀 **High Performance** — Token bucket at 12M+ ops/s, P99 latency < 1µs (see [Performance](#-performance))
+- 🔐 **Secure and Reliable** — Rust memory safety, SQL injection protection, log redaction
+- 🌐 **Multi-Storage Support** — In-memory storage out of the box; PostgreSQL / SQLite persistence via DBNexus; caching unified through oxcache
+- 📦 **Easy to Use** — `#[flow_control]` declarative macro, Tower middleware, clean API
+- 📈 **Observability** — Prometheus metrics, OpenTelemetry tracing, audit logging
 
 </td>
 </tr>
 </table>
 
-<div align="center">
-
 ### 🎨 Feature Highlights
-
-</div>
 
 ```mermaid
 graph LR
@@ -102,6 +95,340 @@ graph LR
     style F fill:#4fc3f7
     style G fill:#29b6f6
 ```
+
+---
+
+## 🚀 Quick Start
+
+### 📦 Installation
+
+```bash
+cargo add limiteron
+```
+
+Or add it to your `Cargo.toml` manually:
+
+```toml
+[dependencies]
+limiteron = { version = "0.3.0-rc.2", features = ["macros"] }
+```
+
+Enable a storage backend when persistence is needed:
+
+```toml
+[dependencies]
+limiteron = { version = "0.3.0-rc.2", features = ["postgres", "macros"] }
+```
+
+### 💡 Basic Usage
+
+**Token bucket limiter:**
+
+```rust
+use limiteron::limiters::{Limiter, TokenBucketLimiter};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 10 tokens, refill 1 per second
+    let limiter = TokenBucketLimiter::new(10, 1);
+
+    match limiter.allow(1).await? {
+        true => println!("✅ Request allowed"),
+        false => println!("❌ Request rate limited"),
+    }
+    Ok(())
+}
+```
+
+**Declarative macro:**
+
+```rust
+use limiteron::flow_control;
+
+#[flow_control(rate = "100/s", quota = "10000/m", concurrency = 50)]
+async fn api_handler(user_id: &str) -> Result<String, limiteron::error::LimiteronError> {
+    Ok(format!("Processing request for user {}", user_id))
+}
+```
+
+**End-to-end control with Governor:**
+
+```rust
+use limiteron::Governor;
+
+let governor = Governor::new().await;
+```
+
+<details>
+<summary><b>📖 Complete Example</b></summary>
+
+<br>
+
+```rust
+use limiteron::limiters::{Limiter, TokenBucketLimiter};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Step 1: Create limiter
+    let limiter = TokenBucketLimiter::new(10, 1); // 10 tokens, refill 1 per second
+
+    // Step 2: Rate limit check
+    match limiter.allow(1).await {
+        Ok(true) => println!("✅ Request allowed"),
+        Ok(false) => println!("❌ Request rate limited"),
+        Err(e) => println!("❌ Error: {:?}", e),
+    }
+
+    // Step 3: Check with cost
+    match limiter.allow(2).await {
+        Ok(true) => println!("✅ Request with cost 2 allowed"),
+        Ok(false) => println!("❌ Request with cost 2 rate limited"),
+        Err(e) => println!("❌ Error: {:?}", e),
+    }
+
+    Ok(())
+}
+```
+
+</details>
+
+More examples can be found in the [`examples/`](examples/) directory.
+
+---
+
+## 🎨 Feature Flags
+
+Limiteron enables no optional functionality by default (`default = []`); turn features on as needed:
+
+| Preset | Description | Enabled Features |
+|--------|-------------|------------------|
+| `minimal` | Core rate limiting (no external storage dependencies) | — |
+| `standard` | Core + basic advanced features | `sqlite`, `ban-manager`, `quota-control`, `circuit-breaker` |
+| `full` | All features | Everything |
+
+```toml
+# Minimal: core rate limiting only
+limiteron = { version = "0.3.0-rc.2", features = ["minimal"] }
+
+# Standard: core + basic advanced features
+limiteron = { version = "0.3.0-rc.2", features = ["standard"] }
+
+# Full: all features
+limiteron = { version = "0.3.0-rc.2", features = ["full"] }
+```
+
+<details>
+<summary><b>📋 Complete Feature List</b></summary>
+
+<br>
+
+| Feature | Description | Default |
+|---------|-------------|---------|
+| `postgres` | PostgreSQL storage (DBNexus, mutually exclusive with `sqlite`) | ❌ |
+| `sqlite` | SQLite storage (DBNexus embedded driver, default local backend) | ❌ |
+| `cache-service` | Unified cache service (DI support) | ❌ |
+| `cache-storage` | Cache storage (oxcache Redis integration) | ❌ |
+| `lua-script` | Lua script support (oxcache) | ❌ |
+| `ban-manager` | Ban management | ❌ |
+| `quota-control` | Quota control | ❌ |
+| `circuit-breaker` | Circuit breaker | ❌ |
+| `fallback` | Fallback strategy | ❌ |
+| `custom-limiter` | Custom rate limiter support | ❌ |
+| `gcra` | GCRA rate limiting algorithm | ❌ |
+| `log-redaction` | Log redaction | ❌ |
+| `config-security` | Configuration security validation | ❌ |
+| `validation` | Request validation | ❌ |
+| `parallel-checker` | Parallel ban checking | ❌ |
+| `geo-matching` | Geographic matching | ❌ |
+| `device-matching` | Device matching | ❌ |
+| `telemetry` | OpenTelemetry tracing | ❌ |
+| `monitoring` | Prometheus metrics | ❌ |
+| `metrics` | DBNexus metrics export | ❌ |
+| `audit-log` | Audit logging | ❌ |
+| `macros` | `#[flow_control]` macro support | ❌ |
+| `config-watcher` | Configuration hot-reload | ❌ |
+| `webhook` | Webhook notifications | ❌ |
+| `tower-middleware` | Tower HTTP middleware integration | ❌ |
+| `event-system` | Event system | ❌ |
+| `multi-tenant` | Multi-tenant support | ❌ |
+| `admin-api` | Admin REST API | ❌ |
+| `distributed` | Distributed rate limiting support (DistributedLimiter trait + InMemoryDistributedLimiter implementation) | ❌ |
+| `kit` | trait-kit AsyncKit integration (LimiteronModule); `LimiteronStorageConfig` injection hooks (`with_storage`/`with_ban_storage`, defaults to Memory for backward compatibility) | ❌ |
+| `i18n` | Internationalization support | ❌ |
+| `inklog` | inklog log integration | ❌ |
+| `test-clock` | Test clock (`MockClock`) for external consumers only: MockClock was removed from the default public API (BREAKING); external property/chaos tests must enable this feature explicitly | ❌ |
+| `chaos-testing` | Chaos testing (fault injection and latency injection, test-only) | ❌ |
+| `legacy-tests` | Legacy test marker (tests for features not yet implemented) | ❌ |
+
+</details>
+
+> ⚠️ **Declared but unimplemented no-op features**: `adaptive-limiting`, `priority-queue`, and `admission-control` are declared only for downstream compatibility and have no effect when enabled. Do not rely on them for capability detection.
+
+> 📌 **Note**: `postgres` and `sqlite` both go through DBNexus and are mutually exclusive (embedded and server-side drivers cannot coexist in one build), so avoid `--all-features`.
+
+See the `[features]` section of [Cargo.toml](Cargo.toml) for the complete feature list.
+
+---
+
+## 📚 Documentation
+
+| Documentation | Description |
+|---------------|-------------|
+| [📖 User Guide](docs/USER_GUIDE.md) | Complete tutorial from installation to advanced usage |
+| [📘 API Reference](docs/API_REFERENCE.md) | Detailed description of all public APIs |
+| [🏗️ Architecture](docs/ARCHITECTURE.md) | Design philosophy and internal implementation |
+| [🔒 Security](docs/SECURITY.md) | Security design and best practices |
+| [❓ FAQ](docs/FAQ.md) | Frequently asked questions and troubleshooting |
+| [🧪 Testing Guide](docs/TESTING.md) | Test categories and commands |
+| [📋 Changelog](docs/CHANGELOG.md) | Changes in every release |
+| [🤝 Contributing](docs/CONTRIBUTING.md) | How to participate in development |
+| [📦 Online API Docs](https://docs.rs/limiteron) | Latest docs generated by docs.rs |
+
+---
+
+## 💻 Examples
+
+**Example 1: Basic Rate Limiting**
+
+```rust
+use limiteron::limiters::{Limiter, TokenBucketLimiter};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let limiter = TokenBucketLimiter::new(10, 1);
+
+    for i in 0..15 {
+        match limiter.allow(1).await {
+            Ok(true) => println!("Request {} ✅", i),
+            Ok(false) => println!("Request {} ❌", i),
+            Err(e) => println!("Request {} Error: {:?}", i, e),
+        }
+    }
+
+    Ok(())
+}
+```
+
+<details>
+<summary>View Output</summary>
+
+```text
+Request 0 ✅
+Request 1 ✅
+...
+Request 9 ✅
+Request 10 ❌
+...
+Request 14 ❌
+✅ First 10 requests allowed, remaining rate limited
+```
+
+</details>
+
+**Example 2: Using the Macro**
+
+```rust
+use limiteron::flow_control;
+
+#[flow_control(rate = "100/s", quota = "10000/m")]
+async fn api_handler(user_id: &str) -> Result<String, limiteron::error::LimiteronError> {
+    // API business logic
+    Ok(format!("Processing request for user {}", user_id))
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let result = api_handler("user123").await?;
+    println!("{}", result);
+    Ok(())
+}
+```
+
+The `examples/` directory covers 21 runnable scenarios (`governor_demo`, `ban_manager`, `ban_file_loader`, `ban_http_api`, `circuit_breaker`, `quota_control`, `decision_chain`, `custom_matchers`, `device_geo_matching`, `fallback_demo`, `graceful_shutdown`, `tower_middleware`, `telemetry_demo`, `audit_log_demo`, `authorization_demo`, `validation_demo`, `storage_factory`, `macro_usage`, `matchers_demo`, `rate_limiters`, `simple_rate_limit`):
+
+```bash
+# Run a specific example
+cargo run -p limiteron-examples --bin governor_demo
+```
+
+**[📂 View All Examples →](examples/)**
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+graph TB
+    A[Request] --> B[API Layer / Tower Middleware]
+    B --> C[Governor Main Controller]
+    C --> D[Identifier Extraction Matchers]
+    C --> E[Decision Chain]
+    D --> F[Rule Matching]
+    E --> G[Limiters]
+    E --> H[Ban Management]
+    E --> I[Quota Control]
+    E --> J[Circuit Breaker]
+    G --> K[L1/L2/L3 Cache]
+    H --> K
+    I --> K
+    K --> L[Storage Layer]
+    L --> M[PostgreSQL via DBNexus]
+    L --> N[In-Memory Storage]
+```
+
+Core modules:
+
+| Module | Path | Description |
+|--------|------|-------------|
+| Governor | `src/governor.rs` | Main controller, end-to-end flow control |
+| Limiters | `src/limiters/` | Rate limiting algorithms (token bucket, fixed window, sliding window, GCRA, concurrency) |
+| Matchers | `src/matchers/` | Identifier extraction and rule matching |
+| Ban | `src/ban/` | Ban management, file loading, hot reload |
+| Quota | `src/quota/` | Quota control |
+| Circuit | `src/circuit/` | Circuit breaker |
+| Storage | `src/storage/` | Storage traits and in-memory implementation |
+| Adapters | `src/adapters/` | DBNexus storage adapters (PostgreSQL) |
+| Cache | `src/cache/` | Unified cache service via oxcache |
+| DecisionChain | `src/decision_chain/` | Policy decision engine |
+| Middleware | `src/middleware/` | Tower HTTP middleware |
+| Admin | `src/admin/` | Admin REST API |
+| Telemetry | `src/telemetry/` | Metrics and tracing |
+
+<details>
+<summary><b>📐 Component Details</b></summary>
+
+<br>
+
+| Component | Description | Status |
+|-----------|-------------|--------|
+| **Governor** | Main controller, end-to-end flow control | ✅ Stable |
+| **Matchers** | Identifier extraction (IP, User ID, Device ID, etc.) | ✅ Stable |
+| **Limiters** | Multiple rate limiting algorithms | ✅ Stable |
+| **Ban Management** | IP ban, automatic ban | ✅ Stable |
+| **Quota Control** | Quota allocation, quota alerts | ✅ Stable |
+| **Circuit Breaker** | Automatic failover, state recovery | ✅ Stable |
+| **Cache** | L1/L2/L3 cache support | ✅ Stable |
+| **Storage Layer** | DBNexus (PostgreSQL / SQLite), in-memory | ✅ Stable |
+
+</details>
+
+<details>
+<summary><b>💾 Storage Backends</b></summary>
+
+<br>
+
+Limiteron supports multiple storage backends through trait abstraction for pluggability:
+
+| Storage Backend | Module | Feature | Description |
+|----------------|--------|---------|-------------|
+| **MemoryStorage** | `src/storage/mod.rs` | (always available) | In-memory storage, suitable for single-instance development and testing |
+| **DBNexus Storage Adapter** | `src/adapters/dbnexus_storage.rs` | `postgres` / `sqlite` | Persistence via DBNexus, production-grade storage |
+
+> **Note:** `RedisStorage` and the `redis-storage` feature were removed in v0.2.1. Caching is now unified through oxcache (enable `cache-storage` to access the Redis cache backend).
+
+</details>
+
+For an in-depth design overview, see the [Architecture document](docs/ARCHITECTURE.md).
 
 ---
 
@@ -199,417 +526,7 @@ Suitable for web applications that need to prevent malicious users and crawlers.
 
 ---
 
-## <span id="🚀-quick-start">🚀 Quick Start</span>
-
-### Installation
-
-<table>
-<tr>
-<td width="50%">
-
-#### 🦀 Cargo
-
-```toml
-[dependencies]
-limiteron = { version = "0.3.0-rc.2", features = ["macros"] }
-```
-
-</td>
-<td width="50%">
-
-#### 🔧 Features
-
-```toml
-[dependencies]
-limiteron = { version = "0.3.0-rc.2", features = ["postgres", "macros"] }
-```
-
-</td>
-</tr>
-</table>
-
-### Feature Flags
-
-<div align="center">
-
-#### 🎛️ Optional Feature Configuration
-
-</div>
-
-Limiteron uses feature flags to control functionality. Only in-memory storage is enabled by default:
-
-<table>
-<tr>
-<td width="50%">
-
-**Preset Combinations**
-```toml
-# Minimal: core rate limiting only
-limiteron = { version = "0.3.0-rc.2", features = ["minimal"] }
-
-# Standard: core + basic advanced features
-limiteron = { version = "0.3.0-rc.2", features = ["standard"] }
-
-# Full: all features
-limiteron = { version = "0.3.0-rc.2", features = ["full"] }
-```
-
-</td>
-<td width="50%">
-
-**Individual Features**
-```toml
-# Storage backends
-limiteron = { version = "0.3.0-rc.2", features = ["postgres"] }
-
-# Advanced features
-limiteron = { version = "0.3.0-rc.2", features = ["ban-manager", "quota-control", "circuit-breaker"] }
-
-# Macro support
-limiteron = { version = "0.3.0-rc.2", features = ["macros"] }
-```
-
-</td>
-</tr>
-</table>
-
-<details>
-<summary><b>📋 Complete Feature List</b></summary>
-
-<br>
-
-| Feature | Description | Default |
-|---------|-------------|---------|
-| `postgres` | PostgreSQL storage (DBNexus) | ❌ |
-| `ban-manager` | Ban management | ❌ |
-| `quota-control` | Quota control | ❌ |
-| `circuit-breaker` | Circuit breaker | ❌ |
-| `cache-service` | Unified cache service (DI support) | ❌ |
-| `cache-storage` | Cache storage (oxcache Redis integration) | ❌ |
-| `lua-script` | Lua script support (oxcache) | ❌ |
-| `tower-middleware` | Tower middleware integration | ❌ |
-| `event-system` | Event system | ❌ |
-| `macros` | Macro support | ❌ |
-| `telemetry` | Telemetry and tracing | ❌ |
-| `monitoring` | Prometheus metrics | ❌ |
-| `metrics` | DBNexus metrics export | ❌ |
-| `config-watcher` | Configuration hot-reload | ❌ |
-| `config-security` | Configuration security validation | ❌ |
-| `validation` | Request validation | ❌ |
-| `fallback` | Fallback strategy | ❌ |
-| `audit-log` | Audit logging | ❌ |
-| `log-redaction` | Log redaction | ❌ |
-| `parallel-checker` | Parallel ban checking | ❌ |
-| `geo-matching` | Geographic matching | ❌ |
-| `device-matching` | Device matching | ❌ |
-| `gcra` | GCRA rate limiting algorithm | ❌ |
-| `custom-limiter` | Custom rate limiter support | ❌ |
-| `multi-tenant` | Multi-tenant support | ❌ |
-| `admin-api` | Admin REST API | ❌ |
-| `webhook` | Webhook notifications | ❌ |
-
-</details>
-
-### Basic Usage
-
-<div align="center">
-
-#### 🎬 5-Minute Quick Start
-
-</div>
-
-<table>
-<tr>
-<td width="50%">
-
-**Step 1: Add Dependency**
-
-```toml
-[dependencies]
-limiteron = { version = "0.3.0-rc.2", features = ["macros"] }
-```
-
-</td>
-<td width="50%">
-
-**Step 2: Use Macro**
-
-```rust
-use limiteron::flow_control;
-
-#[flow_control(rate = "10/s")]
-async fn api_call() -> Result<String, limiteron::error::LimiteronError> {
-    Ok("Success".to_string())
-}
-```
-
-</td>
-</tr>
-</table>
-
-<details>
-<summary><b>📖 Complete Example</b></summary>
-
-<br>
-
-```rust
-use limiteron::limiters::{Limiter, TokenBucketLimiter};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Step 1: Create limiter
-    let limiter = TokenBucketLimiter::new(10, 1); // 10 tokens, refill 1 per second
-
-    // Step 2: Check rate limit
-    match limiter.allow(1).await {
-        Ok(true) => println!("✅ Request allowed"),
-        Ok(false) => println!("❌ Request rate limited"),
-        Err(e) => println!("❌ Error: {:?}", e),
-    }
-
-    // Step 3: Use with cost
-    match limiter.allow(2).await {
-        Ok(true) => println!("✅ Request with cost 2 allowed"),
-        Ok(false) => println!("❌ Request with cost 2 rate limited"),
-        Err(e) => println!("❌ Error: {:?}", e),
-    }
-
-    Ok(())
-}
-```
-
-</details>
-
----
-
-## <span id="📚-documentation">📚 Documentation</span>
-
-<div align="center">
-
-<table>
-<tr>
-<td align="center" width="25%">
-<a href="docs/USER_GUIDE.md">
-<img src="https://img.icons8.com/fluency/96/000000/book.png" width="64" height="64"><br>
-<b>User Guide</b>
-</a><br>
-Complete usage guide
-</td>
-<td align="center" width="25%">
-<a href="docs/API_REFERENCE.md">
-<img src="https://img.icons8.com/fluency/96/000000/api.png" width="64" height="64"><br>
-<b>API Reference</b>
-</a><br>
-Complete API documentation
- </td>
-<td align="center" width="25%">
-<a href="docs/FAQ.md">
-<img src="https://img.icons8.com/fluency/96/000000/question.png" width="64" height="64"><br>
-<b>FAQ</b>
-</a><br>
-Frequently asked questions
-</td>
-<td align="center" width="25%">
-<a href="examples/">
-<img src="https://img.icons8.com/fluency/96/000000/code.png" width="64" height="64"><br>
-<b>Examples</b>
-</a><br>
-Code examples
-</td>
-</tr>
-</table>
-
-</div>
-
-### 📖 Additional Resources
-
-- 🎓 [User Guide](docs/USER_GUIDE.md) - Detailed tutorial
-- 🔧 [API Reference](docs/API_REFERENCE.md) - API documentation
-- ❓ [FAQ](docs/FAQ.md) - Frequently asked questions
-- 🐛 [Troubleshooting](docs/FAQ.md#troubleshooting) - Common issues and solutions
-
----
-
-## <span id="🎨-examples">🎨 Examples</span>
-
-<div align="center">
-
-### 💡 Practical Examples
-
-</div>
-
-<table>
-<tr>
-<td width="50%">
-
-#### 📝 Example 1: Basic Rate Limiting
-
-```rust
-use limiteron::limiters::{Limiter, TokenBucketLimiter};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let limiter = TokenBucketLimiter::new(10, 1);
-
-    for i in 0..15 {
-        match limiter.allow(1).await {
-            Ok(true) => println!("Request {} ✅", i),
-            Ok(false) => println!("Request {} ❌", i),
-            Err(e) => println!("Request {} Error: {:?}", i, e),
-        }
-    }
-
-    Ok(())
-}
-```
-
-<details>
-<summary>View Output</summary>
-
-```
-Request 0 ✅
-Request 1 ✅
-...
-Request 9 ✅
-Request 10 ❌
-...
-Request 14 ❌
-✅ First 10 requests allowed, remaining rate limited
-```
-
-</details>
-
-</td>
-<td width="50%">
-
-#### 🔥 Example 2: Using Macro
-
-```rust
-use limiteron::flow_control;
-
-#[flow_control(rate = "100/s", quota = "10000/m")]
-async fn api_handler(user_id: &str) -> Result<String, limiteron::error::LimiteronError> {
-    // API business logic
-    Ok(format!("Processing request for user {}", user_id))
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let result = api_handler("user123").await?;
-    println!("{}", result);
-    Ok(())
-}
-```
-
-<details>
-<summary>View Output</summary>
-
-```
-Processing request for user123
-✅ Macro automatically handles rate limiting
-```
-
-</details>
-
-</td>
-</tr>
-</table>
-
-<div align="center">
-
-**[📂 View All Examples →](examples/)**
-
-</div>
-
----
-
-## <span id="🏗️-architecture">🏗️ Architecture</span>
-
-<div align="center">
-
-### System Overview
-
-</div>
-
-```mermaid
-graph TB
-    A[User App] --> B[API Layer]
-    B --> C[Governor]
-    C --> D[Identifier Extraction]
-    C --> E[Decision Chain]
-    D --> F[Matchers]
-    E --> G[Limiters]
-    E --> H[Ban Management]
-    E --> I[Quota Control]
-    E --> J[Circuit Breaker]
-    G --> K[L2/L3 Cache]
-    H --> K
-    I --> K
-    K --> L[Storage Layer]
-    L --> M[PostgreSQL via DBNexus]
-    L --> N[Redis]
-    L --> O[In-Memory]
-
-    style A fill:#e1f5ff
-    style B fill:#b3e5fc
-    style C fill:#81d4fa
-    style D fill:#4fc3f7
-    style E fill:#4fc3f7
-    style F fill:#29b6f6
-    style G fill:#29b6f6
-    style H fill:#29b6f6
-    style I fill:#29b6f6
-    style J fill:#29b6f6
-    style K fill:#0288d1
-    style L fill:#0277bd
-    style M fill:#01579b
-    style N fill:#01579b
-    style O fill:#01579b
-```
-
-<details>
-<summary><b>📐 Component Details</b></summary>
-
-<br>
-
-| Component | Description | Status |
-|-----------|-------------|--------|
-| **Governor** | Main controller, end-to-end flow control | ✅ Stable |
-| **Matchers** | Identifier extraction (IP, User ID, Device ID, etc.) | ✅ Stable |
-| **Limiters** | Multiple rate limiting algorithms | ✅ Stable |
-| **Ban Management** | IP ban, automatic ban | ✅ Stable |
-| **Quota Control** | Quota allocation, quota alerts | ✅ Stable |
-| **Circuit Breaker** | Automatic failover, state recovery | ✅ Stable |
-| **Cache** | L2/L3 cache support | ✅ Stable |
-| **Storage Layer** | PostgreSQL via DBNexus, Redis, in-memory | ✅ Stable |
-
-</details>
-
-<details>
-<summary><b>💾 Storage Backends</b></summary>
-
-<br>
-
-Limiteron supports multiple storage backends through trait abstraction for pluggability:
-
-| Storage Backend | Module | Feature | Description |
-|----------------|--------|---------|-------------|
-| **MemoryStorage** | `src/storage/mod.rs` | (always available) | In-memory storage, suitable for single-instance development and testing |
-| **DBNexusStorageAdapter** | `src/adapters/dbnexus_storage.rs` | `postgres` | PostgreSQL via DBNexus, production-grade persistence |
-
-> **Note:** `RedisStorage` and the `redis-storage` feature were removed in v0.2.1. Caching is now unified through oxcache (enable `cache-storage` to access the Redis cache backend).
-
-</details>
-
----
-
-## <span id="⚙️-configuration">⚙️ Configuration</span>
-
-<div align="center">
-
-### 🎛️ Configuration Options
-
-</div>
+## ⚙️ Configuration
 
 Limiteron uses TOML-format configuration files (`config.toml`) with environment variable override support.
 
@@ -675,8 +592,8 @@ let config = ConfigLoader::load_from_file("config.toml")?;
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `version` | String | "0.1.0" | Configuration version |
-| `global.storage` | String | "memory" | Storage type: postgres (via DBNexus) |
-| `global.cache` | String | "memory" | Cache type: memory/redis |
+| `global.storage` | String | "memory" | Storage type: memory / postgres (via DBNexus) |
+| `global.cache` | String | "memory" | Cache type: memory / redis |
 | `global.metrics` | String | "prometheus" | Metrics type |
 | `rules[].id` | String | - | Rule identifier |
 | `rules[].name` | String | - | Rule name |
@@ -702,7 +619,7 @@ let config = ConfigBuilder::new()
 
 ---
 
-## <span id="🧪-testing">🧪 Testing</span>
+## 🧪 Testing
 
 **Test Status: 2000+ tests all passing ✅**
 
@@ -713,14 +630,11 @@ let config = ConfigBuilder::new()
 | Doc tests | 145+ | ✅ Pass |
 
 ```bash
-# Run all tests
-cargo test --all-features
+# Run library unit tests (full features)
+cargo test --features full --lib
 
-# Run unit tests
-cargo test --lib
-
-# Run integration tests (requires Docker services)
-cargo test --test integration_tests -- --ignored
+# Run unified integration tests (enable features explicitly)
+cargo test --test unified_tests --features "ban-manager,quota-control,circuit-breaker"
 
 # Run benchmarks
 cargo bench
@@ -729,18 +643,13 @@ cargo bench
 cargo tarpaulin --out Html
 ```
 
-Detailed test documentation: [TESTING.md](./docs/TESTING.md)
-Coverage report: [COVERAGE_REPORT.md](./docs/COVERAGE_REPORT.md)
+> 📌 `postgres` and `sqlite` are mutually exclusive; `--all-features` triggers a DBNexus compile error — use explicit feature combinations instead.
+
+See the [Testing Guide](docs/TESTING.md) for detailed instructions and the [Coverage Report](docs/COVERAGE_REPORT.md) for coverage data.
 
 ---
 
-## <span id="📊-performance">📊 Performance</span>
-
-<div align="center">
-
-### ⚡ Benchmark Results
-
-</div>
+## 📊 Performance
 
 > **Note:** The following data represents actual benchmark results from comprehensive testing (2026-01-19).
 
@@ -793,7 +702,8 @@ cd temp/comprehensive_test
 ```
 
 **Sample output:**
-```
+
+```text
 Functional Tests: 7/7 Pass (100%)
 TokenBucket: 12,088,759 ops/s
 FixedWindow: 19,920,188 ops/s
@@ -805,69 +715,21 @@ Concurrency Test: 100% Data Consistency
 
 ---
 
-## <span id="🔒-security">🔒 Security</span>
+## 🔒 Security
 
-<div align="center">
+- ✅ **Memory Safety** — Guaranteed by Rust's ownership model
+- ✅ **Input Validation** — IP address, User ID, MAC address validation
+- ✅ **SQL Injection Protection** — Parameterized queries via DBNexus / sea-orm
+- ✅ **Sensitive Data Protection** — secrecy crate for sensitive data, log redaction support
+- ✅ **Audit Logging** — Complete operation tracking
+- ✅ **Trusted Proxy Support** — Secure client IP extraction from X-Forwarded-For (only trusted proxies are honored)
+- ✅ **SSRF Protection** — Webhook URL validation blocks internal addresses
 
-### 🛡️ Security Features
-
-</div>
-
-<table>
-<tr>
-<td align="center" width="25%">
-<img src="https://img.icons8.com/fluency/96/000000/lock.png" width="64" height="64"><br>
-<b>Memory Safety</b><br>
-Rust guarantees memory safety
-</td>
-<td align="center" width="25%">
-<img src="https://img.icons8.com/fluency/96/000000/security-checked.png" width="64" height="64"><br>
-<b>Input Validation</b><br>
-Comprehensive input checking
-</td>
-<td align="center" width="25%">
-<img src="https://img.icons8.com/fluency/96/000000/privacy.png" width="64" height="64"><br>
-<b>SQL Injection Protection</b><br>
- Parameterized queries
-</td>
-<td align="center" width="25%">
-<img src="https://img.icons8.com/fluency/96/000000/shield.png" width="64" height="64"><br>
-<b>Password Protection</b><br>
-Secure password storage
-</td>
-</tr>
-</table>
-
-<details>
-<summary><b>🔐 Security Details</b></summary>
-
-<br>
-
-### Security Measures
-
-- ✅ **Memory Protection** - Rust memory safety guarantees
-- ✅ **Input Validation** - IP address, User ID, MAC address validation
-- ✅ **SQL Injection Protection** - Using parameterized queries
-- ✅ **Password Protection** - Using secrecy library for sensitive data
-- ✅ **Audit Logging** - Complete operation tracking
-- ✅ **Trusted Proxy Support** - Secure client IP extraction from X-Forwarded-For
-- ✅ **SSRF Protection** - Webhook URL validation blocks internal addresses
-
-### Reporting Security Issues
-
-Please report security vulnerabilities through GitHub Issues.
-
-</details>
+For the full security design, vulnerability reporting process, and best practices, see the [Security document](docs/SECURITY.md).
 
 ---
 
-## <span id="🗺️-roadmap">🗺️ Roadmap</span>
-
-<div align="center">
-
-### 🎯 Development Plan
-
-</div>
+## 🗺️ Roadmap
 
 ```mermaid
 gantt
@@ -919,11 +781,12 @@ gantt
 <td width="50%">
 
 ### ✅ v0.2.1 Shipped
+
 - [x] Tower middleware integration refinement
 - [x] Event system enhancements
 - [x] More storage backend test coverage
 - [x] Performance benchmark updates
-- [x] `RedisStorage` 移除（改用 oxcache 统一管理）
+- [x] `RedisStorage` removal (unified through oxcache)
 
 </td>
 <td width="50%">
@@ -932,7 +795,7 @@ gantt
 
 - [ ] Distributed rate limiting (cross-instance Redis Lua coordination)
 - [ ] Governor shutdown full implementation (background task await/state flush/connection release/Drop trait)
-- [ ] MySQL/SQLite storage support (pending DBNexus support)
+- [ ] MySQL storage support (pending DBNexus support; SQLite is already provided by the `sqlite` feature)
 - [ ] HTB hierarchical token bucket
 - [ ] Bulkhead isolation
 
@@ -958,21 +821,14 @@ gantt
 - [ ] Community plugin system
 
 </td>
-<td width="50%">
-
-</td>
 </tr>
 </table>
 
 ---
 
-## <span id="🤝-contributing">🤝 Contributing</span>
+## 🤝 Contributing
 
-<div align="center">
-
-### 💖 Welcome Contributions!
-
-</div>
+Contributions of any kind are welcome! See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for the development environment, TDD workflow, coding conventions, and PR process; see [AGENTS.md](AGENTS.md) for AI-agent development conventions.
 
 <table>
 <tr>
@@ -1004,17 +860,15 @@ Want to contribute?<br>
 </table>
 
 <details>
-<summary><b>📝 Contribution Guide</b></summary>
+<summary><b>📝 Contribution Steps</b></summary>
 
 <br>
-
-### How to Contribute
 
 1. **Fork** the repository
 2. **Clone** your fork: `git clone https://github.com/yourusername/limiteron.git`
 3. **Create** a branch: `git checkout -b feature/amazing-feature`
 4. **Make** your changes
-5. **Test** your changes: `cargo test --all-features`
+5. **Test** your changes: `cargo test --features full --lib`
 6. **Commit** your changes: `git commit -m 'Add amazing feature'`
 7. **Push** to branch: `git push origin feature/amazing-feature`
 8. **Create** a Pull Request
@@ -1030,124 +884,53 @@ Want to contribute?<br>
 
 ---
 
-## <span id="📄-license">📄 License</span>
+## 📋 Changelog
 
-<div align="center">
+See [CHANGELOG.md](docs/CHANGELOG.md) for the full history. Recent releases:
 
-This project is licensed under Apache 2.0:
-
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-
-</div>
+- **0.3.0-rc.2** (2026-09-03) — Documentation sync (version numbers / MSRV 1.85+ / roadmap), workspace dependency path localization, `Cargo.lock` committed to version control
+- **0.2.10** (2026-07-22) — Added `tests/e2e_advanced.rs` (76 boundary and edge-case tests), removed unused dependencies, sea-orm upgraded to 2.0 stable
+- **0.2.9** (2026-07-18) — `#[flow_control]` macro gains `on_exceed` / `key_prefix` / `tracing` / `metrics` parameters, LimiterManager LRU eviction, fixed TOCTOU rate-limit bypass and key leakage
 
 ---
 
-## <span id="🙏-acknowledgments">🙏 Acknowledgments</span>
+## 📄 License
 
-<div align="center">
+This project is licensed under the [MIT License](LICENSE). Copyright (c) 2026 Kirky.X.
 
-### Built with Excellent Tools
+---
 
-</div>
+## 🙏 Acknowledgments
 
-<table>
-<tr>
-<td align="center" width="25%">
-<a href="https://www.rust-lang.org/">
-<img src="https://www.rust-lang.org/static/images/rust-logo-blk.svg" width="64" height="64"><br>
-<b>Rust</b>
-</a>
-</td>
-<td align="center" width="25%">
-<a href="https://github.com/">
-<img src="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png" width="64" height="64"><br>
-<b>GitHub</b>
-</a>
-</td>
-<td align="center" width="25%">
-<img src="https://img.icons8.com/fluency/96/000000/code.png" width="64" height="64"><br>
-<b>Open Source</b>
-</td>
-<td align="center" width="25%">
-<img src="https://img.icons8.com/fluency/96/000000/community.png" width="64" height="64"><br>
-<b>Community</b>
-</td>
-</tr>
-</table>
+- 🌟 **Dependencies** — Built on these excellent projects:
+  - [tokio](https://tokio.rs/) — Async runtime
+  - [dbnexus](https://github.com/Kirky-X/dbnexus) — Database abstraction layer
+  - [oxcache](https://github.com/Kirky-X/oxcache) — Unified cache service
+  - [trait-kit](https://github.com/Kirky-X/trait-kit) — Trait integration modules
+  - [inklog](https://github.com/Kirky-X/inklog) — Structured logging
+  - [dashmap](https://github.com/xacrimon/dashmap) — Concurrent HashMap
+  - [lru](https://github.com/jeromefroe/lru-rs) — LRU cache
 
-### Special Thanks
-
-- 🌟 **Dependencies** - Built on these excellent projects:
-  - [tokio](https://tokio.rs/) - Async runtime
-  - [dbnexus](https://github.com/) - Database abstraction layer
-  - [dashmap](https://github.com/xacrimon/dashmap) - Concurrent HashMap
-  - [lru](https://github.com/jeromefroe/lru-rs) - LRU cache
-
-- 👥 **Contributors** - Thanks to all contributors!
-- 💬 **Community** - Special thanks to community members
+- 👥 **Contributors** — Thanks to all contributors!
+- 💬 **Community** — Special thanks to community members
 
 ---
 
 ## 📞 Contact & Support
 
-<div align="center">
-
-<table>
-<tr>
-<td align="center" width="33%">
-<a href="../../issues">
-<img src="https://img.icons8.com/fluency/96/000000/bug.png" width="48" height="48"><br>
-<b>Issues</b>
-</a><br>
-Report bugs and errors
-</td>
-<td align="center" width="33%">
-<a href="../../discussions">
-<img src="https://img.icons8.com/fluency/96/000000/chat.png" width="48" height="48"><br>
-<b>Discussions</b>
-</a><br>
-Ask questions and share ideas
-</td>
-<td align="center" width="33%">
-<a href="https://github.com/Kirky-X/limiteron">
-<img src="https://img.icons8.com/fluency/96/000000/github.png" width="48" height="48"><br>
-<b>GitHub</b>
-</a><br>
-View source code
-</td>
-</tr>
-</table>
-
-### Stay Connected
-
-[![GitHub](https://img.shields.io/badge/GitHub-View%20Repo-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Kirky-X/limiteron)
-
-</div>
+- 🐛 [Issues](https://github.com/Kirky-X/limiteron/issues) — Report bugs and errors
+- 💬 [Discussions](https://github.com/Kirky-X/limiteron/discussions) — Ask questions and share ideas
+- 📦 [GitHub Repository](https://github.com/Kirky-X/limiteron) — View the source code
+- 🤝 Maintainer: Kirky.X
 
 ---
 
 ## ⭐ Star History
 
-<div align="center">
-
 [![Star History Chart](https://api.star-history.com/svg?repos=Kirky-X/limiteron&type=Date)](https://star-history.com/#Kirky-X/limiteron&Date)
-
-</div>
-
----
-
-<div align="center">
 
 ### 💝 Support This Project
 
 If you find this project useful, please consider giving it a ⭐️!
 
 **Built with ❤️ by Kirky.X**
-
-[⬆ Back to Top](#readme)
-
----
-
-<sub>© 2026 Kirky.X. All rights reserved.</sub>
-
-</div>

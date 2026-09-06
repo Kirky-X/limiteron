@@ -20,7 +20,7 @@ version = "0.3.0-rc.2"
 edition = "2024"
 rust-version = "1.97.1"
 authors = ["Kirky.X"]
-license = "MIT"
+license-file = "LICENSE"
 repository = "https://github.com/Kirky-X/limiteron"
 
 [workspace.dependencies]
@@ -118,7 +118,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-license.workspace = true
+license-file.workspace = true
 repository.workspace = true
 description = "Unified flow control framework for Rust"
 keywords = ["rate-limiting", "quota", "throttling", "circuit-breaker"]

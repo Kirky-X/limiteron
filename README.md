@@ -896,7 +896,7 @@ gantt
 
 ## 📄 许可证
 
-本项目基于 [MIT 许可证](LICENSE) 发布。Copyright (c) 2026 Kirky.X。
+本项目基于 MIT + Commons Clause 许可证发布，商业使用需单独授权。详见 [LICENSE](LICENSE)。Copyright (c) 2026 Kirky.X🌠。
 
 ---
 

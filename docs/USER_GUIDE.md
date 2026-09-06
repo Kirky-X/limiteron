@@ -107,7 +107,7 @@ rustc --version
 
 # 检查 Cargo 版本
 cargo --version
-# 预期: cargo 1.85.0 (或更高)
+# 预期: cargo 1.97.1 (或更高)
 
 # 检查 Git 版本
 git --version

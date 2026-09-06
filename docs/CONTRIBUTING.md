@@ -4,7 +4,7 @@
 
 ## 开发环境
 
-- **Rust 1.85+**（edition 2024）
+- **Rust 1.97.1+**（edition 2024）
 - `cargo`、`rustfmt`、`clippy`
 - `pre-commit`（安装：`pip install pre-commit && pre-commit install`）
 - （可选）PostgreSQL 15+ / Redis 7+ — 用于集成测试

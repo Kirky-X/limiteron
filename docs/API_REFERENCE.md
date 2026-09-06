@@ -1,16 +1,15 @@
-<div align="center">
+# 📘 Limiteron API 参考
 
-# 📘 API 参考
-
-### 完整 API 文档
+本文档完整描述 Limiteron 的全部公开 API，包括限流器、封禁管理、配额控制、熔断器、Governor、匹配器、存储后端、Admin REST API、配置加载与错误类型。使用方法与场景示例请见 [用户指南](USER_GUIDE.md)。
 
 [🏠 首页](../README.md) • [📖 用户指南](USER_GUIDE.md) • [❓ 常见问题](FAQ.md)
 
 ---
 
-</div>
-
 ## 📋 目录
+
+<details open>
+<summary>点击展开</summary>
 
 - [概述](#概述)
 - [核心 API](#核心-api)
@@ -33,6 +32,8 @@
 - [类型定义](#类型定义)
 - [示例](#示例)
 
+</details>
+
 ---
 
 ## 概述
@@ -46,22 +47,18 @@
 <table>
 <tr>
 <td width="25%" align="center">
-<img src="https://img.icons8.com/fluency/96/000000/easy.png" width="64"><br>
 <b>简单</b><br>
 直观易用
 </td>
 <td width="25%" align="center">
-<img src="https://img.icons8.com/fluency/96/000000/security-checked.png" width="64"><br>
 <b>安全</b><br>
 类型安全，默认安全
 </td>
 <td width="25%" align="center">
-<img src="https://img.icons8.com/fluency/96/000000/module.png" width="64"><br>
 <b>可组合</b><br>
 轻松构建复杂工作流
 </td>
 <td width="25%" align="center">
-<img src="https://img.icons8.com/fluency/96/000000/documentation.png" width="64"><br>
 <b>文档完善</b><br>
 全面的文档
 </td>
@@ -2147,6 +2144,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 由文档团队制作
 
-[⬆ 返回顶部](#-api-参考)
+[⬆ 返回顶部](#-limiteron-api-参考)
 
 </div>

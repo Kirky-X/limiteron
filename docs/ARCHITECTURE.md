@@ -1,8 +1,24 @@
-# Limiteron 架构文档
+# 🏗️ Limiteron 架构文档
 
-### 完整 API 文档
+本文档描述 Limiteron 的整体架构、模块划分与自适应流量优化模块的设计，帮助读者理解框架的内部实现与扩展机制。
 
-[🏠 首页](../README.md) • [📚 变更日志](CHANGELOG.md) • [📘 API 参考](API_REFERENCE.md) • [🧪 测试指南](TESTING.md)
+[🏠 首页](../README.md) • [📚 变更日志](CHANGELOG.md) • [📘 API 参考](API_REFERENCE.md) • [🧪 测试指南](TESTING.md) • [🔒 安全文档](SECURITY.md)
+
+---
+
+## 📋 目录
+
+<details open>
+<summary>点击展开</summary>
+
+- [整体架构](#整体架构)
+- [自适应流量优化模块架构](#自适应流量优化模块架构)
+  - [模块依赖关系](#模块依赖关系)
+  - [数据流](#数据流)
+- [新增模块详细说明](#新增模块详细说明)
+- [Feature 依赖总览](#feature-依赖总览)
+
+</details>
 
 ---
 

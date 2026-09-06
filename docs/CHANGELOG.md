@@ -1,22 +1,22 @@
-# Changelog
+# 更新日志
 
-All notable changes to this project will be documented in this file.
+本文件记录本项目的所有重要变更。
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)，
+版本号遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
 ## [Unreleased]
 
 ## [0.3.0-rc.2] - 2026-09-03
 
-### Documentation
+### 文档
 
 - 同步 README/USER_GUIDE/FAQ/API_REFERENCE 等文档中的版本号 0.2 → 0.3.0-rc.2
 - 同步 MSRV 文档描述 1.75+ → 1.85+（与 `Cargo.toml` `rust-version = "1.85"` 对齐）
 - 同步 README_EN.md 的 `redis-storage` 特性 / `RedisStorage` 用法示例：v0.2.1 已移除，改用 oxcache 统一管理
 - 同步 README_EN.md 路线图：`v0.2.1 Planned` → `Shipped`、`v0.3.0 Planned` → `v0.3.0-rc.2 (Current)`
 
-### Changed
+### 变更
 
 - 依赖路径本地化：`oxcache` / `dbnexus` / `trait-kit` / `inklog` 在 `[workspace.dependencies]` 改用 `path` + `version` 双写，供本地联调与 CI 发布模式共用
 - `Cargo.lock` 加入版本控制（库 crate 现在生成并提交）
@@ -130,86 +130,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.6] - 2026-07-13
 
-### Added
+### 新增
 
 - `distributed` feature 与 `src/limiters/distributed.rs` 模块（DistributedLimiter trait + InMemoryDistributedLimiter 实现）—— 支持分布式与进程内限流兼容
 - 跨平台 CI 矩阵（ubuntu/macos/windows）验证 apple/windows/linux 平台兼容性
 
-### Changed
+### 变更
 
 - `release.yml` publish 步骤幂等化：捕获 cargo publish 输出，若失败但匹配 "already exists"/"already published" 则发 ::warning:: 并继续
-- `benches/memory.rs`: 修复 `unsafe-op-in-unsafe-fn` clippy lint（unsafe fn 内部操作用 `unsafe { }` 包裹）
-- `benches/regression.rs` + `tests/common/mod.rs`: 修复 `collapsible_if` clippy lint（嵌套 if-let 用 let-chains 合并）
+- `benches/memory.rs`：修复 `unsafe-op-in-unsafe-fn` clippy lint（unsafe fn 内部操作用 `unsafe { }` 包裹）
+- `benches/regression.rs` + `tests/common/mod.rs`：修复 `collapsible_if` clippy lint（嵌套 if-let 用 let-chains 合并）
 
-### Fixed
+### 修复
 
 - CI clippy lint 失败（unsafe-op-in-unsafe-fn + collapsible_if）
 - `examples/integration-app` governor 私有模块访问错误（改为 re-export `limiteron::Governor`）
 
-### ⚠️ BREAKING CHANGES（仅影响启用 `kit` feature 的用户）
+### ⚠️ 破坏性变更（仅影响启用 `kit` feature 的用户）
 
 - trait-kit 0.2 → 0.3（pre-1.0 minor bump，Cargo 视为不兼容）；启用 `kit` feature 的用户需同步升级
 
-### Dependencies
+### 依赖
 
 - trait-kit 0.2 → 0.3（对齐 oxcache/dbnexus/inklog 依赖链）
-- inklog 0.1.6 → 0.1.7（transitive, via Cargo.lock resolution）
+- inklog 0.1.6 → 0.1.7（传递依赖，经 Cargo.lock 解析）
 
 ## [0.2.5] - 2026-07-13
 
-### Dependencies
+### 依赖
 
 - dbnexus 0.2 → 0.4（解决 oxcache 版本冲突，dbnexus 0.4 现依赖 oxcache 0.3）
 - oxcache 0.3.7 → 0.3.8
 
 ## [0.2.4] - 2026-07-12
 
-### Changed
+### 变更
 
-- `FlowGuardError` renamed to `LimiteronError`, following `ProjectNameError` naming convention
-- Added `LimiteronResult<T>` type alias
-- Cross-crate imports updated: `oxcache::CacheError` → `oxcache::OxCacheError`（适配 oxcache 0.3.7）
+- `FlowGuardError` 重命名为 `LimiteronError`，遵循 `ProjectNameError` 命名约定
+- 新增 `LimiteronResult<T>` 类型别名
+- 跨 crate 导入更新：`oxcache::CacheError` → `oxcache::OxCacheError`（适配 oxcache 0.3.7）
 - 导入路径扁平化
 
 ## [0.2.3] - 2026-07-11
 
-### Changed
+### 变更
 
 - 移除 `StructuredLogger` trait（YAGNI 清理）
 - 对齐 inklog 集成与 sdforge 模式
 - 修复 edition 2024 unsafe env 调用
 
-### Changed（Phase 6 前置）
+### 变更（Phase 6 前置）
 
 - Rust edition 从 2021 升级到 2024
 - 设置 rust-version 为 1.85
 - 许可证从 Apache-2.0 变更为 MIT
 
-### Fixed
+### 修复
 
 - 修复 edition 2024 模式匹配错误（`ref` 关键字、隐式借用）
 
 ## [0.2.1] - 2026-07-06
 
-### Breaking Changes
+### 破坏性变更
 
-- **移除 RedisStorage**: 完全删除 Redis 存储后端实现及 `redis-storage` feature
+- **移除 RedisStorage**：完全删除 Redis 存储后端实现及 `redis-storage` feature
   - 删除 `src/storage/redis.rs`
   - 删除 `examples/src/bin/redis_storage.rs`
   - 移除 `redis` crate 依赖
   - 所有缓存通过 oxcache 统一管理
-- **移除 StorageCreate/BanStorageCreate trait**: 改为 `MemoryStorage::create_storage()` 固有方法
-- **移除 SlidingWindowLimiter 公开导出**: 使用 `ShardedSlidingWindowLimiter` 替代
+- **移除 StorageCreate/BanStorageCreate trait**：改为 `MemoryStorage::create_storage()` 固有方法
+- **移除 SlidingWindowLimiter 公开导出**：使用 `ShardedSlidingWindowLimiter` 替代
   - 仍可通过 `limiteron::limiters::sliding_window::SlidingWindowLimiter` 全路径访问（已废弃）
 
-### New Features
+### 新增
 
-- **BanTarget::Geo**: 新增地理位置封禁，支持按国家代码（ISO 3166-1 alpha-2）封禁
-- **BanFileLoader**: 从 YAML 文件加载封禁规则，支持文件变更热重载（500ms debounce）
-- **POST /api/v1/ban**: 新增 HTTP 端点创建封禁，支持 ip/user/mac/geo 4 种 target 类型
-- **DELETE /api/v1/ban/{target}?type=**: 扩展支持 MAC/Geo 目标解封
+- **BanTarget::Geo**：新增地理位置封禁，支持按国家代码（ISO 3166-1 alpha-2）封禁
+- **BanFileLoader**：从 YAML 文件加载封禁规则，支持文件变更热重载（500ms debounce）
+- **POST /api/v1/ban**：新增 HTTP 端点创建封禁，支持 ip/user/mac/geo 4 种 target 类型
+- **DELETE /api/v1/ban/{target}?type=**：扩展支持 MAC/Geo 目标解封
 
-### Security Fixes
+### 安全修复
 
 - YAML 炸弹防护：封禁文件大小限制 2MB
 - AdminServer::start() 强制调用 config.validate()
@@ -222,7 +222,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `as u32`/`as u8` 截断修复
 - redact_advanced 正则脱敏逻辑修复
 
-### Improvements
+### 改进
 
 - handler 错误响应状态码统一（200/400/403/404/422/500/501/503）
 - get_limiter_status 改为 501 Not Implemented（不再返回假数据）
@@ -234,12 +234,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 主要升级：`criterion` 0.5 → 0.8、`sqlx` 0.7 → 0.9、`sea-orm` 1.0 → 2.0.0-rc.42、`maxminddb` 0.24 → 0.29、`hmac` 0.12 → 0.13、`sha2` 0.10 → 0.11、`opentelemetry` 0.24 → 0.32、`reqwest` 0.11 → 0.13、`axum` 0.7 → 0.8、`tower-http` 0.5 → 0.7、`dashmap` 5.5 → 6.2、`thiserror` 1.0 → 2.0、`validator` 0.18 → 0.20、`rand` 0.8 → 0.10、`notify` 6.5 → 8.2、`secrecy` 0.8 → 0.10、`woothee` 0.11 → 0.13
   - `dbnexus` 保持 `0.2`：`0.3` 依赖 `oxcache 0.2`，与本项目 `oxcache 0.3` 冲突
 
-### Test Coverage
+### 测试覆盖
 
 - 1893 unit tests passing (0 failed)
 - 96.16% line coverage (5781/6012 lines)
 
-### Fixed
+### 修复
 
 - **API 兼容性修复**（依赖 MAJOR 升级）：
   - `maxminddb 0.29`：`Reader.metadata` 字段私有化，改用 `reader.metadata()` 方法（`src/matchers/geo.rs`）
@@ -249,19 +249,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `unnecessary_sort_by`：`sort_by(|a,b| b.x.cmp(&a.x))` → `sort_by_key(|r| Reverse(r.x))`（`src/adapters/dbnexus_ban_storage.rs`）
   - `manual_checked_ops`：手动 `if x > 0 { y / x } else { default }` → `checked_div().unwrap_or(default)`（`src/limiters/gcra.rs`、`tests/chaos/latency.rs`）
 
-### Documentation
+### 文档
 
 - **`docs/FAQ.md`**：示例依赖版本 `limiteron = "0.1"` → `"0.2"`（与当前发布版本一致）
 
 ## [0.2.0] - 2026-07-04
 
-### BREAKING CHANGES
+### 破坏性变更
 
-- **`default = []`**: Cargo.toml 的 `default` feature 从 `["postgres"]` 改为 `[]`。用户必须显式启用 feature 才能使用对应功能。
+- **`default = []`**：Cargo.toml 的 `default` feature 从 `["postgres"]` 改为 `[]`。用户必须显式启用 feature 才能使用对应功能。
   - 迁移示例：`cargo build --features standard`（推荐）或 `cargo build --features postgres`（仅存储）
   - 默认构建 `cargo build` 现在只包含核心限流功能，不含 PostgreSQL 存储
-- **移除死 feature flags**: `code-review` 和 `advanced-matchers` feature 从 `full` preset 和定义中移除（全仓库零 `#[cfg(feature = "...")]` 引用）
-- **oxcache 升级 0.2.0 → 0.3.2**: 适配 oxcache 0.3.x API。oxcache 0.2.0/0.3.x 有编译 bug（security 模块无 feature gate 但引用 regex crate），启用 `core` feature 作为 workaround
+- **移除死 feature flags**：`code-review` 和 `advanced-matchers` feature 从 `full` preset 和定义中移除（全仓库零 `#[cfg(feature = "...")]` 引用）
+- **oxcache 升级 0.2.0 → 0.3.2**：适配 oxcache 0.3.x API。oxcache 0.2.0/0.3.x 有编译 bug（security 模块无 feature gate 但引用 regex crate），启用 `core` feature 作为 workaround
 - **BanManager API 变更**：
   - `ban()` → `add_ban(BanRecord)`，使用 `BanRecord` 结构体替代多个独立参数
   - `unban()` → `delete_ban(&target, unbanned_by: String)`，需要传入操作者标识
@@ -271,15 +271,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`MemoryStorage` 路径变更**：`limiteron::MemoryStorage` → `limiteron::storage::MemoryStorage`
 - **`FallbackManager::new(cache)` → `FallbackManager::new(Arc::new(cache))`**，统一使用 `Arc` 包装依赖
 
-### Security
+### 安全
 
-- **SSRF 防护加固** (`src/webhook_validator.rs`): 修复 IPv4-mapped IPv6 地址绕过（如 `::ffff:10.0.0.1` 不会被私有 IP 检查捕获）、未指定地址（`0.0.0.0`/`::`）、IPv6 链路本地地址（`fe80::/10`）的检查缺失
+- **SSRF 防护加固** (`src/webhook_validator.rs`)：修复 IPv4-mapped IPv6 地址绕过（如 `::ffff:10.0.0.1` 不会被私有 IP 检查捕获）、未指定地址（`0.0.0.0`/`::`）、IPv6 链路本地地址（`fe80::/10`）的检查缺失
 
-### Removed
+### 移除
 
-- **Dead code 清理**: 移除 11 个 dead-code 警告对应的代码（`DecisionNodeBuilder`、`MAX_REGEX_NESTING_DEPTH`、`L1Cache::island_stats` 等），基于 gitnexus 影响分析确认无外部调用
+- **Dead code 清理**：移除 11 个 dead-code 警告对应的代码（`DecisionNodeBuilder`、`MAX_REGEX_NESTING_DEPTH`、`L1Cache::island_stats` 等），基于 gitnexus 影响分析确认无外部调用
 
-### Added
+### 新增
 
 - **RedisStorage 存储后端**（`redis-storage` feature）：实现 `Storage`/`BanStorage`/`QuotaStorage` trait，支持多实例分布式场景
 - **Governor 优雅关闭**：新增 `shutdown()` / `shutdown_token()` / `is_shutdown()` 方法，支持优雅停止后台任务
@@ -290,100 +290,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`redis_storage` example**：RedisStorage 使用示例
 - **`graceful_shutdown` example**：优雅关闭使用示例
 
-### Fixed
+### 修复
 
 - **clippy 零警告**：`src/` + `tests/` + `benches/` 全部通过 clippy 严格检查
 - **修复 `cleanup_expired_bans` 死锁风险**：避免在持有锁时执行可能阻塞的操作
 - **修复 Governor 字段 `_storage`/`_ban_storage` 下划线前缀问题**：移除不必要的下划线前缀，字段实际被使用
 
-### Documentation
+### 文档
 
 - **README 中英文同步**：版本徽章、特性列表、测试计数、路线图全面更新
 - **examples 覆盖 20 个使用场景**：新增 `redis_storage`、`graceful_shutdown` 等示例
 - **AGENTS.md 更新**：添加 RedisStorage 模块说明、LOC 计数、redis 依赖
 
-### Developer Experience
+### 开发体验
 
-- **`.gitignore` 加固**: 添加 `*.profraw`、`coverage/`、`tarpaulin/` 规则，防止覆盖率文件污染仓库
+- **`.gitignore` 加固**：添加 `*.profraw`、`coverage/`、`tarpaulin/` 规则，防止覆盖率文件污染仓库
 
 ## [0.1.1] - 2026-01-20
 
-### Added
+### 新增
 
-- **MemoryStorage and MemoryBanStorage**: In-memory storage implementations for `Storage` and `BanStorage` traits. These enable the "out-of-the-box" pattern for quick prototyping and testing.
-- **Governor::new()**: New zero-argument constructor for `Governor` that uses default memory storage. Enables quick start without external dependencies.
-- **BanManager::new()**: New zero-argument constructor for `BanManager` that uses default memory storage.
-- **Feature Components Construction Patterns**: Documentation table in AGENTS.md showing which patterns each component supports.
+- **MemoryStorage 与 MemoryBanStorage**：`Storage` 与 `BanStorage` trait 的内存存储实现。支持"开箱即用"模式，便于快速原型验证与测试。
+- **Governor::new()**：`Governor` 新增零参数构造器，使用默认内存存储。无需外部依赖即可快速上手。
+- **BanManager::new()**：`BanManager` 新增零参数构造器，使用默认内存存储。
+- **特性组件构造模式**：在 AGENTS.md 中新增文档表格，说明各组件支持哪些构造模式。
 
-### Changed
+### 变更
 
-- **Governor::new(config, storage, ban_storage)**: Renamed to `Governor::with_storage(config, storage, ban_storage)` to make room for the new zero-argument `new()` method. The old signature is still available via the renamed method.
+- **Governor::new(config, storage, ban_storage)**：重命名为 `Governor::with_storage(config, storage, ban_storage)`，为新的零参数 `new()` 方法腾出命名。旧签名仍可通过重命名后的方法使用。
 
-### Deprecated
+### 已弃用
 
-- **config_loader::ConfigBuilder**: Use `config::ConfigBuilder` instead. The type is now a re-export with a deprecation warning.
-- **config_loader::RuleBuilder**: Use `config::RuleBuilder` instead. The type is now a re-export with a deprecation warning.
-- **Governor::new(config, storage, ban_storage)**: Use `Governor::with_storage()` instead. This change enables the new out-of-the-box pattern.
+- **config_loader::ConfigBuilder**：请改用 `config::ConfigBuilder`。该类型现为带弃用警告的重导出。
+- **config_loader::RuleBuilder**：请改用 `config::RuleBuilder`。该类型现为带弃用警告的重导出。
+- **Governor::new(config, storage, ban_storage)**：请改用 `Governor::with_storage()`。此变更为新的开箱即用模式提供了支持。
 
-### Fixed
+### 修复
 
-- Governor now properly implements the three construction patterns as specified in the DI architecture documentation.
-- BanManager builder now supports optional storage (uses MemoryBanStorage as default).
+- Governor 现已按 DI 架构文档的规格正确实现三种构造模式。
+- BanManager builder 现支持可选存储（默认使用 MemoryBanStorage）。
 
-### Security
+### 安全
 
-- None
+- 无
 
-### Documentation
+### 文档
 
-- Added "Feature Components Construction Patterns" section to AGENTS.md with usage examples and migration notes.
-- Added migration notes for API changes.
+- 在 AGENTS.md 中新增"特性组件构造模式"章节，包含用法示例与迁移说明。
+- 新增 API 变更的迁移说明。
 
-### Migration Guide
+### 迁移指南
 
-#### For ConfigBuilder Users
+#### ConfigBuilder 用户
 
-Before (deprecated):
+之前（已弃用）：
+
 ```rust
 use limiteron::config_loader::ConfigBuilder;
 let config = ConfigBuilder::new().with_rule(|r| r.id("test")).build();
 ```
 
-After (recommended):
+之后（推荐）：
+
 ```rust
 use limiteron::config::ConfigBuilder;
 let config = ConfigBuilder::new().with_rule(|r| r.id("test")).build();
 ```
 
-#### For Governor Users
+#### Governor 用户
 
-Before (deprecated):
+之前（已弃用）：
+
 ```rust
 let governor = Governor::new(config, storage, ban_storage).await.unwrap();
 ```
 
-After (recommended):
+之后（推荐）：
+
 ```rust
 let governor = Governor::with_storage(config, storage, ban_storage).await.unwrap();
 ```
 
-Quick start (new):
+快速开始（新）：
+
 ```rust
 let governor = Governor::new().await;
 ```
 
-#### For BanManager Users
+#### BanManager 用户
 
-Before:
+之前：
+
 ```rust
 let storage: Arc<dyn BanStorage> = Arc::new(custom_storage);
 let ban_manager = BanManager::with_dependencies(storage, config).await.unwrap();
 ```
 
-Now (with optional storage):
+现在（支持可选存储）：
+
 ```rust
 let ban_manager = BanManager::builder().build().await.unwrap();
-// Or with custom storage:
+// 或使用自定义存储：
 let ban_manager = BanManager::builder()
     .with_storage(custom_storage)
     .build()
@@ -391,27 +398,28 @@ let ban_manager = BanManager::builder()
     .unwrap();
 ```
 
-Quick start (new):
+快速开始（新）：
+
 ```rust
 let ban_manager = BanManager::new().await.unwrap();
 ```
 
 ## [0.1.0] - 2026-01-18
 
-### Added
+### 新增
 
-- Initial release with rate limiting, quota management, circuit breaking, and ban management
-- Support for multiple rate limiting algorithms: TokenBucket, SlidingWindow, FixedWindow, Concurrency
-- Ban management with priority system (IP > User > MAC > Device > APIKey)
-- Quota control with periodic allocation and alerting
-- Circuit breaker for automatic failover and state recovery
-- L1/L2/L3 caching layers
-- Integration with dbnexus for PostgreSQL persistence
-- Integration with oxcache for Redis caching
-- Integration with confers for configuration management
-- Declarative macros for simplified configuration
-- Monitoring with Prometheus metrics and OpenTelemetry tracing
-- Parallel ban checking for improved performance
+- 首个发布版本：包含限流、配额管理、熔断与封禁管理
+- 支持多种限流算法：TokenBucket、SlidingWindow、FixedWindow、Concurrency
+- 封禁管理，支持优先级体系（IP > User > MAC > Device > APIKey）
+- 配额控制，支持周期性分配与告警
+- 熔断器，支持自动故障转移与状态恢复
+- L1/L2/L3 缓存层
+- 集成 dbnexus 实现 PostgreSQL 持久化
+- 集成 oxcache 实现 Redis 缓存
+- 集成 confers 实现配置管理
+- 声明式宏简化配置
+- 监控支持 Prometheus 指标与 OpenTelemetry 追踪
+- 并行封禁检查以提升性能
 
 [Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.2.10...HEAD
 [0.2.10]: https://github.com/Kirky-X/limiteron/compare/v0.2.9...v0.2.10

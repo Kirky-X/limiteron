@@ -958,6 +958,8 @@ dependencies = [
 [[package]]
 name = "dbnexus"
 version = "0.6.0-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d80dbd65e741f68c0ba55011adcfc583fa94fd75709e8c67d99fac98b856f178"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -988,6 +990,8 @@ dependencies = [
 [[package]]
 name = "dbnexus-macros"
 version = "0.6.0-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44e0970a8df0764b4df4ed10d0bf1192fc2344a3a38f899d8124a4e69cb79c16"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2149,6 +2153,8 @@ dependencies = [
 [[package]]
 name = "inklog"
 version = "0.3.0-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e2aab6d331c8e049413de33030b484319c0494d54bb1aa0ab6744f961e15785"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2849,6 +2855,8 @@ dependencies = [
 [[package]]
 name = "oxcache"
 version = "0.5.0-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a554d0bfa5cf5fe2b70718d46c19de465dc95615a08e704efa7bce302052cf51"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2870,6 +2878,8 @@ dependencies = [
 [[package]]
 name = "oxcache_macros"
 version = "0.5.0-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc439e1fffa60bf11666e5b8ab3d2ef382ba9d9dc9ee322a0ce00941824cfcd8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4677,6 +4687,8 @@ dependencies = [
 [[package]]
 name = "trait-kit"
 version = "0.5.0-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c42ac2757a63f328830f85ba42387a06ee475791dbf260cb9107014c5969dab1"
 
 [[package]]
 name = "try-lock"

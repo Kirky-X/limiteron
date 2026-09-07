@@ -564,6 +564,23 @@ mod tests {
     use super::*;
     use crate::limiters::Limiter;
 
+    /// `GLOBAL_LIMITER_MANAGER` 是进程级全局单例，`clear_for_test` / `rate_limiter_count`
+    /// 操作共享逻辑状态；并行 harness 下各用例互相踩踏 → 以进程级锁将触碰全局状态
+    /// 的用例串行化。使用 `tokio::sync::Mutex` 因其 guard 为 `Send`，可安全持跨
+    /// `#[tokio::test]` 中的 await 点（`std::sync::MutexGuard` 非 `Send`，clippy
+    /// `await_holding_lock` 会拒绝）。锁顺序恒为 `GLOBAL_MGR_LOCK` →
+    /// `GLOBAL_LIMITER_MANAGER`，无反向获取，无死锁面。
+    static GLOBAL_MGR_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    async fn global_mgr_guard() -> tokio::sync::MutexGuard<'static, ()> {
+        GLOBAL_MGR_LOCK.lock().await
+    }
+
+    fn global_mgr_guard_blocking() -> tokio::sync::MutexGuard<'static, ()> {
+        // tokio `sync` feature 已启用 → `blocking_lock` 可用
+        GLOBAL_MGR_LOCK.blocking_lock()
+    }
+
     #[test]
     fn test_limiter_manager_new() {
         let manager = LimiterManager::new();
@@ -740,6 +757,7 @@ mod tests {
 
     #[test]
     fn test_global_limiter_manager_is_accessible() {
+        let _guard = global_mgr_guard_blocking();
         // 验证全局单例可访问
         let limiter = GLOBAL_LIMITER_MANAGER.get_rate_limiter("global_test", 1, 1);
         assert_eq!(GLOBAL_LIMITER_MANAGER.rate_limiter_count(), 1);
@@ -751,6 +769,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_global_limiter_manager_rate_limiter_works() {
+        let _guard = global_mgr_guard().await;
         GLOBAL_LIMITER_MANAGER.clear_for_test();
         let limiter = GLOBAL_LIMITER_MANAGER.get_rate_limiter("global_rate_test", 5, 1);
         // capacity=5, 应允许 5 个请求

@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: dtolnay/rust-toolchain@1.120.0
 
       - name: Verify build (all features)
         run: cargo build --release --workspace --no-default-features --features full
@@ -66,7 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         if: env.HAS_CARGO_TOKEN == 'true' || env.HAS_CRATES_TOKEN == 'true'
-      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: dtolnay/rust-toolchain@1.120.0
         if: env.HAS_CARGO_TOKEN == 'true' || env.HAS_CRATES_TOKEN == 'true'
 
       - name: Determine token

@@ -12,8 +12,10 @@
 //! Run: cargo run --bin rate_limiters
 
 use limiteron::error::LimiteronError;
+#[cfg(feature = "gcra")]
+use limiteron::limiters::GcraLimiter;
 use limiteron::limiters::{
-    ConcurrencyLimiter, FixedWindowLimiter, GcraLimiter, Limiter, ShardedSlidingWindowLimiter,
+    ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
     TokenBucketLimiter,
 };
 use std::time::Duration;
@@ -26,6 +28,7 @@ async fn main() -> Result<(), LimiteronError> {
     demo_sliding_window().await?;
     demo_fixed_window().await?;
     demo_concurrency().await?;
+    #[cfg(feature = "gcra")]
     demo_gcra().await?;
 
     println!("\n=== All demos completed ===");
@@ -141,6 +144,7 @@ async fn demo_concurrency() -> Result<(), LimiteronError> {
     Ok(())
 }
 
+#[cfg(feature = "gcra")]
 async fn demo_gcra() -> Result<(), LimiteronError> {
     println!("--- GCRA (Generic Cell Rate Algorithm) Limiter ---");
     println!("Capacity: 3 burst, Rate: 10 req/s (100ms interval)\n");

@@ -1,3 +1,4 @@
+# CI 质量门禁:fmt / clippy / check / test / cross-platform / doc / security / coverage
 name: CI
 
 on:
@@ -67,7 +68,7 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --no-default-features --features full
 
-  cross-platform:
+  build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30

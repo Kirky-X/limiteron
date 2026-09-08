@@ -774,7 +774,8 @@ impl BanManager {
         self.storage.save(&record).await?;
 
         let detail = BanDetail {
-            id: uuid::Uuid::new_v4().to_string(),
+            // 与 From<BanRecord> 一致：由目标确定性派生 id（G4）
+            id: stable_ban_detail_id(&target),
             target,
             ban_times,
             duration,

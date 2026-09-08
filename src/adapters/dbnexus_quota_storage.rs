@@ -83,23 +83,10 @@ impl DBNexusQuotaStorageAdapter {
         })
     }
 
-    /// Compute usage percent (0.0 when limit is 0)
-    fn usage_percent(consumed: u64, limit: u64) -> f64 {
-        if limit > 0 {
-            (consumed as f64 / limit as f64) * 100.0
-        } else {
-            0.0
-        }
-    }
-
     /// Build an allowed ConsumeResult from the post-consumption ledger value
+    /// （diting 简化：改用共享的 `ConsumeResult::allowed` 构造器）
     fn allowed_result(new_consumed: u64, limit: u64) -> ConsumeResult {
-        ConsumeResult {
-            allowed: true,
-            remaining: limit.saturating_sub(new_consumed),
-            alert_triggered: false,
-            usage_percent: Self::usage_percent(new_consumed, limit),
-        }
+        ConsumeResult::allowed(new_consumed, limit)
     }
 }
 
@@ -131,7 +118,9 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
     /// 原子条件 UPDATE（A3）：限额检查与累加在单条 SQL 内由数据库完成
     /// （`WHERE consumed + cost <= "limit"` + `RETURNING`），消除
     /// read-check-write 竞态下的静默超额放行。未命中时区分「超限拒绝」
-    /// 与「无活跃记录」；后者经新窗口原子重置（复用过期行）或插入处理。
+    /// 与「无活跃记录」；后者经新窗口原子重启（复用过期行）或守卫式
+    /// 插入处理，两条路径都以 `ON CONFLICT` 兜底并发首触（diting Medium：
+    /// 旧实现并发 INSERT 撞 quota_key UNIQUE 会向请求返回错误）。
     async fn consume(
         &self,
         user_id: &str,
@@ -148,109 +137,123 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             ChronoDuration::from_std(window).unwrap_or_else(|_| ChronoDuration::days(365));
         let window_end = now + chrono_window;
 
-        // 活跃窗口原子累加：命中即允许并返回累加后的 consumed
+        // 活跃窗口原子累加：命中即允许并返回累加后的 consumed。
+        // 限额取 LEAST(存储列, 调用方参数)（diting Low）：运行期调低
+        // 配额上限时，活跃窗口也按新上限裁决。
         const CONSUME_SQL: &str = r#"
             UPDATE limiteron_quotas
             SET consumed = consumed + $2, updated_at = $4
-            WHERE quota_key = $1 AND window_end > $4 AND consumed + $2 <= "limit"
+            WHERE quota_key = $1 AND window_end > $4 AND consumed + $2 <= LEAST("limit", $3)
             RETURNING consumed
         "#;
-        if let Some(row) = Self::query_optional(
-            conn,
-            CONSUME_SQL,
-            [
-                quota_key.clone().into(),
-                (cost as i64).into(),
-                (limit as i64).into(),
-                now.into(),
-            ],
-        )
-        .await?
-        {
-            return Ok(Self::allowed_result(row_consumed(&row)?, limit));
-        }
-
-        // 未命中：区分超限拒绝与无活跃记录（新窗口/首次消费）
-        let condition = Condition::all()
-            .add(QuotaColumn::QuotaKey.eq(quota_key.clone()))
-            .add(QuotaColumn::WindowEnd.gt(now));
-
-        if let Some(record) = QuotaRecordModel::find_by_condition(&session, condition)
-            .await
-            .map_err(Self::map_err)?
-            .into_iter()
-            .next()
-        {
-            // 超限拒绝：给出基于当前账本的准确 remaining/usage
-            let consumed = record.consumed as u64;
-            let usage = Self::usage_percent(consumed, limit);
-            return Ok(ConsumeResult {
-                allowed: false,
-                remaining: limit.saturating_sub(consumed),
-                alert_triggered: false,
-                usage_percent: usage,
-            });
-        }
-
-        if cost > limit {
-            let usage = Self::usage_percent(cost, limit);
-            return Ok(ConsumeResult {
-                allowed: false,
-                remaining: 0,
-                alert_triggered: false,
-                usage_percent: usage,
-            });
-        }
-
-        // 新窗口原子重启：同 key 的过期行受 quota_key UNIQUE 保护无法被
-        // INSERT 替代，这里在「窗口确实过期 + 不超限」条件下原子复用它
+        // 守卫式插入：仅当冲突行确实过期时以全新窗口覆盖（并发首触时
+        // 输家不再撞 UNIQUE 报错，而是回到循环顶部走原子累加路径）
+        const INSERT_SQL: &str = r#"
+            INSERT INTO limiteron_quotas
+                (user_id, resource, quota_key, "limit", consumed,
+                 window_start, window_end, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $6, $6)
+            ON CONFLICT (quota_key) DO UPDATE SET
+                consumed = EXCLUDED.consumed,
+                "limit" = EXCLUDED."limit",
+                window_start = EXCLUDED.window_start,
+                window_end = EXCLUDED.window_end,
+                updated_at = EXCLUDED.updated_at
+            WHERE limiteron_quotas.window_end <= EXCLUDED.window_start
+            RETURNING consumed
+        "#;
+        // 新窗口原子重启：同 key 的过期行在「窗口确实过期 + 不超限」
+        // 条件下原子复用（保留行身份与创建时间）
         const RESTART_SQL: &str = r#"
             UPDATE limiteron_quotas
             SET consumed = $2, "limit" = $3, window_start = $4, window_end = $5, updated_at = $4
             WHERE quota_key = $1 AND window_end <= $4 AND $2 <= $3
             RETURNING consumed
         "#;
-        if let Some(row) = Self::query_optional(
-            conn,
-            RESTART_SQL,
-            [
-                quota_key.clone().into(),
-                (cost as i64).into(),
-                (limit as i64).into(),
-                now.into(),
-                window_end.into(),
-            ],
-        )
-        .await?
-        {
-            let _ = row_consumed(&row)?;
-            return Ok(Self::allowed_result(cost, limit));
+
+        // 有界重试：并发首触时败方的 INSERT 冲突由守卫吸收（0 行返回），
+        // 回到顶部重跑原子累加即可命中胜方建立的活跃行
+        for _ in 0..3 {
+            if let Some(row) = Self::query_optional(
+                conn,
+                CONSUME_SQL,
+                [
+                    quota_key.clone().into(),
+                    (cost as i64).into(),
+                    (limit as i64).into(),
+                    now.into(),
+                ],
+            )
+            .await?
+            {
+                return Ok(Self::allowed_result(row_consumed(&row)?, limit));
+            }
+
+            // 未命中：区分超限拒绝与无活跃记录（新窗口/首次消费）
+            let condition = Condition::all()
+                .add(QuotaColumn::QuotaKey.eq(quota_key.clone()))
+                .add(QuotaColumn::WindowEnd.gt(now));
+
+            if let Some(record) = QuotaRecordModel::find_by_condition(&session, condition)
+                .await
+                .map_err(Self::map_err)?
+                .into_iter()
+                .next()
+            {
+                // 超限拒绝：给出基于当前账本的准确 remaining/usage
+                let consumed = record.consumed as u64;
+                return Ok(ConsumeResult::rejected(consumed, limit));
+            }
+
+            if cost > limit {
+                return Ok(ConsumeResult::rejected(0, limit));
+            }
+
+            // 先试新窗口原子重启（复用过期行，保留行身份与创建时间）
+            if let Some(row) = Self::query_optional(
+                conn,
+                RESTART_SQL,
+                [
+                    quota_key.clone().into(),
+                    (cost as i64).into(),
+                    (limit as i64).into(),
+                    now.into(),
+                    window_end.into(),
+                ],
+            )
+            .await?
+            {
+                let _ = row_consumed(&row)?;
+                return Ok(Self::allowed_result(cost, limit));
+            }
+
+            // 全新 key：守卫式插入。并发首触时败方 INSERT 撞 quota_key
+            // UNIQUE，但 ON CONFLICT 的 WHERE 过期守卫使其成为 0 行更新
+            // （不再向请求抛 UNIQUE 错误），回到循环顶部走原子累加路径。
+            if let Some(row) = Self::query_optional(
+                conn,
+                INSERT_SQL,
+                [
+                    user_id.into(),
+                    resource.into(),
+                    quota_key.clone().into(),
+                    (limit as i64).into(),
+                    (cost as i64).into(),
+                    now.into(),
+                    window_end.into(),
+                ],
+            )
+            .await?
+            {
+                let _ = row_consumed(&row)?;
+                return Ok(Self::allowed_result(cost, limit));
+            }
+            // 0 行返回 = 冲突行仍活跃（竞态），循环重试
         }
 
-        // 全新 key：插入。并发插入撞 quota_key UNIQUE 时返回显式错误
-        // （可重试，重试后会走上面的原子路径）。
-        let model = QuotaRecordModel {
-            id: 0,
-            user_id: user_id.to_string(),
-            resource: resource.to_string(),
-            quota_key,
-            limit: limit as i64,
-            consumed: cost as i64,
-            window_start: now,
-            window_end,
-            created_at: now,
-            updated_at: now,
-        };
-
-        let mut active_model: QuotaRecordActiveModel = model.into();
-        // 主键由 BIGSERIAL 序列生成：显式 Set(0) 会导致重复主键崩溃
-        active_model.id = sea_orm::NotSet;
-        active_model
-            .insert(conn)
-            .await
-            .map_err(|e| StorageError::QueryError(format!("Failed to create quota: {}", e)))?;
-
-        Ok(Self::allowed_result(cost, limit))
+        Err(StorageError::QueryError(
+            "并发配额初始化冲突重试耗尽，请重试请求".to_string(),
+        ))
     }
 
     /// Reset quota

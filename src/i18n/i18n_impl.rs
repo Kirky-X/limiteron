@@ -26,8 +26,7 @@ fn localize_window(lang: &str, window: &str) -> String {
         ("de", "minute") => "Minute".to_string(),
         ("de", "hour") => "Stunde".to_string(),
         ("de", "day") => "Tag".to_string(),
-        ("fr", "second") => "second".to_string(),
-        ("fr", "minute") => "minute".to_string(),
+        // fr 的 second/minute 与英文拼写一致，走回退即可
         ("fr", "hour") => "heure".to_string(),
         ("fr", "day") => "jour".to_string(),
         ("es", "second") => "segundo".to_string(),

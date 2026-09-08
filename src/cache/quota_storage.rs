@@ -51,32 +51,6 @@ impl CacheQuotaStorage {
         }
     }
 
-    fn usage_percent(consumed: u64, limit: u64) -> f64 {
-        if limit > 0 {
-            (consumed as f64 / limit as f64) * 100.0
-        } else {
-            0.0
-        }
-    }
-
-    fn reject_result(consumed: u64, limit: u64) -> ConsumeResult {
-        ConsumeResult {
-            allowed: false,
-            remaining: limit.saturating_sub(consumed),
-            alert_triggered: false,
-            usage_percent: Self::usage_percent(consumed, limit),
-        }
-    }
-
-    fn allow_result(consumed: u64, limit: u64) -> ConsumeResult {
-        ConsumeResult {
-            allowed: true,
-            remaining: limit.saturating_sub(consumed),
-            alert_triggered: false,
-            usage_percent: Self::usage_percent(consumed, limit),
-        }
-    }
-
     /// 原子 consume：`INCR` 计数后检查限额，超限即原子回滚。
     ///
     /// 单条 `INCRBY` 由后端原子执行，并发消费者的放行决策互不交错
@@ -102,10 +76,10 @@ impl CacheQuotaStorage {
                 .await
                 .map_err(map_error)?;
             let used = rolled_back.max(0) as u64;
-            return Ok(Self::reject_result(used, limit));
+            return Ok(ConsumeResult::rejected(used, limit));
         }
 
-        Ok(Self::allow_result(new_total.max(0) as u64, limit))
+        Ok(ConsumeResult::allowed(new_total.max(0) as u64, limit))
     }
 
     /// 回退 consume（后端无原子写时）：进程内锁串行化的 RMW
@@ -122,11 +96,11 @@ impl CacheQuotaStorage {
         let new_total = current.saturating_add(cost);
 
         if new_total > limit {
-            return Ok(Self::reject_result(current, limit));
+            return Ok(ConsumeResult::rejected(current, limit));
         }
 
         self.write_counter(key, new_total, window).await?;
-        Ok(Self::allow_result(new_total, limit))
+        Ok(ConsumeResult::allowed(new_total, limit))
     }
 
     async fn read_counter(&self, key: &str) -> Result<u64, StorageError> {
@@ -222,12 +196,7 @@ impl QuotaStorage for CacheQuotaStorage {
         if cost == 0 {
             let info = self.get_quota(user_id, resource).await?;
             let consumed = info.as_ref().map(|i| i.consumed).unwrap_or(0);
-            return Ok(ConsumeResult {
-                allowed: true,
-                remaining: limit.saturating_sub(consumed),
-                alert_triggered: false,
-                usage_percent: Self::usage_percent(consumed, limit),
-            });
+            return Ok(ConsumeResult::allowed(consumed, limit));
         }
 
         let now = Utc::now();
@@ -254,7 +223,7 @@ impl QuotaStorage for CacheQuotaStorage {
             .map_err(map_error)?;
 
         if cost > limit {
-            return Ok(Self::reject_result(0, limit));
+            return Ok(ConsumeResult::rejected(0, limit));
         }
 
         // 原子路径

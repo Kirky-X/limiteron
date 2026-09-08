@@ -250,59 +250,31 @@ impl RuleBuilder {
             let mut conditions: Vec<Box<dyn ConditionEvaluator>> = Vec::new();
 
             for matcher in &rule_config.matchers {
-                let condition: Box<dyn ConditionEvaluator> = match matcher {
-                    ConfigMatcher::User { user_ids } => {
-                        Box::new(MatchCondition::User(user_ids.clone()))
-                    }
-                    ConfigMatcher::Ip { ip_ranges } => {
-                        let ranges: Result<Vec<IpRange>, _> =
-                            ip_ranges.iter().map(|s| s.parse()).collect();
-                        Box::new(MatchCondition::Ip(ranges?))
-                    }
-                    ConfigMatcher::Geo { countries } => {
-                        Box::new(MatchCondition::Geo(countries.clone()))
-                    }
-                    ConfigMatcher::ApiVersion { versions } => {
-                        Box::new(MatchCondition::ApiVersion(versions.clone()))
-                    }
-                    ConfigMatcher::Device { device_types } => {
-                        Box::new(MatchCondition::Device(device_types.clone()))
-                    }
-                    ConfigMatcher::Custom { name, config: _ } => {
-                        // E1 可见性修复：构建期 warn 一次（含后果说明），
-                        // 热路径降为 debug，避免每次求值刷日志
-                        log::warn!(
-                            "自定义匹配器 '{}' 未集成 CustomMatcherRegistry，该规则将恒不匹配（其限制不会生效）",
-                            name
-                        );
-                        let name = name.clone();
-                        Box::new(MatchCondition::Custom(Arc::new(move |_context| {
-                            log::debug!("自定义匹配器 '{}' 为占位实现，恒不匹配", name);
-                            false
-                        })))
-                    }
+                if let Some(condition) = base_condition(matcher)? {
+                    conditions.push(condition);
+                    continue;
+                }
+                // Custom 匹配器：未提供注册表的构建路径编译为恒不匹配
+                // 占位（E1 可见性修复：构建期 warn 一次，热路径降 debug）
+                let ConfigMatcher::Custom { name, .. } = matcher else {
+                    unreachable!("base_condition 仅对 Custom 返回 None");
                 };
-                conditions.push(condition);
+                log::warn!(
+                    "自定义匹配器 '{}' 未集成 CustomMatcherRegistry，该规则将恒不匹配（其限制不会生效）",
+                    name
+                );
+                let name = name.clone();
+                conditions.push(Box::new(MatchCondition::Custom(Arc::new(
+                    move |_context| {
+                        log::debug!("自定义匹配器 '{}' 为占位实现，恒不匹配", name);
+                        false
+                    },
+                ))));
             }
 
-            let final_condition: Box<dyn ConditionEvaluator> = if conditions.len() == 1 {
-                conditions.pop().unwrap()
-            } else if conditions.is_empty() {
-                continue;
-            } else {
-                Box::new(CompositeCondition {
-                    conditions,
-                    operator: LogicalOperator::And,
-                })
-            };
-
-            rules.push(MatcherRule {
-                id: rule_config.id.clone(),
-                name: rule_config.name.clone(),
-                priority: rule_config.priority,
-                condition: final_condition,
-                enabled: true,
-            });
+            if let Some(rule) = assemble_rule(rule_config, conditions) {
+                rules.push(rule);
+            }
         }
 
         Ok(rules)
@@ -315,9 +287,9 @@ impl RuleBuilder {
     /// 参与运行时求值；未注册的仍编译为恒不匹配占位并告警。
     ///
     /// # 性能约束
-    /// 条件求值是同步路径，闭包内经 `futures::executor::block_on` 驱动
-    /// 异步 `matches`——自定义匹配器必须是轻量实现（头检查/阈值比较），
-    /// 不得在 `matches` 内 await 定时器或 IO。
+    /// 条件求值是同步路径，闭包内经 [`drive_lightweight`] 驱动异步
+    /// `matches`——自定义匹配器必须是轻量实现（头检查/阈值比较），
+    /// 返回 `Pending` 的实现将按不匹配处理并记 error 日志。
     pub async fn build_rules_with_registry(
         config: &FlowControlConfig,
         registry: &crate::matchers::custom::CustomMatcherRegistry,
@@ -330,107 +302,129 @@ impl RuleBuilder {
             let mut conditions: Vec<Box<dyn ConditionEvaluator>> = Vec::new();
 
             for matcher in &rule_config.matchers {
-                let condition: Box<dyn ConditionEvaluator> = match matcher {
-                    ConfigMatcher::User { user_ids } => {
-                        Box::new(MatchCondition::User(user_ids.clone()))
-                    }
-                    ConfigMatcher::Ip { ip_ranges } => {
-                        let ranges: Result<Vec<IpRange>, _> =
-                            ip_ranges.iter().map(|s| s.parse()).collect();
-                        Box::new(MatchCondition::Ip(ranges?))
-                    }
-                    ConfigMatcher::Geo { countries } => {
-                        Box::new(MatchCondition::Geo(countries.clone()))
-                    }
-                    ConfigMatcher::ApiVersion { versions } => {
-                        Box::new(MatchCondition::ApiVersion(versions.clone()))
-                    }
-                    ConfigMatcher::Device { device_types } => {
-                        Box::new(MatchCondition::Device(device_types.clone()))
-                    }
-                    ConfigMatcher::Custom { name, config: _ } => {
-                        if let Some(matcher) = registry.get(name).await {
-                            log::info!("自定义匹配器 '{}' 已从注册表解析并生效", name);
-                            let name = name.clone();
-                            Box::new(MatchCondition::Custom(Arc::new(
-                                move |context: &RequestContext| {
-                                    let fut = matcher.matches(context);
-                                    match crate::rules::builder::drive_lightweight(fut) {
-                                        Ok(v) => v,
-                                        Err(e) => {
-                                            log::warn!(
-                                                "自定义匹配器 '{}' 求值失败，按不匹配处理: {}",
-                                                name,
-                                                e
-                                            );
-                                            false
-                                        }
-                                    }
-                                },
-                            )))
-                        } else {
-                            log::warn!(
-                                "自定义匹配器 '{}' 未在注册表中注册，该规则将恒不匹配（其限制不会生效）",
-                                name
-                            );
-                            let name = name.clone();
-                            Box::new(MatchCondition::Custom(Arc::new(
-                                move |_context: &RequestContext| {
-                                    log::debug!("自定义匹配器 '{}' 为占位实现，恒不匹配", name);
-                                    false
-                                },
-                            )))
-                        }
-                    }
+                if let Some(condition) = base_condition(matcher)? {
+                    conditions.push(condition);
+                    continue;
+                }
+                let ConfigMatcher::Custom { name, .. } = matcher else {
+                    unreachable!("base_condition 仅对 Custom 返回 None");
                 };
-                conditions.push(condition);
+                if let Some(matcher) = registry.get(name).await {
+                    log::info!("自定义匹配器 '{}' 已从注册表解析并生效", name);
+                    let name = name.clone();
+                    conditions.push(Box::new(MatchCondition::Custom(Arc::new(
+                        move |context: &RequestContext| {
+                            let fut = matcher.matches(context);
+                            match drive_lightweight(fut) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    log::warn!(
+                                        "自定义匹配器 '{}' 求值失败，按不匹配处理: {}",
+                                        name,
+                                        e
+                                    );
+                                    false
+                                }
+                            }
+                        },
+                    ))));
+                } else {
+                    log::warn!(
+                        "自定义匹配器 '{}' 未在注册表中注册，该规则将恒不匹配（其限制不会生效）",
+                        name
+                    );
+                    let name = name.clone();
+                    conditions.push(Box::new(MatchCondition::Custom(Arc::new(
+                        move |_context: &RequestContext| {
+                            log::debug!("自定义匹配器 '{}' 为占位实现，恒不匹配", name);
+                            false
+                        },
+                    ))));
+                }
             }
 
-            let final_condition: Box<dyn ConditionEvaluator> = if conditions.len() == 1 {
-                conditions.pop().unwrap()
-            } else if conditions.is_empty() {
-                continue;
-            } else {
-                Box::new(CompositeCondition {
-                    conditions,
-                    operator: LogicalOperator::And,
-                })
-            };
-
-            rules.push(MatcherRule {
-                id: rule_config.id.clone(),
-                name: rule_config.name.clone(),
-                priority: rule_config.priority,
-                condition: final_condition,
-                enabled: true,
-            });
+            if let Some(rule) = assemble_rule(rule_config, conditions) {
+                rules.push(rule);
+            }
         }
 
         Ok(rules)
     }
 }
 
+/// 非 Custom 匹配器的条件编译（diting 简化：`build_rules` 与
+/// `build_rules_with_registry` 共用；`Custom` 由调用方按注册表情况处理）
+fn base_condition(
+    matcher: &ConfigMatcher,
+) -> Result<Option<Box<dyn ConditionEvaluator>>, LimiteronError> {
+    Ok(match matcher {
+        ConfigMatcher::User { user_ids } => Some(Box::new(MatchCondition::User(user_ids.clone()))),
+        ConfigMatcher::Ip { ip_ranges } => {
+            let ranges: Result<Vec<IpRange>, _> = ip_ranges.iter().map(|s| s.parse()).collect();
+            Some(Box::new(MatchCondition::Ip(ranges?)))
+        }
+        ConfigMatcher::Geo { countries } => Some(Box::new(MatchCondition::Geo(countries.clone()))),
+        ConfigMatcher::ApiVersion { versions } => {
+            Some(Box::new(MatchCondition::ApiVersion(versions.clone())))
+        }
+        ConfigMatcher::Device { device_types } => {
+            Some(Box::new(MatchCondition::Device(device_types.clone())))
+        }
+        ConfigMatcher::Custom { .. } => None,
+    })
+}
+
+/// 组装单条规则：单条件直用，多条件 AND 组合，无条件跳过
+fn assemble_rule(
+    rule_config: &crate::config::Rule,
+    mut conditions: Vec<Box<dyn ConditionEvaluator>>,
+) -> Option<MatcherRule> {
+    let final_condition: Box<dyn ConditionEvaluator> = if conditions.len() == 1 {
+        conditions.pop().unwrap()
+    } else if conditions.is_empty() {
+        return None;
+    } else {
+        Box::new(CompositeCondition {
+            conditions,
+            operator: LogicalOperator::And,
+        })
+    };
+
+    Some(MatcherRule {
+        id: rule_config.id.clone(),
+        name: rule_config.name.clone(),
+        priority: rule_config.priority,
+        condition: final_condition,
+        enabled: true,
+    })
+}
+
 // ============================================================================
 // 单元测试
 // ============================================================================
 
-/// 极简同步驱动器：自旋轮询 future 至完成
+/// 轻量同步驱动器：单次 poll，Pending 显性失败
 ///
 /// 供 `MatchCondition::Custom` 的同步求值路径驱动自定义匹配器的异步
-/// `matches`。自定义匹配器应为轻量实现（首次 poll 即 Ready，如头检查/
-/// 阈值比较）；返回 `Pending` 的实现会在此自旋等待，不得包含定时器/IO。
+/// `matches`。自定义匹配器契约：轻量、首次 poll 即 Ready（头检查/
+/// 阈值比较等）。
+///
+/// 修复（diting High）：不得对 `Pending` 自旋——noop waker 无人唤醒，
+/// 任何含真实 await 点的实现（contended 锁、`yield_now`、IO/定时器）
+/// 会把调用线程永久挂死在 100% CPU 循环。Pending 一律 `log::error!`
+/// 并按不匹配处理（与求值失败同口径）。
 pub(crate) fn drive_lightweight<E>(fut: impl Future<Output = Result<bool, E>>) -> Result<bool, E> {
     use std::pin::pin;
     use std::task::{Context, Poll};
 
-    let mut fut = pin!(fut);
     let waker = std::task::Waker::noop();
     let mut cx = Context::from_waker(waker);
-    loop {
-        if let Poll::Ready(out) = fut.as_mut().poll(&mut cx) {
-            return out;
+    match pin!(fut).poll(&mut cx) {
+        Poll::Ready(out) => out,
+        Poll::Pending => {
+            log::error!("自定义匹配器返回 Pending（违反「首次 poll 即 Ready」契约），按不匹配处理");
+            Ok(false)
         }
-        std::hint::spin_loop();
     }
 }
 
@@ -550,6 +544,50 @@ mod tests {
 
         // 未注册：恒不匹配（fail-open 占位）
         assert!(!by_id("rule-unregistered").condition.evaluate(&beta_ctx));
+
+        // diting High 回归：Pending future 不得自旋挂死，显性按不匹配处理
+        struct PendingMatcher;
+        #[async_trait::async_trait]
+        impl crate::matchers::custom::CustomMatcher for PendingMatcher {
+            fn name(&self) -> &str {
+                "pending-matcher"
+            }
+            async fn matches(&self, _context: &RequestContext) -> Result<bool, LimiteronError> {
+                std::future::pending().await
+            }
+            fn load_config(&mut self, _config: serde_json::Value) -> Result<(), LimiteronError> {
+                Ok(())
+            }
+        }
+        registry
+            .register("pending-matcher".to_string(), Box::new(PendingMatcher))
+            .await
+            .unwrap();
+        let config2 = FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "rule-pending".to_string(),
+                name: "Pending custom".to_string(),
+                priority: 100,
+                matchers: vec![Matcher::Custom {
+                    name: "pending-matcher".to_string(),
+                    config: serde_json::json!({}),
+                }],
+                limiters: vec![],
+                action: ActionConfig {
+                    on_exceed: Action::Reject,
+                    ban: None,
+                },
+            }],
+        };
+        let rules3 = RuleBuilder::build_rules_with_registry(&config2, &registry)
+            .await
+            .unwrap();
+        assert!(
+            !rules3[0].condition.evaluate(&beta_ctx),
+            "Pending 的自定义匹配器必须按不匹配处理（不得挂死）"
+        );
     }
 
     #[test]

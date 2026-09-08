@@ -388,11 +388,18 @@ impl CircuitBreaker {
                 if let Some(last_failure) = *last_failure {
                     if self.clock.now().duration_since(last_failure) >= self.config.timeout {
                         // 超时到期：尝试切换到半开状态。
-                        // 切换幂等（CAS guarded）；所有并发调用者随后一致地进入
-                        // 下方的半开准入检查，被 half_open_max_calls 限流，避免惊群。
+                        // 判定与写入在同一写锁内（diting Medium：旧实现
+                        // 「读锁检查 + 无守卫写入」的 TOCTOU 会让并发的
+                        // 第二个转换重复执行 finalize，把 half_open_calls
+                        // 清零而部分击穿 B1 的精确准入）。
                         drop(state);
-                        self.transition_to_half_open().await;
-                        half_open_probe = true;
+                        if self.transition_to_half_open_if_open().await {
+                            half_open_probe = true;
+                        } else if *self.state.read().await == CircuitState::HalfOpen {
+                            // 他人已完成切换：本调用者同为恢复流量，按探针准入
+                            half_open_probe = true;
+                        }
+                        // 否则状态已漂移（如 Closed），按非探针正常路径继续
                     } else {
                         // 仍在熔断状态，拒绝请求
                         drop(state);
@@ -687,9 +694,25 @@ impl CircuitBreaker {
         self.transition_to(CircuitState::Open).await;
     }
 
-    /// 切换到半开状态
-    async fn transition_to_half_open(&self) {
-        self.transition_to(CircuitState::HalfOpen).await;
+    /// 仅当当前仍为 `CircuitState::Open` 时原子地切换到 HalfOpen
+    ///
+    /// 与 [`Self::transition_to_closed_if_half_open`] 同治（diting Medium）：
+    /// 判定与写入在同一写锁内，防止并发调用者的第二个 Open→HalfOpen
+    /// 转换重复执行 finalize 而把 `half_open_calls` 清零、部分击穿
+    /// half-open 的精确准入。
+    async fn transition_to_half_open_if_open(&self) -> bool {
+        let old_state = {
+            let mut state = self.state.write().await;
+            if *state != CircuitState::Open {
+                return false;
+            }
+            let old = *state;
+            *state = CircuitState::HalfOpen;
+            old
+        };
+        self.finalize_transition(old_state, CircuitState::HalfOpen)
+            .await;
+        true
     }
 
     /// 检查熔断器是否为指定状态（内部辅助方法）

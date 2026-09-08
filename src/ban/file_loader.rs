@@ -158,6 +158,26 @@ impl BanFileLoader {
                 operator: "file_loader".to_string(),
             };
 
+            // 幂等防护（diting Medium）：热重载不是新的违规事件。同
+            // target 且同 reason 的活跃封禁视为期望态已生效，跳过——
+            // 否则每次重载都会经 upsert_ban_record 把 ban_times 原子 +1，
+            // duration_secs 为 null 的条目退避时长随重载逐次升级。
+            match manager.read_ban(&entry.target).await {
+                Ok(Some(existing)) if existing.reason == entry.reason => {
+                    log::debug!("文件封禁已生效，重载跳过: target={:?}", entry.target);
+                    result.success_count += 1;
+                    continue;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    log::warn!(
+                        "查询既有封禁失败，按新建处理: target={:?}, error={}",
+                        entry.target,
+                        e
+                    );
+                }
+            }
+
             match manager
                 .create_ban(
                     entry.target.clone(),
@@ -561,15 +581,15 @@ bans:
         let r2 = loader.load_once(&manager).await.expect("第二次加载失败");
         assert_eq!(r2.success_count, 1);
 
-        // 验证封禁仍存在。ban-5 修复后每次 create_ban 使 ban_times 原子 +1，
-        // 同一文件加载两次 = 两次封禁行为，计数由旧实现的覆盖写（恒 1）
-        // 变为正确递增（2）
+        // 验证封禁仍存在。diting Medium 幂等修复后：同 target + 同 reason
+        // 的重载视为期望态已生效，跳过而不递增 ban_times（避免热重载
+        // 反复抬升 null duration 条目的退避时长）
         let ban = manager
             .read_ban(&BanTarget::Ip("10.0.0.1".to_string()))
             .await
             .expect("查询失败")
             .expect("封禁应存在");
-        assert_eq!(ban.ban_times, 2);
+        assert_eq!(ban.ban_times, 1);
     }
 
     #[test]

@@ -236,5 +236,38 @@ pub struct ConsumeResult {
     pub usage_percent: f64,
 }
 
+impl ConsumeResult {
+    fn usage_percent(consumed: u64, limit: u64) -> f64 {
+        if limit > 0 {
+            (consumed as f64 / limit as f64) * 100.0
+        } else {
+            0.0
+        }
+    }
+
+    /// 构造放行结果（`consumed` 为放行后的账本值）
+    ///
+    /// 供各存储后端统一结果构造（diting 简化：usage/remaining 推导
+    /// 此前在 cache 与 dbnexus 适配器中各写一份）。
+    pub fn allowed(consumed: u64, limit: u64) -> Self {
+        Self {
+            allowed: true,
+            remaining: limit.saturating_sub(consumed),
+            alert_triggered: false,
+            usage_percent: Self::usage_percent(consumed, limit),
+        }
+    }
+
+    /// 构造拒绝结果（`consumed` 为当前已用量）
+    pub fn rejected(consumed: u64, limit: u64) -> Self {
+        Self {
+            allowed: false,
+            remaining: limit.saturating_sub(consumed),
+            alert_triggered: false,
+            usage_percent: Self::usage_percent(consumed, limit),
+        }
+    }
+}
+
 /// Limiteron 结果类型别名
 pub type LimiteronResult<T> = std::result::Result<T, LimiteronError>;

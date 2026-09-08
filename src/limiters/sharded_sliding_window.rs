@@ -9,7 +9,7 @@ use crate::clock::{Clock, SystemClock};
 use crate::error::LimiteronError;
 use async_trait::async_trait;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 /// 默认分片数量（每秒一个分片，支持60秒窗口）
@@ -77,13 +77,14 @@ pub struct ShardedSlidingWindowLimiter {
     /// 用于定期触发分片清理，避免每次请求都清理。
     last_cleanup: AtomicU64,
 
-    /// 准入自旋锁
+    /// 准入锁（parking_lot，项目约定）
     ///
     /// 使「窗口计数检查 + 分片递增」成为原子操作。没有它，两个并发调用
     /// 可同时通过 `current_count + cost <= max_requests` 检查后各自递增，
     /// 导致超限放行（check-then-act 竞态，仓库并发测试曾以 +3 容差掩盖）。
-    /// 临界区极短（约 60 次原子读 + 一次 fetch_add），自旋开销可忽略。
-    admission_locked: AtomicBool,
+    /// 临界区极短（约 60 次原子读 + 一次 fetch_add）；guard 自动释放，
+    /// 不依赖「临界区无 panic」的手工纪律。
+    admission_lock: parking_lot::Mutex<()>,
 
     /// 时钟实例
     clock: Arc<dyn Clock>,
@@ -133,7 +134,7 @@ impl ShardedSlidingWindowLimiter {
             shard_duration_secs,
             max_requests,
             last_cleanup: AtomicU64::new(now_secs),
-            admission_locked: AtomicBool::new(false),
+            admission_lock: parking_lot::Mutex::new(()),
             clock,
         }
     }
@@ -237,25 +238,6 @@ impl ShardedSlidingWindowLimiter {
         }
     }
 
-    /// 获取准入自旋锁
-    ///
-    /// CAS 自旋至独占。临界区内无 panic 源（索引取模有界、纯饱和算术），
-    /// 锁必然经 `release_admission` 释放。
-    fn acquire_admission(&self) {
-        while self
-            .admission_locked
-            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            std::hint::spin_loop();
-        }
-    }
-
-    /// 释放准入自旋锁
-    fn release_admission(&self) {
-        self.admission_locked.store(false, Ordering::Release);
-    }
-
     /// 尝试消费指定数量的请求配额
     ///
     /// 检查与递增在准入锁内原子完成，保证并发下放行总数不超过
@@ -265,7 +247,9 @@ impl ShardedSlidingWindowLimiter {
     fn try_acquire(&self, cost: u64) -> bool {
         let (shard_index, now_secs) = self.get_current_shard();
 
-        self.acquire_admission();
+        // parking_lot::Mutex（项目约定）：guard 离开作用域自动释放，
+        // 不依赖「临界区无 panic」的手工纪律
+        let _guard = self.admission_lock.lock();
         let current_count = self.calculate_window_count(now_secs);
 
         let allowed = if cost > self.max_requests || current_count > self.max_requests - cost {
@@ -274,7 +258,7 @@ impl ShardedSlidingWindowLimiter {
             self.increment_shard(shard_index, now_secs, cost);
             true
         };
-        self.release_admission();
+        drop(_guard);
 
         if allowed {
             self.maybe_cleanup(now_secs);

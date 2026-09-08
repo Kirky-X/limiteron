@@ -28,8 +28,9 @@ pub enum FallbackStrategy {
     /// 故障时允许所有请求（降级为全开放）
     ///
     /// 注意：当前实现无法为泛型返回类型 `T` 合成默认值，因此 FailOpen
-    /// 会向调用方返回显性的 `Err(LimitError)`（消息注明已降级），由
+    /// 会向调用方返回显性的 `Err(LimiteronError::FallbackError)`，由
     /// 调用方决定放行语义；不会静默放行（Rule 12：失败必须显性化）。
+    /// 调用方以变体（而非字符串内容）识别降级。
     FailOpen,
     /// 故障时拒绝所有请求（降级为全关闭）
     FailClosed,
@@ -341,12 +342,12 @@ impl FallbackManager {
 
         match config.strategy {
             FallbackStrategy::FailOpen => {
-                // 故障开放：显性返回错误并注明降级语义，由调用方决定是否放行。
-                // 泛型 T 无法合成默认值；此前日志称"允许请求通过"但返回 Err，
-                // 与枚举文档矛盾（已对齐文档与消息）。
+                // 故障开放：显性返回 FallbackError（diting Low：调用方以
+                // 变体匹配降级语义，而非靠字符串约定；泛型 T 无法合成
+                // 默认值，是否放行由调用方决定）。
                 log::warn!(target: "fallback", "降级策略: FailOpen - 返回降级错误，由调用方决定放行");
-                Err(LimiteronError::LimitError(
-                    "服务降级，但允许请求通过".to_string(),
+                Err(LimiteronError::FallbackError(
+                    "服务降级（FailOpen）：组件故障，是否放行由调用方决定".to_string(),
                 ))
             }
             FallbackStrategy::FailClosed => {
@@ -674,12 +675,11 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("服务降级，但允许请求通过")
-        );
+        let err = result.unwrap_err();
+        // diting Low 回归：FailOpen 返回专用 FallbackError 变体，
+        // 调用方以变体（而非字符串）识别降级语义
+        assert!(matches!(err, LimiteronError::FallbackError(_)));
+        assert!(err.to_string().contains("FailOpen"));
     }
 
     #[tokio::test]

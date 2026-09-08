@@ -151,50 +151,78 @@ fn initialize_patterns() {
 /// 将字段名切分为词元（按 `_`/`-`/`.`/空格等分隔符与 camelCase 边界），
 /// 命中规则：任一词元等于敏感关键词，或以高危关键词为前缀
 /// （`keychain` → 前缀 `key`；`tokenizer` → 前缀 `token`，保守方向）。
-/// `monkey`、`keyboard` 之类仅含关键词子串的无关词元不再误伤
-/// （`keyboard` 属保守方向的残余误报，宁可多脱敏不可泄漏）。
+/// `monkey` 之类仅含关键词子串的无关字段不再误伤。
+///
+/// 零分配实现：词元用 `&str` 切片迭代，关键词匹配用 `matches!`。
 #[cfg(feature = "log-redaction")]
 fn is_sensitive_field_name(field_name: &str) -> bool {
-    /// 敏感关键词（词元精确匹配）
-    // 词表以空格分隔串形式定义后运行时切分（避免安全扫描器把
-    // 敏感词常量表误判为硬编码凭据）
-    const SENSITIVE_WORDS_RAW: &str = "key token secret passwd credential authorization password";
     /// 高危前缀：以这些词开头的词元按敏感处理（`keychain`/`tokenizer`）
-    const SENSITIVE_PREFIXES_RAW: &str = "key secret token";
-    let sensitive_words: Vec<&str> = SENSITIVE_WORDS_RAW.split_whitespace().collect();
-    let sensitive_prefixes: Vec<&str> = SENSITIVE_PREFIXES_RAW.split_whitespace().collect();
+    const SENSITIVE_PREFIXES: [&str; 3] = ["key", "secret", "token"];
+    /// 敏感关键词（词元大小写不敏感精确匹配）
+    const SENSITIVE_WORDS: [&str; 7] = [
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "key",
+        "credential",
+        "authorization",
+    ];
 
-    fn split_tokens(name: &str) -> Vec<String> {
-        let mut tokens = Vec::new();
-        let mut current = String::new();
-        let mut prev_was_lowercase = false;
-        for ch in name.chars() {
-            if ch.is_alphanumeric() {
-                if prev_was_lowercase && ch.is_uppercase() {
-                    // camelCase 边界：`myToken` → `my` + `Token`
-                    tokens.push(std::mem::take(&mut current));
+    split_field_tokens(field_name).any(|token| {
+        let exact = SENSITIVE_WORDS
+            .iter()
+            .any(|&word| token.eq_ignore_ascii_case(word));
+        let prefixed = SENSITIVE_PREFIXES.iter().any(|&prefix| {
+            token.len() >= prefix.len() && token[..prefix.len()].eq_ignore_ascii_case(prefix)
+        });
+        exact || prefixed
+    })
+}
+
+/// 将字段名切分为小写词元切片（零分配：借用原串的子切片）
+#[cfg(feature = "log-redaction")]
+fn split_field_tokens(name: &str) -> impl Iterator<Item = &str> {
+    let mut indices = name.char_indices().peekable();
+    let mut start: Option<usize> = None;
+    let mut prev_was_lowercase = false;
+    let mut done = false;
+
+    std::iter::from_fn(move || {
+        if done {
+            return None;
+        }
+        loop {
+            let (idx, ch) = match indices.next() {
+                Some(pair) => pair,
+                None => {
+                    done = true;
+                    let s = start.take()?;
+                    return Some(&name[s..]);
                 }
-                current.push(ch);
-                prev_was_lowercase = ch.is_lowercase();
-            } else {
+            };
+            let is_sep = !ch.is_alphanumeric();
+            let camel_break = start.is_some() && ch.is_uppercase() && prev_was_lowercase;
+            if is_sep {
                 // 分隔符：`_`/`-`/`.`/空格等
-                if !current.is_empty() {
-                    tokens.push(std::mem::take(&mut current));
+                if let Some(s) = start.take() {
+                    return Some(&name[s..idx]);
                 }
                 prev_was_lowercase = false;
+                continue;
             }
+            if camel_break {
+                // camelCase 边界：`myToken` → `my` + `Token`
+                let s = start.take().unwrap();
+                start = Some(idx);
+                prev_was_lowercase = ch.is_lowercase();
+                return Some(&name[s..idx]);
+            }
+            if start.is_none() {
+                start = Some(idx);
+            }
+            prev_was_lowercase = ch.is_lowercase();
         }
-        if !current.is_empty() {
-            tokens.push(current);
-        }
-        tokens.into_iter().map(|t| t.to_lowercase()).collect()
-    }
-
-    split_tokens(field_name).iter().any(|token| {
-        sensitive_words.contains(&token.as_str())
-            || sensitive_prefixes
-                .iter()
-                .any(|&prefix| token.starts_with(prefix))
     })
 }
 

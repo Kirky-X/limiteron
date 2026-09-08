@@ -125,12 +125,6 @@ impl LatencySamples {
         }
     }
 
-    /// 计算单个百分位数（仅供测试使用；生产路径用 percentiles 一次算多个）
-    #[cfg(test)]
-    fn percentile(&self, p: f64) -> u64 {
-        self.percentiles(&[p]).remove(0)
-    }
-
     /// 一次排序计算多个百分位数
     ///
     /// （J4：旧实现 p95/p99 各自 clone 全量样本并排序，在每个成功
@@ -149,16 +143,6 @@ impl LatencySamples {
                 sorted.get(index).copied().unwrap_or(0)
             })
             .collect()
-    }
-
-    #[cfg(test)]
-    fn p95(&self) -> u64 {
-        self.percentile(95.0)
-    }
-
-    #[cfg(test)]
-    fn p99(&self) -> u64 {
-        self.percentile(99.0)
     }
 }
 
@@ -754,22 +738,26 @@ mod tests {
         assert!(alerts.contains(&AlertLevel::Warning));
     }
 
+    fn pctl(samples: &LatencySamples, p: f64) -> u64 {
+        samples.percentiles(&[p])[0]
+    }
+
     // -- LatencySamples tests --
 
     #[test]
     fn test_latency_samples_new_custom_size() {
         let samples = LatencySamples::new(50);
-        assert!(samples.percentile(95.0) == 0);
-        assert!(samples.p95() == 0);
-        assert!(samples.p99() == 0);
+        assert!(pctl(&samples, 95.0) == 0);
+        assert!(pctl(&samples, 95.0) == 0);
+        assert!(pctl(&samples, 99.0) == 0);
     }
 
     #[test]
     fn test_latency_samples_empty_percentile() {
         let samples = LatencySamples::default();
-        assert_eq!(samples.percentile(50.0), 0);
-        assert_eq!(samples.p95(), 0);
-        assert_eq!(samples.p99(), 0);
+        assert_eq!(pctl(&samples, 50.0), 0);
+        assert_eq!(pctl(&samples, 95.0), 0);
+        assert_eq!(pctl(&samples, 99.0), 0);
     }
 
     #[test]
@@ -780,9 +768,9 @@ mod tests {
         }
         // Oldest 5 (0-4) evicted, remaining [5,6,7,8,9]
         // sorted[5*0/100=0] = 5, sorted[5*60/100=3] = 8, sorted[5*50/100=2] = 7
-        assert_eq!(samples.percentile(0.0), 5);
-        assert_eq!(samples.percentile(60.0), 8);
-        assert_eq!(samples.percentile(50.0), 7);
+        assert_eq!(pctl(&samples, 0.0), 5);
+        assert_eq!(pctl(&samples, 60.0), 8);
+        assert_eq!(pctl(&samples, 50.0), 7);
     }
 
     #[test]
@@ -793,11 +781,11 @@ mod tests {
         }
         // sorted: [0,1,2,3,4,5,6,7,8,9]
         // p95 index = (10 * 95/100) = 9 -> value 9
-        assert_eq!(samples.p95(), 9);
+        assert_eq!(pctl(&samples, 95.0), 9);
         // p99 index = (10 * 99/100) = 9 -> value 9
-        assert_eq!(samples.p99(), 9);
+        assert_eq!(pctl(&samples, 99.0), 9);
         // p50 index = (10 * 50/100) = 5 -> value 5
-        assert_eq!(samples.percentile(50.0), 5);
+        assert_eq!(pctl(&samples, 50.0), 5);
     }
 
     // -- Threshold evaluation tests --

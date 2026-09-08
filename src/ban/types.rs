@@ -1040,6 +1040,13 @@ impl BanManager {
 
         // 优先检查 IP 封禁（最高优先级），支持提前退出。
         // 存储调用限时：封禁检查位于请求热路径，存储不可达时不得无限挂起。
+        //
+        // 超时语义（diting Low 说明的刻意不对称）：
+        // - IP 主检查超时 → 显式 `Err`：IP 是封禁判定的最高优先目标，
+        //   其存储不可达属于必须显性化的硬失败（Rule 12），由调用方
+        //   （组合根 ParallelBanChecker 对 Err 也 fail-open）最终定夺；
+        // - 非 IP 并行检查超时 → warn + 未封禁：与下方存储错误的
+        //   fail-open 口径一致，避免单个次级存储拖垮整体判定。
         if let Some(ip_target) = targets.iter().find(|t| matches!(t, BanTarget::Ip(_))) {
             debug!("Checking IP ban first for early exit");
             let record = tokio::time::timeout(

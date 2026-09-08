@@ -336,6 +336,71 @@ impl BanStorage for CacheBanStorage {
         Ok(times)
     }
 
+    /// 插入或更新封禁记录，`ban_times` 在已存值上原子 +1（ban-5）
+    ///
+    /// 后端支持原子写时以 CAS 乐观锁重试（与 `modify_ban` 同模式），
+    /// 修复 trait 默认实现「读计数 → 整条保存」两步在 cache 后端的
+    /// 丢计数缺口；无原子后端退回默认两步（进程内另有 rw_lock 串行化）。
+    async fn upsert_ban_record(&self, record: &BanRecord) -> Result<u64, StorageError> {
+        let key = target_key(&record.target);
+
+        if let Some(atomic) = self.atomic() {
+            let _guard = self.rw_lock.lock().await;
+            for _ in 0..8 {
+                let raw = self.backend.get(&key).await.map_err(map_error)?;
+                let mut is_new = false;
+                let new_times = match raw.as_deref().and_then(|d| {
+                    serde_json::from_slice::<serde_json::Value>(d)
+                        .ok()
+                        .and_then(|v| record_from_json(&v))
+                }) {
+                    Some(existing) => existing.ban_times.saturating_add(1),
+                    None => {
+                        is_new = true;
+                        record.ban_times.max(1)
+                    }
+                };
+                let mut stored = record.clone();
+                stored.ban_times = new_times;
+                let ttl = stored
+                    .expires_at
+                    .signed_duration_since(chrono::Utc::now())
+                    .num_seconds()
+                    .max(1) as u64;
+                let data = serde_json::to_vec(&record_to_json(&stored))
+                    .map_err(|e| StorageError::QueryError(format!("{e}")))?;
+                if atomic
+                    .compare_and_swap(
+                        &key,
+                        raw.as_deref(),
+                        data,
+                        Some(std::time::Duration::from_secs(ttl)),
+                    )
+                    .await
+                    .map_err(map_error)?
+                {
+                    // 新记录需登记索引（save() 的职责在此路径的手工等价物）
+                    if is_new {
+                        self.add_to_index_locked(&key).await?;
+                    }
+                    return Ok(u64::from(new_times));
+                }
+            }
+            return Err(StorageError::QueryError(
+                "ban record CAS 重试耗尽（并发冲突过高）".to_string(),
+            ));
+        }
+
+        // 无原子后端：读计数 → 整条保存（进程内 rw_lock 已串行化）
+        let current = self.get_ban_times(&record.target).await?;
+        let mut stored = record.clone();
+        stored.ban_times = stored
+            .ban_times
+            .max(u32::try_from(current).unwrap_or(u32::MAX).saturating_add(1));
+        self.save(&stored).await?;
+        Ok(u64::from(stored.ban_times))
+    }
+
     async fn get_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError> {
         let key = target_key(target);
         let raw = self.backend.get(&key).await.map_err(map_error)?;

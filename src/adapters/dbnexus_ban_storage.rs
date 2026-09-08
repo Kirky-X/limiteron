@@ -134,6 +134,10 @@ impl BanStorage for DBNexusBanStorageAdapter {
     }
 
     /// Save a ban record
+    ///
+    /// 原子 UPSERT（A9）：`ON CONFLICT (target_key) DO UPDATE` 由数据库在
+    /// 单条语句内完成「存在则更新、不存在则插入」，消除 SELECT→INSERT/UPDATE
+    /// check-then-act 模式下并发写同一 target_key 撞 UNIQUE 约束的竞态。
     async fn save(&self, record: &BanRecord) -> Result<(), StorageError> {
         let session = self.get_session().await?;
         let conn = Self::get_conn(&session)?;
@@ -141,12 +145,14 @@ impl BanStorage for DBNexusBanStorageAdapter {
         let (target_type, target_value) = Self::target_to_type_value(&record.target);
         let target_key = create_target_key(&target_type, &target_value);
 
-        // Check if record exists
-        let existing = BanRecordEntity::find()
-            .filter(BanColumn::TargetKey.eq(target_key.clone()))
-            .one(conn)
-            .await
-            .map_err(|e| StorageError::QueryError(e.to_string()))?;
+        // 长度防护（I3）：target_key 列为 VARCHAR(511)，超长输入由应用侧
+        // 显性拒绝（ValidationError），而非依赖数据库 22001 报错
+        if target_key.len() > 511 {
+            return Err(StorageError::ValidationError(format!(
+                "ban target_key exceeds column limit ({} > 511)",
+                target_key.len()
+            )));
+        }
 
         // Calculate duration in seconds from expires_at - banned_at
         let duration_secs = record
@@ -155,37 +161,42 @@ impl BanStorage for DBNexusBanStorageAdapter {
             .num_seconds()
             .max(0);
 
-        let model_id = existing.as_ref().map(|m| m.id).unwrap_or(0);
-        let model = BanRecordModel {
-            id: model_id,
-            target_type,
-            target_value,
-            target_key,
-            ban_times: record.ban_times,
-            duration: duration_secs,
-            banned_at: record.banned_at,
-            expires_at: record.expires_at,
-            is_manual: record.is_manual,
-            reason: record.reason.clone(),
-            created_at: existing.as_ref().map(|m| m.created_at).unwrap_or(now),
-            updated_at: now,
+        // 主键由 BIGSERIAL 序列生成：id 保持 NotSet，由 INSERT 分配；
+        // 冲突时 DO UPDATE 不触碰主键与 created_at（保留原始创建时间）
+        let active_model = BanRecordActiveModel {
+            id: sea_orm::NotSet,
+            target_type: Set(target_type),
+            target_value: Set(target_value),
+            target_key: Set(target_key),
+            ban_times: Set(record.ban_times),
+            duration: Set(duration_secs),
+            banned_at: Set(record.banned_at),
+            expires_at: Set(record.expires_at),
+            is_manual: Set(record.is_manual),
+            reason: Set(record.reason.clone()),
+            created_at: Set(now),
+            updated_at: Set(now),
         };
 
-        if existing.is_some() {
-            // Update existing record
-            let mut active_model: BanRecordActiveModel = model.into();
-            active_model.id = Set(model_id);
-            active_model.save(conn).await.map_err(|e| {
-                StorageError::QueryError(format!("Failed to update ban record: {}", e))
-            })?;
-        } else {
-            // Insert new record（主键由 BIGSERIAL 序列生成，勿显式 Set(0) 否则重复主键崩溃）
-            let mut active_model: BanRecordActiveModel = model.into();
-            active_model.id = sea_orm::NotSet;
-            active_model.insert(conn).await.map_err(|e| {
-                StorageError::QueryError(format!("Failed to insert ban record: {}", e))
-            })?;
-        }
+        BanRecordEntity::insert(active_model)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::column(BanColumn::TargetKey)
+                    .update_columns([
+                        BanColumn::TargetType,
+                        BanColumn::TargetValue,
+                        BanColumn::BanTimes,
+                        BanColumn::Duration,
+                        BanColumn::BannedAt,
+                        BanColumn::ExpiresAt,
+                        BanColumn::IsManual,
+                        BanColumn::Reason,
+                        BanColumn::UpdatedAt,
+                    ])
+                    .to_owned(),
+            )
+            .exec(conn)
+            .await
+            .map_err(|e| StorageError::QueryError(format!("Failed to upsert ban record: {}", e)))?;
 
         Ok(())
     }

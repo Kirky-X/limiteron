@@ -74,7 +74,12 @@ impl QuotaStorage for CacheQuotaStorage {
         }
     }
 
-    // ponytail: read-modify-write, not atomic across distributed backends
+    // 已知限制（ Won't-外部依赖）：以下 read-modify-write 在分布式后端
+    // （Redis）上不是原子的，并发 consume 可能互相覆盖造成少量超额。
+    // oxcache 0.5 的 CacheBackend trait 仅提供 get/set/delete/expire，
+    // 无 CAS/INCR/LUA 原语；真正的修复需要 oxcache 提供原子操作支持
+    // （按 AGENTS.md 不修改外部依赖，问题已上报）。
+    // 溢出加固：limit 与 consumed 来自存储，比较用饱和减法防回绕。
     async fn consume(
         &self,
         user_id: &str,
@@ -125,7 +130,9 @@ impl QuotaStorage for CacheQuotaStorage {
             0.0
         };
 
-        if info.consumed + cost > info.limit {
+        // 溢出安全的比较式：consumed + cost 可能回绕，
+        // 改写为 cost > limit - consumed（saturating_sub）
+        if cost > info.limit.saturating_sub(info.consumed) {
             return Ok(ConsumeResult {
                 allowed: false,
                 remaining: info.limit.saturating_sub(info.consumed),

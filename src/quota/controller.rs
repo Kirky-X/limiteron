@@ -398,6 +398,16 @@ impl QuotaController {
             });
         }
 
+        // 防碰撞校验（I2）：user_id/resource 以 `{user_id}:{resource}` 拼接为
+        // 存储 key，含 ':' 的输入会使 ("a:b","c") 与 ("a","b:c") 共享同一 key，
+        // 造成跨账户配额污染。封禁路径已有 validate_user_id 同类防护，
+        // 配额路径在此补齐。
+        if user_id.contains(':') || resource.contains(':') {
+            return Err(LimiteronError::ValidationError(
+                "user_id/resource must not contain ':' (quota key collision)".to_string(),
+            ));
+        }
+
         // 获取当前配额状态
         let quota_state = self.get_or_create_quota_state(user_id, resource).await?;
 
@@ -422,14 +432,25 @@ impl QuotaController {
         // 更新消费量
         let new_consumed = updated_state.consumed + cost;
 
-        // 保存到存储
-        self.save_quota_state(user_id, resource, &updated_state, new_consumed)
+        // 保存到存储并尊重存储侧的裁决（A8）：存储层（如 DB 条件 UPDATE）
+        // 是权威账本，其并发裁决可能拒绝本次消费——若无视 allowed=false
+        // 仍向上层返回放行，会造成「消费未落账但请求已放行」的配额绕过。
+        let stored = self
+            .save_quota_state(user_id, resource, &updated_state, new_consumed)
             .await?;
 
-        // 计算剩余配额
-        let remaining = total_limit.saturating_sub(new_consumed);
+        if !stored.allowed {
+            let usage_percent = self.calculate_usage_percent(updated_state.consumed, total_limit);
+            return Ok(ConsumeResult {
+                allowed: false,
+                remaining: total_limit.saturating_sub(updated_state.consumed),
+                alert_triggered: false,
+                usage_percent,
+            });
+        }
 
-        // 计算使用率
+        // 计算剩余配额与使用率
+        let remaining = total_limit.saturating_sub(new_consumed);
         let usage_percent = self.calculate_usage_percent(new_consumed, total_limit);
 
         // 检查告警
@@ -597,13 +618,13 @@ impl QuotaController {
         resource: &str,
         state: &QuotaState,
         new_consumed: u64,
-    ) -> Result<(), LimiteronError> {
+    ) -> Result<ConsumeResult, LimiteronError> {
         // 使用存储的 consume 方法更新配额
         // 计算总限制
         let overdraft_limit = self.calculate_overdraft_limit();
         let total_limit = self.calculate_total_limit(overdraft_limit);
 
-        let _result = self
+        let result = self
             .storage
             .consume(
                 user_id,
@@ -615,7 +636,7 @@ impl QuotaController {
             .await
             .map_err(LimiteronError::StorageError)?;
 
-        Ok(())
+        Ok(result)
     }
 
     /// 检查并触发告警
@@ -643,12 +664,24 @@ impl QuotaController {
             if usage_percent >= threshold {
                 // 检查是否需要去重
                 let dedup_key = format!("{}:{}:{}", user_id, resource, threshold);
+                let now = Utc::now();
 
-                let should_alert = {
-                    if let Some(last_alert_time) = self.alert_dedup.get(&dedup_key) {
-                        let elapsed = Utc::now().signed_duration_since(*last_alert_time);
-                        elapsed.num_seconds() as u64 >= self.config.alert_config.dedup_window
-                    } else {
+                // entry API 原子完成「检查 + 占位」（A7）：旧实现
+                // get → await send_alert → insert，await 窗口内并发的同键
+                // 告警会双双通过去重检查，造成重复告警。现在占位先行，
+                // 同键并发只会有一个通过。
+                let should_alert = match self.alert_dedup.entry(dedup_key.clone()) {
+                    dashmap::mapref::entry::Entry::Occupied(mut occupied) => {
+                        let elapsed = now.signed_duration_since(*occupied.get());
+                        if elapsed.num_seconds() as u64 >= self.config.alert_config.dedup_window {
+                            *occupied.get_mut() = now;
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    dashmap::mapref::entry::Entry::Vacant(vacant) => {
+                        vacant.insert(now);
                         true
                     }
                 };
@@ -662,14 +695,11 @@ impl QuotaController {
                         threshold,
                         current_usage: consumed,
                         limit: self.config.limit,
-                        triggered_at: Utc::now(),
+                        triggered_at: now,
                     };
 
                     // 异步发送告警
                     self.send_alert(alert_info).await;
-
-                    // 更新去重缓存
-                    self.alert_dedup.insert(dedup_key, Utc::now());
 
                     alert_triggered = true;
                 }
@@ -1000,6 +1030,33 @@ mod tests {
         let controller = QuotaController::with_dependencies(storage, config);
 
         assert_eq!(controller.config().limit, 1000);
+    }
+
+    /// I2 回归测试：user_id/resource 含 ':' 会被拒绝，防止
+    /// ("a:b","c") 与 ("a","b:c") 生成同一配额 key 造成跨账户污染
+    #[tokio::test]
+    async fn test_consume_rejects_colon_in_identifiers() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: false,
+                ..Default::default()
+            },
+        };
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        let r1 = controller.consume("a:b", "resource", 1).await;
+        assert!(r1.is_err(), "user_id 含 ':' 必须被拒绝");
+        let r2 = controller.consume("user", "re:source", 1).await;
+        assert!(r2.is_err(), "resource 含 ':' 必须被拒绝");
+
+        // 合法输入不受影响
+        assert!(controller.consume("user", "resource", 1).await.is_ok());
     }
 
     /// 测试消费配额 - 基本场景

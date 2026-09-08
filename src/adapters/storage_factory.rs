@@ -22,7 +22,7 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // 通过 DSN 创建存储
 //!     let mut factory = StorageFactory::from_dsn(
-//!         "postgresql://user:pass@localhost/limiteron",
+//!         "postgresql://localhost/limiteron",
 //!     );
 //!     factory.initialize(None).await?;
 //!     let storage: Arc<dyn Storage> = factory.create_storage().await?;
@@ -46,18 +46,26 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// 存储类型枚举
+///
+/// serde 表示与 [`StorageType::as_str`] 保持一致（`dbnexus_postgres` 等）。
+/// 修复（I1）：此前 `rename_all = "lowercase"` 产出 `"dbnexuspostgres"`
+/// （无下划线），与 `parse()`/`as_str()` 的下划线形式无法互相转换；
+/// `alias` 保留对旧序列化形式的兼容反序列化。
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum StorageType {
     /// DBNexus PostgreSQL 存储
     #[default]
+    #[serde(rename = "dbnexus_postgres", alias = "dbnexuspostgres")]
     DBNexusPostgres,
     /// DBNexus MySQL 存储
+    #[serde(rename = "dbnexus_mysql", alias = "dbnexusmysql")]
     DBNexusMySQL,
     /// DBNexus SQLite 存储
+    #[serde(rename = "dbnexus_sqlite", alias = "dbnexussqlite")]
     DBNexusSQLite,
     /// 内存存储（仅用于测试）
     #[cfg(test)]
+    #[serde(rename = "memory")]
     Memory,
 }
 
@@ -75,11 +83,16 @@ impl std::fmt::Display for StorageType {
 
 impl StorageType {
     /// 从字符串解析
+    ///
+    /// 接受下划线形式（`as_str` 产出）与历史无下划线形式（旧 serde 产出），
+    /// 保证 `serde_json → parse → as_str` 双向往环。
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
-            "dbnexus_postgres" | "postgresql" | "postgres" => Some(Self::DBNexusPostgres),
-            "dbnexus_mysql" | "mysql" => Some(Self::DBNexusMySQL),
-            "dbnexus_sqlite" | "sqlite" => Some(Self::DBNexusSQLite),
+            "dbnexus_postgres" | "dbnexuspostgres" | "postgresql" | "postgres" => {
+                Some(Self::DBNexusPostgres)
+            }
+            "dbnexus_mysql" | "dbnexusmysql" | "mysql" => Some(Self::DBNexusMySQL),
+            "dbnexus_sqlite" | "dbnexussqlite" | "sqlite" => Some(Self::DBNexusSQLite),
             #[cfg(test)]
             "memory" => Some(Self::Memory),
             _ => None,
@@ -226,7 +239,7 @@ impl StorageFactory {
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let mut factory = StorageFactory::from_dsn("postgresql://user:pass@localhost/db");
+    ///     let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
     ///     factory.initialize(None).await?;
     ///     Ok(())
     /// }
@@ -671,26 +684,37 @@ mod tests {
 
     #[test]
     fn test_storage_type_serde_roundtrip() {
-        // serde rename_all="lowercase" => "dbnexussqlite" (no underscore)
+        // I1 修复回归：serde 表示与 as_str()/parse() 一致（带下划线），
+        // 且与 parse 往环闭合；旧的无下划线形式经 alias 兼容反序列化
         let st = StorageType::DBNexusSQLite;
         let json = serde_json::to_string(&st).unwrap();
-        assert_eq!(json, "\"dbnexussqlite\"");
+        assert_eq!(json, "\"dbnexus_sqlite\"");
         let deserialized: StorageType = serde_json::from_str(&json).unwrap();
         assert_eq!(st, deserialized);
+
+        // 旧序列化形式仍可读回
+        let legacy: StorageType = serde_json::from_str("\"dbnexussqlite\"").unwrap();
+        assert_eq!(legacy, StorageType::DBNexusSQLite);
+
+        // parse → as_str 双向往环
+        let parsed = StorageType::parse("dbnexus_sqlite").unwrap();
+        assert_eq!(parsed.as_str(), "dbnexus_sqlite");
     }
 
     #[test]
     fn test_storage_type_serde_postgres() {
         let st = StorageType::DBNexusPostgres;
         let json = serde_json::to_string(&st).unwrap();
-        assert_eq!(json, "\"dbnexuspostgres\"");
+        assert_eq!(json, "\"dbnexus_postgres\"");
+        assert_eq!(st.as_str(), "dbnexus_postgres");
     }
 
     #[test]
     fn test_storage_type_serde_mysql() {
         let st = StorageType::DBNexusMySQL;
         let json = serde_json::to_string(&st).unwrap();
-        assert_eq!(json, "\"dbnexusmysql\"");
+        assert_eq!(json, "\"dbnexus_mysql\"");
+        assert_eq!(st.as_str(), "dbnexus_mysql");
     }
 
     #[test]

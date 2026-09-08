@@ -13,10 +13,17 @@ use crate::storage::{QuotaInfo, QuotaStorage};
 use async_trait::async_trait;
 use chrono::{Duration as ChronoDuration, Utc};
 use dbnexus::{Condition, DbPool, Session};
-use sea_orm::Set;
 use sea_orm::entity::prelude::*;
+use sea_orm::{DatabaseBackend, Statement};
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
+
+/// Read the `RETURNING consumed` column from an atomic quota update
+fn row_consumed(row: &sea_orm::QueryResult) -> Result<u64, StorageError> {
+    row.try_get::<i64>("", "consumed")
+        .map(|v| v as u64)
+        .map_err(|e| StorageError::QueryError(format!("Failed to read consumed: {}", e)))
+}
 
 /// DBNexus-based quota storage adapter
 pub struct DBNexusQuotaStorageAdapter {
@@ -58,6 +65,42 @@ impl DBNexusQuotaStorageAdapter {
     fn map_err(e: dbnexus::DbError) -> StorageError {
         StorageError::QueryError(e.to_string())
     }
+
+    /// Execute a statement that returns at most one row (None if no match)
+    async fn query_optional(
+        conn: &DatabaseConnection,
+        sql: &str,
+        values: impl IntoIterator<Item = sea_orm::Value>,
+    ) -> Result<Option<sea_orm::QueryResult>, StorageError> {
+        conn.query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            sql,
+            values,
+        ))
+        .await
+        .map_err(|e| {
+            StorageError::QueryError(format!("Failed to execute atomic quota update: {}", e))
+        })
+    }
+
+    /// Compute usage percent (0.0 when limit is 0)
+    fn usage_percent(consumed: u64, limit: u64) -> f64 {
+        if limit > 0 {
+            (consumed as f64 / limit as f64) * 100.0
+        } else {
+            0.0
+        }
+    }
+
+    /// Build an allowed ConsumeResult from the post-consumption ledger value
+    fn allowed_result(new_consumed: u64, limit: u64) -> ConsumeResult {
+        ConsumeResult {
+            allowed: true,
+            remaining: limit.saturating_sub(new_consumed),
+            alert_triggered: false,
+            usage_percent: Self::usage_percent(new_consumed, limit),
+        }
+    }
 }
 
 #[async_trait]
@@ -84,6 +127,11 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
     }
 
     /// Consume quota
+    ///
+    /// 原子条件 UPDATE（A3）：限额检查与累加在单条 SQL 内由数据库完成
+    /// （`WHERE consumed + cost <= "limit"` + `RETURNING`），消除
+    /// read-check-write 竞态下的静默超额放行。未命中时区分「超限拒绝」
+    /// 与「无活跃记录」；后者经新窗口原子重置（复用过期行）或插入处理。
     async fn consume(
         &self,
         user_id: &str,
@@ -100,65 +148,52 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             ChronoDuration::from_std(window).unwrap_or_else(|_| ChronoDuration::days(365));
         let window_end = now + chrono_window;
 
-        // Try to find existing quota record
+        // 活跃窗口原子累加：命中即允许并返回累加后的 consumed
+        const CONSUME_SQL: &str = r#"
+            UPDATE limiteron_quotas
+            SET consumed = consumed + $2, updated_at = $4
+            WHERE quota_key = $1 AND window_end > $4 AND consumed + $2 <= "limit"
+            RETURNING consumed
+        "#;
+        if let Some(row) = Self::query_optional(
+            conn,
+            CONSUME_SQL,
+            [
+                quota_key.clone().into(),
+                (cost as i64).into(),
+                (limit as i64).into(),
+                now.into(),
+            ],
+        )
+        .await?
+        {
+            return Ok(Self::allowed_result(row_consumed(&row)?, limit));
+        }
+
+        // 未命中：区分超限拒绝与无活跃记录（新窗口/首次消费）
         let condition = Condition::all()
             .add(QuotaColumn::QuotaKey.eq(quota_key.clone()))
             .add(QuotaColumn::WindowEnd.gt(now));
 
-        let existing_record = QuotaRecordModel::find_by_condition(&session, condition)
+        if let Some(record) = QuotaRecordModel::find_by_condition(&session, condition)
             .await
             .map_err(Self::map_err)?
             .into_iter()
-            .next();
-
-        if let Some(record) = existing_record {
-            // Check if within limit
-            let new_consumed = (record.consumed as u64).saturating_add(cost);
-            if new_consumed > limit {
-                let usage = if limit > 0 {
-                    (record.consumed as u64 as f64 / limit as f64) * 100.0
-                } else {
-                    0.0
-                };
-                return Ok(ConsumeResult {
-                    allowed: false,
-                    remaining: limit.saturating_sub(record.consumed as u64),
-                    alert_triggered: false,
-                    usage_percent: usage,
-                });
-            }
-
-            // Update existing record
-            let mut active_model: QuotaRecordActiveModel = record.into();
-            active_model.consumed = Set(new_consumed as i64);
-            active_model.updated_at = Set(now);
-
-            active_model
-                .save(conn)
-                .await
-                .map_err(|e| StorageError::QueryError(format!("Failed to update quota: {}", e)))?;
-
-            let remaining = limit.saturating_sub(new_consumed);
-            let usage = if limit > 0 {
-                (new_consumed as f64 / limit as f64) * 100.0
-            } else {
-                0.0
-            };
+            .next()
+        {
+            // 超限拒绝：给出基于当前账本的准确 remaining/usage
+            let consumed = record.consumed as u64;
+            let usage = Self::usage_percent(consumed, limit);
             return Ok(ConsumeResult {
-                allowed: true,
-                remaining,
+                allowed: false,
+                remaining: limit.saturating_sub(consumed),
                 alert_triggered: false,
                 usage_percent: usage,
             });
         }
 
-        // No existing record - check if initial cost exceeds limit
         if cost > limit {
-            let usage = if limit > 0 {
-                (cost as f64 / limit as f64) * 100.0
-            } else {
-                0.0
-            };
+            let usage = Self::usage_percent(cost, limit);
             return Ok(ConsumeResult {
                 allowed: false,
                 remaining: 0,
@@ -167,7 +202,33 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             });
         }
 
-        // Create new quota record
+        // 新窗口原子重启：同 key 的过期行受 quota_key UNIQUE 保护无法被
+        // INSERT 替代，这里在「窗口确实过期 + 不超限」条件下原子复用它
+        const RESTART_SQL: &str = r#"
+            UPDATE limiteron_quotas
+            SET consumed = $2, "limit" = $3, window_start = $4, window_end = $5, updated_at = $4
+            WHERE quota_key = $1 AND window_end <= $4 AND $2 <= $3
+            RETURNING consumed
+        "#;
+        if let Some(row) = Self::query_optional(
+            conn,
+            RESTART_SQL,
+            [
+                quota_key.clone().into(),
+                (cost as i64).into(),
+                (limit as i64).into(),
+                now.into(),
+                window_end.into(),
+            ],
+        )
+        .await?
+        {
+            let _ = row_consumed(&row)?;
+            return Ok(Self::allowed_result(cost, limit));
+        }
+
+        // 全新 key：插入。并发插入撞 quota_key UNIQUE 时返回显式错误
+        // （可重试，重试后会走上面的原子路径）。
         let model = QuotaRecordModel {
             id: 0,
             user_id: user_id.to_string(),
@@ -189,18 +250,7 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             .await
             .map_err(|e| StorageError::QueryError(format!("Failed to create quota: {}", e)))?;
 
-        let remaining = limit.saturating_sub(cost);
-        let usage = if limit > 0 {
-            (cost as f64 / limit as f64) * 100.0
-        } else {
-            0.0
-        };
-        Ok(ConsumeResult {
-            allowed: true,
-            remaining,
-            alert_triggered: false,
-            usage_percent: usage,
-        })
+        Ok(Self::allowed_result(cost, limit))
     }
 
     /// Reset quota

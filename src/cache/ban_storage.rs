@@ -114,7 +114,13 @@ impl CacheBanStorage {
         self.set_index(&idx).await
     }
 
-    // ponytail: read-modify-write, not atomic across distributed backends
+    // 已知限制（Won't-外部依赖）：本文件全部索引/记录写入均为
+    // read-modify-write，在分布式后端（Redis）上不是原子的，并发的
+    // save/modify_ban/increment_ban_times 可能互相覆盖（丢索引 key、
+    // 丢 ban_times 计数）。oxcache 0.5 的 CacheBackend trait 仅提供
+    // get/set/delete/expire，无 CAS/事务/Lua 原语；真正的修复需要
+    // oxcache 提供原子操作支持（按 AGENTS.md 不修改外部依赖）。
+    // 内存后端不受影响（单进程、写入经后端内部锁）。
     async fn modify_ban<F>(&self, target: &BanTarget, f: F) -> Result<(), StorageError>
     where
         F: FnOnce(&mut BanRecord),

@@ -268,9 +268,15 @@ impl RuleBuilder {
                         Box::new(MatchCondition::Device(device_types.clone()))
                     }
                     ConfigMatcher::Custom { name, config: _ } => {
+                        // E1 可见性修复：构建期 warn 一次（含后果说明），
+                        // 热路径降为 debug，避免每次求值刷日志
+                        log::warn!(
+                            "自定义匹配器 '{}' 未集成 CustomMatcherRegistry，该规则将恒不匹配（其限制不会生效）",
+                            name
+                        );
                         let name = name.clone();
                         Box::new(MatchCondition::Custom(Arc::new(move |_context| {
-                            log::warn!("自定义匹配器 '{}' 需要通过CustomMatcherRegistry处理", name);
+                            log::debug!("自定义匹配器 '{}' 为占位实现，恒不匹配", name);
                             false
                         })))
                     }

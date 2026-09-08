@@ -655,13 +655,17 @@ impl RuleMatcher {
                     Box::new(MatchCondition::Device(device_types.clone()))
                 }
                 ConfigMatcher::Custom { name, config: _ } => {
-                    // 自定义匹配器需要在运行时通过CustomMatcherRegistry处理
-                    // 这里返回一个占位符，实际匹配逻辑由CustomMatcherRegistry处理
+                    // E1 可见性修复：自定义匹配器尚未与 CustomMatcherRegistry
+                    // 集成，此处编译为恒 false 的占位条件（fail-open：该规则
+                    // 的限制不会生效）。在构建期 warn 一次以确保配置错误
+                    // 在启动时可见；热路径仅 debug，避免每次求值刷日志。
+                    log::warn!(
+                        "自定义匹配器 '{}' 未集成 CustomMatcherRegistry，该规则将恒不匹配（其限制不会生效）",
+                        name
+                    );
                     let name = name.clone();
                     Box::new(MatchCondition::Custom(Arc::new(move |_context| {
-                        // 自定义匹配器的实际匹配逻辑在CustomMatcherRegistry中实现
-                        // 这里只是占位符，返回false表示不匹配
-                        log::warn!("自定义匹配器 '{}' 需要通过CustomMatcherRegistry处理", name);
+                        log::debug!("自定义匹配器 '{}' 为占位实现，恒不匹配", name);
                         false
                     })))
                 }

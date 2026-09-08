@@ -252,6 +252,32 @@ impl GeoMatcher {
     /// # }
     /// ```
     pub async fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, LimiteronError> {
+        Self::with_cache_limit(db_path, 10_000).await
+    }
+
+    /// 创建带缓存大小限制的地理匹配器
+    ///
+    /// 缓存容量在构造时传入 `Cache::builder().capacity(...)`，由 Moka
+    /// 强制执行（修复 E5：此前容量硬编码 10000，`cache_size_limit` 仅
+    /// 影响一段无效的守卫代码，设置的更小限制从不生效）。
+    ///
+    /// # 参数
+    /// - `db_path`: GeoLite2数据库文件路径
+    /// - `cache_size_limit`: 缓存大小限制
+    ///
+    /// # 示例
+    /// ```rust,no_run
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// use limiteron::matchers::geo::GeoMatcher;
+    ///
+    /// let matcher = GeoMatcher::with_cache_limit("GeoLite2-City.mmdb", 5000).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn with_cache_limit<P: AsRef<Path>>(
+        db_path: P,
+        cache_size_limit: usize,
+    ) -> Result<Self, LimiteronError> {
         let db_path = db_path.as_ref();
 
         // 检查文件是否存在
@@ -332,9 +358,9 @@ impl GeoMatcher {
             reader.metadata().node_count
         );
 
-        // 创建缓存
+        // 创建缓存（容量由 cache_size_limit 强制执行，见 with_cache_limit 文档）
         let cache = Cache::builder()
-            .capacity(10000)
+            .capacity(cache_size_limit as u64)
             .ttl(Duration::from_secs(300))
             .build()
             .await
@@ -343,36 +369,12 @@ impl GeoMatcher {
         let matcher = Self {
             reader: Arc::new(reader),
             cache: Arc::new(cache),
-            cache_size_limit: 10_000,
+            cache_size_limit,
             cache_hits: AtomicU64::new(0),
             cache_misses: AtomicU64::new(0),
         };
 
         log::info!("GeoMatcher创建成功");
-        Ok(matcher)
-    }
-
-    /// 创建带缓存大小限制的地理匹配器
-    ///
-    /// # 参数
-    /// - `db_path`: GeoLite2数据库文件路径
-    /// - `cache_size_limit`: 缓存大小限制
-    ///
-    /// # 示例
-    /// ```rust
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// use limiteron::matchers::geo::GeoMatcher;
-    ///
-    /// let matcher = GeoMatcher::with_cache_limit("GeoLite2-City.mmdb", 5000).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn with_cache_limit<P: AsRef<Path>>(
-        db_path: P,
-        cache_size_limit: usize,
-    ) -> Result<Self, LimiteronError> {
-        let mut matcher = Self::new(db_path).await?;
-        matcher.cache_size_limit = cache_size_limit;
         Ok(matcher)
     }
 
@@ -431,14 +433,9 @@ impl GeoMatcher {
         // 提取地理信息
         let info = self.extract_geo_info(&city);
 
-        // 更新缓存
-        let cache_len = self.cache.len().await.unwrap_or(0);
-        if cache_len >= self.cache_size_limit as u64 {
-            let _maybe_first = (0..(self.cache_size_limit / 10)).next();
-            log::debug!("缓存接近限制 ({}/{})", cache_len, self.cache_size_limit);
-        }
-
-        // 使用 set 方法存储，支持过期时间
+        // 更新缓存。容量由 Moka 强制执行（见 with_cache_limit）：
+        // 旧实现此处有一段只打日志的「守卫」加死代码，实际的容量
+        // 约束现已前移到缓存构造处，无需手工检查
         let _ = self.cache.set(&ip_str, &info).await;
         log::debug!("IP查询成功: {} -> {}", ip, info.description());
 

@@ -316,46 +316,49 @@ impl DeviceCondition {
     }
 
     /// 检查设备信息是否匹配条件
+    ///
+    /// 各字段条件以 AND 组合：指定了多个字段时必须全部满足。
+    /// （修复 E4：旧实现 `device_types` 非空即短路返回，`browsers`/`os`
+    /// 永不参与匹配，多字段条件形同虚设）
     pub fn matches(&self, info: &DeviceInfo) -> bool {
         if self.is_empty() {
             return true;
         }
 
         // 检查设备类型匹配
-        if !self.device_types.is_empty() {
-            if self.device_types.contains(&info.device_type) {
-                return true;
-            }
+        if !self.device_types.is_empty() && !self.device_types.contains(&info.device_type) {
             return false;
         }
 
-        // 检查浏览器匹配
+        // 检查浏览器匹配（大小写不敏感的双向包含）
         if !self.browsers.is_empty() {
-            if let Some(browser) = &info.browser {
-                if self.browsers.iter().any(|b| {
-                    browser.to_lowercase().contains(&b.to_lowercase())
-                        || b.to_lowercase().contains(&browser.to_lowercase())
-                }) {
-                    return true;
-                }
+            let Some(browser) = &info.browser else {
+                return false;
+            };
+            let matched = self.browsers.iter().any(|b| {
+                browser.to_lowercase().contains(&b.to_lowercase())
+                    || b.to_lowercase().contains(&browser.to_lowercase())
+            });
+            if !matched {
+                return false;
             }
-            return false;
         }
 
-        // 检查操作系统匹配
+        // 检查操作系统匹配（大小写不敏感的双向包含）
         if !self.os.is_empty() {
-            if let Some(os) = &info.os {
-                if self.os.iter().any(|o| {
-                    os.to_lowercase().contains(&o.to_lowercase())
-                        || o.to_lowercase().contains(&os.to_lowercase())
-                }) {
-                    return true;
-                }
+            let Some(os) = &info.os else {
+                return false;
+            };
+            let matched = self.os.iter().any(|o| {
+                os.to_lowercase().contains(&o.to_lowercase())
+                    || o.to_lowercase().contains(&os.to_lowercase())
+            });
+            if !matched {
+                return false;
             }
-            return false;
         }
 
-        false
+        true
     }
 }
 
@@ -386,6 +389,12 @@ pub struct DeviceMatcher {
     cache_misses: AtomicU64,
     /// 自定义规则
     custom_rules: Vec<DeviceCustomRule>,
+    /// 预编译的自定义规则正则（与 `custom_rules` 一一对应）
+    ///
+    /// 修复 E2：旧实现在每次缓存未命中时对所有规则重新 `Regex::new`
+    /// （默认 4 条内置规则），正则编译是重操作且结果只在本分支使用，
+    /// 构造时预编译一次即可。
+    compiled_rules: Vec<regex::Regex>,
 }
 
 /// 自定义设备规则
@@ -420,25 +429,63 @@ impl DeviceMatcher {
     /// # }
     /// ```
     pub async fn new() -> Result<Self, LimiteronError> {
+        Self::with_cache_capacity(10_000).await
+    }
+
+    /// 创建指定缓存容量的设备匹配器
+    ///
+    /// # 参数
+    /// - `cache_capacity`: 查询缓存容量（由 Moka 强制执行）
+    pub async fn with_cache_capacity(cache_capacity: usize) -> Result<Self, LimiteronError> {
         info!(target: "device", "创建DeviceMatcher");
 
         let parser = Parser::new();
         let cache = Cache::builder()
+            .capacity(cache_capacity as u64)
             .build()
             .await
             .map_err(|e| LimiteronError::ConfigError(e.to_string()))?;
 
+        let (custom_rules, compiled_rules) =
+            Self::compile_custom_rules(Self::default_custom_rules());
+
         let matcher = Self {
             parser: Arc::new(parser),
             cache: Arc::new(cache),
-            cache_size_limit: 10_000,
+            cache_size_limit: cache_capacity,
             cache_hits: AtomicU64::new(0),
             cache_misses: AtomicU64::new(0),
-            custom_rules: Self::default_custom_rules(),
+            custom_rules,
+            compiled_rules,
         };
 
         info!(target: "device", "DeviceMatcher创建成功");
         Ok(matcher)
+    }
+
+    /// 过滤掉正则无效的规则并预编译，返回 (rules, regexes) 一一对应
+    fn compile_custom_rules(
+        rules: Vec<DeviceCustomRule>,
+    ) -> (Vec<DeviceCustomRule>, Vec<regex::Regex>) {
+        let mut valid_rules = Vec::with_capacity(rules.len());
+        let mut compiled = Vec::with_capacity(rules.len());
+        for rule in rules {
+            match regex::Regex::new(&rule.pattern) {
+                Ok(re) => {
+                    compiled.push(re);
+                    valid_rules.push(rule);
+                }
+                Err(e) => {
+                    log::warn!(
+                        target: "device",
+                        "自定义规则 '{}' 的正则无效，已跳过: {}",
+                        rule.name,
+                        e
+                    );
+                }
+            }
+        }
+        (valid_rules, compiled)
     }
 
     /// 创建设置器（Builder模式）
@@ -473,16 +520,17 @@ impl DeviceMatcher {
         cache: Arc<Cache<String, DeviceInfo>>,
         cache_size_limit: usize,
     ) -> Self {
-        let mut matcher = Self {
+        let (custom_rules, compiled_rules) =
+            Self::compile_custom_rules(Self::default_custom_rules());
+        Self {
             parser,
             cache,
             cache_size_limit,
             cache_hits: AtomicU64::new(0),
             cache_misses: AtomicU64::new(0),
-            custom_rules: Self::default_custom_rules(),
-        };
-        matcher.cache_size_limit = cache_size_limit;
-        matcher
+            custom_rules,
+            compiled_rules,
+        }
     }
 
     /// 创建带缓存大小限制的设备匹配器
@@ -500,9 +548,7 @@ impl DeviceMatcher {
     /// # }
     /// ```
     pub async fn with_cache_limit(cache_size_limit: usize) -> Result<Self, LimiteronError> {
-        let mut matcher = Self::new().await?;
-        matcher.cache_size_limit = cache_size_limit;
-        Ok(matcher)
+        Self::with_cache_capacity(cache_size_limit).await
     }
 
     /// 解析User-Agent
@@ -560,22 +606,20 @@ impl DeviceMatcher {
 
         log::debug!(target: "device", "解析User-Agent: {}", user_agent);
 
-        // 检查自定义规则
-        for rule in &self.custom_rules {
-            if let Ok(re) = regex::Regex::new(&rule.pattern) {
-                if re.is_match(user_agent) {
-                    let info = DeviceInfo {
-                        device_type: rule.device_type,
-                        browser: rule.browser.clone(),
-                        browser_version: None,
-                        os: rule.os.clone(),
-                        os_version: None,
-                        user_agent: Some(user_agent.to_string()),
-                    };
-                    self.update_cache(user_agent, &info).await;
-                    log::debug!(target: "device", "自定义规则匹配: {}", rule.name);
-                    return Ok(info);
-                }
+        // 检查自定义规则（使用构造时预编译的正则，E2）
+        for (rule, re) in self.custom_rules.iter().zip(&self.compiled_rules) {
+            if re.is_match(user_agent) {
+                let info = DeviceInfo {
+                    device_type: rule.device_type,
+                    browser: rule.browser.clone(),
+                    browser_version: None,
+                    os: rule.os.clone(),
+                    os_version: None,
+                    user_agent: Some(user_agent.to_string()),
+                };
+                self.update_cache(user_agent, &info).await;
+                log::debug!(target: "device", "自定义规则匹配: {}", rule.name);
+                return Ok(info);
             }
         }
 
@@ -736,13 +780,14 @@ impl DeviceMatcher {
             os,
         };
 
-        // 验证正则表达式
-        if regex::Regex::new(&rule.pattern).is_err() {
+        // 验证正则表达式并同步预编译缓存（与 custom_rules 一一对应）
+        let Ok(re) = regex::Regex::new(&rule.pattern) else {
             log::warn!(target: "device", "无效的正则表达式: {}", pattern);
             return;
-        }
+        };
 
         self.custom_rules.push(rule);
+        self.compiled_rules.push(re);
         log::info!(target: "device", "添加自定义规则: {}", name);
     }
 
@@ -755,9 +800,24 @@ impl DeviceMatcher {
     /// - `true`: 成功移除
     /// - `false`: 规则不存在
     pub fn remove_custom_rule(&mut self, name: &str) -> bool {
-        let original_len = self.custom_rules.len();
-        self.custom_rules.retain(|r| r.name != name);
-        let removed = self.custom_rules.len() < original_len;
+        // 同步移除规则与对应的预编译正则
+        let mut kept_rules = Vec::with_capacity(self.custom_rules.len());
+        let mut kept_compiled = Vec::with_capacity(self.compiled_rules.len());
+        let mut removed = false;
+        for (rule, re) in self
+            .custom_rules
+            .drain(..)
+            .zip(self.compiled_rules.drain(..))
+        {
+            if rule.name == name {
+                removed = true;
+                continue;
+            }
+            kept_rules.push(rule);
+            kept_compiled.push(re);
+        }
+        self.custom_rules = kept_rules;
+        self.compiled_rules = kept_compiled;
         if removed {
             log::info!(target: "device", "移除自定义规则: {}", name);
         }
@@ -887,9 +947,18 @@ impl DeviceMatcherBuilder {
     /// - `Ok(DeviceMatcher)`: 成功创建设备匹配器
     /// - `Err(LimiteronError)`: 创建失败
     pub async fn build(self) -> Result<DeviceMatcher, LimiteronError> {
-        let mut matcher = DeviceMatcher::new().await?;
-        matcher.cache_size_limit = self.cache_size_limit;
-        matcher.custom_rules = self.custom_rules;
+        // 修复 E3：旧实现 `custom_rules = self.custom_rules` 用 builder 的
+        // （初始为空的）规则列表整体覆盖 new() 的内置默认规则，导致
+        // builder 路径产出的匹配器丢失全部内置规则；改为在默认规则
+        // 基础上追加。缓存容量直接传入构造，由 Moka 真实强制执行。
+        let mut matcher = DeviceMatcher::with_cache_capacity(self.cache_size_limit).await?;
+        if !self.custom_rules.is_empty() {
+            matcher.custom_rules.extend(self.custom_rules);
+            let (custom_rules, compiled_rules) =
+                DeviceMatcher::compile_custom_rules(matcher.custom_rules);
+            matcher.custom_rules = custom_rules;
+            matcher.compiled_rules = compiled_rules;
+        }
         Ok(matcher)
     }
 }

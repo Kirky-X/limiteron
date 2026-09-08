@@ -90,7 +90,15 @@ impl EventDispatcher {
     ///
     /// # 参数
     /// - `url`: Webhook URL
+    ///
+    /// webhook feature 启用时在存储前预校验 URL（F6）：非法/内网 URL
+    /// 立即拒绝并告警，而非作为无效条目累积到发送阶段才暴露。
     pub async fn add_webhook_url(&self, url: String) {
+        #[cfg(feature = "webhook")]
+        if let Err(e) = validate_webhook_url(&url, !cfg!(debug_assertions)) {
+            warn!("Rejected invalid webhook URL ({}): {}", url, e);
+            return;
+        }
         let mut urls = self.webhook_urls.write().await;
         if !urls.contains(&url) {
             info!("Adding webhook URL: {}", url);

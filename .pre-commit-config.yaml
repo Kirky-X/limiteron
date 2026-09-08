@@ -21,7 +21,9 @@ repos:
     rev: v1.5.0
     hooks:
       - id: detect-secrets
-        args: [--exclude-files, tests/, --exclude-files, examples/]
+        # --baseline：.secrets.baseline 记录已人工核实的误报（如测试夹具
+        # 中的占位密钥），带 --baseline 时基线内的发现放行、新发现仍阻断
+        args: [--exclude-files, tests/, --exclude-files, examples/, --baseline, .secrets.baseline]
         exclude: '^Cargo\.lock$'
 
   - repo: https://github.com/crate-ci/typos

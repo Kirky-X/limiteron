@@ -19,12 +19,17 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 
 /// 孤岛模式通知回调类型
-pub type IslandModeCallback = Box<dyn Fn(bool) + Send + Sync>;
+/// 孤岛模式回调（Arc 包装以便通知时克隆句柄、避免持锁调用）
+pub type IslandModeCallback = std::sync::Arc<dyn Fn(bool) + Send + Sync>;
 
 /// 降级策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FallbackStrategy {
     /// 故障时允许所有请求（降级为全开放）
+    ///
+    /// 注意：当前实现无法为泛型返回类型 `T` 合成默认值，因此 FailOpen
+    /// 会向调用方返回显性的 `Err(LimitError)`（消息注明已降级），由
+    /// 调用方决定放行语义；不会静默放行（Rule 12：失败必须显性化）。
     FailOpen,
     /// 故障时拒绝所有请求（降级为全关闭）
     FailClosed,
@@ -336,8 +341,10 @@ impl FallbackManager {
 
         match config.strategy {
             FallbackStrategy::FailOpen => {
-                // 故障开放：返回默认值或允许请求
-                log::warn!(target: "fallback", "降级策略: FailOpen - 允许请求通过");
+                // 故障开放：显性返回错误并注明降级语义，由调用方决定是否放行。
+                // 泛型 T 无法合成默认值；此前日志称"允许请求通过"但返回 Err，
+                // 与枚举文档矛盾（已对齐文档与消息）。
+                log::warn!(target: "fallback", "降级策略: FailOpen - 返回降级错误，由调用方决定放行");
                 Err(LimiteronError::LimitError(
                     "服务降级，但允许请求通过".to_string(),
                 ))
@@ -430,9 +437,13 @@ impl FallbackManager {
     }
 
     /// 通知所有回调孤岛模式状态变更
+    ///
+    /// 先克隆回调列表并立即释放读锁，再逐个调用（H3）：回调内部可能
+    /// 同步调用 `register_island_mode_callback` 获取写锁，持锁调用会
+    /// 自我死锁（tokio RwLock 不可重入）。
     async fn notify_island_mode_change(&self, is_island: bool) {
-        let callbacks = self.island_mode_callbacks.read().await;
-        for callback in callbacks.iter() {
+        let callbacks = self.island_mode_callbacks.read().await.to_vec();
+        for callback in &callbacks {
             callback(is_island);
         }
         if is_island {
@@ -462,15 +473,20 @@ impl FallbackManager {
     ///
     /// 与内部 `clear_failure` 不同，此方法会检查是否所有故障都已恢复。
     pub async fn clear_failure(&self, component: ComponentType) {
-        let mut states = self.failure_states.write().await;
-        states.remove(&component);
-        log::info!(target: "fallback", "组件恢复: {:?}", component);
+        // 仅当故障状态真实存在且清空后无残留故障时才通知退出孤岛模式
+        // （H2）：与 set_failure 的进入守卫对称，避免对从未故障的组件
+        // 触发"退出孤岛模式"通知。
+        let should_notify = {
+            let mut states = self.failure_states.write().await;
+            let had_failures = states.values().any(|&f| f);
+            states.remove(&component);
+            log::info!(target: "fallback", "组件恢复: {:?}", component);
+            let still_failed = states.values().any(|&f| f);
+            had_failures && !still_failed
+        };
 
-        // 检查是否所有故障都已恢复
-        let still_failed = states.values().any(|&f| f);
-        if !still_failed {
+        if should_notify {
             log::info!(target: "fallback", "所有存储层恢复，退出孤岛模式");
-            drop(states);
             self.notify_island_mode_change(false).await;
         }
     }
@@ -1064,7 +1080,7 @@ mod tests {
 
         let entered = Arc::new(std::sync::Mutex::new(None::<bool>));
         let entered_clone = entered.clone();
-        let callback: IslandModeCallback = Box::new(move |is_island| {
+        let callback: IslandModeCallback = std::sync::Arc::new(move |is_island| {
             *entered_clone.lock().unwrap() = Some(is_island);
         });
         manager.register_island_mode_callback(callback).await;
@@ -1081,7 +1097,7 @@ mod tests {
 
         let state = Arc::new(std::sync::Mutex::new(Vec::new()));
         let state_clone = state.clone();
-        let callback: IslandModeCallback = Box::new(move |is_island| {
+        let callback: IslandModeCallback = std::sync::Arc::new(move |is_island| {
             state_clone.lock().unwrap().push(is_island);
         });
         manager.register_island_mode_callback(callback).await;
@@ -1104,7 +1120,7 @@ mod tests {
 
         let state = Arc::new(std::sync::Mutex::new(Vec::new()));
         let state_clone = state.clone();
-        let callback: IslandModeCallback = Box::new(move |is_island| {
+        let callback: IslandModeCallback = std::sync::Arc::new(move |is_island| {
             state_clone.lock().unwrap().push(is_island);
         });
         manager.register_island_mode_callback(callback).await;
@@ -1149,7 +1165,7 @@ mod tests {
 
         let count = Arc::new(std::sync::Mutex::new(0u32));
         let count_clone = count.clone();
-        let callback: IslandModeCallback = Box::new(move |_| {
+        let callback: IslandModeCallback = std::sync::Arc::new(move |_| {
             *count_clone.lock().unwrap() += 1;
         });
         manager.register_island_mode_callback(callback).await;
@@ -1167,7 +1183,7 @@ mod tests {
 
         let state = Arc::new(std::sync::Mutex::new(Vec::new()));
         let state_clone = state.clone();
-        let callback: IslandModeCallback = Box::new(move |is_island| {
+        let callback: IslandModeCallback = std::sync::Arc::new(move |is_island| {
             state_clone.lock().unwrap().push(is_island);
         });
         manager.register_island_mode_callback(callback).await;
@@ -1189,15 +1205,16 @@ mod tests {
 
         let count = Arc::new(std::sync::Mutex::new(0u32));
         let count_clone = count.clone();
-        let callback: IslandModeCallback = Box::new(move |_| {
+        let callback: IslandModeCallback = std::sync::Arc::new(move |_| {
             *count_clone.lock().unwrap() += 1;
         });
         manager.register_island_mode_callback(callback).await;
 
-        // Clear a non-existent failure — this still triggers exit if no failures
+        // H2 修复回归：清除不存在的故障不得触发"退出孤岛模式"通知
+        // （与 set_failure 的进入守卫对称；旧实现无条件通知，count==1）
         manager.clear_failure(ComponentType::Redis).await;
 
-        assert_eq!(*count.lock().unwrap(), 1);
+        assert_eq!(*count.lock().unwrap(), 0);
     }
 
     #[tokio::test]
@@ -1207,13 +1224,13 @@ mod tests {
         let count = Arc::new(std::sync::Mutex::new(0u32));
         let c1 = {
             let count = count.clone();
-            Box::new(move |_: bool| {
+            std::sync::Arc::new(move |_: bool| {
                 *count.lock().unwrap() += 1;
             }) as IslandModeCallback
         };
         let c2 = {
             let count = count.clone();
-            Box::new(move |_: bool| {
+            std::sync::Arc::new(move |_: bool| {
                 *count.lock().unwrap() += 1;
             }) as IslandModeCallback
         };

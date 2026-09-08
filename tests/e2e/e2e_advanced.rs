@@ -666,7 +666,7 @@ mod fallback_strategy {
         let entered_clone = Arc::clone(&entered);
         let exited_clone = Arc::clone(&exited);
         manager
-            .register_island_mode_callback(Box::new(move |is_island| {
+            .register_island_mode_callback(std::sync::Arc::new(move |is_island| {
                 if is_island {
                     entered_clone.store(true, std::sync::atomic::Ordering::SeqCst);
                 } else {

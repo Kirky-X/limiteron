@@ -240,7 +240,7 @@ async fn demo_island_mode() -> Result<(), Box<dyn std::error::Error>> {
     let callback_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let count_clone = callback_count.clone();
     manager
-        .register_island_mode_callback(Box::new(move |is_island: bool| {
+        .register_island_mode_callback(std::sync::Arc::new(move |is_island: bool| {
             count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             println!("    [callback] island mode changed: {}", is_island);
         }))

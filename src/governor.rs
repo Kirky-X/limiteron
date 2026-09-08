@@ -441,7 +441,7 @@ impl GovernorBuilder {
             let l1_cache_ref = l1_cache.clone();
 
             // 注册孤岛模式回调（直接 await 确保注册完成）
-            fm.register_island_mode_callback(Box::new(move |is_island| {
+            fm.register_island_mode_callback(std::sync::Arc::new(move |is_island| {
                 if is_island {
                     // 进入孤岛模式：配置 L1 缓存的孤岛降级策略
                     let island_config =
@@ -1059,16 +1059,21 @@ impl Governor {
                 Ok(decision)
             }
             _ => {
-                // L1 缓存未命中，根据孤岛模式策略处理
+                // L1 缓存未命中，根据孤岛模式策略处理。
+                // 各分支均补齐请求级统计（H4）：降级路径此前不计数，
+                // 孤岛/降级期间的 allowed/error 指标全部丢失。
                 if self.l1_cache.is_island_mode() {
                     if let Some(config) = self.l1_cache.island_config() {
                         match config.fallback_strategy {
                             IslandFallbackStrategy::AllowAll => {
                                 log::warn!(target: "governor", "孤岛模式 - 允许所有请求通过");
-                                Ok(Decision::allowed_default())
+                                let decision = Decision::allowed_default();
+                                self.update_stats_for_decision(&Ok(decision.clone()));
+                                Ok(decision)
                             }
                             IslandFallbackStrategy::RejectAll => {
                                 log::warn!(target: "governor", "孤岛模式 - 拒绝所有请求");
+                                self.stats.increment_error();
                                 Err(LimiteronError::LimitError(
                                     "孤岛模式：存储层故障，拒绝请求".to_string(),
                                 ))
@@ -1076,7 +1081,9 @@ impl Governor {
                             IslandFallbackStrategy::LocalDecision => {
                                 // 已在上面尝试过 L1 缓存，未命中
                                 log::warn!(target: "governor", "孤岛模式 - L1 缓存未命中，使用保守策略");
-                                Ok(Decision::allowed_default())
+                                let decision = Decision::allowed_default();
+                                self.update_stats_for_decision(&Ok(decision.clone()));
+                                Ok(decision)
                             }
                             IslandFallbackStrategy::ConservativeQuota {
                                 max_requests,
@@ -1086,15 +1093,20 @@ impl Governor {
                                 log::warn!(target: "governor", "孤岛模式 - 使用保守配额: {}/{}s", max_requests, window_secs);
                                 // 这里可以实现一个简单的本地计数器
                                 // 为简化实现，当前直接允许
-                                Ok(Decision::allowed_default())
+                                let decision = Decision::allowed_default();
+                                self.update_stats_for_decision(&Ok(decision.clone()));
+                                Ok(decision)
                             }
                         }
                     } else {
                         // 未配置孤岛模式，使用默认策略
-                        Ok(Decision::allowed_default())
+                        let decision = Decision::allowed_default();
+                        self.update_stats_for_decision(&Ok(decision.clone()));
+                        Ok(decision)
                     }
                 } else {
                     // 不在孤岛模式，返回错误
+                    self.stats.increment_error();
                     Err(LimiteronError::LimitError(
                         "存储层故障，降级缓存未命中".to_string(),
                     ))

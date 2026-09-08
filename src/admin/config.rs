@@ -16,7 +16,7 @@ pub enum ConfigError {
 }
 
 /// Admin API configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AdminApiConfig {
     /// Listening host
     #[serde(default = "default_host")]
@@ -43,6 +43,24 @@ pub struct AdminApiConfig {
     /// 默认：ban=(100,60), quota=(50,60), default=(200,60)。
     #[serde(default = "default_rate_limits")]
     pub rate_limits: HashMap<String, (u64, u64)>,
+}
+
+// 手动实现 Debug 并脱敏 api_key（F5）：派生的 Debug 会以明文打印
+// `api_key`，误用 `println!("{config:?}")` 即泄露管理凭证
+impl std::fmt::Debug for AdminApiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdminApiConfig")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field(
+                "api_key",
+                &format!("<redacted; {} chars>", self.api_key.len()),
+            )
+            .field("enabled", &self.enabled)
+            .field("api_key_operators", &self.api_key_operators)
+            .field("rate_limits", &self.rate_limits)
+            .finish()
+    }
 }
 
 /// 默认速率限制配置：ban=100/min, quota=50/min, default=200/min

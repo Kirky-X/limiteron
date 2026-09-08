@@ -82,6 +82,9 @@ pub struct MetricsSnapshot {
 struct LatencySamples {
     samples: Vec<u64>,
     max_samples: usize,
+    /// 环形写入起点：缓冲填满后覆盖最旧样本（J3：O(1) 替代
+    /// `Vec::remove(0)` 的 O(n) 前移，后者在每个成功请求上执行）
+    head: usize,
 }
 
 impl std::fmt::Debug for LatencySamples {
@@ -98,6 +101,7 @@ impl Default for LatencySamples {
         Self {
             samples: Vec::new(),
             max_samples: 10000,
+            head: 0,
         }
     }
 }
@@ -107,34 +111,52 @@ impl LatencySamples {
         Self {
             samples: Vec::with_capacity(max_samples),
             max_samples,
+            head: 0,
         }
     }
 
     fn add_sample(&mut self, latency_ms: u64) {
-        if self.samples.len() >= self.max_samples {
-            // 如果样本已满，移除最旧的样本（FIFO）
-            self.samples.remove(0);
+        if self.samples.len() < self.max_samples {
+            self.samples.push(latency_ms);
+        } else {
+            // 缓冲已满：环形覆盖最旧样本
+            self.samples[self.head] = latency_ms;
+            self.head = (self.head + 1) % self.max_samples;
         }
-        self.samples.push(latency_ms);
     }
 
-    /// 计算百分位数
+    /// 计算单个百分位数（仅供测试使用；生产路径用 percentiles 一次算多个）
+    #[cfg(test)]
     fn percentile(&self, p: f64) -> u64 {
+        self.percentiles(&[p]).remove(0)
+    }
+
+    /// 一次排序计算多个百分位数
+    ///
+    /// （J4：旧实现 p95/p99 各自 clone 全量样本并排序，在每个成功
+    /// 请求的锁内做两次 O(n log n)）
+    fn percentiles(&self, ps: &[f64]) -> Vec<u64> {
         if self.samples.is_empty() {
-            return 0;
+            return vec![0; ps.len()];
         }
 
         let mut sorted = self.samples.clone();
         sorted.sort_unstable();
 
-        let index = ((sorted.len() as f64) * p / 100.0) as usize;
-        sorted.get(index).copied().unwrap_or(0)
+        ps.iter()
+            .map(|&p| {
+                let index = ((sorted.len() as f64) * p / 100.0) as usize;
+                sorted.get(index).copied().unwrap_or(0)
+            })
+            .collect()
     }
 
+    #[cfg(test)]
     fn p95(&self) -> u64 {
         self.percentile(95.0)
     }
 
+    #[cfg(test)]
     fn p99(&self) -> u64 {
         self.percentile(99.0)
     }
@@ -430,9 +452,10 @@ impl MonitoringSystem {
             let mut samples = self.metrics.latency_samples.lock();
             samples.add_sample(latency_ms);
 
-            // 计算真正的 P95 和 P99
-            let p95 = samples.p95();
-            let p99 = samples.p99();
+            // 计算真正的 P95 和 P99（单次排序同时得出，J4）
+            let mut ps = samples.percentiles(&[95.0, 99.0]);
+            let p99 = ps.pop().unwrap_or(0);
+            let p95 = ps.pop().unwrap_or(0);
 
             self.metrics
                 .p95_latency_ms
@@ -539,23 +562,8 @@ impl MonitoringSystem {
         // 更新最后告警时间
         *self.last_alert_time.lock() = now;
 
-        // 记录告警
-        for level in alerts {
-            match level {
-                AlertLevel::Critical => {
-                    error!("发送严重告警: {}", Self::format_alert_level(level));
-                    debug!("严重告警级别: {}", Self::format_alert_level(level));
-                }
-                AlertLevel::Warning => {
-                    warn!("发送警告告警: {}", Self::format_alert_level(level));
-                    debug!("警告告警级别: {}", Self::format_alert_level(level));
-                }
-                AlertLevel::Info => {
-                    info!("发送信息告警: {}", Self::format_alert_level(level));
-                    debug!("信息告警级别: {}", Self::format_alert_level(level));
-                }
-            }
-        }
+        // 告警日志由 send_alert_notifications 统一输出（J5：此前两处
+        // 对同一告警输出完全相同的消息，每条告警必然记两次日志）
 
         self.send_alert_notifications(alerts).await;
     }

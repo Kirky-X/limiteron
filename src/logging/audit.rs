@@ -314,13 +314,33 @@ impl AuditLogStats {
 ///
 /// 对标识符和其他敏感数据进行脱敏处理
 fn sanitize_identifier(identifier: &str) -> String {
-    // 检查是否是 IP 地址
-    if identifier.contains('.') && identifier.parse::<std::net::IpAddr>().is_ok() {
-        // IP 地址：保留前两段，后两段掩码
-        let parts: Vec<&str> = identifier.split('.').collect();
-        if parts.len() == 4 {
-            return format!("{}.{}.xxx.xxx", parts[0], parts[1]);
-        }
+    // 检查是否是 IP 地址（IPv4 与 IPv6 统一处理）
+    if let Ok(ip) = identifier.parse::<std::net::IpAddr>() {
+        return match ip {
+            std::net::IpAddr::V4(v4) => {
+                // IPv4：保留前两段，后两段掩码
+                let s = v4.to_string();
+                let parts: Vec<&str> = s.split('.').collect();
+                format!("{}.{}.xxx.xxx", parts[0], parts[1])
+            }
+            std::net::IpAddr::V6(v6) => {
+                // IPv6：保留前 16 位（2 组 hex），其余掩码。
+                // 旧实现只识别含 '.' 的字符串，IPv6 落入通用掩码路径，
+                // 脱敏粒度与 IPv4 不一致。
+                if let Some(v4) = v6.to_ipv4_mapped() {
+                    // ::ffff:a.b.c.d 按其 IPv4 形式脱敏
+                    let s = v4.to_string();
+                    let parts: Vec<&str> = s.split('.').collect();
+                    format!("{}.{}.xxx.xxx", parts[0], parts[1])
+                } else {
+                    let segments = v6.segments();
+                    format!(
+                        "{:x}:{:x}:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx",
+                        segments[0], segments[1]
+                    )
+                }
+            }
+        };
     }
 
     // 检查是否是邮箱
@@ -561,7 +581,9 @@ impl AuditLogger {
                 AuditLogEntry::new(event.clone())
             };
 
-            match serde_json::to_string_pretty(&entry) {
+            // 必须用 compact JSON：文件以「一行一条」写入，read_and_verify
+            // 逐行解析；pretty JSON 的多行格式会使完整性验证 100% 失败。
+            match serde_json::to_string(&entry) {
                 Ok(json) => {
                     // 使用 info 级别记录日志（生产环境可见）
                     info!("审计日志: {}", json);
@@ -1342,6 +1364,33 @@ mod tests {
         assert_eq!(sanitize_identifier("emoji😀id"), "emo***😀id");
     }
 
+    #[test]
+    fn test_sanitize_identifier_ipv6() {
+        // F2 回归：IPv6 不含 '.'，旧实现落入通用掩码路径，与 IPv4 脱敏不一致
+        assert_eq!(
+            sanitize_identifier("2001:0db8:85a3:0000:0000:8a2e:0370:7334"),
+            "2001:db8:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx"
+        );
+        assert_eq!(
+            sanitize_identifier("2001:db8::1"),
+            "2001:db8:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx"
+        );
+        // IPv4-mapped 按其 IPv4 形式脱敏
+        assert_eq!(
+            sanitize_identifier("::ffff:192.168.1.100"),
+            "192.168.xxx.xxx"
+        );
+        // 短 IPv6（如 ::1）也走 IP 分支而非"***"，且末段位置信息被掩码
+        assert_eq!(
+            sanitize_identifier("::1"),
+            "0:0:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx"
+        );
+        assert_eq!(
+            sanitize_identifier("::1"),
+            sanitize_identifier("0:0:0:0:0:0:0:1")
+        );
+    }
+
     // ================================================================
     // === AuditLogStats — all getters + reset ===
     // ================================================================
@@ -1649,7 +1698,6 @@ mod tests {
 
         let config = AuditLogConfig::new().batch_size(1).output_path(p.clone());
         let logger = AuditLogger::new(config).await;
-
         logger
             .log_decision(
                 "user123".into(),
@@ -1663,6 +1711,43 @@ mod tests {
         let content = std::fs::read_to_string(&p).unwrap();
         assert!(content.contains("allow"));
         assert_eq!(logger.stats().batch_writes(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_write_batch_file_roundtrip_verify() {
+        // F1 回归测试：write_batch 落盘格式必须与 read_and_verify 的逐行
+        // 解析兼容。旧实现以 pretty JSON（多行）落盘，read_and_verify
+        // 逐行解析全部失败——审计完整性验证对自身文件 100% 失效。
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit_roundtrip.log");
+        let p = path.to_str().unwrap().to_string();
+
+        let config = AuditLogConfig::new()
+            .batch_size(2)
+            .output_path(p.clone())
+            .signing_key("test-secret-key-32-bytes-long!".to_string());
+        let logger = AuditLogger::new(config.clone()).await;
+
+        logger
+            .log_decision("user1".into(), "allow".into(), "within_limit".into(), None)
+            .await;
+        logger
+            .log_decision("user2".into(), "deny".into(), "rate_limited".into(), None)
+            .await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let stats = AuditLogStats::default();
+        let entries = AuditLogger::read_and_verify(&p, &config, &stats).unwrap();
+        assert_eq!(
+            entries.len(),
+            2,
+            "落盘的两条审计日志必须能全部解析并通过签名验证"
+        );
+        assert_eq!(
+            stats.verification_failures(),
+            0,
+            "审计验证不得对自身写出的日志产生验证失败"
+        );
     }
 
     #[test]

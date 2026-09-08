@@ -10,7 +10,7 @@ use super::BanTarget;
 use crate::error::{BanInfo, LimiteronError};
 use crate::matchers::RequestContext;
 use futures::stream::{FuturesUnordered, StreamExt};
-use log::debug;
+use log::{debug, warn};
 use std::sync::Arc;
 
 use crate::ban::BanManager;
@@ -85,7 +85,11 @@ impl ParallelBanChecker {
                 }
                 Ok(None) => continue,
                 Err(e) => {
-                    debug!("封禁检查出错: {}", e);
+                    // 有意的 fail-open 取舍（与顺序路径 check_ban 一致）：
+                    // 存储故障期间放行而非阻断全部流量。但必须以 warn 级
+                    // 显性化——调用方无法区分「未封禁」与「存储故障」，
+                    // 静默降级会让封禁在故障期间失效且无告警线索。
+                    warn!("封禁检查出错，按未封禁处理（fail-open）: {}", e);
                     continue;
                 }
             }

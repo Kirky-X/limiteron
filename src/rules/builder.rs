@@ -25,6 +25,7 @@ use crate::matchers::{
 };
 use dashmap::DashMap;
 use log::warn;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -352,17 +353,18 @@ impl RuleBuilder {
                             log::info!("自定义匹配器 '{}' 已从注册表解析并生效", name);
                             let name = name.clone();
                             Box::new(MatchCondition::Custom(Arc::new(
-                                move |context: &RequestContext| match futures::executor::block_on(
-                                    matcher.matches(context),
-                                ) {
-                                    Ok(v) => v,
-                                    Err(e) => {
-                                        log::warn!(
-                                            "自定义匹配器 '{}' 求值失败，按不匹配处理: {}",
-                                            name,
-                                            e
-                                        );
-                                        false
+                                move |context: &RequestContext| {
+                                    let fut = matcher.matches(context);
+                                    match crate::rules::builder::drive_lightweight(fut) {
+                                        Ok(v) => v,
+                                        Err(e) => {
+                                            log::warn!(
+                                                "自定义匹配器 '{}' 求值失败，按不匹配处理: {}",
+                                                name,
+                                                e
+                                            );
+                                            false
+                                        }
                                     }
                                 },
                             )))
@@ -411,6 +413,26 @@ impl RuleBuilder {
 // ============================================================================
 // 单元测试
 // ============================================================================
+
+/// 极简同步驱动器：自旋轮询 future 至完成
+///
+/// 供 `MatchCondition::Custom` 的同步求值路径驱动自定义匹配器的异步
+/// `matches`。自定义匹配器应为轻量实现（首次 poll 即 Ready，如头检查/
+/// 阈值比较）；返回 `Pending` 的实现会在此自旋等待，不得包含定时器/IO。
+pub(crate) fn drive_lightweight<E>(fut: impl Future<Output = Result<bool, E>>) -> Result<bool, E> {
+    use std::pin::pin;
+    use std::task::{Context, Poll};
+
+    let mut fut = pin!(fut);
+    let waker = std::task::Waker::noop();
+    let mut cx = Context::from_waker(waker);
+    loop {
+        if let Poll::Ready(out) = fut.as_mut().poll(&mut cx) {
+            return out;
+        }
+        std::hint::spin_loop();
+    }
+}
 
 #[cfg(test)]
 mod tests {

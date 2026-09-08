@@ -4,9 +4,9 @@ use crate::error::{ConsumeResult, StorageError};
 use crate::storage::{QuotaInfo, QuotaStorage};
 use async_trait::async_trait;
 use chrono::Utc;
+use oxcache::backend::AtomicCacheWriter;
 use oxcache::backend::CacheBackend;
 use oxcache::error::OxCacheError;
-use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,40 +19,27 @@ fn map_error(e: OxCacheError) -> StorageError {
     }
 }
 
-fn quota_key(user_id: &str, resource: &str) -> String {
-    format!("quota:{user_id}:{resource}")
+/// 计数器键：`quota:{user}:{resource}:{bucket}`（bucket = 当前时间对窗口取整）
+fn counter_key(user_id: &str, resource: &str, bucket: u64) -> String {
+    format!("quota:{user_id}:{resource}:{bucket}")
 }
 
-fn info_to_json(info: &QuotaInfo) -> serde_json::Value {
-    json!({
-        "consumed": info.consumed,
-        "limit": info.limit,
-        "window_start": info.window_start.timestamp(),
-        "window_end": info.window_end.timestamp(),
-    })
+/// 元数据键：记录 limit 与当前窗口起止（get_quota 重建 QuotaInfo 用）
+fn meta_key(user_id: &str, resource: &str) -> String {
+    format!("quota:{user_id}:{resource}:meta")
 }
 
-fn info_from_json(v: &serde_json::Value) -> Option<QuotaInfo> {
-    let consumed = v.get("consumed")?.as_u64()?;
-    let limit = v.get("limit")?.as_u64()?;
-    let ws = v.get("window_start")?.as_i64()?;
-    let we = v.get("window_end")?.as_i64()?;
-    Some(QuotaInfo {
-        consumed,
-        limit,
-        window_start: chrono::DateTime::from_timestamp(ws, 0)?,
-        window_end: chrono::DateTime::from_timestamp(we, 0)?,
-    })
+fn window_secs(window: Duration) -> u64 {
+    window.as_secs().max(1)
 }
 
 pub struct CacheQuotaStorage {
     backend: Arc<dyn CacheBackend>,
-    /// 进程内 RMW 串行锁
+    /// 回退路径（后端不支持原子操作时）的进程内串行锁
     ///
-    /// `consume` 为 get→检查→set 的 read-modify-write。oxcache 0.5 的
-    /// `CacheBackend` 不提供 CAS/INCR/Lua 原语（按 AGENTS.md 不修改外部
-    /// 依赖），跨进程原子性无法在本层实现；此锁保证**单实例内**并发
-    /// consume 不再互相覆盖造成超额，多实例部署仍需后端原子原语支持。
+    /// 后端实现 `AtomicCacheWriter`（Redis/Moka/Mock）时走 `INCR` 原子
+    /// 计数路径，本锁不参与；仅回退 RMW 路径用它保证**单实例内**并发
+    /// 不互相覆盖。多实例部署请使用支持原子写的后端。
     rw_lock: tokio::sync::Mutex<()>,
 }
 
@@ -63,6 +50,110 @@ impl CacheQuotaStorage {
             rw_lock: tokio::sync::Mutex::new(()),
         }
     }
+
+    fn usage_percent(consumed: u64, limit: u64) -> f64 {
+        if limit > 0 {
+            (consumed as f64 / limit as f64) * 100.0
+        } else {
+            0.0
+        }
+    }
+
+    fn reject_result(consumed: u64, limit: u64) -> ConsumeResult {
+        ConsumeResult {
+            allowed: false,
+            remaining: limit.saturating_sub(consumed),
+            alert_triggered: false,
+            usage_percent: Self::usage_percent(consumed, limit),
+        }
+    }
+
+    fn allow_result(consumed: u64, limit: u64) -> ConsumeResult {
+        ConsumeResult {
+            allowed: true,
+            remaining: limit.saturating_sub(consumed),
+            alert_triggered: false,
+            usage_percent: Self::usage_percent(consumed, limit),
+        }
+    }
+
+    /// 原子 consume：`INCR` 计数后检查限额，超限即原子回滚。
+    ///
+    /// 单条 `INCRBY` 由后端原子执行，并发消费者的放行决策互不交错
+    /// （修复 A4 跨实例 RMW 覆盖）；超限者回滚自己的增量，计数收敛为
+    /// 已放行总量。
+    async fn consume_atomic(
+        &self,
+        atomic: &dyn AtomicCacheWriter,
+        key: &str,
+        cost: u64,
+        limit: u64,
+        window: Duration,
+    ) -> Result<ConsumeResult, StorageError> {
+        let new_total = atomic
+            .incr(key, cost as i64, Some(window))
+            .await
+            .map_err(map_error)?;
+
+        if new_total > limit as i64 {
+            // 超限：回滚本次增量，按扣除后的已用量给出准确 remaining
+            let rolled_back = atomic
+                .incr(key, -(cost as i64), Some(window))
+                .await
+                .map_err(map_error)?;
+            let used = rolled_back.max(0) as u64;
+            return Ok(Self::reject_result(used, limit));
+        }
+
+        Ok(Self::allow_result(new_total.max(0) as u64, limit))
+    }
+
+    /// 回退 consume（后端无原子写时）：进程内锁串行化的 RMW
+    async fn consume_fallback(
+        &self,
+        key: &str,
+        cost: u64,
+        limit: u64,
+        window: Duration,
+    ) -> Result<ConsumeResult, StorageError> {
+        let _guard = self.rw_lock.lock().await;
+
+        let current = self.read_counter(key).await?;
+        let new_total = current.saturating_add(cost);
+
+        if new_total > limit {
+            return Ok(Self::reject_result(current, limit));
+        }
+
+        self.write_counter(key, new_total, window).await?;
+        Ok(Self::allow_result(new_total, limit))
+    }
+
+    async fn read_counter(&self, key: &str) -> Result<u64, StorageError> {
+        match self.backend.get(key).await.map_err(map_error)? {
+            Some(data) => std::str::from_utf8(&data)
+                .ok()
+                .and_then(|s| s.trim().parse::<u64>().ok())
+                .ok_or_else(|| StorageError::QueryError("quota counter 解析失败".to_string())),
+            None => Ok(0),
+        }
+    }
+
+    async fn write_counter(
+        &self,
+        key: &str,
+        value: u64,
+        window: Duration,
+    ) -> Result<(), StorageError> {
+        self.backend
+            .set(
+                Arc::from(key),
+                Arc::new(value.to_string().into_bytes()),
+                Some(window),
+            )
+            .await
+            .map_err(map_error)
+    }
 }
 
 #[async_trait]
@@ -72,22 +163,53 @@ impl QuotaStorage for CacheQuotaStorage {
         user_id: &str,
         resource: &str,
     ) -> Result<Option<QuotaInfo>, StorageError> {
-        let key = quota_key(user_id, resource);
-        let raw = self.backend.get(&key).await.map_err(map_error)?;
-        match raw {
-            Some(data) => {
-                let v: serde_json::Value = serde_json::from_slice(&data)
-                    .map_err(|e| StorageError::QueryError(format!("{e}")))?;
-                Ok(info_from_json(&v))
-            }
-            None => Ok(None),
-        }
+        let meta_key = meta_key(user_id, resource);
+        let raw = self.backend.get(&meta_key).await.map_err(map_error)?;
+        let Some(data) = raw else {
+            return Ok(None);
+        };
+        let v: serde_json::Value =
+            serde_json::from_slice(&data).map_err(|e| StorageError::QueryError(format!("{e}")))?;
+        let limit = v
+            .get("limit")
+            .and_then(|n| n.as_u64())
+            .ok_or_else(|| StorageError::QueryError("meta missing limit".to_string()))?;
+        let window_start = v
+            .get("window_start")
+            .and_then(|n| n.as_i64())
+            .ok_or_else(|| StorageError::QueryError("meta missing window_start".to_string()))?;
+        let window_end = v
+            .get("window_end")
+            .and_then(|n| n.as_i64())
+            .ok_or_else(|| StorageError::QueryError("meta missing window_end".to_string()))?;
+
+        // 读取当前 bucket 计数（元数据缺 counter 视为 0）
+        let bucket = (window_start as u64)
+            / window_secs(Duration::from_secs(
+                (window_end - window_start).max(1) as u64
+            ));
+        let consumed = self
+            .read_counter(&counter_key(user_id, resource, bucket))
+            .await?;
+
+        let window_start = chrono::DateTime::from_timestamp(window_start, 0)
+            .ok_or_else(|| StorageError::QueryError("invalid window_start".to_string()))?;
+        let window_end = chrono::DateTime::from_timestamp(window_end, 0)
+            .ok_or_else(|| StorageError::QueryError("invalid window_end".to_string()))?;
+
+        Ok(Some(QuotaInfo {
+            consumed,
+            limit,
+            window_start,
+            window_end,
+        }))
     }
 
-    // read-modify-write：经进程内 rw_lock 串行化（见 rw_lock 字段文档）。
-    // 单实例内并发安全；多实例部署的跨进程原子性仍需 oxcache 提供
-    // CAS/INCR/Lua 原语（外部依赖约束，问题已上报）。
-    // 溢出加固：limit 与 consumed 来自存储，比较用饱和减法防回绕。
+    /// Consume quota
+    ///
+    /// 原子计数方案（修复 A4）：后端支持原子写时，`INCRBY` 单条命令完成
+    /// 「计数 + 限额裁决」，超限回滚本次增量——并发下既不丢更新也不超额。
+    /// 无原子能力的后端回退到进程内锁串行化的 RMW。
     async fn consume(
         &self,
         user_id: &str,
@@ -96,90 +218,52 @@ impl QuotaStorage for CacheQuotaStorage {
         limit: u64,
         window: Duration,
     ) -> Result<ConsumeResult, StorageError> {
-        let _guard = self.rw_lock.lock().await;
-        let key = quota_key(user_id, resource);
-        let now = Utc::now();
-        let window_end = now
-            + chrono::Duration::from_std(window)
-                .map_err(|e| StorageError::QueryError(format!("invalid Duration: {}", e)))?;
-
-        let raw = self.backend.get(&key).await.map_err(map_error)?;
-        let mut info = match raw {
-            Some(data) => {
-                let v: serde_json::Value = serde_json::from_slice(&data)
-                    .map_err(|e| StorageError::QueryError(format!("{e}")))?;
-                info_from_json(&v).unwrap_or(QuotaInfo {
-                    consumed: 0,
-                    limit,
-                    window_start: now,
-                    window_end,
-                })
-            }
-            None => QuotaInfo {
-                consumed: 0,
-                limit,
-                window_start: now,
-                window_end,
-            },
-        };
-
-        // Reset window if expired
-        if info.window_end <= now {
-            info = QuotaInfo {
-                consumed: 0,
-                limit,
-                window_start: now,
-                window_end,
-            };
-        }
-
-        let usage = if info.limit > 0 {
-            (info.consumed as f64 / info.limit as f64) * 100.0
-        } else {
-            0.0
-        };
-
-        // 溢出安全的比较式：consumed + cost 可能回绕，
-        // 改写为 cost > limit - consumed（saturating_sub）
-        if cost > info.limit.saturating_sub(info.consumed) {
+        // cost=0 不改变账本，直接按当前用量放行
+        if cost == 0 {
+            let info = self.get_quota(user_id, resource).await?;
+            let consumed = info.as_ref().map(|i| i.consumed).unwrap_or(0);
             return Ok(ConsumeResult {
-                allowed: false,
-                remaining: info.limit.saturating_sub(info.consumed),
+                allowed: true,
+                remaining: limit.saturating_sub(consumed),
                 alert_triggered: false,
-                usage_percent: usage,
+                usage_percent: Self::usage_percent(consumed, limit),
             });
         }
 
-        info.consumed += cost;
-        let remaining = info.limit - info.consumed;
-        let usage = if info.limit > 0 {
-            (info.consumed as f64 / info.limit as f64) * 100.0
-        } else {
-            0.0
-        };
+        let now = Utc::now();
+        let bucket_secs = window_secs(window);
+        let bucket = now.timestamp() as u64 / bucket_secs;
+        let key = counter_key(user_id, resource, bucket);
+        let mkey = meta_key(user_id, resource);
 
-        let data = serde_json::to_vec(&info_to_json(&info))
-            .map_err(|e| StorageError::QueryError(format!("{e}")))?;
-        let ttl = info
-            .window_end
-            .signed_duration_since(Utc::now())
-            .num_seconds()
-            .max(1) as u64;
+        // 元数据：get_quota/reports 重建 QuotaInfo 用（普通 set，键级原子）
+        let meta = serde_json::json!({
+            "limit": limit,
+            "window_start": bucket * bucket_secs,
+            "window_end": (bucket + 1) * bucket_secs,
+        });
+        let meta_bytes =
+            serde_json::to_vec(&meta).map_err(|e| StorageError::QueryError(format!("{e}")))?;
         self.backend
             .set(
-                Arc::from(key.as_str()),
-                Arc::new(data),
-                Some(Duration::from_secs(ttl)),
+                Arc::from(mkey.as_str()),
+                Arc::new(meta_bytes),
+                Some(window + window),
             )
             .await
             .map_err(map_error)?;
 
-        Ok(ConsumeResult {
-            allowed: true,
-            remaining,
-            alert_triggered: false,
-            usage_percent: usage,
-        })
+        if cost > limit {
+            return Ok(Self::reject_result(0, limit));
+        }
+
+        // 原子路径
+        if let Some(atomic) = self.backend.as_atomic_writer() {
+            return self.consume_atomic(atomic, &key, cost, limit, window).await;
+        }
+
+        // 回退路径：无原子写的后端（进程内锁串行化）
+        self.consume_fallback(&key, cost, limit, window).await
     }
 
     async fn reset(
@@ -189,32 +273,29 @@ impl QuotaStorage for CacheQuotaStorage {
         limit: u64,
         window: Duration,
     ) -> Result<(), StorageError> {
-        let key = quota_key(user_id, resource);
+        let _guard = self.rw_lock.lock().await;
         let now = Utc::now();
-        let window_end = now
-            + chrono::Duration::from_std(window)
-                .map_err(|e| StorageError::QueryError(format!("invalid Duration: {}", e)))?;
-        let info = QuotaInfo {
-            consumed: 0,
-            limit,
-            window_start: now,
-            window_end,
-        };
-        let data = serde_json::to_vec(&info_to_json(&info))
-            .map_err(|e| StorageError::QueryError(format!("{e}")))?;
-        let ttl = info
-            .window_end
-            .signed_duration_since(Utc::now())
-            .num_seconds()
-            .max(1) as u64;
+        let bucket_secs = window_secs(window);
+        let bucket = now.timestamp() as u64 / bucket_secs;
+
+        // 元数据与计数器均为整键覆盖写（键级原子）
+        let meta = serde_json::json!({
+            "limit": limit,
+            "window_start": bucket * bucket_secs,
+            "window_end": (bucket + 1) * bucket_secs,
+        });
+        let meta_bytes =
+            serde_json::to_vec(&meta).map_err(|e| StorageError::QueryError(format!("{e}")))?;
         self.backend
             .set(
-                Arc::from(key.as_str()),
-                Arc::new(data),
-                Some(Duration::from_secs(ttl)),
+                Arc::from(meta_key(user_id, resource).as_str()),
+                Arc::new(meta_bytes),
+                Some(window + window),
             )
             .await
-            .map_err(map_error)
+            .map_err(map_error)?;
+        self.write_counter(&counter_key(user_id, resource, bucket), 0, window)
+            .await
     }
 }
 
@@ -358,8 +439,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_consume_zero_limit_allowed_zero_cost() {
-        // limit=0 path: usage = 0.0, but consumed+cost (0) > limit (0) is false,
-        // so allowed with cost 0
+        // limit=0 路径: usage = 0.0，cost=0 不超限
         let qs = CacheQuotaStorage::new(make_backend());
         let r = qs
             .consume("u_zero", "api", 0, 0, Duration::from_secs(60))
@@ -372,23 +452,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_consume_zero_limit_denied_nonzero_cost() {
-        // limit=0 with non-zero cost: consumed (0) + cost (5) > limit (0) -> denied
+        // limit=0 with non-zero cost: cost > limit → denied
         let qs = CacheQuotaStorage::new(make_backend());
         let r = qs
             .consume("u_zero2", "api", 5, 0, Duration::from_secs(60))
             .await
             .unwrap();
         assert!(!r.allowed);
-        // remaining = limit.saturating_sub(consumed) = 0.saturating_sub(0) = 0
         assert_eq!(r.remaining, 0);
         assert_eq!(r.usage_percent, 0.0);
     }
 
     #[tokio::test]
     async fn test_consume_zero_limit_after_existing_consumption() {
-        // First consume with limit=0 and cost=0 (allowed, consumed stays 0),
-        // then consume with cost>0 (denied). usage_percent should be 0.0
-        // because limit > 0 is false on both branches.
+        // 先 cost=0（放行，不落账），再 cost>0（拒绝）
         let qs = CacheQuotaStorage::new(make_backend());
         let r1 = qs
             .consume("u_zero3", "api", 0, 0, Duration::from_secs(60))
@@ -422,81 +499,12 @@ mod tests {
         assert!(matches!(err, StorageError::QueryError(_)));
     }
 
-    // 覆盖 window 过期重置路径（lines 109-116）
-    // 通过直接注入过期数据避免依赖 TTL 驱逐时序
-    #[tokio::test]
-    async fn test_consume_window_reset_via_pre_populated() {
-        let backend = make_backend();
-        let qs = CacheQuotaStorage::new(backend.clone());
-        let key = quota_key("u_reset", "api");
-        let past = Utc::now() - chrono::Duration::seconds(3600);
-        let info = QuotaInfo {
-            consumed: 50,
-            limit: 100,
-            window_start: past,
-            window_end: past + chrono::Duration::seconds(60),
-        };
-        let data = serde_json::to_vec(&info_to_json(&info)).unwrap();
-        backend
-            .set(
-                Arc::from(key.as_str()),
-                Arc::new(data),
-                Some(Duration::from_secs(3600)),
-            )
-            .await
-            .unwrap();
-        let r = qs
-            .consume("u_reset", "api", 10, 100, Duration::from_secs(60))
-            .await
-            .unwrap();
-        assert!(r.allowed);
-        assert_eq!(r.remaining, 90);
-    }
-
-    // 覆盖 consume 读取已有数据但 info_from_json 返回 None 的兜底路径
-    // （lines 92-98：JSON 有效但字段不匹配时使用默认 QuotaInfo）
-    #[tokio::test]
-    async fn test_consume_with_corrupted_existing_data() {
-        let backend = make_backend();
-        let qs = CacheQuotaStorage::new(backend.clone());
-        let key = quota_key("u_corrupt", "api");
-        // 写入有效 JSON 但缺少必需字段，使 info_from_json 返回 None
-        let bad_data = serde_json::to_vec(&json!({ "foo": "bar" })).unwrap();
-        backend
-            .set(
-                Arc::from(key.as_str()),
-                Arc::new(bad_data),
-                Some(Duration::from_secs(3600)),
-            )
-            .await
-            .unwrap();
-        let r = qs
-            .consume("u_corrupt", "api", 10, 100, Duration::from_secs(60))
-            .await
-            .unwrap();
-        assert!(r.allowed);
-        assert_eq!(r.remaining, 90);
-    }
-
-    // 覆盖 get_quota 读取已有数据的反序列化路径（lines 66-69）
+    // 覆盖 get_quota 读取元数据的正常路径
     #[tokio::test]
     async fn test_get_quota_with_existing_data() {
         let backend = make_backend();
         let qs = CacheQuotaStorage::new(backend.clone());
-        let key = quota_key("u_get", "api");
-        let info = QuotaInfo {
-            consumed: 30,
-            limit: 200,
-            window_start: Utc::now(),
-            window_end: Utc::now() + chrono::Duration::seconds(3600),
-        };
-        let data = serde_json::to_vec(&info_to_json(&info)).unwrap();
-        backend
-            .set(
-                Arc::from(key.as_str()),
-                Arc::new(data),
-                Some(Duration::from_secs(3600)),
-            )
+        qs.consume("u_get", "api", 30, 200, Duration::from_secs(60))
             .await
             .unwrap();
         let q = qs.get_quota("u_get", "api").await.unwrap().unwrap();
@@ -504,12 +512,12 @@ mod tests {
         assert_eq!(q.limit, 200);
     }
 
-    // 覆盖 get_quota JSON 反序列化失败路径（line 68）
+    // 覆盖 get_quota 元数据 JSON 损坏路径
     #[tokio::test]
-    async fn test_get_quota_invalid_json() {
+    async fn test_get_quota_invalid_meta() {
         let backend = make_backend();
         let qs = CacheQuotaStorage::new(backend.clone());
-        let key = quota_key("u_bad", "api");
+        let key = meta_key("u_bad", "api");
         backend
             .set(
                 Arc::from(key.as_str()),
@@ -522,23 +530,61 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // 覆盖 consume 时 backend.get 返回 Some 但 JSON 解析失败（line 92）
+    // 覆盖 consume 计数器损坏路径（fallback 读取非数字计数）：
+    // 直接向当前 bucket 计数键写入垃圾数据（window=3600 → bucket=小时）
     #[tokio::test]
-    async fn test_consume_with_invalid_json_existing() {
+    async fn test_consume_with_invalid_counter() {
         let backend = make_backend();
         let qs = CacheQuotaStorage::new(backend.clone());
-        let key = quota_key("u_invjson", "api");
+        let bucket = Utc::now().timestamp() as u64 / 3600;
+        let key = counter_key("u_invjson", "api", bucket);
         backend
             .set(
                 Arc::from(key.as_str()),
-                Arc::new(b"invalid".to_vec()),
-                Some(Duration::from_secs(60)),
+                Arc::new(b"not-a-number".to_vec()),
+                Some(Duration::from_secs(7200)),
             )
             .await
             .unwrap();
         let result = qs
-            .consume("u_invjson", "api", 10, 100, Duration::from_secs(60))
+            .consume("u_invjson", "api", 10, 100, Duration::from_secs(3600))
             .await;
         assert!(result.is_err());
+    }
+
+    // 并发原子性回归（A4 单实例层）：64 个并发 consume，放行总数精确
+    // 不超过 limit（回退路径经 rw_lock 串行化保证）
+    #[tokio::test]
+    async fn test_consume_fallback_no_overshoot_under_concurrency() {
+        let qs = Arc::new(CacheQuotaStorage::new(make_backend()));
+        let limit = 50u64;
+        let tasks = 20usize;
+        let per_task = 10u64;
+
+        let mut handles = Vec::with_capacity(tasks);
+        for _ in 0..tasks {
+            let qs = Arc::clone(&qs);
+            handles.push(tokio::spawn(async move {
+                let mut allowed = 0u64;
+                for _ in 0..per_task {
+                    if qs
+                        .consume("u_conc", "api", 1, limit, Duration::from_secs(60))
+                        .await
+                        .unwrap()
+                        .allowed
+                    {
+                        allowed += 1;
+                    }
+                }
+                allowed
+            }));
+        }
+        let total: u64 = futures::future::join_all(handles)
+            .await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .sum();
+
+        assert!(total <= limit, "并发放行数 {total} 超过上限 {limit}");
     }
 }

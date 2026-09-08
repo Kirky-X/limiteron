@@ -110,8 +110,42 @@ impl CacheBanStorage {
             .map_err(map_error)
     }
 
+    /// 后端原子写能力（Redis/Moka/Mock 实现；DashMap 等返回 None）
+    fn atomic(&self) -> Option<&dyn oxcache::backend::AtomicCacheWriter> {
+        self.backend.as_atomic_writer()
+    }
+
     /// 写入索引（须已持有 `rw_lock`；调用方负责串行化）
+    ///
+    /// 后端支持原子写时优先 CAS 乐观锁（跨实例安全，冲突重试）；
+    /// 否则退化为普通 RMW。
     async fn add_to_index_locked(&self, key: &str) -> Result<(), StorageError> {
+        if let Some(atomic) = self.atomic() {
+            for _ in 0..8 {
+                let raw = self.backend.get(BAN_INDEX_KEY).await.map_err(map_error)?;
+                let mut idx: Vec<String> = raw
+                    .as_deref()
+                    .and_then(|d| serde_json::from_slice(d).ok())
+                    .unwrap_or_default();
+                if idx.iter().any(|k| k == key) {
+                    return Ok(());
+                }
+                idx.push(key.to_string());
+                let new = serde_json::to_vec(&idx)
+                    .map_err(|e| StorageError::QueryError(format!("{e}")))?;
+                if atomic
+                    .compare_and_swap(BAN_INDEX_KEY, raw.as_deref(), new, None)
+                    .await
+                    .map_err(map_error)?
+                {
+                    return Ok(());
+                }
+            }
+            return Err(StorageError::QueryError(
+                "ban index CAS 重试耗尽（并发冲突过高）".to_string(),
+            ));
+        }
+
         let mut idx = self.get_index().await?;
         if !idx.contains(&key.to_string()) {
             idx.push(key.to_string());
@@ -121,21 +155,90 @@ impl CacheBanStorage {
     }
 
     /// 移除索引（须已持有 `rw_lock`；调用方负责串行化）
+    ///
+    /// CAS 语义同 [`Self::add_to_index_locked`]。
     async fn remove_from_index_locked(&self, key: &str) -> Result<(), StorageError> {
+        if let Some(atomic) = self.atomic() {
+            for _ in 0..8 {
+                let raw = self.backend.get(BAN_INDEX_KEY).await.map_err(map_error)?;
+                let Some(data) = raw else {
+                    return Ok(());
+                };
+                let mut idx: Vec<String> = serde_json::from_slice(&data)
+                    .map_err(|e| StorageError::QueryError(format!("{e}")))?;
+                let before = idx.len();
+                idx.retain(|k| k != key);
+                if idx.len() == before {
+                    return Ok(());
+                }
+                let new = serde_json::to_vec(&idx)
+                    .map_err(|e| StorageError::QueryError(format!("{e}")))?;
+                if atomic
+                    .compare_and_swap(BAN_INDEX_KEY, Some(&data), new, None)
+                    .await
+                    .map_err(map_error)?
+                {
+                    return Ok(());
+                }
+            }
+            return Err(StorageError::QueryError(
+                "ban index CAS 重试耗尽（并发冲突过高）".to_string(),
+            ));
+        }
+
         let mut idx = self.get_index().await?;
         idx.retain(|k| k != key);
         self.set_index(&idx).await
     }
 
-    // read-modify-write：经进程内 rw_lock 串行化（见 rw_lock 字段文档）。
-    // 单实例内并发安全；多实例部署的跨进程原子性仍需 oxcache 提供
-    // CAS/事务/Lua 原语（外部依赖约束，问题已上报）。
+    // read-modify-write：后端支持原子写时以 CAS 乐观锁重试（跨实例安全）；
+    // 否则经进程内 rw_lock 串行化（单实例并发安全，多实例已文档化限制）。
     async fn modify_ban<F>(&self, target: &BanTarget, f: F) -> Result<(), StorageError>
     where
-        F: FnOnce(&mut BanRecord),
+        F: FnMut(&mut BanRecord),
     {
+        let mut f = f;
         let _guard = self.rw_lock.lock().await;
         let key = target_key(target);
+
+        if let Some(atomic) = self.atomic() {
+            for _ in 0..8 {
+                let raw = self.backend.get(&key).await.map_err(map_error)?;
+                let Some(data) = raw else {
+                    return Ok(()); // 记录不存在，无需修改
+                };
+                let Ok(v) = serde_json::from_slice::<serde_json::Value>(&data) else {
+                    return Ok(()); // 损坏条目按不存在处理（与旧行为一致）
+                };
+                let Some(mut record) = record_from_json(&v) else {
+                    return Ok(());
+                };
+                f(&mut record);
+                let ttl = record
+                    .expires_at
+                    .signed_duration_since(chrono::Utc::now())
+                    .num_seconds()
+                    .max(1) as u64;
+                let new_data = serde_json::to_vec(&record_to_json(&record))
+                    .map_err(|e| StorageError::QueryError(format!("{e}")))?;
+                if atomic
+                    .compare_and_swap(
+                        &key,
+                        Some(&data),
+                        new_data,
+                        Some(std::time::Duration::from_secs(ttl)),
+                    )
+                    .await
+                    .map_err(map_error)?
+                {
+                    return Ok(());
+                }
+            }
+            return Err(StorageError::QueryError(
+                "ban record CAS 重试耗尽（并发冲突过高）".to_string(),
+            ));
+        }
+
         let raw = self.backend.get(&key).await.map_err(map_error)?;
         if let Some(data) = raw {
             if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&data) {

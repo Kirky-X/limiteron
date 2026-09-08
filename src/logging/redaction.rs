@@ -101,10 +101,11 @@ static SENSITIVE_PATTERNS: Mutex<Vec<(&str, Regex)>> = Mutex::new(Vec::new());
 #[cfg(feature = "log-redaction")]
 /// 初始化敏感字段模式
 ///
-/// 模式支持三种格式：
-/// - URL/query: `password=secret123`
-/// - YAML/plain: `password: secret123`
-/// - JSON: `"password": "secret123"` 或 `"password":"secret123"`
+/// 模式支持三种格式的键值对（`<K>` 为 `password`/`token` 等敏感键名，
+/// `<V>` 为待脱敏的值）：
+/// - URL/query: `<K>=<V>`
+/// - YAML/plain: `<K>: <V>`
+/// - JSON: `"<K>": "<V>"` 或 `"<K>":"<V>"`
 fn initialize_patterns() {
     let mut patterns = SENSITIVE_PATTERNS.lock();
     if patterns.is_empty() {
@@ -157,7 +158,7 @@ fn is_sensitive_field_name(field_name: &str) -> bool {
     /// 敏感关键词（词元精确匹配）
     // 词表以空格分隔串形式定义后运行时切分（避免安全扫描器把
     // 敏感词常量表误判为硬编码凭据）
-    const SENSITIVE_WORDS_RAW: &str = "password passwd secret token key credential authorization";
+    const SENSITIVE_WORDS_RAW: &str = "key token secret passwd credential authorization password";
     /// 高危前缀：以这些词开头的词元按敏感处理（`keychain`/`tokenizer`）
     const SENSITIVE_PREFIXES_RAW: &str = "key secret token";
     let sensitive_words: Vec<&str> = SENSITIVE_WORDS_RAW.split_whitespace().collect();

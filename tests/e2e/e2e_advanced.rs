@@ -478,7 +478,8 @@ mod fallback_strategy {
         FallbackManager::new(Arc::new(cache))
     }
 
-    /// FailOpen：主操作失败时返回 LimitError（提示降级允许）
+    /// FailOpen：主操作失败时返回 FallbackError（diting Low：调用方以
+    /// 变体识别降级语义，而非靠字符串约定）
     #[tokio::test]
     async fn fail_open_returns_limit_error_on_failure() {
         let manager = create_manager().await;
@@ -502,14 +503,14 @@ mod fallback_strategy {
             .await;
 
         match result {
-            Err(LimiteronError::LimitError(msg)) => {
+            Err(LimiteronError::FallbackError(msg)) => {
                 assert!(
-                    msg.contains("允许"),
-                    "FailOpen message should indicate allowed: {}",
+                    msg.contains("FailOpen"),
+                    "FailOpen message should indicate degraded: {}",
                     msg
                 );
             }
-            other => panic!("Expected LimitError for FailOpen, got {:?}", other),
+            other => panic!("Expected FallbackError for FailOpen, got {:?}", other),
         }
     }
 

@@ -215,6 +215,9 @@ pub struct GovernorBuilder {
     /// 事件发射器（可选）
     #[cfg(feature = "event-system")]
     event_emitter: Option<Arc<crate::events::EventEmitter>>,
+    /// 自定义匹配器注册表（可选）：提供后，配置中的 `Custom` 匹配器
+    /// 在构建期从注册表解析并真实参与运行时求值（E1）
+    custom_matcher_registry: Option<Arc<crate::matchers::custom::CustomMatcherRegistry>>,
 }
 
 impl GovernorBuilder {
@@ -241,7 +244,21 @@ impl GovernorBuilder {
             fallback_manager: None,
             #[cfg(feature = "event-system")]
             event_emitter: None,
+            custom_matcher_registry: None,
         }
+    }
+
+    /// 注入自定义匹配器注册表（E1）
+    ///
+    /// 提供后，配置中的 `Custom` 匹配器在 `build()` 时从注册表解析：
+    /// 已注册的匹配器真实参与运行时求值，未注册的仍为恒不匹配占位
+    /// 并在构建期告警。
+    pub fn with_custom_matcher_registry(
+        mut self,
+        registry: Arc<crate::matchers::custom::CustomMatcherRegistry>,
+    ) -> Self {
+        self.custom_matcher_registry = Some(registry);
+        self
     }
 
     /// 设置流量控制配置
@@ -392,8 +409,13 @@ impl GovernorBuilder {
             )
         };
 
-        // 使用 RuleBuilder 创建规则匹配器
-        let rules = RuleBuilder::build_rules(&config)?;
+        // 使用 RuleBuilder 创建规则匹配器（E1：提供注册表时 Custom
+        // 匹配器真实参与求值）
+        let rules = if let Some(registry) = &self.custom_matcher_registry {
+            RuleBuilder::build_rules_with_registry(&config, registry).await?
+        } else {
+            RuleBuilder::build_rules(&config)?
+        };
         let rule_matcher = Arc::new(tokio::sync::RwLock::new(
             crate::matchers::RuleMatcher::with_dependencies(rules),
         ));

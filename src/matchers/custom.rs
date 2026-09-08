@@ -212,8 +212,9 @@ pub trait CustomMatcher: Send + Sync {
 /// 提供线程安全的匹配器注册、查询和注销功能。
 #[derive(Clone)]
 pub struct CustomMatcherRegistry {
-    /// 匹配器存储（使用 RwLock 实现线程安全）
-    matchers: Arc<RwLock<HashMap<String, Box<dyn CustomMatcher>>>>,
+    /// 匹配器存储（Arc 包装以便快照到规则条件中，E1/D3 修复：
+    /// 旧实现存 `Box` 且 `get()` 受 trait object 不可克隆限制恒返回 None）
+    matchers: Arc<RwLock<HashMap<String, std::sync::Arc<dyn CustomMatcher>>>>,
 }
 
 impl std::fmt::Debug for CustomMatcherRegistry {
@@ -296,7 +297,7 @@ impl CustomMatcherRegistry {
         }
 
         info!("注册自定义匹配器: {}", name);
-        matchers.insert(name.clone(), matcher);
+        matchers.insert(name.clone(), std::sync::Arc::from(matcher));
         debug!("当前注册的匹配器数量: {}", matchers.len());
 
         Ok(())
@@ -323,20 +324,15 @@ impl CustomMatcherRegistry {
     /// }
     /// }
     /// ```
-    pub async fn get(&self, name: &str) -> Option<Box<dyn CustomMatcher>> {
+    pub async fn get(&self, name: &str) -> Option<std::sync::Arc<dyn CustomMatcher>> {
         let matchers = self.matchers.read().await;
-
-        if let Some(_matcher) = matchers.get(name) {
-            // 注意：这里不能直接返回引用，因为需要克隆
-            // 由于 trait 对象不能 clone，我们需要另一种方式
-            // 在实际使用中，应该通过调用匹配器的方法而不是获取所有权
-            // 这里我们返回 None，实际使用时需要修改设计
+        let found = matchers.get(name).cloned();
+        if found.is_some() {
             debug!("查询匹配器: {}", name);
-            None
         } else {
             debug!("未找到匹配器: {}", name);
-            None
         }
+        found
     }
 
     /// 检查匹配器是否存在
@@ -1326,13 +1322,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_registry_get_found() {
+        // D3/matchers-2 修复回归：get() 返回已注册匹配器的 Arc 快照
+        // （旧实现受 trait object 不可克隆限制恒返回 None）
         let registry = CustomMatcherRegistry::new();
         registry
             .register("test".to_string(), Box::new(TimeWindowMatcher::new(9, 18)))
             .await
             .unwrap();
         let result = registry.get("test").await;
-        assert!(result.is_none());
+        assert!(result.is_some(), "已注册的匹配器必须能被 get 到");
+        assert_eq!(result.unwrap().name(), "time_window");
     }
 
     #[tokio::test]

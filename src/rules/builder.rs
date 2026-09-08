@@ -306,6 +306,106 @@ impl RuleBuilder {
 
         Ok(rules)
     }
+
+    /// 带自定义匹配器注册表的规则构建（E1 完整集成）
+    ///
+    /// 与 [`Self::build_rules`] 相同，但配置中的 `Custom` 匹配器会从
+    /// `registry` 解析：已注册的匹配器被快照（`Arc`）进条件闭包并真实
+    /// 参与运行时求值；未注册的仍编译为恒不匹配占位并告警。
+    ///
+    /// # 性能约束
+    /// 条件求值是同步路径，闭包内经 `futures::executor::block_on` 驱动
+    /// 异步 `matches`——自定义匹配器必须是轻量实现（头检查/阈值比较），
+    /// 不得在 `matches` 内 await 定时器或 IO。
+    pub async fn build_rules_with_registry(
+        config: &FlowControlConfig,
+        registry: &crate::matchers::custom::CustomMatcherRegistry,
+    ) -> Result<Vec<MatcherRule>, LimiteronError> {
+        use crate::matchers::RequestContext;
+
+        let mut rules = Vec::new();
+
+        for rule_config in &config.rules {
+            let mut conditions: Vec<Box<dyn ConditionEvaluator>> = Vec::new();
+
+            for matcher in &rule_config.matchers {
+                let condition: Box<dyn ConditionEvaluator> = match matcher {
+                    ConfigMatcher::User { user_ids } => {
+                        Box::new(MatchCondition::User(user_ids.clone()))
+                    }
+                    ConfigMatcher::Ip { ip_ranges } => {
+                        let ranges: Result<Vec<IpRange>, _> =
+                            ip_ranges.iter().map(|s| s.parse()).collect();
+                        Box::new(MatchCondition::Ip(ranges?))
+                    }
+                    ConfigMatcher::Geo { countries } => {
+                        Box::new(MatchCondition::Geo(countries.clone()))
+                    }
+                    ConfigMatcher::ApiVersion { versions } => {
+                        Box::new(MatchCondition::ApiVersion(versions.clone()))
+                    }
+                    ConfigMatcher::Device { device_types } => {
+                        Box::new(MatchCondition::Device(device_types.clone()))
+                    }
+                    ConfigMatcher::Custom { name, config: _ } => {
+                        if let Some(matcher) = registry.get(name).await {
+                            log::info!("自定义匹配器 '{}' 已从注册表解析并生效", name);
+                            let name = name.clone();
+                            Box::new(MatchCondition::Custom(Arc::new(
+                                move |context: &RequestContext| match futures::executor::block_on(
+                                    matcher.matches(context),
+                                ) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        log::warn!(
+                                            "自定义匹配器 '{}' 求值失败，按不匹配处理: {}",
+                                            name,
+                                            e
+                                        );
+                                        false
+                                    }
+                                },
+                            )))
+                        } else {
+                            log::warn!(
+                                "自定义匹配器 '{}' 未在注册表中注册，该规则将恒不匹配（其限制不会生效）",
+                                name
+                            );
+                            let name = name.clone();
+                            Box::new(MatchCondition::Custom(Arc::new(
+                                move |_context: &RequestContext| {
+                                    log::debug!("自定义匹配器 '{}' 为占位实现，恒不匹配", name);
+                                    false
+                                },
+                            )))
+                        }
+                    }
+                };
+                conditions.push(condition);
+            }
+
+            let final_condition: Box<dyn ConditionEvaluator> = if conditions.len() == 1 {
+                conditions.pop().unwrap()
+            } else if conditions.is_empty() {
+                continue;
+            } else {
+                Box::new(CompositeCondition {
+                    conditions,
+                    operator: LogicalOperator::And,
+                })
+            };
+
+            rules.push(MatcherRule {
+                id: rule_config.id.clone(),
+                name: rule_config.name.clone(),
+                priority: rule_config.priority,
+                condition: final_condition,
+                enabled: true,
+            });
+        }
+
+        Ok(rules)
+    }
 }
 
 // ============================================================================
@@ -339,6 +439,95 @@ mod tests {
             RuleBuilder::parse_duration("1s").unwrap(),
             Duration::from_secs(1)
         );
+    }
+
+    /// E1 集成回归：build_rules_with_registry 下已注册的 Custom 匹配器
+    /// 真实参与求值；未注册的为恒不匹配占位。
+    #[tokio::test]
+    async fn test_build_rules_with_registry_resolves_custom_matcher() {
+        use crate::config::{Action, ActionConfig, FlowControlConfig, GlobalConfig, Matcher, Rule};
+        use crate::matchers::RequestContext;
+        use crate::matchers::custom::CustomMatcherRegistry;
+
+        struct EnvGateMatcher;
+        #[async_trait::async_trait]
+        impl crate::matchers::custom::CustomMatcher for EnvGateMatcher {
+            fn name(&self) -> &str {
+                "env-gate"
+            }
+            async fn matches(&self, context: &RequestContext) -> Result<bool, LimiteronError> {
+                Ok(context
+                    .get_header("X-Env")
+                    .map(|v| v == "beta")
+                    .unwrap_or(false))
+            }
+            fn load_config(&mut self, _config: serde_json::Value) -> Result<(), LimiteronError> {
+                Ok(())
+            }
+        }
+
+        let registry = CustomMatcherRegistry::new();
+        registry
+            .register("env-gate".to_string(), Box::new(EnvGateMatcher))
+            .await
+            .unwrap();
+
+        let config = FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: GlobalConfig::default(),
+            rules: vec![
+                Rule {
+                    id: "rule-registered".to_string(),
+                    name: "Registered custom".to_string(),
+                    priority: 100,
+                    matchers: vec![Matcher::Custom {
+                        name: "env-gate".to_string(),
+                        config: serde_json::json!({}),
+                    }],
+                    limiters: vec![],
+                    action: ActionConfig {
+                        on_exceed: Action::Reject,
+                        ban: None,
+                    },
+                },
+                Rule {
+                    id: "rule-unregistered".to_string(),
+                    name: "Unregistered custom".to_string(),
+                    priority: 90,
+                    matchers: vec![Matcher::Custom {
+                        name: "no-such-matcher".to_string(),
+                        config: serde_json::json!({}),
+                    }],
+                    limiters: vec![],
+                    action: ActionConfig {
+                        on_exceed: Action::Reject,
+                        ban: None,
+                    },
+                },
+            ],
+        };
+
+        let rules = RuleBuilder::build_rules_with_registry(&config, &registry)
+            .await
+            .unwrap();
+        assert_eq!(rules.len(), 2);
+
+        let by_id = |id: &str| {
+            rules
+                .iter()
+                .find(|r| r.id == id)
+                .unwrap_or_else(|| panic!("rule {id} missing"))
+        };
+
+        let beta_ctx = RequestContext::new().with_header("X-Env", "beta");
+        let prod_ctx = RequestContext::new().with_header("X-Env", "prod");
+
+        // 已注册：beta 命中、prod 不命中
+        assert!(by_id("rule-registered").condition.evaluate(&beta_ctx));
+        assert!(!by_id("rule-registered").condition.evaluate(&prod_ctx));
+
+        // 未注册：恒不匹配（fail-open 占位）
+        assert!(!by_id("rule-unregistered").condition.evaluate(&beta_ctx));
     }
 
     #[test]

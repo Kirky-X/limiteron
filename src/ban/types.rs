@@ -30,7 +30,7 @@ pub const MAX_PAGINATION_LIMIT: u64 = 1000;
 
 use crate::authorization::AuthorizationProvider;
 use crate::constants::MAX_BAN_REASON_LENGTH;
-use crate::error::LimiteronError;
+use crate::error::{LimiteronError, StorageError};
 use crate::storage::BanTarget;
 use crate::storage::{BanRecord, BanStorage};
 use chrono::{DateTime, Utc};
@@ -115,7 +115,7 @@ pub struct BanDetail {
 impl From<BanRecord> for BanDetail {
     fn from(record: BanRecord) -> Self {
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: stable_ban_detail_id(&record.target),
             target: record.target,
             ban_times: record.ban_times,
             duration: record.duration,
@@ -137,6 +137,34 @@ impl From<BanRecord> for BanDetail {
             unbanned_by: None,
         }
     }
+}
+
+/// 由封禁目标确定性派生 BanDetail 的 id（v4 格式位，载荷为目标哈希）
+///
+/// `BanRecord` 本身不持久化 id；若每次转换生成随机 v4，同一目标每次
+/// 读取（read_ban/list_bans/check）得到的 id 都不同，外部消费者无法
+/// 据此去重或追踪。FNV-1a 为跨进程稳定的确定性哈希，同一目标的全部
+/// BanDetail 共享同一 id。
+fn stable_ban_detail_id(target: &BanTarget) -> String {
+    fn fnv1a(data: &[u8], seed: u64) -> u64 {
+        let mut hash = seed;
+        for byte in data {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x100_0000_01b3);
+        }
+        hash
+    }
+
+    let repr = format!("{:?}", target);
+    let hi = fnv1a(repr.as_bytes(), 0xcbf2_9ce4_8422_2325);
+    let lo = fnv1a(repr.as_bytes(), 0x8422_2325_cbf2_9ce4);
+
+    let mut bytes = [0u8; 16];
+    bytes[..8].copy_from_slice(&hi.to_be_bytes());
+    bytes[8..].copy_from_slice(&lo.to_be_bytes());
+    uuid::Builder::from_random_bytes(bytes)
+        .into_uuid()
+        .to_string()
 }
 
 /// 封禁过滤器
@@ -437,6 +465,13 @@ fn validate_ban_reason(reason: &str) -> Result<(), LimiteronError> {
 }
 
 impl BanManager {
+    /// 单次封禁存储检查的超时上限
+    ///
+    /// 封禁检查位于请求热路径：存储不可达时若无限等待，整个流量控制
+    /// 链路会被挂起拖垮。IP 主检查超时返回显式超时错误；非 IP 并行
+    /// 检查超时按未封禁处理（fail-open，与存储错误同口径）并告警。
+    const STORAGE_CHECK_TIMEOUT: StdDuration = StdDuration::from_secs(5);
+
     /// 开箱即用：创建使用默认配置的 BanManager
     ///
     /// 此方法使用内存存储作为默认依赖，无需外部配置即可运行。
@@ -1000,10 +1035,22 @@ impl BanManager {
             return Ok(None);
         }
 
-        // 优先检查 IP 封禁（最高优先级），支持提前退出
+        // 优先检查 IP 封禁（最高优先级），支持提前退出。
+        // 存储调用限时：封禁检查位于请求热路径，存储不可达时不得无限挂起。
         if let Some(ip_target) = targets.iter().find(|t| matches!(t, BanTarget::Ip(_))) {
             debug!("Checking IP ban first for early exit");
-            if let Some(record) = self.storage.is_banned(ip_target).await? {
+            let record = tokio::time::timeout(
+                Self::STORAGE_CHECK_TIMEOUT,
+                self.storage.is_banned(ip_target),
+            )
+            .await
+            .map_err(|_| {
+                LimiteronError::StorageError(StorageError::TimeoutError(format!(
+                    "ban check timed out after {:?} (target=Ip)",
+                    Self::STORAGE_CHECK_TIMEOUT
+                )))
+            })??;
+            if let Some(record) = record {
                 debug!("Found IP ban (highest priority): target={:?}", ip_target);
                 return Ok(Some(BanDetail::from(record)));
             }
@@ -1018,7 +1065,32 @@ impl BanManager {
                 let target = target.clone();
                 let storage = storage.clone();
                 Box::pin(async move {
-                    let record = storage.is_banned(&target).await.ok()?;
+                    // 单目标限时 + fail-open：与存储错误同口径，超时按未封禁
+                    // 处理并以 warn 显性化，单个挂起的存储不得拖垮整体检查
+                    let record = match tokio::time::timeout(
+                        Self::STORAGE_CHECK_TIMEOUT,
+                        storage.is_banned(&target),
+                    )
+                    .await
+                    {
+                        Ok(Ok(record)) => record,
+                        Ok(Err(e)) => {
+                            log::warn!(
+                                "封禁检查存储错误，按未封禁处理（fail-open）: target={:?}, error={}",
+                                target,
+                                e
+                            );
+                            None
+                        }
+                        Err(_) => {
+                            log::warn!(
+                                "封禁检查超时（{:?}），按未封禁处理（fail-open）: target={:?}",
+                                Self::STORAGE_CHECK_TIMEOUT,
+                                target
+                            );
+                            None
+                        }
+                    };
                     record.map(|r| (BanPriority::from_target(&target), BanDetail::from(r)))
                 })
             })
@@ -1028,14 +1100,24 @@ impl BanManager {
             return Ok(None);
         }
 
-        // 使用 select! 实现提前退出
+        // 并行检查，逐个收割完成的 future
+        //
+        // 修复（漏判）：旧实现单次 `select_all` 只等首个完成的 future——
+        // 若它返回 None（未封禁），其余 pending 检查被整体丢弃并返回
+        // Ok(None)，造成封禁漏判假阴性。现在循环收割：首个 Some 提前退出，
+        // None 继续等待，直到找到封禁或全部完成。
         #[cfg(feature = "parallel-checker")]
-        match futures::future::select_all(check_futures).await {
-            (Some((priority, detail)), _, _) => {
-                self.log_ban_found(priority, &detail);
-                Ok(Some(detail))
+        {
+            let mut remaining = check_futures;
+            while !remaining.is_empty() {
+                let (result, _index, rest) = futures::future::select_all(remaining).await;
+                remaining = rest;
+                if let Some((priority, detail)) = result {
+                    self.log_ban_found(priority, &detail);
+                    return Ok(Some(detail));
+                }
             }
-            _ => Ok(None),
+            Ok(None)
         }
 
         #[cfg(not(feature = "parallel-checker"))]
@@ -2910,6 +2992,138 @@ mod tests {
             is_manual,
             reason: format!("ban at {}", banned_at),
         }
+    }
+
+    /// 测试用存储：仅 `banned` 目标被封禁，且其检查带固定延迟；
+    /// 其余目标立即返回未封禁。用于构造确定性的完成顺序。
+    struct DelayedBanStorage {
+        banned: BanTarget,
+        delay: StdDuration,
+    }
+
+    #[async_trait::async_trait]
+    impl BanStorage for DelayedBanStorage {
+        async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, StorageError> {
+            if *target == self.banned {
+                tokio::time::sleep(self.delay).await;
+                return Ok(Some(BanRecord {
+                    target: self.banned.clone(),
+                    ban_times: 1,
+                    duration: StdDuration::from_secs(3600),
+                    banned_at: chrono::Utc::now(),
+                    expires_at: chrono::Utc::now() + chrono::Duration::seconds(3600),
+                    is_manual: false,
+                    reason: "delayed ban".to_string(),
+                }));
+            }
+            Ok(None)
+        }
+
+        async fn save(&self, _record: &BanRecord) -> Result<(), StorageError> {
+            Err(StorageError::QueryError("read-only test storage".into()))
+        }
+
+        async fn get_history(
+            &self,
+            _target: &BanTarget,
+        ) -> Result<Option<BanHistory>, StorageError> {
+            Ok(None)
+        }
+
+        async fn increment_ban_times(&self, _target: &BanTarget) -> Result<u64, StorageError> {
+            Ok(1)
+        }
+
+        async fn get_ban_times(&self, _target: &BanTarget) -> Result<u64, StorageError> {
+            Ok(0)
+        }
+
+        async fn remove_ban(&self, _target: &BanTarget) -> Result<(), StorageError> {
+            Ok(())
+        }
+
+        async fn cleanup_expired_bans(&self) -> Result<u64, StorageError> {
+            Ok(0)
+        }
+
+        async fn list_bans(
+            &self,
+            _active_only: bool,
+            _offset: u64,
+            _limit: u64,
+        ) -> Result<Vec<BanRecord>, StorageError> {
+            Ok(Vec::new())
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    #[tokio::test]
+    async fn test_check_ban_priority_not_banned_first_does_not_mask_ban() {
+        // G3 回归：select_all 单次收割会把「首个完成且未封禁」误判为
+        // 整体未封禁并丢弃其余 pending 检查（漏判假阴性）。
+        // user_fast 立即返回未封禁且先完成；user_slow 延迟后返回封禁——
+        // 修复后必须等待并找到 user_slow 的封禁。
+        let storage: Arc<dyn BanStorage> = Arc::new(DelayedBanStorage {
+            banned: BanTarget::UserId("user_slow".to_string()),
+            delay: StdDuration::from_millis(50),
+        });
+        let manager = BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap();
+
+        let targets = vec![
+            BanTarget::UserId("user_fast".to_string()),
+            BanTarget::UserId("user_slow".to_string()),
+        ];
+
+        let result = manager.check_ban_priority(&targets).await.unwrap();
+        assert!(
+            result.is_some(),
+            "首个完成的目标未封禁时不得丢弃其余检查（漏判）"
+        );
+        assert_eq!(
+            result.unwrap().target,
+            BanTarget::UserId("user_slow".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ban_detail_id_stable_for_same_target() {
+        // G4 回归：BanDetail::from(BanRecord) 每次生成随机 v4，同一目标
+        // 每次读取 id 不同。修复后 id 由目标确定性派生。
+        let record_a1 = make_ban_record(
+            BanTarget::UserId("stable_user".to_string()),
+            false,
+            chrono::Utc::now(),
+            3600,
+        );
+        let record_a2 = make_ban_record(
+            BanTarget::UserId("stable_user".to_string()),
+            false,
+            chrono::Utc::now(),
+            7200,
+        );
+        let record_b = make_ban_record(
+            BanTarget::UserId("other_user".to_string()),
+            false,
+            chrono::Utc::now(),
+            3600,
+        );
+
+        let detail_a1 = BanDetail::from(record_a1);
+        let detail_a2 = BanDetail::from(record_a2);
+        let detail_b = BanDetail::from(record_b);
+
+        assert_eq!(
+            detail_a1.id, detail_a2.id,
+            "同一目标的 BanDetail id 必须稳定"
+        );
+        assert_ne!(detail_a1.id, detail_b.id, "不同目标的 id 必须不同");
+        // 仍为合法 UUID 字符串
+        assert!(uuid::Uuid::parse_str(&detail_a1.id).is_ok());
     }
 
     #[tokio::test]

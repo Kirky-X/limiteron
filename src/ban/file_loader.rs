@@ -107,35 +107,47 @@ impl BanFileLoader {
     /// - `Ok(LoadResult)`: 加载完成（可能含部分失败）
     /// - `Err(LimiteronError)`: 文件读取或 YAML 解析失败
     pub async fn load_once(&self, manager: &BanManager) -> Result<LoadResult, LimiteronError> {
-        // 文件大小预检查：防止 YAML 炸弹（billion laughs attack）导致 OOM
+        // 文件大小预检查：防止 YAML 炸弹（billion laughs attack）导致 OOM。
+        // 同步 fs 与 YAML 解析在 spawn_blocking 中执行，避免阻塞 async
+        // worker 线程（≤2MB 的读取 + 解析对执行器而言都是重活）。
         const MAX_BAN_FILE_SIZE: u64 = 2 * 1024 * 1024; // 2 MB
-        let file_meta = std::fs::metadata(&self.path).map_err(|e| {
-            LimiteronError::ConfigError(format!(
-                "读取封禁文件元数据失败 {}: {}",
-                self.path.display(),
-                e
-            ))
-        })?;
-        if file_meta.len() > MAX_BAN_FILE_SIZE {
-            return Err(LimiteronError::ConfigError(format!(
-                "封禁文件过大: {} ({} bytes, 上限 {} bytes)",
-                self.path.display(),
-                file_meta.len(),
-                MAX_BAN_FILE_SIZE
-            )));
-        }
+        let path = self.path.clone();
+        let ban_file: BanFile =
+            tokio::task::spawn_blocking(move || -> Result<BanFile, LimiteronError> {
+                let file_meta = std::fs::metadata(&path).map_err(|e| {
+                    LimiteronError::ConfigError(format!(
+                        "读取封禁文件元数据失败 {}: {}",
+                        path.display(),
+                        e
+                    ))
+                })?;
+                if file_meta.len() > MAX_BAN_FILE_SIZE {
+                    return Err(LimiteronError::ConfigError(format!(
+                        "封禁文件过大: {} ({} bytes, 上限 {} bytes)",
+                        path.display(),
+                        file_meta.len(),
+                        MAX_BAN_FILE_SIZE
+                    )));
+                }
 
-        let content = std::fs::read_to_string(&self.path).map_err(|e| {
-            LimiteronError::ConfigError(format!("读取封禁文件失败 {}: {}", self.path.display(), e))
-        })?;
+                let content = std::fs::read_to_string(&path).map_err(|e| {
+                    LimiteronError::ConfigError(format!(
+                        "读取封禁文件失败 {}: {}",
+                        path.display(),
+                        e
+                    ))
+                })?;
 
-        let ban_file: BanFile = serde_yaml_ng::from_str(&content).map_err(|e| {
-            LimiteronError::ConfigError(format!(
-                "解析封禁文件 YAML 失败 {}: {}",
-                self.path.display(),
-                e
-            ))
-        })?;
+                serde_yaml_ng::from_str(&content).map_err(|e| {
+                    LimiteronError::ConfigError(format!(
+                        "解析封禁文件 YAML 失败 {}: {}",
+                        path.display(),
+                        e
+                    ))
+                })
+            })
+            .await
+            .map_err(|e| LimiteronError::ConfigError(format!("封禁文件加载任务失败: {}", e)))??;
 
         let mut result = LoadResult::default();
 

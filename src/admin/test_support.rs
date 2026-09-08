@@ -17,7 +17,8 @@ use crate::storage::{BanStorage, MemoryBanStorage, MemoryStorage, Storage};
 
 /// 构造包含至少一条规则的合法 FlowControlConfig
 ///
-/// `Governor::new()` 默认配置无规则会 panic，故测试需要一个非空规则集。
+/// `Governor::new()` 现内置兜底规则可直接使用；此函数用于需要
+/// 自定义规则集（如断言特定规则行为）的测试场景。
 pub fn make_valid_config() -> FlowControlConfig {
     FlowControlConfig {
         version: "0.1.0".to_string(),

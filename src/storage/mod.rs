@@ -147,6 +147,24 @@ pub trait BanStorage: Send + Sync {
     /// 增加封禁次数
     async fn increment_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError>;
 
+    /// 插入或更新封禁记录，并将 `ban_times` 在**已存值**基础上原子 +1，
+    /// 返回写入后的最终计数
+    ///
+    /// 用于 `create_ban` 等需要精确计数的写入路径：并发创建同一目标时，
+    /// 计数按「已存值 + 1」收敛，不会被调用方持有的过期快照覆盖
+    /// （ban-5）。默认实现为「读取当前计数 → 整条保存」的两步非原子
+    /// 版本；Memory 后端以单写锁、DBNexus 后端以 UPSERT + 自增 SQL 提供
+    /// 真正的原子语义，其他实现者可按自身能力重写。
+    async fn upsert_ban_record(&self, record: &BanRecord) -> Result<u64, StorageError> {
+        let current = u32::try_from(self.get_ban_times(&record.target).await?)
+            .unwrap_or(u32::MAX)
+            .saturating_add(1);
+        let mut stored = record.clone();
+        stored.ban_times = stored.ban_times.max(current);
+        self.save(&stored).await?;
+        Ok(u64::from(stored.ban_times))
+    }
+
     /// 获取封禁次数
     async fn get_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError>;
 

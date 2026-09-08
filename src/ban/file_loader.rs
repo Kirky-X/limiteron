@@ -561,13 +561,15 @@ bans:
         let r2 = loader.load_once(&manager).await.expect("第二次加载失败");
         assert_eq!(r2.success_count, 1);
 
-        // 验证封禁仍存在（MemoryBanStorage::get_history 返回 None，ban_times 保持 1）
+        // 验证封禁仍存在。ban-5 修复后每次 create_ban 使 ban_times 原子 +1，
+        // 同一文件加载两次 = 两次封禁行为，计数由旧实现的覆盖写（恒 1）
+        // 变为正确递增（2）
         let ban = manager
             .read_ban(&BanTarget::Ip("10.0.0.1".to_string()))
             .await
             .expect("查询失败")
             .expect("封禁应存在");
-        assert_eq!(ban.ban_times, 1);
+        assert_eq!(ban.ban_times, 2);
     }
 
     #[test]

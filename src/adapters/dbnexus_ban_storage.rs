@@ -253,6 +253,83 @@ impl BanStorage for DBNexusBanStorageAdapter {
         }
     }
 
+    /// 插入或更新封禁记录，`ban_times` 在已存值上原子 +1（ban-5）
+    ///
+    /// 单条 `INSERT .. ON CONFLICT (target_key) DO UPDATE` 语句：冲突分支
+    /// 对 `ban_times` 取 `limiteron_bans.ban_times + 1`（数据库内自增），
+    /// 消除「读取计数 → 整条覆盖保存」的并发丢计数。
+    async fn upsert_ban_record(&self, record: &BanRecord) -> Result<u64, StorageError> {
+        use sea_orm::Statement;
+
+        let session = self.get_session().await?;
+        let conn = Self::get_conn(&session)?;
+        let now = Utc::now();
+        let (target_type, target_value) = Self::target_to_type_value(&record.target);
+        let target_key = create_target_key(&target_type, &target_value);
+
+        if target_key.len() > 511 {
+            return Err(StorageError::ValidationError(format!(
+                "ban target_key exceeds column limit ({} > 511)",
+                target_key.len()
+            )));
+        }
+
+        let duration_secs = record
+            .expires_at
+            .signed_duration_since(record.banned_at)
+            .num_seconds()
+            .max(0);
+
+        const SQL: &str = r#"
+            INSERT INTO limiteron_bans
+                (target_type, target_value, target_key, ban_times, duration,
+                 banned_at, expires_at, is_manual, reason, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ON CONFLICT (target_key) DO UPDATE SET
+                target_type = EXCLUDED.target_type,
+                target_value = EXCLUDED.target_value,
+                ban_times = GREATEST(EXCLUDED.ban_times, limiteron_bans.ban_times + 1),
+                duration = EXCLUDED.duration,
+                banned_at = EXCLUDED.banned_at,
+                expires_at = EXCLUDED.expires_at,
+                is_manual = EXCLUDED.is_manual,
+                reason = EXCLUDED.reason,
+                updated_at = EXCLUDED.updated_at
+            RETURNING ban_times
+        "#;
+
+        let row = conn
+            .query_one_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                SQL,
+                [
+                    target_type.into(),
+                    target_value.into(),
+                    target_key.into(),
+                    (record.ban_times as i32).into(),
+                    duration_secs.into(),
+                    record.banned_at.into(),
+                    record.expires_at.into(),
+                    record.is_manual.into(),
+                    record.reason.clone().into(),
+                    now.into(),
+                    now.into(),
+                ],
+            ))
+            .await
+            .map_err(|e| StorageError::QueryError(format!("Failed to upsert ban record: {}", e)))?;
+
+        match row {
+            Some(r) => r
+                .try_get::<i32>("", "ban_times")
+                .map(|v| v as u64)
+                .map_err(|e| StorageError::QueryError(format!("Failed to read ban_times: {}", e))),
+            None => Err(StorageError::QueryError(
+                "upsert_ban_record returned no rows".to_string(),
+            )),
+        }
+    }
+
     /// Get ban times for a target
     async fn get_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError> {
         let session = self.get_session().await?;

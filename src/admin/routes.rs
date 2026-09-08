@@ -295,7 +295,7 @@ mod tests {
     #[test]
     fn test_constant_time_eq_different_content_same_length() {
         assert!(!constant_time_eq("hello", "world"));
-        assert!(!constant_time_eq("abc", "abd"));
+        assert!(!constant_time_eq("abc", "and"));
         assert!(!constant_time_eq("Bearer xyz", "Bearer abc"));
     }
 
@@ -515,10 +515,10 @@ mod tests {
 
     #[cfg(feature = "ban-manager")]
     #[tokio::test]
-    async fn test_create_ban_duplicate_returns_same_ban_times() {
-        // 注意：MemoryBanStorage::get_history() 总是返回 None（不跟踪历史），
-        // 所以重复封禁同一目标时 ban_times 每次都为 1。
-        // 此测试验证重复创建不会报错，且返回 201。
+    async fn test_create_ban_duplicate_increments_ban_times() {
+        // ban-5 修复回归：重复封禁同一目标时 ban_times 正确递增
+        // （旧实现依赖 history 快照，MemoryBanStorage 不跟踪历史导致
+        // 计数恒为 1；现在由存储层在已存值上原子 +1）
         let state = make_state_with_ban_manager().await;
         let config = AdminApiConfig::new("test-api-key-16chars!!");
         let app = create_router(state, &config);
@@ -536,12 +536,12 @@ mod tests {
         let json1: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
         assert_eq!(json1["data"]["ban_times"].as_u64().unwrap(), 1);
 
-        // 第二次创建同一目标 - MemoryBanStorage 限制下 ban_times 仍为 1
+        // 第二次创建同一目标 - 计数原子递增
         let resp = app.oneshot(make_create_ban_request(body)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
         let resp_body = resp.into_body().collect().await.unwrap().to_bytes();
         let json2: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
-        assert_eq!(json2["data"]["ban_times"].as_u64().unwrap(), 1);
+        assert_eq!(json2["data"]["ban_times"].as_u64().unwrap(), 2);
     }
 
     #[cfg(feature = "ban-manager")]

@@ -23,9 +23,9 @@
 //! use std::sync::Arc;
 //!
 //! #[tokio::main]
-//! async fn main() {
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // 创建 Governor 实例
-//!     let governor = Governor::new().await;
+//!     let governor = Governor::new().await?;
 //!
 //!     // 创建限流中间件层
 //!     let layer = RateLimitLayer::new(
@@ -35,6 +35,7 @@
 //!
 //!     // 与 Tower 服务链集成
 //!     // let service = layer.make_service(inner_service);
+//!     Ok(())
 //! }
 //! ```
 //!

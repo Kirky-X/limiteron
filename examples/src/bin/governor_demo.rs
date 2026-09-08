@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn demo_out_of_the_box() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- 1. Out-of-the-box: Governor::new().await ---\n");
 
-    let governor = Governor::new().await;
+    let governor = Governor::new().await?;
     println!("  Governor created with default memory storage");
 
     let context = RequestContext::new()
@@ -119,7 +119,7 @@ async fn demo_builder_pattern() -> Result<(), Box<dyn std::error::Error>> {
 async fn demo_decision_parsing() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- 3. Decision parsing ---\n");
 
-    let governor = Governor::new().await;
+    let governor = Governor::new().await?;
 
     let context = RequestContext::new()
         .with_path("/api/v1/health")
@@ -172,7 +172,7 @@ async fn demo_decision_parsing() -> Result<(), Box<dyn std::error::Error>> {
 async fn demo_stats() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- 4. GovernorStats ---\n");
 
-    let governor = Governor::new().await;
+    let governor = Governor::new().await?;
 
     // 发送几个请求
     for i in 0..3 {

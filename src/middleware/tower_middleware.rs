@@ -181,13 +181,14 @@ impl<B> IntoRequestContext<B> for DefaultRequestContextConverter {
 /// use std::sync::Arc;
 ///
 /// #[tokio::main]
-/// async fn main() {
-///     let governor = Governor::new().await;
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let governor = Governor::new().await?;
 ///     let layer = RateLimitLayer::new(
 ///         Arc::new(governor),
 ///         RateLimitConfig::default(),
 ///     );
 ///     // layer 可以用于包装 Tower 服务
+///     Ok(())
 /// }
 /// ```
 pub struct RateLimitLayer<C = DefaultRequestContextConverter> {

@@ -163,6 +163,26 @@ impl BanStorage for MemoryBanStorage {
         }
     }
 
+    async fn upsert_ban_record(&self, record: &BanRecord) -> Result<u64, StorageError> {
+        // 单写锁内完成「计数收敛 + 记录写入」，原子语义（ban-5）：
+        // 最终计数不小于 已存值+1 与 调用方名义值 的较大者。
+        // 锁序与 save() 一致（bans → expiration）。
+        let mut bans = self.bans.write().await;
+        let mut expiration = self.expiration.write().await;
+
+        let current_next = match bans.get(&record.target) {
+            Some(existing) => existing.ban_times.saturating_add(1),
+            None => 0,
+        };
+        let new_times = record.ban_times.max(current_next);
+
+        let mut stored = record.clone();
+        stored.ban_times = new_times;
+        bans.insert(record.target.clone(), stored);
+        expiration.insert(record.target.clone(), record.expires_at.timestamp());
+        Ok(u64::from(new_times))
+    }
+
     async fn get_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError> {
         Ok(self
             .bans
@@ -322,6 +342,10 @@ impl<S: BanStorage + ?Sized> BanStorage for Arc<S> {
 
     async fn increment_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError> {
         (**self).increment_ban_times(target).await
+    }
+
+    async fn upsert_ban_record(&self, record: &BanRecord) -> Result<u64, StorageError> {
+        (**self).upsert_ban_record(record).await
     }
 
     async fn get_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError> {

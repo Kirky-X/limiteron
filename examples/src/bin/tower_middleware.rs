@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("=== Tower Middleware Demo ===\n");
 
     demo_config_builder();
-    demo_layer_creation().await;
+    demo_layer_creation().await?;
     demo_service_call().await?;
     demo_custom_converter().await?;
 
@@ -86,10 +86,10 @@ fn demo_config_builder() {
 }
 
 /// 演示 RateLimitLayer 创建
-async fn demo_layer_creation() {
+async fn demo_layer_creation() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- 2. RateLimitLayer Creation ---\n");
 
-    let governor = Arc::new(Governor::new().await);
+    let governor = Arc::new(Governor::new().await?);
     let config = RateLimitConfig::default();
 
     // 方式 1：使用默认转换器（DefaultRequestContextConverter 内部使用）
@@ -102,13 +102,14 @@ async fn demo_layer_creation() {
     let _ = layer_with_converter;
     let _ = layer;
     println!();
+    Ok(())
 }
 
 /// 演示通过 Service trait 处理请求
 async fn demo_service_call() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- 3. Service Call ---\n");
 
-    let governor = Arc::new(Governor::new().await);
+    let governor = Arc::new(Governor::new().await?);
     let config = RateLimitConfig::default();
     let layer = RateLimitLayer::new(governor, config);
 
@@ -146,7 +147,7 @@ async fn demo_service_call() -> Result<(), Box<dyn std::error::Error + Send + Sy
 async fn demo_custom_converter() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("--- 4. Custom IntoRequestContext ---\n");
 
-    let governor = Arc::new(Governor::new().await);
+    let governor = Arc::new(Governor::new().await?);
     let config = RateLimitConfig::default();
     let layer = RateLimitLayer::with_converter(governor, config, CustomConverter);
     let mut service = layer.layer(OkService);

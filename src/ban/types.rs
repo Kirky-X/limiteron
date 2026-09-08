@@ -744,7 +744,7 @@ impl BanManager {
             target, reason, source
         );
 
-        // 获取历史记录
+        // 获取历史记录（用于退避时长计算的名义值）
         let history = self.storage.get_history(&target).await?;
         let ban_times = history.as_ref().map(|h| h.ban_times + 1).unwrap_or(1);
 
@@ -770,8 +770,10 @@ impl BanManager {
             reason: reason.clone(),
         };
 
-        // 保存封禁记录
-        self.storage.save(&record).await?;
+        // 保存封禁记录：ban_times 经存储层在已存值上原子 +1 收敛（ban-5），
+        // 并发创建同一目标不再因过期快照覆盖而丢计数
+        let stored_times = self.storage.upsert_ban_record(&record).await?;
+        let ban_times = u32::try_from(stored_times).unwrap_or(u32::MAX);
 
         let detail = BanDetail {
             // 与 From<BanRecord> 一致：由目标确定性派生 id（G4）

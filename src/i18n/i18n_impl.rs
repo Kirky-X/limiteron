@@ -5,6 +5,38 @@ use super::*;
 use std::cmp::Ordering;
 use std::str::FromStr;
 
+/// 本地化时间窗口词（I8）：`second`/`minute`/`hour`/`day` 的常见译文，
+/// 未覆盖的语言或词原样返回（调用方模板已按语言回退英文）。
+fn localize_window(lang: &str, window: &str) -> String {
+    let lower = window.to_lowercase();
+    match (lang, lower.as_str()) {
+        ("zh", "second") => "秒".to_string(),
+        ("zh", "minute") => "分钟".to_string(),
+        ("zh", "hour") => "小时".to_string(),
+        ("zh", "day") => "天".to_string(),
+        ("ja", "second") => "秒".to_string(),
+        ("ja", "minute") => "分".to_string(),
+        ("ja", "hour") => "時間".to_string(),
+        ("ja", "day") => "日".to_string(),
+        ("ko", "second") => "초".to_string(),
+        ("ko", "minute") => "분".to_string(),
+        ("ko", "hour") => "시간".to_string(),
+        ("ko", "day") => "일".to_string(),
+        ("de", "second") => "Sekunde".to_string(),
+        ("de", "minute") => "Minute".to_string(),
+        ("de", "hour") => "Stunde".to_string(),
+        ("de", "day") => "Tag".to_string(),
+        ("fr", "second") => "second".to_string(),
+        ("fr", "minute") => "minute".to_string(),
+        ("fr", "hour") => "heure".to_string(),
+        ("fr", "day") => "jour".to_string(),
+        ("es", "second") => "segundo".to_string(),
+        ("es", "minute") => "minuto".to_string(),
+        ("es", "hour") => "hora".to_string(),
+        ("es", "day") => "día".to_string(),
+        _ => window.to_string(),
+    }
+}
 use icu::collator::Collator;
 use icu::collator::options::CollatorOptions;
 use icu::datetime::DateTimeFormatter;
@@ -98,7 +130,9 @@ impl LimiterI18nFormatter {
     /// Build a locale-aware rate-limit message combining the current
     /// `count`, the configured `limit`, and a human-readable `window`
     /// (e.g. `"minute"`, `"hour"`). Counters are formatted with the
-    /// locale's grouping/decimal separators.
+    /// locale's grouping/decimal separators, and the message template
+    /// is selected by the locale's language (falling back to English
+    /// for uncovered languages; I8).
     ///
     /// # Errors
     /// Returns [`I18nError::InvalidNumber`] if either counter cannot be
@@ -111,9 +145,25 @@ impl LimiterI18nFormatter {
     ) -> Result<String, I18nError> {
         let count_str = self.format_number(count as f64)?;
         let limit_str = self.format_number(limit as f64)?;
-        Ok(format!(
-            "Rate limit exceeded: {count_str}/{limit_str} requests per {window}"
-        ))
+        let lang = self.locale.id.language.as_str();
+        let window = localize_window(lang, window);
+        Ok(match lang {
+            "zh" => format!("已超出限流：每个{window} {count_str}/{limit_str} 个请求"),
+            "ja" => {
+                format!("レート制限を超過しました：{window}あたり{count_str}/{limit_str}リクエスト")
+            }
+            "ko" => format!("요청 한도 초과: {window}당 {count_str}/{limit_str}개 요청"),
+            "de" => {
+                format!("Ratenlimit überschritten: {count_str}/{limit_str} Anfragen pro {window}")
+            }
+            "fr" => format!(
+                "Limit de requêtes dépassée : {count_str}/{limit_str} requêtes par {window}"
+            ),
+            "es" => format!(
+                "Límite de solicitudes excedido: {count_str}/{limit_str} solicitudes por {window}"
+            ),
+            _ => format!("Rate limit exceeded: {count_str}/{limit_str} requests per {window}"),
+        })
     }
 
     /// Format an ISO calendar date (year / month / day) as a rate-limit

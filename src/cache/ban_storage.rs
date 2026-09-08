@@ -74,11 +74,22 @@ const BAN_HISTORY_PREFIX: &str = "ban:hist:";
 
 pub struct CacheBanStorage {
     backend: Arc<dyn CacheBackend>,
+    /// 进程内 RMW 串行锁
+    ///
+    /// 本文件全部索引/记录写入均为 read-modify-write。oxcache 0.5 的
+    /// `CacheBackend` 不提供 CAS/事务/Lua 原语（按 AGENTS.md 不修改外部
+    /// 依赖），跨进程原子性无法在本层实现；此锁保证**单实例内**的并发
+    /// 不再互相覆盖（丢索引 key、丢 ban_times），多实例部署仍需依赖
+    /// 后端自身的写入粒度。
+    rw_lock: tokio::sync::Mutex<()>,
 }
 
 impl CacheBanStorage {
     pub fn new(backend: Arc<dyn CacheBackend>) -> Self {
-        Self { backend }
+        Self {
+            backend,
+            rw_lock: tokio::sync::Mutex::new(()),
+        }
     }
 
     async fn get_index(&self) -> Result<Vec<String>, StorageError> {
@@ -99,7 +110,8 @@ impl CacheBanStorage {
             .map_err(map_error)
     }
 
-    async fn add_to_index(&self, key: &str) -> Result<(), StorageError> {
+    /// 写入索引（须已持有 `rw_lock`；调用方负责串行化）
+    async fn add_to_index_locked(&self, key: &str) -> Result<(), StorageError> {
         let mut idx = self.get_index().await?;
         if !idx.contains(&key.to_string()) {
             idx.push(key.to_string());
@@ -108,23 +120,21 @@ impl CacheBanStorage {
         Ok(())
     }
 
-    async fn remove_from_index(&self, key: &str) -> Result<(), StorageError> {
+    /// 移除索引（须已持有 `rw_lock`；调用方负责串行化）
+    async fn remove_from_index_locked(&self, key: &str) -> Result<(), StorageError> {
         let mut idx = self.get_index().await?;
         idx.retain(|k| k != key);
         self.set_index(&idx).await
     }
 
-    // 已知限制（Won't-外部依赖）：本文件全部索引/记录写入均为
-    // read-modify-write，在分布式后端（Redis）上不是原子的，并发的
-    // save/modify_ban/increment_ban_times 可能互相覆盖（丢索引 key、
-    // 丢 ban_times 计数）。oxcache 0.5 的 CacheBackend trait 仅提供
-    // get/set/delete/expire，无 CAS/事务/Lua 原语；真正的修复需要
-    // oxcache 提供原子操作支持（按 AGENTS.md 不修改外部依赖）。
-    // 内存后端不受影响（单进程、写入经后端内部锁）。
+    // read-modify-write：经进程内 rw_lock 串行化（见 rw_lock 字段文档）。
+    // 单实例内并发安全；多实例部署的跨进程原子性仍需 oxcache 提供
+    // CAS/事务/Lua 原语（外部依赖约束，问题已上报）。
     async fn modify_ban<F>(&self, target: &BanTarget, f: F) -> Result<(), StorageError>
     where
         F: FnOnce(&mut BanRecord),
     {
+        let _guard = self.rw_lock.lock().await;
         let key = target_key(target);
         let raw = self.backend.get(&key).await.map_err(map_error)?;
         if let Some(data) = raw {
@@ -169,6 +179,7 @@ impl BanStorage for CacheBanStorage {
     }
 
     async fn save(&self, record: &BanRecord) -> Result<(), StorageError> {
+        let _guard = self.rw_lock.lock().await;
         let key = target_key(&record.target);
         let ttl = record
             .expires_at
@@ -185,7 +196,7 @@ impl BanStorage for CacheBanStorage {
             )
             .await
             .map_err(map_error)?;
-        self.add_to_index(&key).await
+        self.add_to_index_locked(&key).await
     }
 
     async fn get_history(&self, target: &BanTarget) -> Result<Option<BanHistory>, StorageError> {
@@ -237,8 +248,9 @@ impl BanStorage for CacheBanStorage {
 
     async fn remove_ban(&self, target: &BanTarget) -> Result<(), StorageError> {
         let key = target_key(target);
+        let _guard = self.rw_lock.lock().await;
         self.backend.delete(&key).await.map_err(map_error)?;
-        self.remove_from_index(&key).await
+        self.remove_from_index_locked(&key).await
     }
 
     async fn cleanup_expired_bans(&self) -> Result<u64, StorageError> {

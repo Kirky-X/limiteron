@@ -47,11 +47,21 @@ fn info_from_json(v: &serde_json::Value) -> Option<QuotaInfo> {
 
 pub struct CacheQuotaStorage {
     backend: Arc<dyn CacheBackend>,
+    /// 进程内 RMW 串行锁
+    ///
+    /// `consume` 为 get→检查→set 的 read-modify-write。oxcache 0.5 的
+    /// `CacheBackend` 不提供 CAS/INCR/Lua 原语（按 AGENTS.md 不修改外部
+    /// 依赖），跨进程原子性无法在本层实现；此锁保证**单实例内**并发
+    /// consume 不再互相覆盖造成超额，多实例部署仍需后端原子原语支持。
+    rw_lock: tokio::sync::Mutex<()>,
 }
 
 impl CacheQuotaStorage {
     pub fn new(backend: Arc<dyn CacheBackend>) -> Self {
-        Self { backend }
+        Self {
+            backend,
+            rw_lock: tokio::sync::Mutex::new(()),
+        }
     }
 }
 
@@ -74,11 +84,9 @@ impl QuotaStorage for CacheQuotaStorage {
         }
     }
 
-    // 已知限制（ Won't-外部依赖）：以下 read-modify-write 在分布式后端
-    // （Redis）上不是原子的，并发 consume 可能互相覆盖造成少量超额。
-    // oxcache 0.5 的 CacheBackend trait 仅提供 get/set/delete/expire，
-    // 无 CAS/INCR/LUA 原语；真正的修复需要 oxcache 提供原子操作支持
-    // （按 AGENTS.md 不修改外部依赖，问题已上报）。
+    // read-modify-write：经进程内 rw_lock 串行化（见 rw_lock 字段文档）。
+    // 单实例内并发安全；多实例部署的跨进程原子性仍需 oxcache 提供
+    // CAS/INCR/Lua 原语（外部依赖约束，问题已上报）。
     // 溢出加固：limit 与 consumed 来自存储，比较用饱和减法防回绕。
     async fn consume(
         &self,
@@ -88,6 +96,7 @@ impl QuotaStorage for CacheQuotaStorage {
         limit: u64,
         window: Duration,
     ) -> Result<ConsumeResult, StorageError> {
+        let _guard = self.rw_lock.lock().await;
         let key = quota_key(user_id, resource);
         let now = Utc::now();
         let window_end = now

@@ -145,6 +145,63 @@ fn initialize_patterns() {
     }
 }
 
+/// 判断字段名是否为敏感字段（词边界匹配，修复 F3 误脱敏）
+///
+/// 将字段名切分为词元（按 `_`/`-`/`.`/空格等分隔符与 camelCase 边界），
+/// 命中规则：任一词元等于敏感关键词，或以高危关键词为前缀
+/// （`keychain` → 前缀 `key`；`tokenizer` → 前缀 `token`，保守方向）。
+/// `monkey`、`keyboard` 之类仅含关键词子串的无关词元不再误伤
+/// （`keyboard` 属保守方向的残余误报，宁可多脱敏不可泄漏）。
+#[cfg(feature = "log-redaction")]
+fn is_sensitive_field_name(field_name: &str) -> bool {
+    /// 敏感关键词（词元精确匹配）
+    const SENSITIVE_WORDS: [&str; 7] = [
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "key",
+        "credential",
+        "authorization",
+    ];
+
+    /// 高危前缀：以这些词开头的词元按敏感处理（`keychain`/`tokenizer`）
+    const SENSITIVE_PREFIXES: [&str; 3] = ["key", "secret", "token"];
+
+    fn split_tokens(name: &str) -> Vec<String> {
+        let mut tokens = Vec::new();
+        let mut current = String::new();
+        let mut prev_was_lowercase = false;
+        for ch in name.chars() {
+            if ch.is_alphanumeric() {
+                if prev_was_lowercase && ch.is_uppercase() {
+                    // camelCase 边界：`myToken` → `my` + `Token`
+                    tokens.push(std::mem::take(&mut current));
+                }
+                current.push(ch);
+                prev_was_lowercase = ch.is_lowercase();
+            } else {
+                // 分隔符：`_`/`-`/`.`/空格等
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+                prev_was_lowercase = false;
+            }
+        }
+        if !current.is_empty() {
+            tokens.push(current);
+        }
+        tokens.into_iter().map(|t| t.to_lowercase()).collect()
+    }
+
+    split_tokens(field_name).iter().any(|token| {
+        SENSITIVE_WORDS.contains(&token.as_str())
+            || SENSITIVE_PREFIXES
+                .iter()
+                .any(|&prefix| token.starts_with(prefix))
+    })
+}
+
 /// 增强版脱敏函数 - 需要 log-redaction feature
 #[cfg(feature = "log-redaction")]
 #[inline]
@@ -159,15 +216,15 @@ pub fn redact_advanced(value: Option<&str>, field_name: Option<&str>) -> String 
     }
 
     // 检查是否是已知的敏感字段
+    //
+    // 词边界匹配（修复 F3 误脱敏）：将字段名按分隔符（`_`/`-`/`.`/空格）
+    // 与 camelCase 边界切分为词元，仅当任一词元命中敏感关键词（或以
+    // 高危词元开头，如 `keychain` → `key`）时才整体脱敏。旧实现用
+    // `contains()` 子串匹配，`monkey`/`tokenizer` 等无关字段会被误脱敏，
+    // 导致合法字段的日志可见性损失；`my_token_123` 这类真实敏感字段
+    // 仍被正确覆盖。
     if let Some(name) = field_name {
-        let lower_name = name.to_lowercase();
-        if lower_name.contains("password")
-            || lower_name.contains("secret")
-            || lower_name.contains("token")
-            || lower_name.contains("key")
-            || lower_name.contains("credential")
-            || lower_name.contains("authorization")
-        {
+        if is_sensitive_field_name(name) {
             return "***".to_string();
         }
     }
@@ -699,15 +756,24 @@ mod tests {
 
         #[test]
         fn test_redact_advanced_field_key_substring() {
-            assert_eq!(redact_advanced(Some("value"), Some("monkey")), "***");
+            // F3 修复回归：词边界匹配。`monkey` 仅含子串 "key"，
+            // 不再触发整段脱敏（仅走通用部分掩码，非整段替换）；
+            // `keychain` 以高危前缀开头仍整段脱敏
+            let masked = redact_advanced(Some("value"), Some("monkey"));
+            assert_ne!(masked, "***", "monkey 不应被整段脱敏");
             assert_eq!(redact_advanced(Some("value"), Some("keychain")), "***");
             assert_eq!(redact_advanced(Some("value"), Some("key")), "***");
         }
 
         #[test]
         fn test_redact_advanced_field_token_substring() {
+            // F3 修复回归：`tokenizer` 以 "token" 开头（保守方向保留）；
+            // `my_token_123` 词元精确命中 "token"
             assert_eq!(redact_advanced(Some("value"), Some("tokenizer")), "***");
             assert_eq!(redact_advanced(Some("value"), Some("my_token_123")), "***");
+            assert_eq!(redact_advanced(Some("value"), Some("myToken")), "***"); // camelCase
+            assert_eq!(redact_advanced(Some("value"), Some("keyboard")), "***"); // 高危前缀（保守方向残余误报）
+            assert_eq!(redact_advanced(Some("value"), Some("tokenize_data")), "***");
         }
 
         #[test]

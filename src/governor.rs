@@ -506,25 +506,55 @@ impl Governor {
     /// 对于生产环境，建议使用 `builder()` 或 `with_dependencies()` 方法
     /// 配合持久化存储（如 PostgreSQL）。
     ///
+    /// # 返回
+    /// - `Ok(Governor)`: 创建成功
+    /// - `Err(LimiteronError)`: 初始化失败
+    ///
+    /// 默认配置内置一条兜底限流规则（内存 TokenBucket：容量 100、
+    /// 每秒补充 10、匹配所有用户、超限拒绝），使「开箱即用」真正可用。
+    /// 修复 H5：旧实现默认空配置必然 `validate()` 失败后 `expect` panic。
+    /// 需要自定义规则集时使用 `builder()`。
+    ///
     /// # 示例
     ///
     /// ```rust,no_run
     /// use limiteron::Governor;
     ///
     /// #[tokio::main]
-    /// async fn main() {
-    ///     let governor = Governor::new().await;
+    /// async fn main() -> Result<(), limiteron::error::LimiteronError> {
+    ///     let governor = Governor::new().await?;
     ///     // governor 现在可以用于流量控制检查
+    ///     Ok(())
     /// }
     /// ```
-    pub async fn new() -> Self {
+    pub async fn new() -> Result<Self, LimiteronError> {
+        use crate::config::{Action, ActionConfig, LimiterConfig, Matcher, Rule};
         use crate::storage::{MemoryBanStorage, MemoryStorage};
 
         let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
         let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
 
-        // 创建默认配置
-        let config = FlowControlConfig::default();
+        // 默认配置：内置一条兜底限流规则（见 doc），保证 validate() 通过
+        let config = FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "default".to_string(),
+                name: "Default out-of-the-box rule".to_string(),
+                priority: 100,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig {
+                    on_exceed: Action::Reject,
+                    ban: None,
+                },
+            }],
+        };
 
         Governor::builder()
             .with_config(config)
@@ -532,10 +562,14 @@ impl Governor {
             .with_ban_storage(ban_storage)
             .build()
             .await
-            .expect("default config should be valid")
     }
 
     /// 使用依赖注入创建 Governor 实例（用于应用容器集成）
+    ///
+    /// # 返回
+    /// - `Ok(Governor)`: 创建成功
+    /// - `Err(LimiteronError)`: 依赖初始化失败（修复 H6：不再在初始化
+    ///   失败时 panic，而是把错误交还给调用方处置）
     #[allow(clippy::too_many_arguments)]
     pub async fn with_dependencies(
         config: Arc<tokio::sync::RwLock<FlowControlConfig>>,
@@ -548,34 +582,23 @@ impl Governor {
             tokio::sync::RwLock<DashMap<String, crate::decision_chain::DecisionChain>>,
         >,
         #[cfg(feature = "circuit-breaker")] circuit_breaker: Arc<CircuitBreaker>,
-    ) -> Self {
+    ) -> Result<Self, LimiteronError> {
         // 创建封禁管理器
         #[cfg(feature = "ban-manager")]
         use crate::ban::{BanManager, BanManagerConfig};
 
         #[cfg(feature = "ban-manager")]
-        let ban_manager: Arc<BanManager> = {
-            match BanManager::with_dependencies(ban_storage.clone(), BanManagerConfig::default())
+        let ban_manager: Arc<BanManager> =
+            BanManager::with_dependencies(ban_storage.clone(), BanManagerConfig::default())
                 .await
-                .map(Arc::new)
-            {
-                Ok(manager) => manager,
-                Err(e) => {
-                    log::error!("Failed to create BanManager: {}", e);
-                    // 使用默认配置重试或返回一个空的管理器
-                    // 这里我们选择 panic，因为这是在初始化阶段，无法恢复
-                    // 但更好的做法是返回 Result
-                    panic!("Failed to create BanManager: {}", e);
-                }
-            }
-        };
+                .map(Arc::new)?;
 
         // 创建并行封禁检查器
         #[cfg(feature = "parallel-checker")]
         let parallel_ban_checker: Arc<crate::storage::ParallelBanChecker> =
             Arc::new(crate::storage::ParallelBanChecker::new(ban_manager.clone()));
 
-        Self {
+        Ok(Self {
             config,
             storage,
             ban_storage,
@@ -593,7 +616,9 @@ impl Governor {
             audit_logger: Arc::new(tokio::sync::RwLock::new(None)),
             config_history: Arc::new(tokio::sync::RwLock::new(ConfigHistory::new(100))),
             stats: StatsManager::new(),
-            l1_cache: L1Cache::new().await.expect("Failed to create L1Cache"),
+            l1_cache: L1Cache::new().await.map_err(|e| {
+                LimiteronError::ConfigError(format!("Failed to create L1Cache: {}", e))
+            })?,
             l1_cache_enabled: std::sync::atomic::AtomicBool::new(true),
             #[cfg(feature = "fallback")]
             fallback_manager: None,
@@ -605,7 +630,7 @@ impl Governor {
             tracer: None,
             shutdown_token: tokio_util::sync::CancellationToken::new(),
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
-        }
+        })
     }
 
     /// 创建新的 Governor 实例（使用显式配置）
@@ -1558,7 +1583,7 @@ impl Governor {
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let governor = Governor::new().await;
+    ///     let governor = Governor::new().await?;
     ///     // ... 使用 governor 处理请求 ...
     ///     governor.shutdown().await?; // 优雅关闭
     ///     Ok(())
@@ -2289,12 +2314,29 @@ mod governor_construction_tests {
         assert!(result.is_err());
     }
 
-    /// Governor::new() uses FlowControlConfig::default() which has empty rules,
-    /// causing validate() to fail and expect() to panic.
+    /// H5 修复回归：Governor::new() 不再因空默认配置 expect panic，
+    /// 而是内置一条可用的兜底规则并返回 Ok；兜底规则实际生效
+    /// （同 user 超过 TokenBucket 容量后被拒绝）。
     #[tokio::test]
-    #[should_panic(expected = "default config should be valid")]
-    async fn test_governor_new_panics_with_empty_default_config() {
-        let _ = Governor::new().await;
+    async fn test_governor_new_works_with_builtin_default_rule() {
+        let governor = Governor::new().await.expect("new() should succeed");
+
+        let stats = governor.stats().await;
+        assert_eq!(stats.total_requests, 0);
+
+        // 内置兜底规则匹配所有用户（User: ["*"]），TokenBucket 容量 100；
+        // 默认标识符提取器读取 X-User-Id 请求头
+        let ctx = RequestContext::new().with_header("X-User-Id", "out-of-box-user");
+        for _ in 0..100 {
+            let result = governor.check(&ctx).await.expect("check should not error");
+            assert!(matches!(result, Decision::Allowed(_)));
+        }
+        // 第 101 个请求应被内置兜底规则限流
+        let result = governor.check(&ctx).await.expect("check should not error");
+        assert!(
+            matches!(result, Decision::Rejected(_)),
+            "第 101 个请求应被内置兜底规则限流"
+        );
     }
 
     #[tokio::test]
@@ -3213,7 +3255,8 @@ mod governor_construction_tests {
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker,
         )
-        .await;
+        .await
+        .expect("with_dependencies should succeed");
 
         let stats = governor.stats().await;
         assert_eq!(stats.total_requests, 0);

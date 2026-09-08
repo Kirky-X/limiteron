@@ -164,6 +164,14 @@ pub struct CircuitBreaker {
     last_failure_time: Arc<RwLock<Option<Instant>>>,
     /// 最后状态变更时间
     last_state_change: Arc<RwLock<Option<Instant>>>,
+    /// 最后失败时间（墙钟）
+    ///
+    /// 统计展示用：`last_failure_time` 位于自定义时钟域（MockClock 下为
+    /// 虚拟时间），无法换算回真实墙钟；在事件发生点直接记录墙钟时间戳，
+    /// 避免 get_stats 用「虚拟时长」倒推 `Utc::now() - duration` 产生错误时间。
+    last_failure_time_utc: Arc<RwLock<Option<chrono::DateTime<chrono::Utc>>>>,
+    /// 最后状态变更时间（墙钟）
+    last_state_change_utc: Arc<RwLock<Option<chrono::DateTime<chrono::Utc>>>>,
     /// 半开状态下的调用计数
     half_open_calls: Arc<AtomicU64>,
     /// 配置
@@ -283,6 +291,8 @@ impl CircuitBreaker {
             slow_call_count: Arc::new(AtomicU64::new(0)),
             last_failure_time: Arc::new(RwLock::new(None)),
             last_state_change: Arc::new(RwLock::new(Some(clock.now()))),
+            last_failure_time_utc: Arc::new(RwLock::new(None)),
+            last_state_change_utc: Arc::new(RwLock::new(Some(chrono::Utc::now()))),
             half_open_calls: Arc::new(AtomicU64::new(0)),
             config,
             clock,
@@ -361,8 +371,9 @@ impl CircuitBreaker {
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<T, LimiteronError>>,
     {
-        // 增加总调用次数
-        self.total_calls.fetch_add(1, Ordering::Relaxed);
+        // 注意：total_calls 只统计实际执行的操作（慢调用率的分母）。
+        // 被熔断/限流拒绝的调用不进入分母——否则它们会稀释慢调用率，
+        // 持续推迟慢调用熔断的触发。
 
         // 检查熔断器状态
         let state = self.state.read().await;
@@ -411,18 +422,30 @@ impl CircuitBreaker {
 
         // 半开准入检查：对 Open 超时转来的调用者与 HalfOpen 调用者一视同仁，
         // 只放行 half_open_max_calls 个并发探针，其余拒绝。
+        // CAS 原子准入：load + fetch_add 分离会让并发探针超额进入（B1）。
         if half_open_probe {
-            let calls = self.half_open_calls.load(Ordering::Relaxed);
-            if calls >= self.config.half_open_max_calls {
-                warn!("半开状态调用次数已达上限，拒绝请求");
-                return Err(LimiteronError::LimitError(
-                    "半开状态调用次数已达上限".to_string(),
-                ));
+            loop {
+                let calls = self.half_open_calls.load(Ordering::Relaxed);
+                if calls >= self.config.half_open_max_calls {
+                    warn!("半开状态调用次数已达上限，拒绝请求");
+                    return Err(LimiteronError::LimitError(
+                        "半开状态调用次数已达上限".to_string(),
+                    ));
+                }
+                match self.half_open_calls.compare_exchange(
+                    calls,
+                    calls + 1,
+                    Ordering::AcqRel,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => break,
+                    Err(_) => std::hint::spin_loop(), // 被并发抢占，重读后重试
+                }
             }
-            self.half_open_calls.fetch_add(1, Ordering::Relaxed);
         }
 
-        // 执行操作
+        // 执行操作（仅已获准的调用计入 total_calls 分母）
+        self.total_calls.fetch_add(1, Ordering::Relaxed);
         let start_time = self.clock.now();
         let result = operation().await;
         let elapsed = start_time.elapsed();
@@ -430,14 +453,15 @@ impl CircuitBreaker {
         // 记录调用时长并检查是否为慢调用
         self.record_call_duration(elapsed).await;
 
-        // 根据操作结果更新状态
+        // 根据操作结果更新状态（携带探针标记：探针的失败/成功归属
+        // 不应受准入后状态漂移影响）
         match result {
             Ok(value) => {
                 self.on_success().await;
                 Ok(value)
             }
             Err(e) => {
-                self.on_failure(&e).await;
+                self.on_failure_probe_aware(&e, half_open_probe).await;
                 Err(e)
             }
         }
@@ -459,9 +483,12 @@ impl CircuitBreaker {
                 let success_count = self.success_count.fetch_add(1, Ordering::Relaxed) + 1;
 
                 if success_count >= self.config.success_threshold {
-                    // 达到成功阈值，切换到关闭状态
+                    // 达到成功阈值，切换到关闭状态。
+                    // 仅在仍为 HalfOpen 时关闭（B4）：并发探针失败可能已把
+                    // 状态重新切到 Open，陈旧的成功不得把 Open 强行转为 Closed
+                    // 造成"故障刚触发熔断即被误关闭"。
                     drop(state);
-                    self.transition_to_closed().await;
+                    self.transition_to_closed_if_half_open().await;
                 } else {
                     trace!(
                         "操作成功（半开状态）: {}/{}",
@@ -476,8 +503,12 @@ impl CircuitBreaker {
         }
     }
 
-    /// 操作失败时的处理
-    async fn on_failure(&self, error: &LimiteronError) {
+    /// 操作失败时的处理（探针感知）
+    ///
+    /// `was_probe` 表示本次失败来自半开准入的探针调用。探针失败是
+    /// 后端仍处于故障状态的确证：即使准入后状态被并发的其他探针成功
+    /// 漂移回 Closed，也必须重新熔断，而非按 Closed 计数等待阈值（B3）。
+    async fn on_failure_probe_aware(&self, error: &LimiteronError, was_probe: bool) {
         // 使用错误分类器判断是否应该计入失败计数
         if !self.config.error_classifier.is_counted_as_failure(error) {
             trace!("错误不计入失败计数: {:?}", error);
@@ -488,11 +519,18 @@ impl CircuitBreaker {
 
         match *state {
             CircuitState::Closed => {
+                if was_probe {
+                    drop(state);
+                    warn!("半开探针失败（期间状态已漂移至 Closed），重新熔断");
+                    self.transition_to_open().await;
+                    return;
+                }
                 // 关闭状态下，增加失败计数
                 let failure_count = self.failure_count.fetch_add(1, Ordering::Relaxed) + 1;
 
                 // 记录失败时间
                 *self.last_failure_time.write().await = Some(self.clock.now());
+                *self.last_failure_time_utc.write().await = Some(chrono::Utc::now());
 
                 if failure_count >= self.config.failure_threshold {
                     // 达到失败阈值，切换到打开状态
@@ -569,7 +607,32 @@ impl CircuitBreaker {
 
         // 更新状态和时间戳
         *self.state.write().await = new_state;
+        self.finalize_transition(old_state, new_state).await;
+    }
+
+    /// 仅当当前仍为 `CircuitState::HalfOpen` 时原子地切换到 Closed
+    ///
+    /// 状态判定与写入在同一写锁内完成，关闭半开判定与切换之间的
+    /// TOCTOU 窗口。
+    async fn transition_to_closed_if_half_open(&self) -> bool {
+        let old_state = {
+            let mut state = self.state.write().await;
+            if *state != CircuitState::HalfOpen {
+                return false;
+            }
+            let old = *state;
+            *state = CircuitState::Closed;
+            old
+        };
+        self.finalize_transition(old_state, CircuitState::Closed)
+            .await;
+        true
+    }
+
+    /// 状态写入后的收尾：时间戳、计数器重置与事件发射
+    async fn finalize_transition(&self, old_state: CircuitState, new_state: CircuitState) {
         *self.last_state_change.write().await = Some(self.clock.now());
+        *self.last_state_change_utc.write().await = Some(chrono::Utc::now());
 
         // 根据新状态重置相关计数器
         match new_state {
@@ -594,6 +657,9 @@ impl CircuitBreaker {
                 self.success_count.store(0, Ordering::Relaxed);
                 self.half_open_calls.store(0, Ordering::Relaxed);
                 self.slow_call_count.store(0, Ordering::Relaxed);
+                // 同步重置 total_calls（B2）：它作为慢调用率分母，跨熔断周期
+                // 单调增长会持续稀释慢调用率，延迟/阻碍慢调用熔断触发
+                self.total_calls.store(0, Ordering::Relaxed);
                 info!("熔断器状态变更: {:?} -> Closed", old_state);
             }
         }
@@ -624,11 +690,6 @@ impl CircuitBreaker {
     /// 切换到半开状态
     async fn transition_to_half_open(&self) {
         self.transition_to(CircuitState::HalfOpen).await;
-    }
-
-    /// 切换到关闭状态
-    async fn transition_to_closed(&self) {
-        self.transition_to(CircuitState::Closed).await;
     }
 
     /// 检查熔断器是否为指定状态（内部辅助方法）
@@ -668,31 +729,27 @@ impl CircuitBreaker {
         self.total_calls.store(0, Ordering::Relaxed);
         self.slow_call_count.store(0, Ordering::Relaxed);
         *self.last_failure_time.write().await = None;
+        *self.last_failure_time_utc.write().await = None;
         *self.last_state_change.write().await = Some(self.clock.now());
+        *self.last_state_change_utc.write().await = Some(chrono::Utc::now());
         self.half_open_calls.store(0, Ordering::Relaxed);
     }
 
     /// 获取统计信息
     pub async fn get_stats(&self) -> CircuitBreakerStats {
         let state = *self.state.read().await;
-        let last_failure = self.last_failure_time.read().await;
-        let last_state_change = self.last_state_change.read().await;
+        let last_failure = self.last_failure_time_utc.read().await;
+        let last_state_change = self.last_state_change_utc.read().await;
 
         CircuitBreakerStats {
             state,
             failure_count: self.failure_count.load(Ordering::Relaxed),
             success_count: self.success_count.load(Ordering::Relaxed),
             total_calls: self.total_calls.load(Ordering::Relaxed),
-            last_failure_time: last_failure.and_then(|t| {
-                let elapsed = self.clock.now().duration_since(t);
-                let duration = chrono::Duration::from_std(elapsed).ok()?;
-                Some(chrono::Utc::now() - duration)
-            }),
-            last_state_change: last_state_change.and_then(|t| {
-                let elapsed = self.clock.now().duration_since(t);
-                let duration = chrono::Duration::from_std(elapsed).ok()?;
-                Some(chrono::Utc::now() - duration)
-            }),
+            // 直接读取事件发生点的墙钟时间戳（B5）：旧的「时钟域时长
+            // 倒推墙钟」在 MockClock（虚拟时间）下产生错误时间
+            last_failure_time: *last_failure,
+            last_state_change: *last_state_change,
         }
     }
 
@@ -1451,12 +1508,115 @@ mod tests {
         }
         assert!(breaker.is_open().await);
 
-        // 直接调用 on_failure，覆盖 Open 分支
+        // 直接调用 on_failure_probe_aware（非探针），覆盖 Open 分支
         // 此时状态为 Open，on_failure 内的 Open 分支会打印 warn 但不做状态转换
         let error = LimiteronError::BanError("open-state failure".to_string());
-        breaker.on_failure(&error).await;
+        breaker.on_failure_probe_aware(&error, false).await;
 
         // 状态应仍为 Open
         assert!(breaker.is_open().await);
+    }
+
+    #[tokio::test]
+    async fn test_half_open_admission_cas_no_overshoot() {
+        // B1 回归：半开准入的 load + fetch_add 分离会让并发探针超额进入。
+        // CAS 原子准入后，放行数必须精确等于 half_open_max_calls。
+        let config =
+            CircuitBreakerConfig::new(1, 100, Duration::from_millis(50)).half_open_max_calls(3);
+        let breaker = Arc::new(CircuitBreaker::new(config));
+
+        // 触发熔断（failure_threshold=1）
+        let _ = breaker
+            .execute(|| async {
+                Err::<(), LimiteronError>(LimiteronError::BanError("boom".to_string()))
+            })
+            .await;
+        assert!(breaker.is_open().await);
+
+        // 等待超时到期，状态可转为 HalfOpen
+        tokio::time::sleep(Duration::from_millis(80)).await;
+
+        // 16 个并发请求同时冲击半开准入
+        let tasks = 16usize;
+        let barrier = Arc::new(tokio::sync::Barrier::new(tasks));
+        let allowed = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+        let mut handles = Vec::with_capacity(tasks);
+        for _ in 0..tasks {
+            let breaker = Arc::clone(&breaker);
+            let barrier = Arc::clone(&barrier);
+            let allowed = Arc::clone(&allowed);
+            handles.push(tokio::spawn(async move {
+                barrier.wait().await;
+                let result = breaker
+                    .execute(|| async {
+                        // 稍作停留，制造准入窗口
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        Ok::<(), LimiteronError>(())
+                    })
+                    .await;
+                if result.is_ok() {
+                    allowed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        assert_eq!(
+            allowed.load(std::sync::atomic::Ordering::SeqCst),
+            3,
+            "半开准入必须精确限制在 half_open_max_calls"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_total_calls_excludes_rejected_requests() {
+        // B2 回归：被熔断拒绝的调用不得计入 total_calls（慢调用率分母），
+        // 否则会持续稀释慢调用率、阻碍慢调用熔断。
+        let config = CircuitBreakerConfig::new(1, 1, Duration::from_secs(3600));
+        let breaker = CircuitBreaker::new(config);
+
+        // 一次成功调用 → total_calls = 1
+        let _ = breaker
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
+            .await;
+        assert_eq!(breaker.get_stats().await.total_calls, 1);
+
+        // 触发熔断（长 timeout，期间不会转半开）
+        let _ = breaker
+            .execute(|| async {
+                Err::<(), LimiteronError>(LimiteronError::BanError("boom".to_string()))
+            })
+            .await;
+        assert!(breaker.is_open().await);
+        let total_after_open = breaker.get_stats().await.total_calls;
+
+        // 熔断期间的拒绝调用不增加分母
+        let rejected = breaker
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
+            .await;
+        assert!(rejected.is_err());
+        assert_eq!(
+            breaker.get_stats().await.total_calls,
+            total_after_open,
+            "被熔断拒绝的调用不得计入 total_calls"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_transition_to_closed_only_from_half_open() {
+        // B4 回归：陈旧的成功不得把 Open 强行转为 Closed。
+        // transition_to_closed_if_half_open 仅在 HalfOpen 态生效。
+        let breaker = CircuitBreaker::new(CircuitBreakerConfig::new(2, 1, Duration::from_secs(60)));
+
+        // 强制进入 Open（模拟并发探针失败刚触发的熔断）
+        *breaker.state.write().await = CircuitState::Open;
+        assert!(breaker.is_open().await);
+
+        let transitioned = breaker.transition_to_closed_if_half_open().await;
+        assert!(!transitioned, "Open 态不得经条件关闭转为 Closed");
+        assert!(breaker.is_open().await, "状态必须保持 Open");
     }
 }

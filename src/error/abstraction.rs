@@ -222,14 +222,12 @@ impl ErrorMessageAbstraction {
 
         if lower_error.contains("duplicate") || lower_error.contains("重复") {
             SafeErrorMessage::ConfigError(ConfigSafeError::DuplicateRuleId)
-        } else if lower_error.contains("storage")
-            || lower_error.contains("存储")
-                && (lower_error.contains("invalid") || lower_error.contains("无效"))
+        } else if (lower_error.contains("storage") || lower_error.contains("存储"))
+            && (lower_error.contains("invalid") || lower_error.contains("无效"))
         {
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidStorageType)
-        } else if lower_error.contains("cache")
-            || lower_error.contains("缓存")
-                && (lower_error.contains("invalid") || lower_error.contains("无效"))
+        } else if (lower_error.contains("cache") || lower_error.contains("缓存"))
+            && (lower_error.contains("invalid") || lower_error.contains("无效"))
         {
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidCacheType)
         } else if lower_error.contains("version") || lower_error.contains("版本") {

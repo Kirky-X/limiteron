@@ -11,6 +11,7 @@ use crate::quota::QuotaConfig;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 /// Quota usage record for a single key
@@ -31,6 +32,12 @@ pub struct QuotaLimiter {
     config: QuotaConfig,
     /// Per-key usage tracking (key -> usage, window_start)
     usage: Arc<DashMap<String, QuotaRecord>>,
+    /// 过期清理 single-flight 守卫
+    ///
+    /// `len() > 上限` 检查与 `retain()` 非原子：并发插入下若不加守卫，
+    /// 每个并发调用都会执行 O(n) 全表 retain，清理本身反而成为放大器。
+    /// CAS 保证同一时刻至多一个清理在执行。
+    cleanup_in_progress: AtomicBool,
 }
 
 /// 链式/无 key 场景（`Limiter::allow` 不提供 key）使用的匿名配额桶键。
@@ -78,6 +85,7 @@ impl QuotaLimiter {
         Self {
             config,
             usage: Arc::new(DashMap::new()),
+            cleanup_in_progress: AtomicBool::new(false),
         }
     }
 
@@ -115,9 +123,16 @@ impl QuotaLimiter {
 
         // diting MED-001：防攻击者可控的高基数 key 无限增长（OOM DoS）——
         // 超过跟踪上限时清理已过期窗口的记录，把内存约束在 ~上限 + 单窗口新增以内。
-        if self.usage.len() > QUOTA_MAX_TRACKED_KEYS {
+        // single-flight：并发下仅一个调用执行 O(n) retain，避免清理本身成为热路径放大器。
+        if self.usage.len() > QUOTA_MAX_TRACKED_KEYS
+            && self
+                .cleanup_in_progress
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
+        {
             self.usage
                 .retain(|_, rec| now.duration_since(rec.window_start) < window_duration);
+            self.cleanup_in_progress.store(false, Ordering::Release);
         }
 
         let mut record = self
@@ -136,10 +151,15 @@ impl QuotaLimiter {
         }
 
         // Check if quota allows overdraft
+        // 饱和算术：limit 接近 u64::MAX 时乘/加不得回绕（回绕会使 max_usage
+        // 反而变小，虽然方向偏保守，但属未定义语义）
         let max_usage = if self.config.allow_overdraft {
-            let overdraft_limit =
-                self.config.limit * self.config.overdraft_limit_percent as u64 / 100;
-            self.config.limit + overdraft_limit
+            let overdraft_limit = self
+                .config
+                .limit
+                .saturating_mul(self.config.overdraft_limit_percent as u64)
+                / 100;
+            self.config.limit.saturating_add(overdraft_limit)
         } else {
             self.config.limit
         };

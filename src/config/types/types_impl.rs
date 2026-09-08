@@ -125,6 +125,22 @@ impl FlowControlConfig {
             changes.push(format!("移除规则: {:?}", removed_rules));
         }
 
+        // 比较同 ID 规则的内容变更（否则改规则内容而不改 ID/数量时，
+        // diff 会误报"配置内容无变化"）
+        let old_rules_by_id: ahash::AHashMap<&String, String> = old
+            .rules
+            .iter()
+            .map(|r| (&r.id, serde_json::to_string(r).unwrap_or_default()))
+            .collect();
+        for rule in &self.rules {
+            if let Some(old_json) = old_rules_by_id.get(&rule.id) {
+                let new_json = serde_json::to_string(rule).unwrap_or_default();
+                if new_json != *old_json {
+                    changes.push(format!("规则内容变更: {}", rule.id));
+                }
+            }
+        }
+
         if changes.is_empty() {
             changes.push("配置内容无变化".to_string());
         }

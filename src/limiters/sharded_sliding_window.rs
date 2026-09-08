@@ -9,7 +9,7 @@ use crate::clock::{Clock, SystemClock};
 use crate::error::LimiteronError;
 use async_trait::async_trait;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 /// 默认分片数量（每秒一个分片，支持60秒窗口）
@@ -30,7 +30,8 @@ const DEFAULT_SHARD_COUNT: usize = 60;
 ///
 /// - **时间复杂度**: O(SHARD_COUNT)，通常为 O(60) = O(1)
 /// - **空间复杂度**: O(SHARD_COUNT)，固定内存占用
-/// - **并发安全**: 完全无锁，使用原子操作
+/// - **并发安全**: 分片读写无锁；准入判断（检查+递增）通过轻量自旋锁
+///   保证原子性，临界区为固定 60 次缓存友好的原子读
 /// - **精度**: 分片粒度决定（默认1秒）
 ///
 /// # 示例
@@ -75,6 +76,14 @@ pub struct ShardedSlidingWindowLimiter {
     ///
     /// 用于定期触发分片清理，避免每次请求都清理。
     last_cleanup: AtomicU64,
+
+    /// 准入自旋锁
+    ///
+    /// 使「窗口计数检查 + 分片递增」成为原子操作。没有它，两个并发调用
+    /// 可同时通过 `current_count + cost <= max_requests` 检查后各自递增，
+    /// 导致超限放行（check-then-act 竞态，仓库并发测试曾以 +3 容差掩盖）。
+    /// 临界区极短（约 60 次原子读 + 一次 fetch_add），自旋开销可忽略。
+    admission_locked: AtomicBool,
 
     /// 时钟实例
     clock: Arc<dyn Clock>,
@@ -124,6 +133,7 @@ impl ShardedSlidingWindowLimiter {
             shard_duration_secs,
             max_requests,
             last_cleanup: AtomicU64::new(now_secs),
+            admission_locked: AtomicBool::new(false),
             clock,
         }
     }
@@ -227,20 +237,50 @@ impl ShardedSlidingWindowLimiter {
         }
     }
 
+    /// 获取准入自旋锁
+    ///
+    /// CAS 自旋至独占。临界区内无 panic 源（索引取模有界、纯饱和算术），
+    /// 锁必然经 `release_admission` 释放。
+    fn acquire_admission(&self) {
+        while self
+            .admission_locked
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            std::hint::spin_loop();
+        }
+    }
+
+    /// 释放准入自旋锁
+    fn release_admission(&self) {
+        self.admission_locked.store(false, Ordering::Release);
+    }
+
     /// 尝试消费指定数量的请求配额
+    ///
+    /// 检查与递增在准入锁内原子完成，保证并发下放行总数不超过
+    /// `max_requests`。溢出安全的比较式：`current + cost` 可能回绕，
+    /// 改写为 `cost > max || current > max - cost`（先判 `cost > max`
+    /// 保证后续减法不下溢，同时保留对超大 cost 的拒绝）。
     fn try_acquire(&self, cost: u64) -> bool {
         let (shard_index, now_secs) = self.get_current_shard();
 
+        self.acquire_admission();
         let current_count = self.calculate_window_count(now_secs);
 
-        if current_count + cost > self.max_requests {
-            return false;
+        let allowed = if cost > self.max_requests || current_count > self.max_requests - cost {
+            false
+        } else {
+            self.increment_shard(shard_index, now_secs, cost);
+            true
+        };
+        self.release_admission();
+
+        if allowed {
+            self.maybe_cleanup(now_secs);
         }
 
-        self.increment_shard(shard_index, now_secs, cost);
-        self.maybe_cleanup(now_secs);
-
-        true
+        allowed
     }
 
     /// 获取当前窗口内的请求数（仅用于测试和监控）
@@ -388,5 +428,55 @@ mod tests {
         let result = limiter.allow(6).await;
         assert!(result.is_ok());
         assert!(!result.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_sharded_no_overshoot_under_concurrency() {
+        // 准入原子性：并发放行总数必须精确不超过 max_requests
+        // （修复前 check-then-act 竞态可超限放行）
+        let max_requests = 25u64;
+        let limiter = Arc::new(ShardedSlidingWindowLimiter::new(
+            Duration::from_secs(60),
+            max_requests,
+        ));
+
+        let tasks = 64usize;
+        let barrier = Arc::new(tokio::sync::Barrier::new(tasks));
+        let success = Arc::new(AtomicU64::new(0));
+
+        let mut handles = Vec::with_capacity(tasks);
+        for _ in 0..tasks {
+            let limiter = Arc::clone(&limiter);
+            let barrier = Arc::clone(&barrier);
+            let success = Arc::clone(&success);
+            handles.push(tokio::spawn(async move {
+                barrier.wait().await;
+                if limiter.allow(1).await.unwrap() {
+                    success.fetch_add(1, Ordering::SeqCst);
+                }
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        assert!(
+            success.load(Ordering::SeqCst) <= max_requests,
+            "并发放行数 {} 超过上限 {}",
+            success.load(Ordering::SeqCst),
+            max_requests
+        );
+        assert_eq!(limiter.get_window_count(), success.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn test_sharded_overflow_safe_cost_comparison() {
+        // max_requests 接近 u64::MAX 时，current + cost 不得回绕放行
+        let limiter = ShardedSlidingWindowLimiter::new(Duration::from_secs(60), u64::MAX);
+        assert!(limiter.allow(1).await.unwrap());
+        // cost=1_000_000 (MAX_COST) 不应因 current+cost 回绕被放行多次超过语义
+        assert!(limiter.allow(u64::MAX).await.is_err()); // cost 超 MAX_COST 被验证拒绝
+        assert!(limiter.allow(1_000_000).await.unwrap());
+        assert_eq!(limiter.get_window_count(), 1_000_001);
     }
 }

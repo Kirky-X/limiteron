@@ -70,7 +70,8 @@ impl ConfigLoader {
 
         if let Ok(storage_str) = std::env::var("LIMITERON_GLOBAL_STORAGE") {
             if !storage_str.trim().is_empty() {
-                let storage_type = crate::config::StorageType::parse(&storage_str)
+                // 与 cache/metrics 保持一致：先 trim 再解析（`" redis "` 不应报错）
+                let storage_type = crate::config::StorageType::parse(storage_str.trim())
                     .ok_or_else(|| {
                         LimiteronError::ConfigError(format!(
                             "Invalid LIMITERON_GLOBAL_STORAGE value: {}. Valid: memory, postgresql, redis",

@@ -161,7 +161,13 @@ impl GcraLimiter {
         }
 
         // Calculate Earliest Arrival Time (EAT)
-        let eat = tat.saturating_sub((self.capacity.saturating_sub(1)) * self.refill_interval_us);
+        // 防御：超大 capacity × refill_interval_us 乘法防溢出（与 allow 一致，
+        // debug panic / release 回绕会使只读决策给出错误的 allowed/retry_after）
+        let eat = tat.saturating_sub(
+            self.capacity
+                .saturating_sub(1)
+                .saturating_mul(self.refill_interval_us),
+        );
 
         if now_us >= eat {
             // Request would be allowed
@@ -190,7 +196,12 @@ impl GcraLimiter {
         let now_us = Self::now_us();
         let tat = *self.tat.read();
 
-        let eat = tat.saturating_sub((self.capacity.saturating_sub(1)) * self.refill_interval_us);
+        // 防御：乘法与 allow/check 一致使用 saturating_mul，防止溢出失真
+        let eat = tat.saturating_sub(
+            self.capacity
+                .saturating_sub(1)
+                .saturating_mul(self.refill_interval_us),
+        );
 
         if now_us >= eat {
             let elapsed = now_us.saturating_sub(eat);

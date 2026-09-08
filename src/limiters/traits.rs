@@ -83,10 +83,19 @@ pub trait Limiter: Send + Sync {
     ///
     /// # 返回
     /// - `Ok(())`: 允许通过
-    /// - `Err(_)`: 拒绝通过或发生错误
+    /// - `Err(LimiteronError::LimitError)`: 被限流拒绝
+    /// - `Err(_)`: 发生错误
+    ///
+    /// 注意：`allow` 返回 `Ok(false)`（拒绝）必须映射为 `Err`，
+    /// 不能静默吞掉——否则限流器形同虚设。
     async fn check(&self, _key: &str) -> Result<(), LimiteronError> {
-        self.allow(1).await?;
-        Ok(())
+        if self.allow(1).await? {
+            Ok(())
+        } else {
+            Err(LimiteronError::LimitError(
+                "rate limit exceeded".to_string(),
+            ))
+        }
     }
 }
 
@@ -232,5 +241,30 @@ mod tests {
         // check() propagates Err from allow()
         let result = limiter.check("any_key").await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_limiter_check_default_impl_rejects_on_allow_false() {
+        // 修复回归测试：allow 返回 Ok(false)（拒绝）时，check 必须返回
+        // Err(LimitError)，不得静默吞掉拒绝语义（旧实现返回 Ok(())）
+        struct DenyAllLimiter;
+        #[async_trait]
+        impl Limiter for DenyAllLimiter {
+            async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
+                Ok(false)
+            }
+        }
+
+        let limiter = DenyAllLimiter;
+        let result = limiter.check("any_key").await;
+        match result {
+            Err(LimiteronError::LimitError(msg)) => {
+                assert!(msg.contains("rate limit exceeded"))
+            }
+            other => panic!(
+                "expected Err(LimitError) for rejection, got {:?}",
+                other.is_ok()
+            ),
+        }
     }
 }

@@ -384,6 +384,16 @@ impl LimiterManager {
         key: &str,
         max_concurrent: u64,
     ) -> Arc<ConcurrencyLimiter> {
+        // 零值防护（Rule 12：失败必须显性化）：`Semaphore::new(0)` 会使
+        // 后续 acquire(1) 永久阻塞，请求全部挂起。builder 路径已有校验，
+        // 此处对慢构造路径补齐同等的显性失败。
+        assert!(
+            max_concurrent > 0,
+            "LimiterManager: max_concurrent must be greater than 0 (key: '{}'); \
+             zero permits would block all acquires forever",
+            redact_key(key)
+        );
+
         let key = key.to_string(); // audit-L-001：缓存一次
 
         // 快速路径：get() 读锁

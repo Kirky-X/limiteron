@@ -105,10 +105,10 @@ async fn test_sliding_window_race_condition() {
     }
 
     let success = success_count.load(Ordering::SeqCst);
-    // 允许 5% 的误差，因为存在竞态条件
+    // 准入锁修复后必须精确不超限（此前 check-then-act 竞态需 +3 容差）
     assert!(
-        success <= max_requests + 3,
-        "Success count {} significantly exceeds limit {}",
+        success <= max_requests,
+        "Success count {} exceeds limit {}",
         success,
         max_requests
     );
@@ -196,10 +196,10 @@ async fn test_sharded_sliding_window_race_condition() {
     }
 
     let success = success_count.load(Ordering::SeqCst);
-    // 允许 10% 的误差
+    // 准入锁修复后必须精确不超限（此前 check-then-act 竞态需 +10 容差）
     assert!(
-        success <= max_requests + 10,
-        "Success count {} significantly exceeds limit {}",
+        success <= max_requests,
+        "Success count {} exceeds limit {}",
         success,
         max_requests
     );

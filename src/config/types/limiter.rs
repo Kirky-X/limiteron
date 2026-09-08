@@ -169,14 +169,21 @@ pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration
     match unit.as_str() {
         "ms" | "millisecond" | "milliseconds" => Ok(std::time::Duration::from_millis(num)),
         "s" | "sec" | "second" | "seconds" => Ok(std::time::Duration::from_secs(num)),
-        "m" | "min" | "minute" | "minutes" => Ok(std::time::Duration::from_secs(num * 60)),
-        "h" | "hr" | "hour" | "hours" => Ok(std::time::Duration::from_secs(num * 3600)),
-        "d" | "day" | "days" => Ok(std::time::Duration::from_secs(num * 86400)),
+        "m" | "min" | "minute" | "minutes" => mul_secs(num, 60),
+        "h" | "hr" | "hour" | "hours" => mul_secs(num, 3600),
+        "d" | "day" | "days" => mul_secs(num, 86400),
         _ => Err(format!(
             "不支持的单位: {}。支持的单位: ms, s, m, h, d",
             unit
         )),
     }
+}
+
+/// 带溢出检查的秒数乘法（`num * factor` 可能超出 u64 范围）
+fn mul_secs(num: u64, factor: u64) -> Result<std::time::Duration, String> {
+    num.checked_mul(factor)
+        .map(std::time::Duration::from_secs)
+        .ok_or_else(|| format!("窗口大小溢出: {} * {} 秒超出 u64 范围", num, factor))
 }
 
 #[cfg(test)]

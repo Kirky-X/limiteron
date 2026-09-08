@@ -266,6 +266,9 @@ impl DecisionChain {
     }
 
     /// 使用依赖注入创建决策链
+    ///
+    /// 节点按 `priority` 降序排序（数值越大优先级越高，先被检查）；
+    /// 相同优先级保持插入顺序。
     pub fn with_dependencies(nodes: Vec<DecisionNode>) -> Self {
         let mut chain = Self {
             nodes: Vec::new(),
@@ -388,8 +391,13 @@ impl DecisionChain {
     }
 
     /// 添加节点
+    ///
+    /// 添加后按 `priority` 降序重排，维持「按优先级排序」的结构不变式
+    /// （`check()` 按向量顺序遍历，数值越大越先被检查；稳定排序保证
+    /// 相同优先级保持插入顺序）。
     pub fn add_node(&mut self, node: DecisionNode) {
         self.nodes.push(node);
+        self.nodes.sort_by_key(|n| std::cmp::Reverse(n.priority));
     }
 
     /// 启用节点
@@ -681,6 +689,53 @@ mod tests {
         // 验证拒绝原因来自node2
         if let Decision::Rejected(metadata) = decision {
             assert!(metadata.reason.contains("High Priority"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_decision_chain_priority_sort_maintained() {
+        // 修复回归：文档声称节点按优先级排序，但 add_node 从未排序。
+        // 设计：低优先级节点返回 Err、高优先级节点拒绝且短路——
+        // 排序正确时高优先级先执行并短路返回 Rejected；
+        // 若未排序（按插入顺序），低优先级的 Err 会先冒泡。
+        struct ErrLimiter;
+        #[async_trait]
+        impl Limiter for ErrLimiter {
+            async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
+                Err(LimiteronError::LimitError(
+                    "low-priority node ran".to_string(),
+                ))
+            }
+        }
+
+        let mut low = DecisionNode::with_dependencies(
+            "low".to_string(),
+            "Low Priority Error".to_string(),
+            Arc::new(ErrLimiter),
+            1,
+        );
+        let mut high = DecisionNode::with_dependencies(
+            "high".to_string(),
+            "High Priority Reject".to_string(),
+            Arc::new(MockLimiter::new(false)),
+            100,
+        );
+        high.short_circuit = true;
+        low.enabled = true;
+        high.enabled = true;
+
+        // 插入顺序：低优先级在前
+        let chain = DecisionChain::with_dependencies(vec![low, high]);
+
+        let decision = chain.check().await.unwrap();
+        match decision {
+            Decision::Rejected(metadata) => {
+                assert!(
+                    metadata.reason.contains("High Priority Reject"),
+                    "high priority node should short-circuit before low priority node runs"
+                );
+            }
+            _ => panic!("expected high priority rejection, low priority node must not run first"),
         }
     }
 

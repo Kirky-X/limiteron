@@ -156,10 +156,14 @@ if [ "$RUN_INTEGRATION" = true ]; then
     print_success "Docker 容器运行正常"
     echo ""
 
-    # 设置环境变量
-    export REDIS_URL="redis://localhost:6379"
-    export REDIS_PASSWORD="test_password_123"
-    export POSTGRES_URL="postgresql://limiteron_user:test_password_123@localhost:5432/limiteron_test"
+    # 测试基础设施凭据（与 tests/docker-compose.yml 一致，可用环境变量覆盖）
+    export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
+    export REDIS_PASSWORD="${REDIS_PASSWORD:-limiteron_dev}"
+    export POSTGRES_USER="${POSTGRES_USER:-limiteron_user}"
+    export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-limiteron_dev}"
+    export POSTGRES_DB="${POSTGRES_DB:-limiteron_test}"
+    export POSTGRES_HOST="${POSTGRES_HOST:-localhost}"
+    export POSTGRES_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:5432/${POSTGRES_DB}"
 
     echo "环境变量:"
     echo "  REDIS_URL: $REDIS_URL"

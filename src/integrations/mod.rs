@@ -10,3 +10,6 @@ pub mod inklog;
 
 #[cfg(feature = "kit")]
 pub mod kit;
+
+#[cfg(feature = "config-confers")]
+pub mod confers;

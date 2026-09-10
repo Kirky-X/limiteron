@@ -16,7 +16,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.3.0-rc.2"
+version = "0.3.0-rc.3"
 edition = "2024"
 rust-version = "1.97.1"
 authors = ["Kirky.X"]
@@ -77,16 +77,16 @@ serial_test = { version = "4.0", default-features = false }
 sea-orm = { version = "2.0", default-features = false, features = ["macros", "with-chrono"] }
 
 # 缓存库
-oxcache = { version = "0.5.0-rc.2", default-features = false, features = ["core"] }
+oxcache = { version = "0.5.0-rc.4", default-features = false, features = ["core"] }
 
 # 数据库抽象层 — dbnexus 0.5。注意：此处不启用 postgres/mysql/sqlite 等数据库驱动，
 # 驱动由各 feature 显式请求（limiteron 的 `postgres` feature 会启用 dbnexus/postgres）。
 # 若在此写死 "postgres"，会强制 server-side 驱动，与下游（如 agentstem memory 的
 # dbnexus/sqlite）在同一次构建中合并，触发 dbnexus 的 embedded/server-side 互斥编译错误。
-dbnexus = { version = "0.6.0-rc.2", default-features = false, features = ["macros", "sql-parser", "permission"] }
+dbnexus = { version = "0.6.0-rc.3", default-features = false, features = ["macros", "sql-parser", "permission"] }
 
 # 宏
-limiteron-macros = { path = "macros", version = "0.3.0-rc.2" }
+limiteron-macros = { path = "macros", version = "0.3.0-rc.3" }
 
 # 监控
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -162,6 +162,9 @@ rustls-webpki = { version = "0.103.13", optional = true }
 # 缓存库（必需）
 oxcache.workspace = true
 
+# Redis 客户端（lua-script 特性需要，用于解析 eval_lua 返回值）
+redis = { version = "1.5", default-features = false, optional = true }
+
 # 宏依赖（可选）
 limiteron-macros = { workspace = true, optional = true }
 
@@ -203,7 +206,7 @@ writeable = { version = "0.6", optional = true }
 # trait-kit integration (optional, feature-gated via `kit`).
 # trait-kit 0.4 is used via path dependency for workspace compatibility.
 [dependencies.trait-kit]
-version = "0.5.0-rc.2"
+version = "0.5.0-rc.3"
 features = ["async"]
 optional = true
 default-features = false
@@ -213,7 +216,14 @@ default-features = false
 # the `http`/`cli` features — limiteron only needs the core LoggerManager +
 # log/tracing bridge. Mirrors the trait-kit optional-dependency pattern.
 [dependencies.inklog]
-version = "0.3.0-rc.2"
+version = "0.3.0-rc.3"
+default-features = false
+optional = true
+
+# confers configuration integration (optional, feature-gated via `config-confers`).
+# Mirrors trait-kit three-tier feature pattern: confers → reload → encryption.
+[dependencies.confers]
+version = "0.6.0-rc.3"
 default-features = false
 optional = true
 
@@ -304,7 +314,7 @@ sqlite = ["dep:dbnexus", "dbnexus/sqlite", "dbnexus/runtime-tokio-rustls", "dep:
 cache-storage = ["cache-service", "oxcache/redis"]
 
 # Lua 脚本支持 - 使用 oxcache 的 lua-script 特性
-lua-script = ["oxcache/lua"]
+lua-script = ["oxcache/lua", "dep:redis"]
 
 # ahash 不再作为特性，直接在依赖中定义
 
@@ -352,8 +362,9 @@ telemetry = [
     "dep:scopeguard",
 ]
 monitoring = ["dep:prometheus", "dep:scopeguard"]
-# metrics 特性传递给 dbnexus 以启用 record_metric 方法
-metrics = ["dbnexus/metrics"]
+# metrics 特性：启用 governor allow/reject/ban 三点指标记录 + dbnexus 指标传递
+# 隐含 monitoring 以激活 Metrics struct 和 Prometheus 计数器
+metrics = ["monitoring", "dbnexus/metrics"]
 audit-log = ["telemetry", "dep:hmac", "dep:sha2", "dep:hex"]
 
 # ============================================
@@ -411,6 +422,12 @@ i18n = ["dep:icu", "dep:writeable"]
 # limiteron retains its original `log`/`tracing` behavior unchanged.
 inklog = ["dep:inklog"]
 
+# confers configuration integration (three-tier pattern mirroring trait-kit).
+# Base: load FlowControlConfig from confers sources (file/env).
+config-confers = ["dep:confers"]
+# Hot-reload: watch config files and atomically swap Governor config.
+config-confers-reload = ["config-confers", "confers/watch"]
+
 # ============================================================================
 # 测试目标显式注册（阶段 2 验收）
 # ============================================================================
@@ -450,3 +467,13 @@ strip = true
 
 [profile.bench]
 inherits = "release"
+
+# ============================================================================
+# 本地开发联调 patch（rc.3 发布前临时指向本地路径）
+# ============================================================================
+[patch.crates-io]
+trait-kit = { path = "../trait-kit" }
+oxcache = { path = "../oxcache" }
+dbnexus = { path = "../dbnexus" }
+inklog = { path = "../inklog" }
+confers = { path = "../confers" }

@@ -7,6 +7,26 @@
 
 ## [Unreleased]
 
+## [0.3.0-rc.3] - 2026-09-10
+
+### 新增
+
+- **Redis 分布式限流器** (`RedisDistributedLimiter`)：实现 `DistributedLimiter` trait，5 个 Lua 脚本经 oxcache `eval_lua` 执行，需 `distributed` + `lua-script` 双 feature（T050）
+- **confers 配置集成**：新增 `config-confers` / `config-confers-reload` feature，支持从文件加载 `FlowControlConfig` + FsWatcher 热重载 + 验证失败自动回滚（T054）
+- **Governor `config_handle()`**：返回 `Arc<RwLock<FlowControlConfig>>` 供外部原子换配置
+- **inklog 可配置初始化**：`init_inklog_logger_with_config(InklogConfig)` 支持自定义级别/输出（T053）
+
+### 修复
+
+- **metrics 死接线**：`metrics` feature 隐含 `monitoring`，governor allow/reject/ban 三点指标记录自动激活（T052）
+- **sqlite 门控修复**：adapters 与 dbnexus_entities 的 cfg 门控改为 `any(postgres, sqlite)`（T051）
+
+### 依赖
+
+- 版本递增至 `0.3.0-rc.3`
+- trait-kit → `0.5.0-rc.3`、oxcache → `0.5.0-rc.4`、dbnexus → `0.6.0-rc.3`、inklog → `0.3.0-rc.3`、confers → `0.6.0-rc.3`
+- 新增 `[patch.crates-io]` 本地路径联调
+
 ## [0.3.0-rc.2] - 2026-09-03
 
 ### 文档

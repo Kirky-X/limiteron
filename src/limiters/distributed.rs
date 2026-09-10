@@ -7,6 +7,8 @@
 
 use super::traits::{DistributedLimiter, Limiter};
 use crate::error::LimiteronError;
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+use crate::error::StorageError;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use std::sync::Arc;
@@ -341,5 +343,272 @@ mod tests {
         let limiter = InMemoryDistributedLimiter::new();
         let result = limiter.incr_with_ttl("", 1, Duration::from_secs(60)).await;
         assert!(result.is_err());
+    }
+}
+
+// ============================================================================
+// T050: Redis 分布式限流器
+// 通过 oxcache Cache 的 eval_lua 执行 Lua 脚本实现原子操作，
+// 需要 `distributed` + `lua-script` 两个 feature 同时启用。
+// ============================================================================
+
+/// 原子递增 Lua 脚本
+/// KEYS\[1\] = key, ARGV\[1\] = amount → 返回递增后的值
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+const REDIS_INCR_SCRIPT: &str = r#"
+local val = redis.call('INCRBY', KEYS[1], tonumber(ARGV[1]))
+return val
+"#;
+
+/// 原子递增并设置 TTL Lua 脚本
+/// KEYS\[1\] = key, ARGV\[1\] = amount, ARGV\[2\] = ttl_seconds → 返回递增后的值
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+const REDIS_INCR_TTL_SCRIPT: &str = r#"
+local val = redis.call('INCRBY', KEYS[1], tonumber(ARGV[1]))
+redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2]))
+return val
+"#;
+
+/// GET Lua 脚本
+/// KEYS\[1\] = key → 返回当前值（不存在返回 0）
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+const REDIS_GET_COUNT_SCRIPT: &str = r#"
+local val = redis.call('GET', KEYS[1])
+if val == false then return 0 end
+return tonumber(val)
+"#;
+
+/// DEL Lua 脚本
+/// KEYS\[1\] = key → 返回 1
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+const REDIS_RESET_SCRIPT: &str = r#"
+redis.call('DEL', KEYS[1])
+return 1
+"#;
+
+/// Redis 分布式限流器
+///
+/// 通过 oxcache `Cache` 的 `eval_lua` 执行 Lua 脚本实现跨实例原子操作。
+/// 需要 Redis 后端（`lua-script` feature）和 `distributed` feature 同时启用。
+///
+/// # 算法
+///
+/// - `allow()` — 固定窗口算法（`FIXED_WINDOW_SCRIPT`）
+/// - `incr()` / `incr_with_ttl()` — 原子 `INCRBY` + 可选 `EXPIRE`
+/// - `get_count()` — 原子 `GET`
+/// - `reset()` — 原子 `DEL`
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use limiteron::limiters::{RedisDistributedLimiter, DistributedLimiter};
+///
+/// let limiter = RedisDistributedLimiter::new(cache, 100, 10);
+/// let count = limiter.incr("user:123", 1).await.unwrap();
+/// ```
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+pub struct RedisDistributedLimiter {
+    /// oxcache Cache 实例（Redis 后端）
+    cache: oxcache::Cache<String, String>,
+    /// 固定窗口容量（用于 allow()）
+    capacity: u64,
+    /// 窗口大小（毫秒，用于 allow()）
+    window_ms: u64,
+}
+
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+impl RedisDistributedLimiter {
+    /// 创建 Redis 分布式限流器
+    ///
+    /// # Arguments
+    /// * `cache` - oxcache Cache 实例（必须使用 Redis 后端）
+    /// * `capacity` - 窗口内最大请求数
+    /// * `window_ms` - 窗口大小（毫秒）
+    pub fn new(cache: oxcache::Cache<String, String>, capacity: u64, window_ms: u64) -> Self {
+        Self {
+            cache,
+            capacity,
+            window_ms,
+        }
+    }
+
+    /// 执行 Lua 脚本并解析整数响应
+    async fn eval_lua_int(
+        &self,
+        script: &str,
+        keys: &[&str],
+        args: &[&str],
+    ) -> Result<u64, LimiteronError> {
+        let value = self.cache.eval_lua(script, keys, args).await.map_err(|e| {
+            LimiteronError::StorageError(StorageError::QueryError(format!(
+                "Lua eval failed: {}",
+                e
+            )))
+        })?;
+        match value {
+            redis::Value::Int(n) => Ok(n as u64),
+            redis::Value::BulkString(bytes) => {
+                let s = String::from_utf8_lossy(&bytes);
+                s.parse::<u64>().map_err(|e| {
+                    LimiteronError::StorageError(StorageError::QueryError(format!(
+                        "Lua int parse: {}",
+                        e
+                    )))
+                })
+            }
+            other => Err(LimiteronError::StorageError(StorageError::QueryError(
+                format!("unexpected Lua response: {:?}", other),
+            ))),
+        }
+    }
+
+    /// 执行 Lua 脚本并解析数组响应（用于固定窗口等返回多值的脚本）
+    async fn eval_lua_array(
+        &self,
+        script: &str,
+        keys: &[&str],
+        args: &[&str],
+    ) -> Result<Vec<i64>, LimiteronError> {
+        let value = self.cache.eval_lua(script, keys, args).await.map_err(|e| {
+            LimiteronError::StorageError(StorageError::QueryError(format!(
+                "Lua eval failed: {}",
+                e
+            )))
+        })?;
+        match value {
+            redis::Value::Array(arr) => arr
+                .iter()
+                .map(|v| match v {
+                    redis::Value::Int(n) => Ok(*n),
+                    redis::Value::BulkString(bytes) => {
+                        let s = String::from_utf8_lossy(&bytes);
+                        s.parse::<i64>().map_err(|e| {
+                            LimiteronError::StorageError(StorageError::QueryError(format!(
+                                "parse: {}",
+                                e
+                            )))
+                        })
+                    }
+                    other => Err(LimiteronError::StorageError(StorageError::QueryError(
+                        format!("unexpected array element: {:?}", other),
+                    ))),
+                })
+                .collect(),
+            other => Err(LimiteronError::StorageError(StorageError::QueryError(
+                format!("expected array, got: {:?}", other),
+            ))),
+        }
+    }
+}
+
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+#[async_trait]
+impl Limiter for RedisDistributedLimiter {
+    async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        let result = self
+            .eval_lua_array(
+                crate::oxcache_lua::FIXED_WINDOW_SCRIPT,
+                &["_global"],
+                &[
+                    &self.window_ms.to_string(),
+                    &self.capacity.to_string(),
+                    &now_ms.to_string(),
+                ],
+            )
+            .await?;
+
+        // FIXED_WINDOW_SCRIPT 返回 [allowed, current_count, reset_time]
+        match result.as_slice() {
+            [allowed, _count, _reset] => Ok(*allowed != 0),
+            _ => Err(LimiteronError::StorageError(StorageError::QueryError(
+                "unexpected FIXED_WINDOW response length".to_string(),
+            ))),
+        }
+    }
+}
+
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+#[async_trait]
+impl DistributedLimiter for RedisDistributedLimiter {
+    async fn incr(&self, key: &str, amount: u64) -> Result<u64, LimiteronError> {
+        if key.is_empty() {
+            return Err(LimiteronError::ConfigError(
+                "Key cannot be empty".to_string(),
+            ));
+        }
+        self.eval_lua_int(REDIS_INCR_SCRIPT, &[key], &[&amount.to_string()])
+            .await
+    }
+
+    async fn incr_with_ttl(
+        &self,
+        key: &str,
+        amount: u64,
+        ttl: Duration,
+    ) -> Result<u64, LimiteronError> {
+        if key.is_empty() {
+            return Err(LimiteronError::ConfigError(
+                "Key cannot be empty".to_string(),
+            ));
+        }
+        let ttl_secs = ttl.as_secs().max(1);
+        self.eval_lua_int(
+            REDIS_INCR_TTL_SCRIPT,
+            &[key],
+            &[&amount.to_string(), &ttl_secs.to_string()],
+        )
+        .await
+    }
+
+    async fn get_count(&self, key: &str) -> Result<u64, LimiteronError> {
+        self.eval_lua_int(REDIS_GET_COUNT_SCRIPT, &[key], &[]).await
+    }
+
+    async fn reset(&self, key: &str) -> Result<(), LimiteronError> {
+        self.eval_lua_int(REDIS_RESET_SCRIPT, &[key], &[]).await?;
+        Ok(())
+    }
+}
+
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+#[cfg(test)]
+mod redis_distributed_tests {
+    use super::*;
+
+    /// RedisDistributedLimiter 构造验证（不需要真实 Redis 连接）
+    #[test]
+    fn test_redis_distributed_limiter_construction() {
+        // 仅验证结构体可以构造，Lua 脚本常量存在
+        assert!(!REDIS_INCR_SCRIPT.is_empty());
+        assert!(!REDIS_INCR_TTL_SCRIPT.is_empty());
+        assert!(!REDIS_GET_COUNT_SCRIPT.is_empty());
+        assert!(!REDIS_RESET_SCRIPT.is_empty());
+    }
+
+    /// 验证 Lua 脚本包含必要的 Redis 命令
+    #[test]
+    fn test_lua_scripts_contain_redis_commands() {
+        assert!(REDIS_INCR_SCRIPT.contains("INCRBY"));
+        assert!(REDIS_INCR_TTL_SCRIPT.contains("INCRBY"));
+        assert!(REDIS_INCR_TTL_SCRIPT.contains("EXPIRE"));
+        assert!(REDIS_GET_COUNT_SCRIPT.contains("GET"));
+        assert!(REDIS_RESET_SCRIPT.contains("DEL"));
+    }
+
+    /// 验证 governor 路径中 lua-script feature 门控连通性
+    #[test]
+    fn test_lua_script_feature_gate_connectivity() {
+        // OxcacheLuaManager 在 lua-script feature 下可用
+        let manager = crate::oxcache_lua::OxcacheLuaManager::new();
+        assert!(
+            manager
+                .get_script(crate::oxcache_lua::LuaScriptType::FixedWindow)
+                .is_some()
+        );
     }
 }

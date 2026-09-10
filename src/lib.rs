@@ -87,11 +87,11 @@ pub mod circuit;
 mod clock;
 pub mod config;
 
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub mod adapters;
 
-// DBNexus Storage Adapters (requires postgres feature)
-#[cfg(feature = "postgres")]
+// DBNexus Storage Adapters (requires postgres or sqlite feature)
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use adapters::{
     DBNexusBanStorageAdapter, DBNexusQuotaStorageAdapter, DBNexusStorageAdapter, StorageFactory,
     StorageFactoryConfig, StorageType, create_ban_storage_from_dsn, create_quota_storage_from_dsn,
@@ -101,9 +101,9 @@ pub use adapters::{
 #[cfg(feature = "cache-service")]
 pub mod cache;
 pub(crate) mod constants;
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod dbnexus_entities;
-#[cfg(feature = "postgres")]
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use dbnexus_entities::create_all_tables_ddl;
 pub mod decision_chain;
 
@@ -145,7 +145,7 @@ pub mod i18n;
 // External integrations (feature-gated). Each integration lives under
 // `integrations/` and is gated by its own feature so the core limiteron
 // library stays dependency-free when integrations are not needed.
-#[cfg(any(feature = "kit", feature = "inklog"))]
+#[cfg(any(feature = "kit", feature = "inklog", feature = "config-confers"))]
 pub mod integrations;
 
 // Tower 中间件层 (feature-gated)

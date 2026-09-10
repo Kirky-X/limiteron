@@ -1407,6 +1407,14 @@ impl Governor {
         self.l1_cache.reset_stats();
     }
 
+    /// 获取配置的原子换句柄。
+    ///
+    /// 返回 `Arc<RwLock<FlowControlConfig>>`，允许外部（如 confers 热重载）
+    /// 原子地替换当前运行配置。替换后所有后续 `check()` 调用均使用新配置。
+    pub fn config_handle(&self) -> Arc<RwLock<FlowControlConfig>> {
+        self.config.clone()
+    }
+
     // ==================== L1 缓存相关方法 ====================
 
     /// 获取 L1 缓存统计信息
@@ -4197,5 +4205,43 @@ mod governor_feature_gated_tests {
             Err(LimiteronError::LimitError("test error".to_string()));
         governor.update_stats_for_decision(&err_result);
         // 验证不会 panic 即可（stats.increment_error 内部是原子操作）
+    }
+
+    // ============================================================================
+    // T052: metrics feature 门控计数测试
+    // metrics 隐含 monitoring，启用后 governor check() 中 allow/reject/ban
+    // 三点指标记录自动激活
+    // ============================================================================
+
+    #[cfg(feature = "metrics")]
+    #[tokio::test]
+    async fn test_metrics_feature_records_check_metrics() {
+        use crate::telemetry::Metrics;
+
+        let metrics = Arc::new(Metrics::new());
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_metrics(metrics.clone())
+            .build()
+            .await
+            .expect("build with metrics should succeed");
+
+        // 执行一次 check — 触发 allow 路径
+        let ctx = RequestContext {
+            user_id: Some("metrics_test_user".to_string()),
+            ip: Some("127.0.0.1".to_string()),
+            path: "/test".to_string(),
+            method: "GET".to_string(),
+            ..Default::default()
+        };
+        let _ = governor.check(&ctx).await;
+
+        // 验证 metrics 已记录（requests_total > 0 表示 record_check 被调用）
+        assert!(
+            metrics.requests_total.get() > 0.0,
+            "metrics should record at least one check via requests_total counter"
+        );
     }
 }

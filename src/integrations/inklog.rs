@@ -30,16 +30,51 @@ pub use ::inklog::{InklogConfig, InklogError, LoggerManager};
 
 /// Initialize inklog as the global structured logging backend.
 ///
-/// Creates a `LoggerManager` with default config, which installs a global
-/// `tracing` subscriber and `log` crate bridge. The returned manager must
-/// be kept alive for the duration of the application — dropping it signals
-/// worker shutdown.
+/// Creates a `LoggerManager` with default config. Equivalent to
+/// `init_inklog_logger_with_config(InklogConfig::default())`.
 ///
 /// # Errors
 ///
 /// Returns `Err(InklogError)` if the `LoggerManager` fails to construct.
 pub async fn init_inklog_logger() -> Result<LoggerManager, InklogError> {
-    LoggerManager::with_config(InklogConfig::default()).await
+    init_inklog_logger_with_config(InklogConfig::default()).await
+}
+
+/// Initialize inklog with a custom configuration.
+///
+/// Accepts an [`InklogConfig`] so callers can control log level, output sinks
+/// (console / file / database), and per-crate target levels. The returned
+/// manager must be kept alive for the duration of the application.
+///
+/// # Audit event bridge
+///
+/// When the `inklog` feature is enabled, all `log::info!` / `tracing::info!`
+/// calls inside limiteron — including the audit logger’s `write_batch` — are
+/// automatically routed through inklog’s structured sinks. HMAC signing stays
+/// in the limiteron application layer (audit-log feature) and is unaffected.
+///
+/// # Errors
+///
+/// Returns `Err(InklogError)` if the `LoggerManager` fails to construct.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # #[cfg(feature = "inklog")]
+/// # {
+/// use limiteron::integrations::inklog::{init_inklog_logger_with_config, InklogConfig};
+///
+/// # tokio_test::block_on(async {
+/// let mut config = InklogConfig::default();
+/// config.global_level = "debug".to_string();
+/// let _manager = init_inklog_logger_with_config(config).await.expect("init");
+/// # });
+/// # }
+/// ```
+pub async fn init_inklog_logger_with_config(
+    config: InklogConfig,
+) -> Result<LoggerManager, InklogError> {
+    LoggerManager::with_config(config).await
 }
 
 #[cfg(test)]
@@ -77,6 +112,18 @@ mod tests {
         assert!(
             second.is_ok(),
             "second init should still return Ok (install failure downgraded to warn)"
+        );
+    }
+
+    /// T053: `init_inklog_logger_with_config` accepts custom InklogConfig.
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn init_inklog_logger_with_config_works() {
+        let config = InklogConfig::default();
+        let result = init_inklog_logger_with_config(config).await;
+        assert!(
+            result.is_ok(),
+            "init_inklog_logger_with_config should return Ok"
         );
     }
 }

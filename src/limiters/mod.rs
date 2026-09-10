@@ -54,5 +54,7 @@ pub use gcra::GcraLimiter;
 
 #[cfg(feature = "distributed")]
 pub use distributed::InMemoryDistributedLimiter;
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+pub use distributed::RedisDistributedLimiter;
 #[cfg(feature = "distributed")]
 pub use traits::DistributedLimiter;

@@ -310,6 +310,11 @@ postgres = ["dep:dbnexus", "dbnexus/postgres", "dbnexus/runtime-tokio-rustls", "
 # 本地开发 / 单机部署 / 测试默认使用本 feature。
 sqlite = ["dep:dbnexus", "dbnexus/sqlite", "dbnexus/runtime-tokio-rustls", "dep:sea-orm"]
 
+# MySQL 存储 - 使用 dbnexus server-side 驱动（T607，与 postgres/sqlite 并列提供）。
+# dbnexus 驱动互斥（严格）：mysql 与 postgres 互斥、与 embedded（sqlite/duckdb）
+# 互斥——多后端 crate 不适用 --all-features 验证，用显式单驱动 features 组合。
+mysql = ["dep:dbnexus", "dbnexus/mysql", "dbnexus/runtime-tokio-rustls", "dep:sea-orm"]
+
 # 缓存存储 - 通过 oxcache 切换后端 (memory/redis 等)
 cache-storage = ["cache-service", "oxcache/redis"]
 

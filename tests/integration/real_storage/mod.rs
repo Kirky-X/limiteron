@@ -11,3 +11,10 @@
 // PostgreSQL 存储测试（包含 Storage、BanStorage、QuotaStorage 测试）
 #[cfg(feature = "postgres")]
 pub mod postgres_storage;
+
+// MySQL 存储测试（T607：契约测试共享，与 postgres 同一套 contract.rs 断言）
+#[cfg(feature = "mysql")]
+pub mod mysql_storage;
+
+// 共享契约套件（postgres/mysql/sqlite 各后端复用同一组操作断言）
+pub mod contract;

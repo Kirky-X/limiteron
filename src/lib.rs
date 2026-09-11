@@ -87,11 +87,11 @@ pub mod circuit;
 mod clock;
 pub mod config;
 
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
+#[cfg(any(feature = "postgres", feature = "sqlite", feature = "mysql"))]
 pub mod adapters;
 
 // DBNexus Storage Adapters (requires postgres or sqlite feature)
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
+#[cfg(any(feature = "postgres", feature = "sqlite", feature = "mysql"))]
 pub use adapters::{
     DBNexusBanStorageAdapter, DBNexusQuotaStorageAdapter, DBNexusStorageAdapter, StorageFactory,
     StorageFactoryConfig, StorageType, create_ban_storage_from_dsn, create_quota_storage_from_dsn,
@@ -101,9 +101,9 @@ pub use adapters::{
 #[cfg(feature = "cache-service")]
 pub mod cache;
 pub(crate) mod constants;
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
+#[cfg(any(feature = "postgres", feature = "sqlite", feature = "mysql"))]
 mod dbnexus_entities;
-#[cfg(any(feature = "postgres", feature = "sqlite"))]
+#[cfg(any(feature = "postgres", feature = "sqlite", feature = "mysql"))]
 pub use dbnexus_entities::create_all_tables_ddl;
 pub mod decision_chain;
 

@@ -191,7 +191,10 @@ pub use error::{
 };
 #[cfg(feature = "fallback")]
 pub use fallback::{ComponentType, FallbackConfig, FallbackManager, FallbackStrategy};
-pub use governor::{Governor, GovernorStats, HealthStatus};
+pub use governor::{
+    ChainIntrospection, Governor, GovernorStats, HealthIntrospection, HealthStatus,
+    IntrospectionSnapshot, L1Introspection, RuleIntrospection,
+};
 pub use l1_cache::{L1Cache, L1CacheConfig, RateLimitCacheKey};
 pub use limiters::Limiter;
 #[cfg(feature = "quota-control")]

@@ -58,7 +58,7 @@ use crate::telemetry::Tracer;
 /// Governor 统计信息
 ///
 /// 保持向后兼容性的统计信息结构体。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct GovernorStats {
     /// 总请求数
     pub total_requests: u64,
@@ -1693,6 +1693,66 @@ impl Governor {
         guard.as_ref().cloned()
     }
 
+    // ========================================================================
+    // 运行时自省（T608）
+    // ========================================================================
+
+    /// 获取运行时自省快照（T608）
+    ///
+    /// 一次性聚合「规则 → 决策链 → 统计 → L1 缓存 → 健康」的结构化状态，
+    /// 供 Admin API `GET /api/v1/introspect`（JSON）与排障工具消费。
+    pub async fn introspect(&self) -> IntrospectionSnapshot {
+        let config = self.config.read().await;
+        let config_version = config.version.clone();
+        let rules = config
+            .rules
+            .iter()
+            .map(|r| RuleIntrospection {
+                id: r.id.clone(),
+                name: r.name.clone(),
+                priority: r.priority,
+                matcher_count: r.matchers.len(),
+                limiters: r.limiters.iter().map(limiter_kind).collect(),
+                ban_on_exceed: r.action.ban.is_some(),
+            })
+            .collect();
+        drop(config);
+
+        let rule_chains = self.rule_chains.read().await;
+        let mut chains: Vec<ChainIntrospection> = Vec::with_capacity(rule_chains.len());
+        for entry in rule_chains.iter() {
+            let chain = entry.value();
+            let stats = chain.stats().await;
+            chains.push(ChainIntrospection {
+                rule_id: entry.key().clone(),
+                node_count: chain.node_count(),
+                enabled_node_count: chain.enabled_node_count(),
+                total_checks: stats.total_checks,
+                allowed_count: stats.allowed_count,
+                rejected_count: stats.rejected_count,
+                error_count: stats.error_count,
+                node_rejections: stats.node_rejections,
+            });
+        }
+        drop(rule_chains);
+        chains.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+
+        IntrospectionSnapshot {
+            config_version,
+            rules,
+            chains,
+            stats: self.stats().await,
+            l1_cache: L1Introspection {
+                enabled: self.is_l1_cache_enabled(),
+                size: self.l1_cache_size().await,
+            },
+            health: HealthIntrospection::from(&self.health_status().await),
+            #[cfg(feature = "multi-tenant")]
+            multi_tenant_enabled: self.tenant_resolver.is_some(),
+            is_shutdown: self.is_shutdown(),
+        }
+    }
+
     /// 健康检查
     ///
     /// 执行真实的存储 ping、缓存可用性检查、后台任务存活检查。
@@ -1860,6 +1920,112 @@ impl HealthStatus {
             && self.ban_storage_healthy
             && self.cache_healthy
             && self.background_tasks_alive
+    }
+}
+
+// ============================================================================
+// 自省快照类型（T608，serde Serialize 供 Admin API JSON 输出）
+// ============================================================================
+
+/// 规则自省摘要
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RuleIntrospection {
+    /// 规则 ID
+    pub id: String,
+    /// 规则名
+    pub name: String,
+    /// 优先级
+    pub priority: u16,
+    /// 匹配器数量
+    pub matcher_count: usize,
+    /// 限流器类型列表
+    pub limiters: Vec<String>,
+    /// 超限是否联动封禁
+    pub ban_on_exceed: bool,
+}
+
+/// 决策链自省摘要（含运行统计）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChainIntrospection {
+    /// 规则 ID
+    pub rule_id: String,
+    /// 节点数
+    pub node_count: usize,
+    /// 启用节点数
+    pub enabled_node_count: usize,
+    /// 总检查次数
+    pub total_checks: u64,
+    /// 允许次数
+    pub allowed_count: u64,
+    /// 拒绝次数
+    pub rejected_count: u64,
+    /// 错误次数
+    pub error_count: u64,
+    /// 各节点拒绝计数
+    pub node_rejections: Vec<(String, u64)>,
+}
+
+/// L1 缓存自省摘要
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct L1Introspection {
+    /// 是否启用
+    pub enabled: bool,
+    /// 当前条目数
+    pub size: usize,
+}
+
+/// 健康自省摘要
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct HealthIntrospection {
+    pub storage_healthy: bool,
+    pub ban_storage_healthy: bool,
+    pub cache_healthy: bool,
+    pub background_tasks_alive: bool,
+}
+
+impl From<&HealthStatus> for HealthIntrospection {
+    fn from(s: &HealthStatus) -> Self {
+        Self {
+            storage_healthy: s.storage_healthy,
+            ban_storage_healthy: s.ban_storage_healthy,
+            cache_healthy: s.cache_healthy,
+            background_tasks_alive: s.background_tasks_alive,
+        }
+    }
+}
+
+/// Governor 运行时自省快照（T608）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct IntrospectionSnapshot {
+    /// 配置版本
+    pub config_version: String,
+    /// 规则清单
+    pub rules: Vec<RuleIntrospection>,
+    /// 决策链清单（按规则 ID 排序）
+    pub chains: Vec<ChainIntrospection>,
+    /// 聚合统计
+    pub stats: GovernorStats,
+    /// L1 缓存状态
+    pub l1_cache: L1Introspection,
+    /// 组件健康
+    pub health: HealthIntrospection,
+    /// 是否启用多租户（multi-tenant feature）
+    #[cfg(feature = "multi-tenant")]
+    pub multi_tenant_enabled: bool,
+    /// 是否已关闭
+    pub is_shutdown: bool,
+}
+
+/// 限流器配置类型名（自省输出用）
+fn limiter_kind(l: &crate::config::LimiterConfig) -> String {
+    use crate::config::LimiterConfig as L;
+    match l {
+        L::TokenBucket { .. } => "token_bucket".to_string(),
+        L::SlidingWindow { .. } => "sliding_window".to_string(),
+        L::FixedWindow { .. } => "fixed_window".to_string(),
+        L::Quota { .. } => "quota".to_string(),
+        L::Concurrency { .. } => "concurrency".to_string(),
+        L::Custom { name, .. } => format!("custom:{name}"),
     }
 }
 

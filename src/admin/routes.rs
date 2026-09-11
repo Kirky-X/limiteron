@@ -140,6 +140,8 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
             "/api/v1/status/circuit-breaker",
             get(handlers::get_circuit_breaker_status),
         )
+        // Governor 运行时自省（T608）
+        .route("/api/v1/introspect", get(handlers::introspect))
         .with_state(state);
 
     let api_key = config.api_key.clone();
@@ -1305,5 +1307,68 @@ mod tests {
         assert!(!role_allows(AdminRole::Viewer, &Method::POST));
         assert!(!role_allows(AdminRole::Viewer, &Method::PUT));
         assert!(!role_allows(AdminRole::Viewer, &Method::DELETE));
+    }
+
+    // ========================================================================
+    // T608：Governor 自省 API（JSON）
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_t608_introspect_returns_json_snapshot() {
+        let state = make_state().await;
+        let config = AdminApiConfig::new("test-api-key-16chars!!");
+        let app = create_router(state, &config);
+
+        let req = Request::builder()
+            .uri("/api/v1/introspect")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "自省端点应 200");
+
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        // 规则清单（test_support 配置含 test_rule）
+        let rules = json["rules"].as_array().expect("rules 数组");
+        assert!(
+            rules.iter().any(|r| r["id"] == "test_rule"),
+            "自省应包含配置规则: {json}"
+        );
+        // 决策链清单（含统计字段）
+        assert!(json["chains"].is_array(), "chains 应为数组");
+        assert!(json["stats"]["total_requests"].is_u64(), "stats 应内联");
+        assert!(
+            json["l1_cache"]["enabled"].is_boolean(),
+            "l1_cache 状态应内联"
+        );
+        assert!(
+            json["health"]["storage_healthy"].is_boolean(),
+            "健康状态应内联"
+        );
+        // jq 可解析的结构化 JSON（字段齐全）
+        assert!(json["config_version"].is_string());
+        assert!(json["is_shutdown"].is_boolean());
+    }
+
+    #[tokio::test]
+    async fn test_t608_introspect_reflects_requests() {
+        let state = make_state().await;
+        // 触发一次请求让 stats 变化
+        let ctx = crate::matchers::RequestContext::new().with_path("/x");
+        let _ = state.governor.check(&ctx).await;
+
+        let snapshot = state.governor.introspect().await;
+        assert!(
+            snapshot.stats.total_requests >= 1,
+            "自省统计应反映已发生的请求"
+        );
+        assert!(
+            snapshot
+                .rules
+                .iter()
+                .any(|r| r.limiters.iter().any(|k| k == "token_bucket")),
+            "规则限流器类型应输出 kind 名"
+        );
     }
 }

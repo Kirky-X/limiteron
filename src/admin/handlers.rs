@@ -159,6 +159,50 @@ pub async fn get_status(State(state): State<AppState>) -> Json<ApiResponse<Syste
     }))
 }
 
+// ==================== Governor 自省（T608） ====================
+
+/// GET /api/v1/introspect —— 运行时自省快照（JSON）
+///
+/// 聚合 Governor 的规则/决策链/统计/L1 缓存/健康状态，并叠加
+/// 封禁清单（ban-manager）与熔断状态（circuit-breaker）。
+/// 只读端点：viewer 角色即可访问。
+pub async fn introspect(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let snapshot = state.governor.introspect().await;
+    let mut body = serde_json::to_value(&snapshot).unwrap_or_else(|_| serde_json::json!({}));
+
+    #[cfg(feature = "ban-manager")]
+    if let Some(ref bm) = state.ban_manager {
+        if let Ok(bans) = bm
+            .list_bans(BanFilter {
+                active_only: true,
+                ..Default::default()
+            })
+            .await
+        {
+            let items: Vec<serde_json::Value> = bans
+                .iter()
+                .map(|b| {
+                    serde_json::json!({
+                        "target": b.target,
+                        "ban_times": b.ban_times,
+                        "is_manual": b.is_manual,
+                        "reason": b.reason,
+                        "expires_at": b.expires_at.to_rfc3339(),
+                    })
+                })
+                .collect();
+            body["active_bans"] = serde_json::Value::Array(items);
+        }
+    }
+
+    #[cfg(feature = "circuit-breaker")]
+    if let Some(ref cb) = state.circuit_breaker {
+        body["circuit_breaker_state"] = serde_json::json!(cb.get_state().await.to_string());
+    }
+
+    Json(body)
+}
+
 // ==================== 封禁管理 ====================
 
 /// 解除封禁请求

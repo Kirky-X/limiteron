@@ -22,6 +22,7 @@ pub mod factory;
 pub mod fixed_window;
 #[cfg(feature = "gcra")]
 pub mod gcra;
+pub mod htb;
 #[cfg(feature = "macros")]
 pub mod manager;
 pub mod sharded_sliding_window;
@@ -46,6 +47,7 @@ pub mod distributed;
 pub use batch_prefetch::{BatchTokenPrefetcher, PrefetchResult};
 pub use concurrency::ConcurrencyLimiter;
 pub use fixed_window::FixedWindowLimiter;
+pub use htb::HierarchicalTokenBucket;
 pub use sharded_sliding_window::ShardedSlidingWindowLimiter;
 #[allow(deprecated)]
 pub use sliding_window::SlidingWindowLimiter;

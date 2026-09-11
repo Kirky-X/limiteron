@@ -85,3 +85,63 @@ fn test_flow_control_macro_is_available() {
 // - `on_exceed = "throttle"`：当前未实现（`LimiteronError::Throttled` 变体不存在），
 //   `generate_flow_control` 生成 `compile_error!`（Rule 12：失败必须显性化）
 // - 未知 `on_exceed` 值：在 `FlowControlConfig::parse` 阶段被拒绝（Rule 12）
+
+// ============================================================================
+// T615：throttle 排队模式运行时行为（真实宏展开 + 真实令牌桶）
+// ============================================================================
+
+/// rate="1/s"：容量 1、补充 1/s；耗尽后排队等待补充（队列时限 5s）
+#[limiteron::flow_control(
+    rate = "1/s",
+    on_exceed = "throttle",
+    key_prefix = "t615q",
+    queue_ms = 5000,
+    poll_ms = 25,
+    tracing = false,
+    metrics = false
+)]
+async fn t615_queued_call() -> Result<&'static str, limiteron::LimiteronError> {
+    Ok("ok")
+}
+
+/// 队列时限 40ms：补充周期 1s 内拿不到令牌 → Throttled
+#[limiteron::flow_control(
+    rate = "1/s",
+    on_exceed = "throttle",
+    key_prefix = "t615t",
+    queue_ms = 40,
+    poll_ms = 20,
+    tracing = false,
+    metrics = false
+)]
+async fn t615_short_queue_call() -> Result<&'static str, limiteron::LimiteronError> {
+    Ok("ok")
+}
+
+#[tokio::test]
+async fn test_t615_throttle_queues_until_token_refills() {
+    // 第 1 次调用消耗唯一令牌
+    assert_eq!(t615_queued_call().await.unwrap(), "ok");
+    // 第 2 次调用被限流 → 进入队列轮询，~1s 后令牌补充 → 成功
+    let start = std::time::Instant::now();
+    let r = t615_queued_call().await;
+    let elapsed = start.elapsed();
+    assert_eq!(r.unwrap(), "ok", "排队后应成功获得补充的令牌");
+    assert!(
+        elapsed >= std::time::Duration::from_millis(200),
+        "第 2 次调用必须经历排队等待（实际 {:?}）",
+        elapsed
+    );
+}
+
+#[tokio::test]
+async fn test_t615_throttle_times_out_with_throttled_error() {
+    // 第 1 次调用消耗唯一令牌
+    assert_eq!(t615_short_queue_call().await.unwrap(), "ok");
+    // 第 2 次调用：40ms 队列时限 < 1s 补充周期 → 超时返回 Throttled
+    let err = t615_short_queue_call().await.unwrap_err();
+    assert!(
+        matches!(err, limiteron::LimiteronError::Throttled(_)),
+        "队列超时必须返回 Throttled，实际: {err}"
+    );
+}

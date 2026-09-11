@@ -43,6 +43,11 @@ struct FlowControlConfig {
     enable_tracing: bool,
     /// 是否启用 metrics 记录（默认 true）
     enable_metrics: bool,
+    /// throttle 排队模式：队列最大等待时长（毫秒，默认 2000）。
+    /// 超时仍未获得令牌 → 返回 `LimiteronError::Throttled`（T615）。
+    queue_ms: u64,
+    /// throttle 排队模式：令牌轮询间隔（毫秒，默认 20）
+    poll_ms: u64,
 }
 
 impl Default for FlowControlConfig {
@@ -57,9 +62,16 @@ impl Default for FlowControlConfig {
             key_prefix: None,
             enable_tracing: true,
             enable_metrics: true,
+            queue_ms: DEFAULT_QUEUE_MAX_WAIT_MS,
+            poll_ms: DEFAULT_QUEUE_POLL_MS,
         }
     }
 }
+
+/// throttle 排队默认队列时限（毫秒，T615）
+const DEFAULT_QUEUE_MAX_WAIT_MS: u64 = 2_000;
+/// throttle 排队默认轮询间隔（毫秒，T615）
+const DEFAULT_QUEUE_POLL_MS: u64 = 20;
 
 impl FlowControlConfig {
     #[allow(clippy::collapsible_if)]
@@ -127,6 +139,24 @@ impl FlowControlConfig {
                             if let syn::Expr::Lit(expr_lit) = nv.value {
                                 if let syn::Lit::Str(lit) = expr_lit.lit {
                                     config.key_prefix = Some(lit.value());
+                                }
+                            }
+                        }
+                        "queue_ms" => {
+                            if let syn::Expr::Lit(expr_lit) = nv.value {
+                                if let syn::Lit::Int(lit) = expr_lit.lit {
+                                    config.queue_ms = lit
+                                        .base10_parse()
+                                        .map_err(|e| format!("Invalid queue_ms: {}", e))?;
+                                }
+                            }
+                        }
+                        "poll_ms" => {
+                            if let syn::Expr::Lit(expr_lit) = nv.value {
+                                if let syn::Lit::Int(lit) = expr_lit.lit {
+                                    config.poll_ms = lit
+                                        .base10_parse()
+                                        .map_err(|e| format!("Invalid poll_ms: {}", e))?;
                                 }
                             }
                         }
@@ -308,6 +338,10 @@ fn build_exceed_handler(
     mode: &str,
     error_variant: &str,
     reject_message: &str,
+    // T615：throttle 排队模式的重试表达式（产生 bool）。None = 该限流器不支持排队。
+    retry_expr: Option<proc_macro2::TokenStream>,
+    queue_ms: u64,
+    poll_ms: u64,
 ) -> proc_macro2::TokenStream {
     let error_variant = syn::Ident::new(error_variant, proc_macro2::Span::call_site());
     match mode {
@@ -320,13 +354,38 @@ fn build_exceed_handler(
         "log_only" => quote! {
             // log_only: 不拒绝，记录 metrics 后继续执行原函数
         },
-        "throttle" => {
-            let err_msg = syn::LitStr::new(
-                "on_exceed = \"throttle\" is not yet supported in this version (LimiteronError::Throttled variant not available); use \"reject\" or \"log_only\"",
-                proc_macro2::Span::call_site(),
-            );
-            quote! { compile_error!(#err_msg); }
-        }
+        "throttle" => match retry_expr {
+            Some(retry_ok) => {
+                // T615 排队 MVP：有界等待重试——令牌耗尽时进入队列轮询，
+                // 直至拿到令牌或超过队列时限（queue_ms）；超时返回
+                // `LimiteronError::Throttled`（失败显性化，不静默丢弃）。
+                let msg = reject_message.to_string();
+                quote! {
+                    {
+                        let __deadline = tokio::time::Instant::now()
+                            + std::time::Duration::from_millis(#queue_ms);
+                        loop {
+                            if tokio::time::Instant::now() >= __deadline {
+                                return Err(limiteron::error::LimiteronError::Throttled(
+                                    #msg.to_string(),
+                                ));
+                            }
+                            tokio::time::sleep(std::time::Duration::from_millis(#poll_ms)).await;
+                            if #retry_ok {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            None => {
+                let err_msg = syn::LitStr::new(
+                    "on_exceed = \"throttle\" (queueing) is not supported for concurrency limiters in this MVP; use \"reject\" or \"log_only\"",
+                    proc_macro2::Span::call_site(),
+                );
+                quote! { compile_error!(#err_msg); }
+            }
+        },
         _ => {
             let err_msg = syn::LitStr::new(
                 &format!(
@@ -377,12 +436,26 @@ fn generate_flow_control(
     let sanitized_prefix = sanitize_key_component(&key_prefix_str);
     let sanitized_fname = sanitize_key_component(&fn_name_str);
 
+    // T615：throttle 排队模式要求 async fn（生成的队列轮询使用 .await）
+    if on_exceed_mode == "throttle" && !is_async {
+        return Err(
+            "on_exceed = \"throttle\" (queueing) requires an async fn; mark the function async or use on_exceed = \"reject\""
+                .to_string(),
+        );
+    }
+
     // 根据 on_exceed 模式生成 rate check 失败时的处理代码
     // - "reject": 返回 RateLimitExceeded 错误（默认行为）
     // - "log_only": 不返回错误，继续执行原函数
-    // - "throttle": 当前版本未实现（LimiteronError::Throttled 变体不存在），生成 compile_error
-    let rate_exceed_handler =
-        build_exceed_handler(on_exceed_mode, "RateLimitExceeded", &reject_message);
+    // - "throttle"（T615）: 排队重试直至获得令牌或超时返回 Throttled
+    let rate_exceed_handler = build_exceed_handler(
+        on_exceed_mode,
+        "RateLimitExceeded",
+        &reject_message,
+        Some(quote! { rate_limiter.allow(1).await.unwrap_or(false) }),
+        config.queue_ms,
+        config.poll_ms,
+    );
 
     let rate_check = if let Some(ref rate) = config.rate {
         let amount = rate.amount;
@@ -433,8 +506,14 @@ fn generate_flow_control(
         quote!()
     };
 
-    let quota_exceed_handler =
-        build_exceed_handler(on_exceed_mode, "QuotaExceeded", &reject_message);
+    let quota_exceed_handler = build_exceed_handler(
+        on_exceed_mode,
+        "QuotaExceeded",
+        &reject_message,
+        Some(quote! { quota_limiter.check(&quota_key).await.is_ok() }),
+        config.queue_ms,
+        config.poll_ms,
+    );
 
     let quota_check = if let Some(ref quota) = config.quota {
         let max = quota.max;
@@ -479,8 +558,16 @@ fn generate_flow_control(
         quote!()
     };
 
-    let concurrency_exceed_handler =
-        build_exceed_handler(on_exceed_mode, "ConcurrencyLimitExceeded", &reject_message);
+    // 并发限流器不支持排队 MVP（permit 持有语义与重试循环冲突）→
+    // throttle + concurrency 在展开期生成 compile_error（失败显性化）
+    let concurrency_exceed_handler = build_exceed_handler(
+        on_exceed_mode,
+        "ConcurrencyLimitExceeded",
+        &reject_message,
+        None,
+        config.queue_ms,
+        config.poll_ms,
+    );
 
     let concurrency_check = if let Some(concurrency) = config.concurrency {
         let fname = sanitized_fname.clone();
@@ -710,7 +797,7 @@ mod tests {
 
     #[test]
     fn test_parse_on_exceed_throttle_accepted() {
-        // throttle 当前未实现但 parse 接受，由 generate_flow_control 生成 compile_error
+        // T615：throttle 为真实排队模式（生成有界等待重试 + Throttled 超时）
         let tokens: proc_macro2::TokenStream =
             quote::quote! { rate = "100/s", on_exceed = "throttle" };
         let config = FlowControlConfig::parse(&tokens).unwrap();
@@ -825,8 +912,9 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_throttle_mode_emits_compile_error() {
-        // T006: on_exceed = "throttle" 应生成 compile_error（Throttled 变体不存在）
+    fn test_generate_throttle_mode_emits_queue_code() {
+        // T615: on_exceed = "throttle" 生成排队重试代码（轮询 + 队列时限 +
+        // 超时返回 Throttled），替代此前的 compile_error 占位
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -841,15 +929,106 @@ mod tests {
         let tokens_str = tokens.to_string();
 
         assert!(
-            tokens_str.contains("compile_error"),
-            "throttle mode should emit compile_error; tokens = {}",
+            tokens_str.contains("Throttled"),
+            "throttle mode should return LimiteronError::Throttled on queue timeout; tokens = {}",
             tokens_str
         );
         assert!(
-            tokens_str.contains("throttle"),
-            "compile_error message should mention throttle; tokens = {}",
+            tokens_str.contains("tokio :: time :: sleep") || tokens_str.contains("sleep"),
+            "throttle mode should poll with sleep; tokens = {}",
             tokens_str
         );
+        assert!(
+            tokens_str.contains("2000") && tokens_str.contains("20"),
+            "default queue_ms=2000 / poll_ms=20 should appear; tokens = {}",
+            tokens_str
+        );
+        assert!(
+            tokens_str.contains("allow (1) . await") || tokens_str.contains("allow"),
+            "throttle retry must re-attempt allow(1); tokens = {}",
+            tokens_str
+        );
+    }
+
+    #[test]
+    fn test_generate_throttle_mode_custom_queue_params() {
+        // T615: queue_ms / poll_ms 宏参数覆盖默认队列参数
+        let config = FlowControlConfig {
+            rate: Some(RateLimit {
+                amount: 10,
+                unit: "s".to_string(),
+            }),
+            on_exceed: "throttle".to_string(),
+            reject_message: "Rate limit exceeded".to_string(),
+            queue_ms: 500,
+            poll_ms: 25,
+            ..Default::default()
+        };
+        let input_fn = make_test_fn("test_fn_throttle_custom");
+        let tokens = generate_flow_control(&input_fn, &config).unwrap();
+        let tokens_str = tokens.to_string();
+        assert!(
+            tokens_str.contains("500") && tokens_str.contains("25"),
+            "custom queue_ms/poll_ms should appear in generated code; tokens = {}",
+            tokens_str
+        );
+    }
+
+    #[test]
+    fn test_generate_throttle_mode_sync_fn_rejected() {
+        // T615：throttle 排队需要 .await，同步函数应被拒绝（展开期错误）
+        let config = FlowControlConfig {
+            rate: Some(RateLimit {
+                amount: 10,
+                unit: "s".to_string(),
+            }),
+            on_exceed: "throttle".to_string(),
+            reject_message: "Rate limit exceeded".to_string(),
+            ..Default::default()
+        };
+        let input: proc_macro2::TokenStream = quote::quote! {
+            fn sync_fn_throttle() -> u32 { 42 }
+        };
+        let input_fn = syn::parse2::<ItemFn>(input).unwrap();
+        let err = generate_flow_control(&input_fn, &config).unwrap_err();
+        assert!(
+            err.contains("async"),
+            "sync fn + throttle must be rejected with async hint; err = {err}"
+        );
+    }
+
+    #[test]
+    fn test_generate_throttle_mode_concurrency_emits_compile_error() {
+        // T615 MVP：并发限流器不支持排队（permit 持有语义冲突）→ compile_error
+        let config = FlowControlConfig {
+            concurrency: Some(5),
+            on_exceed: "throttle".to_string(),
+            reject_message: "Rate limit exceeded".to_string(),
+            ..Default::default()
+        };
+        let input_fn = make_test_fn("test_fn_throttle_conc");
+        let tokens = generate_flow_control(&input_fn, &config).unwrap();
+        let tokens_str = tokens.to_string();
+        assert!(
+            tokens_str.contains("compile_error"),
+            "throttle + concurrency should emit compile_error in MVP; tokens = {}",
+            tokens_str
+        );
+    }
+
+    #[test]
+    fn test_parse_queue_params_defaults_and_overrides() {
+        // T615：queue_ms/poll_ms 解析与默认值
+        let tokens = quote::quote! { rate = "100/s" };
+        let config = FlowControlConfig::parse(&tokens).unwrap();
+        assert_eq!(config.queue_ms, 2_000, "default queue_ms");
+        assert_eq!(config.poll_ms, 20, "default poll_ms");
+
+        let tokens =
+            quote::quote! { rate = "100/s", on_exceed = "throttle", queue_ms = 500, poll_ms = 25 };
+        let config = FlowControlConfig::parse(&tokens).unwrap();
+        assert_eq!(config.queue_ms, 500);
+        assert_eq!(config.poll_ms, 25);
     }
 
     #[test]

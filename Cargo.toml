@@ -366,6 +366,9 @@ monitoring = ["dep:prometheus", "dep:scopeguard"]
 # 隐含 monitoring 以激活 Metrics struct 和 Prometheus 计数器
 metrics = ["monitoring", "dbnexus/metrics"]
 audit-log = ["telemetry", "dep:hmac", "dep:sha2", "dep:hex"]
+# otlp 追踪导出（T606）：init_jaeger_tracer 升级为 OTLP/HTTP exporter
+# （手工 HTTP/1.1 客户端，无新增依赖；传输可 mock，mock collector 单测覆盖）
+otlp = ["telemetry"]
 
 # ============================================
 # Tooling Features (工具)
@@ -445,6 +448,12 @@ path = "tests/e2e/e2e_advanced.rs"
 name = "probes_e2e"
 path = "tests/e2e/probes_e2e.rs"
 required-features = ["admin-api"]
+
+# T606：OTLP 追踪导出（mock collector 单测）
+[[test]]
+name = "otlp_export_tests"
+path = "tests/telemetry/otlp_export_tests.rs"
+required-features = ["otlp"]
 
 [[bench]]
 name = "throughput"

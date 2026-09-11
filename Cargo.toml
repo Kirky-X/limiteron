@@ -386,7 +386,8 @@ otlp = ["telemetry"]
 # ============================================
 macros = ["dep:limiteron-macros"]
 config-watcher = ["dep:notify"]
-webhook = ["dep:reqwest"]
+# webhook 外发（T614 起含 HMAC-SHA256 签名头 + 时间戳防重放，签名依赖与 audit-log 共享）
+webhook = ["dep:reqwest", "dep:hmac", "dep:sha2", "dep:hex"]
 
 # ============================================
 # Event System (事件系统)

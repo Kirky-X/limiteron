@@ -191,6 +191,12 @@ pub use error::{
 // Event system types (feature-gated)
 #[cfg(feature = "event-system")]
 pub use events::{Event, EventConfig, EventDispatcher, EventEmitter, EventHandler, EventType};
+// Webhook 外发签名（T614）：HMAC-SHA256 签名头 + 时间戳防重放
+#[cfg(all(feature = "event-system", feature = "webhook"))]
+pub use events::webhook_signature::{
+    SIGNATURE_HEADER, TIMESTAMP_HEADER, WebhookSignature, WebhookSigner, WebhookVerifyError,
+    global_webhook_signer, set_global_webhook_signer,
+};
 // Error abstraction types
 pub use error::{
     BanSafeError, ConfigSafeError, ErrorMessageAbstraction, GeneralSafeError, LimitSafeError,

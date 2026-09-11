@@ -53,6 +53,11 @@ mod dispatcher;
 mod emitter;
 mod types;
 
+// Webhook 外发签名（T614）：HMAC-SHA256 签名头 + 时间戳防重放。
+// 公开导出经 lib.rs 根（本模块为私有 mod）。
+#[cfg(feature = "webhook")]
+pub(crate) mod webhook_signature;
+
 // Re-export all public types
 pub use dispatcher::EventDispatcher;
 pub use emitter::EventEmitter;

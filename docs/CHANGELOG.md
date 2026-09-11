@@ -9,6 +9,34 @@
 
 ## [0.3.0-rc.3] - 2026-09-10
 
+### 新增（workspace-rc4-completion Phase 6 累计）
+
+- **K8s 探针与指标端点**：admin API `/healthz` `/readyz` `/metrics`（bypass 认证，T601）
+- **多租户贯穿 Governor**：tenant+key 复合决策键，存储/配额/封禁按租户隔离（T602）
+- **限流预检**：`Limiter::peek(cost)`/`remaining()` 非消费查询 + IETF 标准 `RateLimit-*` 头数据（T603）
+- **CIDR 网段封禁**：IPv4/IPv6 CIDR 段匹配 + 最长前缀匹配（T604）
+- **Admin RBAC**：多 key 令牌认证 + admin/viewer 角色矩阵（越权 403，T605）
+- **OTLP 追踪导出**：`otlp` feature 的 OTLP/HTTP exporter 替代 stub（mock collector 单测，T606）
+- **MySQL 存储后端**：`mysql` feature（dbnexus server-side 驱动，契约测试共享，T607）
+- **Governor 自省 API**：`GET /api/v1/introspect` 规则/决策链/配额/封禁/熔断 JSON（T608）
+- **审计哈希链**：审计事件 HMAC-SHA256(prev‖payload) 链式签名 + `verify_chain` 篡改检测（T609）
+- **AIMD 自适应并发限流**：`adaptive-limiting` feature 真实实现（延迟/错误率反馈调窗，熔断联动，T610）
+- **舱壁隔离**：`bulkhead` feature——按资源组分池 + 独立并发预算/熔断/隔离指标（T611）
+- **配置 CLI**：`limiteron-cli` 二进制（`cli` feature）——规则文件校验/导出/apply dry-run，JSON 输出 + 退出码 0/1/2（T612）
+- **热更新/批量 API**：`POST /api/v1/config` 原子换配置（同步重建规则匹配器与决策链 + L1 失效 + 历史记录）；`POST /api/v1/check/batch` N key 一次决策；`POST /api/v1/tokens/prefetch` 批量令牌预取（`BatchTokenPrefetcher`，T613）
+- **Webhook 签名**：外发事件 HMAC-SHA256 签名头（`X-Limiteron-Signature`）+ 时间戳防重放（`X-Limiteron-Timestamp`，默认 300s 窗口；`webhook` feature，T614）
+- **HTB 分层令牌桶**：`HierarchicalTokenBucket` 父/子借用（全有或全无、兄弟隔离，T615）
+- **宏 throttle 排队**：`on_exceed = "throttle"` 真实实现——有界等待重试（`queue_ms`/`poll_ms` 可配），超时返回 `LimiteronError::Throttled`（T615）
+- **事件 Outbox**：`limiteron_event_outbox` 表（Transactional Outbox，append/pending/mark_published，sqlite 本地测试，T616）
+- **封禁跨实例同步**：`ban-sync` feature 经 oxcache Pub/Sub 协议层广播封禁变更（自消息豁免，mock 单测，T616）
+- **下层端口实现与 kit 对齐**：inklog `SinkRateLimit` 真实实现（按 target 分桶 + ERROR 直通 + 失败归还）；dbnexus `QueryThrottle` 端口语义文档化 + `LimiteronQueryThrottle` 实现；`LimiteronModule` 补 trait-kit `AsyncHealthCheck`/`AsyncLifecycle` 端口并依赖 `OxcacheModule` 注入缓存（dbnexus T413 范式；T617）
+
+### 变更（workspace-rc4-completion Phase 6 累计）
+
+- `kit` feature 扩展：`dep:trait-kit` + `dep:futures` + `oxcache/kit`；trait-kit 依赖补 `health`/`lifecycle` features（T617）
+- `integrations` 模块改为恒编译（子模块保持各自 feature 门控；`query_throttle` 无外部依赖）（T617）
+- `LimiteronError` 新增 `Throttled` 变体（宏 throttle 队列超时，T615）
+
 ### 新增
 
 - **Redis 分布式限流器** (`RedisDistributedLimiter`)：实现 `DistributedLimiter` trait，5 个 Lua 脚本经 oxcache `eval_lua` 执行，需 `distributed` + `lua-script` 双 feature（T050）

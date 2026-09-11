@@ -17,15 +17,17 @@
 //!
 //! # tokio_test::block_on(async {
 //! // 根 100；子类 api 60；叶子 premium 40
-//! let htb = HierarchicalTokenBucket::new(100, 100);
-//! htb.add_class(&["api"], 60, 60).unwrap();
-//! htb.add_class(&["api", "premium"], 40, 40).unwrap();
+//! // refill_rate = 0（静态预算）保证示例确定性
+//! let htb = HierarchicalTokenBucket::new(20, 0);
+//! htb.add_class(&["api"], 20, 0).unwrap();
+//! htb.add_class(&["api", "premium"], 40, 0).unwrap();
 //!
-//! assert!(htb.allow(&["api", "premium"], 30).await.unwrap());
-//! // 子桶只剩 10：借根桶 15 补齐
-//! assert!(htb.allow(&["api", "premium"], 25).await.unwrap());
-//! // 根桶剩余 45，缺口 60 → 全有或全无拒绝
-//! assert!(!htb.allow(&["api", "premium"], 60).await.unwrap());
+//! assert!(htb.allow(&["api", "premium"], 10).await.unwrap());
+//! assert_eq!(htb.available(&["api", "premium"]).unwrap(), 30);
+//! // 子桶只剩 30：请求 40 → 缺口 10 向父桶借
+//! assert!(htb.allow(&["api", "premium"], 40).await.unwrap());
+//! // 链上剩余 0 + 20 + 20 = 40 < 50 → 全有或全无拒绝
+//! assert!(!htb.allow(&["api", "premium"], 50).await.unwrap());
 //! # });
 //! ```
 

@@ -66,7 +66,7 @@ pub async fn init_inklog_logger() -> Result<LoggerManager, InklogError> {
 ///
 /// # tokio_test::block_on(async {
 /// let mut config = InklogConfig::default();
-/// config.global_level = "debug".to_string();
+/// config.global.level = "debug".to_string();
 /// let _manager = init_inklog_logger_with_config(config).await.expect("init");
 /// # });
 /// # }

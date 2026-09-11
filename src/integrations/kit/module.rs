@@ -45,7 +45,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use oxcache::integrations::kit::{OxcacheConfig, OxcacheModule};
+use oxcache::integrations::kit::OxcacheModule;
 use trait_kit::prelude::*;
 
 /// 存储覆盖配置 — 通过 `AsyncKit::set_config(LimiteronStorageConfig::...)`
@@ -234,6 +234,7 @@ mod tests {
     use crate::matchers::Identifier;
     #[cfg(feature = "ban-manager")]
     use crate::storage::{BanHistory, BanRecord, BanTarget};
+    use oxcache::integrations::kit::OxcacheConfig;
     #[cfg(feature = "ban-manager")]
     use std::any::Any;
     use std::any::TypeId;

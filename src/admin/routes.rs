@@ -18,7 +18,11 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use super::{config::AdminApiConfig, handlers, server::AppState};
+use super::{
+    config::{AdminApiConfig, AdminRole},
+    handlers,
+    server::AppState,
+};
 
 /// vuln-0001 修复：通过 request extensions 传递的鉴权 operator 身份
 ///
@@ -27,6 +31,26 @@ use super::{config::AdminApiConfig, handlers, server::AppState};
 /// 不再信任 JSON body 中的 `operator` 字段，防止身份伪造。
 #[derive(Debug, Clone)]
 pub struct OperatorIdentity(pub String);
+
+/// T605：通过 request extensions 传递的鉴权角色
+///
+/// middleware 鉴权通过后按 `AdminApiConfig::api_key_roles` 解析角色写入
+/// extensions；handlers 可据此区分调用者权限级别。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OperatorRole(pub AdminRole);
+
+/// T605：端点所需角色（基于 HTTP 方法）
+///
+/// GET/HEAD 为只读（viewer 可访问）；其余方法（POST/PUT/DELETE 等）为
+/// 写操作，需要 admin。探针路径（/healthz /readyz /metrics）在更早的
+/// bypass 分支放行，不进入本判定。
+pub(crate) fn role_allows(role: AdminRole, method: &http::Method) -> bool {
+    if method == http::Method::GET || method == http::Method::HEAD {
+        role.allows_read()
+    } else {
+        role.allows_write()
+    }
+}
 
 /// HIGH-001: per-client rate limit bucket 类型
 ///
@@ -120,6 +144,8 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
 
     let api_key = config.api_key.clone();
     let operator_mapping = config.api_key_operators.clone();
+    let role_mapping = config.api_key_roles.clone();
+    let valid_keys = config.api_key_roles.keys().cloned().collect::<Vec<_>>();
     let rate_limits = config.rate_limits.clone();
     // HIGH-001 修复：per-client rate buckets，key = (group, client_ip)
     //
@@ -135,6 +161,8 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
         move |mut req: Request<Body>, next: axum::middleware::Next| {
             let api_key = api_key.clone();
             let operator_mapping = operator_mapping.clone();
+            let role_mapping = role_mapping.clone();
+            let valid_keys = valid_keys.clone();
             let rate_limits = rate_limits.clone();
             let rate_buckets = rate_buckets.clone();
             async move {
@@ -200,33 +228,63 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
                     .and_then(|v| v.to_str().ok());
 
                 let expected = format!("Bearer {}", api_key);
-                match auth_header {
-                    Some(token) if constant_time_eq(token, &expected) => {
-                        // vuln-0001 修复：API key 鉴权通过后，
-                        // 将 operator 身份从 mapping 解析并写入 request extensions。
-                        // 必须用请求中实际提交的 token（而非全局单一 api_key）查映射，
-                        // 否则多 key 部署下所有 key 都落到同一 operator，丧失身份隔离。
-                        // mapping 为空 → 回退到默认 "admin-api"（向后兼容），记录 warn。
-                        let raw_key = token.strip_prefix("Bearer ").unwrap_or(token);
-                        let operator =
-                            operator_mapping.get(raw_key).cloned().unwrap_or_else(|| {
-                                log::warn!(
-                                    target: "admin-api",
-                                    "API key 未配置 operator 映射，回退到默认 'admin-api'；\
-                                     建议通过 AdminApiConfig::with_api_key_operator 配置显式映射\
-                                     以防止 operator 身份伪造"
-                                );
-                                "admin-api".to_string()
-                            });
-                        req.extensions_mut().insert(OperatorIdentity(operator));
-                        next.run(req).await
+                let token = match auth_header {
+                    Some(token)
+                        if constant_time_eq(token, &expected)
+                            || valid_keys
+                                .iter()
+                                .any(|k| constant_time_eq(token, &format!("Bearer {k}"))) =>
+                    {
+                        Some(token.to_string())
                     }
-                    _ => {
-                        let mut resp = axum::response::Response::new(Body::from("Invalid API key"));
-                        *resp.status_mut() = StatusCode::UNAUTHORIZED;
-                        resp
-                    }
+                    _ => None,
+                };
+                let Some(token) = token else {
+                    let mut resp = axum::response::Response::new(Body::from("Invalid API key"));
+                    *resp.status_mut() = StatusCode::UNAUTHORIZED;
+                    return resp;
+                };
+
+                // vuln-0001 修复：API key 鉴权通过后，
+                // 将 operator 身份从 mapping 解析并写入 request extensions。
+                // 必须用请求中实际提交的 token（而非全局单一 api_key）查映射，
+                // 否则多 key 部署下所有 key 都落到同一 operator，丧失身份隔离。
+                // mapping 为空 → 回退到默认 "admin-api"（向后兼容），记录 warn。
+                let raw_key = token.strip_prefix("Bearer ").unwrap_or(&token).to_string();
+                let operator = operator_mapping.get(&raw_key).cloned().unwrap_or_else(|| {
+                    log::warn!(
+                        target: "admin-api",
+                        "API key 未配置 operator 映射，回退到默认 'admin-api'；\
+                         建议通过 AdminApiConfig::with_api_key_operator 配置显式映射\
+                         以防止 operator 身份伪造"
+                    );
+                    "admin-api".to_string()
+                });
+                req.extensions_mut().insert(OperatorIdentity(operator));
+
+                // T605 RBAC：解析角色 → 端点授权（越权 403，与凭证无效 401 区分）。
+                // 未在角色映射中的合法 key 默认 admin（向后兼容单 key 部署）。
+                let role = role_mapping
+                    .get(&raw_key)
+                    .copied()
+                    .unwrap_or(AdminRole::Admin);
+                if !role_allows(role, req.method()) {
+                    log::warn!(
+                        target: "admin-api",
+                        "RBAC 拒绝：role={} 无权访问 {} {}",
+                        role.as_str(),
+                        req.method(),
+                        req.uri().path()
+                    );
+                    let mut resp = axum::response::Response::new(Body::from(
+                        "Insufficient role for this operation",
+                    ));
+                    *resp.status_mut() = StatusCode::FORBIDDEN;
+                    return resp;
                 }
+                req.extensions_mut().insert(OperatorRole(role));
+
+                next.run(req).await
             }
         },
     ));
@@ -1115,5 +1173,137 @@ mod tests {
             StatusCode::OK,
             "同一 client 的不同 group 应独立计数"
         );
+    }
+
+    // ========================================================================
+    // T605：Admin RBAC（admin/viewer 角色矩阵，越权 403）
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_t605_viewer_key_can_read_status() {
+        let state = make_state().await;
+        let config = AdminApiConfig::new("primary-key-16chars!!!")
+            .with_api_key_role("viewer-key-16chars!!", AdminRole::Viewer);
+        let app = create_router(state, &config);
+
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer viewer-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "viewer 读端点应放行");
+    }
+
+    #[tokio::test]
+    async fn test_t605_viewer_key_write_ban_returns_403() {
+        let state = make_state().await;
+        let config = AdminApiConfig::new("primary-key-16chars!!!")
+            .with_api_key_role("viewer-key-16chars!!", AdminRole::Viewer);
+        let app = create_router(state, &config);
+
+        let req = Request::builder()
+            .uri("/api/v1/ban")
+            .method("POST")
+            .header(AUTHORIZATION, "Bearer viewer-key-16chars!!")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                r#"{"target":{"type":"ip","value":"1.2.3.4"},"reason":"x"}"#.to_string(),
+            ))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "viewer 写端点必须 403"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_t605_viewer_key_delete_ban_returns_403() {
+        let state = make_state().await;
+        let config = AdminApiConfig::new("primary-key-16chars!!!")
+            .with_api_key_role("viewer-key-16chars!!", AdminRole::Viewer);
+        let app = create_router(state, &config);
+
+        let req = Request::builder()
+            .uri("/api/v1/ban/1.2.3.4")
+            .method("DELETE")
+            .header(AUTHORIZATION, "Bearer viewer-key-16chars!!")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"reason":"x"}"#.to_string()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "viewer DELETE 必须 403"
+        );
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_t605_admin_key_write_ban_succeeds_and_viewer_cannot() {
+        use crate::admin::make_state_with_ban_manager;
+        let state = make_state_with_ban_manager().await;
+        let config = AdminApiConfig::new("primary-key-16chars!!!")
+            .with_api_key_role("viewer-key-16chars!!", AdminRole::Viewer);
+        let app = create_router(state, &config);
+
+        // admin（主 key，未在角色映射中 → 默认 admin）写封禁 → 201
+        let req = Request::builder()
+            .uri("/api/v1/ban")
+            .method("POST")
+            .header(AUTHORIZATION, "Bearer primary-key-16chars!!!")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                r#"{"target":{"type":"ip","value":"198.51.100.9"},"reason":"rbac"}"#.to_string(),
+            ))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED, "admin 写封禁应成功");
+
+        // viewer 同端点 → 403
+        let req = Request::builder()
+            .uri("/api/v1/ban")
+            .method("POST")
+            .header(AUTHORIZATION, "Bearer viewer-key-16chars!!")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                r#"{"target":{"type":"ip","value":"198.51.100.10"},"reason":"rbac"}"#.to_string(),
+            ))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_t605_unknown_key_still_401() {
+        let state = make_state().await;
+        let config = AdminApiConfig::new("primary-key-16chars!!!")
+            .with_api_key_role("viewer-key-16chars!!", AdminRole::Viewer);
+        let app = create_router(state, &config);
+
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer rogue-key-not-registered")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "未登记 key 应 401");
+    }
+
+    #[test]
+    fn test_t605_role_allows_matrix() {
+        use axum::http::Method;
+        // GET/HEAD：admin/viewer 均放行
+        assert!(role_allows(AdminRole::Admin, &Method::GET));
+        assert!(role_allows(AdminRole::Viewer, &Method::GET));
+        assert!(role_allows(AdminRole::Viewer, &Method::HEAD));
+        // 写方法：仅 admin
+        assert!(role_allows(AdminRole::Admin, &Method::POST));
+        assert!(!role_allows(AdminRole::Viewer, &Method::POST));
+        assert!(!role_allows(AdminRole::Viewer, &Method::PUT));
+        assert!(!role_allows(AdminRole::Viewer, &Method::DELETE));
     }
 }

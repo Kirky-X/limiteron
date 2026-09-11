@@ -15,6 +15,41 @@ pub enum ConfigError {
     ApiKeyTooShort(usize),
 }
 
+/// 管理面角色（T605）
+///
+/// - `Admin`：读写全部端点（封禁增删、配额修改、热更新等）
+/// - `Viewer`：只读端点（status / circuit-breaker / 探针自省查询等）
+///
+/// 越权（角色不足以访问目标端点）返回 403，与凭证无效的 401 区分。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AdminRole {
+    /// 管理员：全部端点
+    Admin,
+    /// 只读观察者：仅 GET/HEAD 端点
+    Viewer,
+}
+
+impl AdminRole {
+    /// 角色名（诊断/日志用）
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AdminRole::Admin => "admin",
+            AdminRole::Viewer => "viewer",
+        }
+    }
+
+    /// 是否允许访问只读请求（GET/HEAD）
+    pub fn allows_read(&self) -> bool {
+        true
+    }
+
+    /// 是否允许访问写请求（POST/PUT/DELETE 等）
+    pub fn allows_write(&self) -> bool {
+        matches!(self, AdminRole::Admin)
+    }
+}
+
 /// Admin API configuration
 #[derive(Clone, Serialize, Deserialize)]
 pub struct AdminApiConfig {
@@ -36,6 +71,13 @@ pub struct AdminApiConfig {
     /// 回退到默认 `"admin-api"` 并记录 warn 日志（向后兼容）。
     #[serde(default)]
     pub api_key_operators: HashMap<String, String>,
+    /// API key → 角色映射（T605 RBAC）
+    ///
+    /// 配置后，鉴权中间件按 key 解析角色并执行端点级授权：
+    /// viewer 访问写端点返回 403。**未在此映射中的合法 key**（含主
+    /// `api_key`）默认 `Admin`，保持既有单 key 部署的行为逐位一致。
+    #[serde(default)]
+    pub api_key_roles: HashMap<String, AdminRole>,
     /// 按路径分组的速率限制配置 (vuln-0002 修复)
     ///
     /// key = 分组名（"ban" / "quota" / "default"），value = (max_requests, window_secs)。
@@ -58,6 +100,7 @@ impl std::fmt::Debug for AdminApiConfig {
             )
             .field("enabled", &self.enabled)
             .field("api_key_operators", &self.api_key_operators)
+            .field("api_key_roles", &self.api_key_roles)
             .field("rate_limits", &self.rate_limits)
             .finish()
     }
@@ -92,6 +135,7 @@ impl Default for AdminApiConfig {
             api_key: String::new(),
             enabled: default_enabled(),
             api_key_operators: HashMap::new(),
+            api_key_roles: HashMap::new(),
             rate_limits: default_rate_limits(),
         }
     }
@@ -105,6 +149,7 @@ impl AdminApiConfig {
             api_key: api_key.into(),
             enabled: true,
             api_key_operators: HashMap::new(),
+            api_key_roles: HashMap::new(),
             rate_limits: default_rate_limits(),
         }
     }
@@ -144,6 +189,39 @@ impl AdminApiConfig {
     pub fn with_api_key_operators(mut self, mapping: HashMap<String, String>) -> Self {
         self.api_key_operators = mapping;
         self
+    }
+
+    /// 添加 API key → 角色映射（T605 RBAC）
+    ///
+    /// # 示例
+    ///
+    /// ```rust
+    /// use limiteron::admin::{AdminApiConfig, AdminRole};
+    ///
+    /// let config = AdminApiConfig::new("primary-key-16chars!!!")
+    ///     .with_api_key_role("viewer-key-16chars!!", AdminRole::Viewer);
+    /// ```
+    pub fn with_api_key_role(mut self, api_key: impl Into<String>, role: AdminRole) -> Self {
+        self.api_key_roles.insert(api_key.into(), role);
+        self
+    }
+
+    /// 解析 API key 的角色（T605）
+    ///
+    /// 未在映射中的 key 默认 `Admin`——保持既有单 key 部署（主 key 即
+    /// 管理员）的行为不变。
+    pub fn role_for_api_key(&self, api_key: &str) -> AdminRole {
+        self.api_key_roles
+            .get(api_key)
+            .copied()
+            .unwrap_or(AdminRole::Admin)
+    }
+
+    /// 判定 key 是否为合法凭证（T605 多 key 支持）
+    ///
+    /// 主 `api_key` 恒合法；`api_key_roles` 中登记的 key 亦合法。
+    pub fn is_valid_api_key(&self, api_key: &str) -> bool {
+        api_key == self.api_key || self.api_key_roles.contains_key(api_key)
     }
 
     /// 查找 API key 对应的 operator 身份
@@ -332,5 +410,71 @@ mod tests {
             .with_api_key_operator("my-secure-api-key-32chars", "admin-alice");
         // 未在 mapping 中的 key → None
         assert_eq!(config.operator_for_api_key("unknown-key"), None);
+    }
+}
+
+// ========================================================================
+// T605：RBAC 角色矩阵
+// ========================================================================
+
+#[cfg(test)]
+mod t605_role_tests {
+    use super::*;
+
+    #[test]
+    fn test_t605_role_for_api_key_defaults_to_admin() {
+        let config = AdminApiConfig::new("primary-key-16chars!!!");
+        assert_eq!(
+            config.role_for_api_key("primary-key-16chars!!!"),
+            AdminRole::Admin
+        );
+        assert_eq!(config.role_for_api_key("anything"), AdminRole::Admin);
+    }
+
+    #[test]
+    fn test_t605_with_api_key_role_maps_viewer() {
+        let config = AdminApiConfig::new("primary-key-16chars!!!")
+            .with_api_key_role("viewer-key-16chars!!", AdminRole::Viewer);
+        assert_eq!(
+            config.role_for_api_key("viewer-key-16chars!!"),
+            AdminRole::Viewer
+        );
+        assert_eq!(
+            config.role_for_api_key("primary-key-16chars!!!"),
+            AdminRole::Admin
+        );
+    }
+
+    #[test]
+    fn test_t605_is_valid_api_key_accepts_registered_keys() {
+        let config = AdminApiConfig::new("primary-key-16chars!!!")
+            .with_api_key_role("viewer-key-16chars!!", AdminRole::Viewer);
+        assert!(config.is_valid_api_key("primary-key-16chars!!!"));
+        assert!(config.is_valid_api_key("viewer-key-16chars!!"));
+        assert!(!config.is_valid_api_key("rogue-key"));
+    }
+
+    #[test]
+    fn test_t605_role_permissions_matrix() {
+        // viewer：只读放行、写入拒绝
+        assert!(AdminRole::Viewer.allows_read());
+        assert!(!AdminRole::Viewer.allows_write());
+        // admin：读写全部
+        assert!(AdminRole::Admin.allows_read());
+        assert!(AdminRole::Admin.allows_write());
+    }
+
+    #[test]
+    fn test_t605_role_serde_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&AdminRole::Viewer).unwrap(),
+            "\"viewer\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AdminRole::Admin).unwrap(),
+            "\"admin\""
+        );
+        let role: AdminRole = serde_json::from_str("\"viewer\"").unwrap();
+        assert_eq!(role, AdminRole::Viewer);
     }
 }

@@ -71,6 +71,17 @@ fn lock_rate_buckets(buckets: &Mutex<RateBucketMap>) -> std::sync::MutexGuard<'_
     })
 }
 
+/// T601：K8s 探针/指标端点 bypass 路径
+///
+/// 这些端点跳过速率限制与 API key 认证：K8s kubelet 探针与 Prometheus
+/// 抓取器不携带管理凭证；端点本身只读且不泄露敏感数据（/metrics 仅暴露
+/// 流量指标）。
+const PROBE_PATHS: [&str; 3] = ["/healthz", "/readyz", "/metrics"];
+
+fn is_probe_path(path: &str) -> bool {
+    PROBE_PATHS.contains(&path)
+}
+
 /// 按路径前缀分组（vuln-0002 修复）
 ///
 /// 用于按端点分组应用不同的速率限制策略：
@@ -89,6 +100,10 @@ fn group_for_path(path: &str) -> &'static str {
 
 pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
     let mut router = Router::new()
+        // K8s 探针与指标端点（T601，bypass 认证）
+        .route("/healthz", get(handlers::healthz))
+        .route("/readyz", get(handlers::readyz))
+        .route("/metrics", get(handlers::metrics))
         // 系统状态
         .route("/api/v1/status", get(handlers::get_status))
         // 封禁管理
@@ -123,6 +138,11 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
             let rate_limits = rate_limits.clone();
             let rate_buckets = rate_buckets.clone();
             async move {
+                // T601：探针/指标端点 bypass 速率限制与认证
+                if is_probe_path(req.uri().path()) {
+                    return next.run(req).await;
+                }
+
                 // vuln-0002 修复：速率限制检查（在鉴权之前，防止暴力破解和 DDoS）
                 let path = req.uri().path();
                 let group = group_for_path(path);
@@ -635,6 +655,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         let app = create_router(state, &config);
 
@@ -682,6 +704,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         let app = create_router(state, &config);
 
@@ -744,6 +768,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         let app = create_router(state, &config);
 

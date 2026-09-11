@@ -6,6 +6,7 @@ use axum::{
     Extension, Json,
     extract::{Path, Query, State},
     http::StatusCode,
+    response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +41,65 @@ impl<T: Serialize> ApiResponse<T> {
             data: None,
         }
     }
+}
+
+// ==================== K8s 探针与指标端点（T601，bypass 认证） ====================
+//
+// 三个端点在 routes 层 bypass 速率限制与 API key 认证：
+// K8s kubelet 探针与 Prometheus 抓取器不携带管理凭证。
+
+/// GET /healthz — 存活探针
+///
+/// 进程存活且事件循环可响应即返回 200（不做组件级检查——那是 /readyz 的职责）。
+pub async fn healthz() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "status": "ok" }))
+}
+
+/// GET /readyz — 就绪探针
+///
+/// 聚合 [`Governor::health_status()`] 的组件级状态：
+/// - 全部健康 → 200 + `{"status":"ready", ...}`
+/// - 任一不健康 → 503 + 不健康组件明细
+pub async fn readyz(State(state): State<AppState>) -> axum::response::Response {
+    let status = state.governor.health_status().await;
+    let body = serde_json::json!({
+        "status": if status.healthy() { "ready" } else { "not_ready" },
+        "storage_healthy": status.storage_healthy,
+        "ban_storage_healthy": status.ban_storage_healthy,
+        "cache_healthy": status.cache_healthy,
+        "background_tasks_alive": status.background_tasks_alive,
+    });
+    if status.healthy() {
+        (StatusCode::OK, Json(body)).into_response()
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response()
+    }
+}
+
+/// GET /metrics — Prometheus 文本格式指标
+///
+/// 数据源优先级：`AppState.metrics`（显式注入）→ 全局指标（`try_global()`）
+/// → 空 exposition（合法 Prometheus 注释行，保持 200 契约）。
+#[cfg(feature = "monitoring")]
+pub async fn metrics(State(state): State<AppState>) -> axum::response::Response {
+    use axum::http::header;
+    let content_type = "text/plain; version=0.0.4";
+    let text = match state.metrics.clone().or_else(crate::telemetry::try_global) {
+        Some(m) => m.gather(),
+        None => "# limiteron metrics not configured\n".to_string(),
+    };
+    ([(header::CONTENT_TYPE, content_type)], text).into_response()
+}
+
+/// GET /metrics（无 monitoring feature）——空 exposition
+#[cfg(not(feature = "monitoring"))]
+pub async fn metrics() -> axum::response::Response {
+    use axum::http::header;
+    (
+        [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        "# limiteron metrics feature disabled\n".to_string(),
+    )
+        .into_response()
 }
 
 // ==================== 系统状态 ====================
@@ -515,6 +575,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // 未封禁的 IP → Ban not found
         let req = UnbanRequest {
@@ -546,6 +608,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // 非 IP 字符串 → UserId 目标
         let req = UnbanRequest {
@@ -601,6 +665,8 @@ mod tests {
             quota_controller: Some(quota_controller),
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // new_limit > 0 → 不支持
         let req = UpdateQuotaRequest {
@@ -637,6 +703,8 @@ mod tests {
             #[cfg(feature = "quota-control")]
             quota_controller: None,
             circuit_breaker: Some(cb),
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         let resp = get_circuit_breaker_status(State(state)).await;
         assert!(resp.1.0.success);
@@ -661,6 +729,8 @@ mod tests {
             #[cfg(feature = "quota-control")]
             quota_controller: None,
             circuit_breaker: Some(cb),
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         let resp = get_status(State(state)).await;
         assert!(resp.0.success);
@@ -699,6 +769,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         let req = UnbanRequest {
             reason: Some("manual unban".to_string()),
@@ -746,6 +818,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // ?type=mac 显式指定 → 成功解封
         let req = UnbanRequest {
@@ -799,6 +873,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // ?type=geo 显式指定 → 成功解封
         let req = UnbanRequest {
@@ -833,6 +909,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // ?type=foo 不支持 → 400 BAD_REQUEST
         let req = UnbanRequest {
@@ -885,6 +963,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // 不指定 type → 自动推断为 UserId（MAC 字符串不是合法 IP）→ 404 NOT_FOUND
         // 这验证了 ?type=mac 是解封 MAC 的必要条件（修复前的 bug 复现）
@@ -927,6 +1007,8 @@ mod tests {
             quota_controller: Some(quota_controller),
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         let req = UpdateQuotaRequest {
             resource: "api".to_string(),
@@ -964,6 +1046,8 @@ mod tests {
             #[cfg(feature = "quota-control")]
             quota_controller: None,
             circuit_breaker: Some(cb),
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         let resp = get_circuit_breaker_status(State(state)).await;
         assert!(resp.1.0.success);

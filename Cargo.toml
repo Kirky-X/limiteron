@@ -439,6 +439,13 @@ config-confers-reload = ["config-confers", "confers/watch"]
 name = "e2e_advanced"
 path = "tests/e2e/e2e_advanced.rs"
 
+# T601：K8s 探针与指标端点 e2e（/healthz /readyz /metrics，bypass 认证）。
+# 需 admin-api feature；monitoring 相关断言在测试内部按 cfg 门控。
+[[test]]
+name = "probes_e2e"
+path = "tests/e2e/probes_e2e.rs"
+required-features = ["admin-api"]
+
 [[bench]]
 name = "throughput"
 path = "benches/throughput.rs"

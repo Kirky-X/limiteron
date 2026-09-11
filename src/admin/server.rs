@@ -27,6 +27,12 @@ pub struct AppState {
     pub quota_controller: Option<Arc<QuotaController>>,
     #[cfg(feature = "circuit-breaker")]
     pub circuit_breaker: Option<Arc<CircuitBreaker>>,
+    /// Prometheus 指标实例（T601 `/metrics` 数据源；monitoring feature 下存在）
+    ///
+    /// 未注入时 `/metrics` 回退到全局指标（`telemetry::try_global()`），
+    /// 仍无则返回空 exposition（合法 Prometheus 文本），保持端点 200 契约。
+    #[cfg(feature = "monitoring")]
+    pub metrics: Option<Arc<crate::telemetry::Metrics>>,
 }
 
 /// 管理API服务器
@@ -47,9 +53,18 @@ impl AdminServer {
                 quota_controller: None,
                 #[cfg(feature = "circuit-breaker")]
                 circuit_breaker: None,
+                #[cfg(feature = "monitoring")]
+                metrics: None,
             },
             config,
         }
+    }
+
+    /// 设置指标实例（T601 `/metrics` 数据源）
+    #[cfg(feature = "monitoring")]
+    pub fn with_metrics(mut self, metrics: Arc<crate::telemetry::Metrics>) -> Self {
+        self.state.metrics = Some(metrics);
+        self
     }
 
     /// 设置封禁管理器

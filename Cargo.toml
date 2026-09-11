@@ -207,7 +207,7 @@ writeable = { version = "0.6", optional = true }
 # trait-kit 0.4 is used via path dependency for workspace compatibility.
 [dependencies.trait-kit]
 version = "0.5.0-rc.3"
-features = ["async"]
+features = ["async", "health", "lifecycle"]
 optional = true
 default-features = false
 
@@ -428,7 +428,9 @@ chaos-testing = []
 # trait-kit 0.3 AsyncKit integration (LimiteronModule). Pulls in trait-kit
 # with the `async` feature only — default features are disabled (Rule 6).
 # Mirrors oxcache's `kit` feature (Phase 2 of trait-kit-async-integration).
-kit = ["dep:trait-kit"]
+# kit（T617 起对齐 dbnexus 范式）：依赖 oxcache/kit 经 OxcacheModule 注入缓存，
+# trait-kit 补 health/lifecycle 端口供 LimiteronModule 健康与生命周期实现
+kit = ["dep:trait-kit", "dep:futures", "oxcache/kit"]
 
 # ICU4X 国际化能力 (locale 感知的数字/日期/复数/排序格式化).
 # Mirrors trait-kit/oxcache `i18n` feature.

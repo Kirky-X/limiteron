@@ -149,10 +149,10 @@ pub(crate) mod webhook_validator;
 #[cfg(feature = "i18n")]
 pub mod i18n;
 
-// External integrations (feature-gated). Each integration lives under
-// `integrations/` and is gated by its own feature so the core limiteron
-// library stays dependency-free when integrations are not needed.
-#[cfg(any(feature = "kit", feature = "inklog", feature = "config-confers"))]
+// External integrations. Each integration lives under `integrations/` and
+// is gated by its own feature so the core limiteron library stays
+// dependency-free when integrations are not needed.
+// （T617：`query_throttle` 无外部依赖，恒编译；其余子模块保持 feature 门控）
 pub mod integrations;
 
 // Tower 中间件层 (feature-gated)

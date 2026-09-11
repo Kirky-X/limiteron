@@ -254,6 +254,8 @@ test-clock = []
 # 配置 CLI（T612）：`limiteron-cli` 二进制 + src/cli 可单测核心。
 # 默认不编译（决策热路径零开销）。
 cli = []
+# 封禁跨实例同步（T616）：经 oxcache Pub/Sub 总线（T301 协议层）广播封禁变更
+ban-sync = ["oxcache/invalidation"]
 # ============================================
 # Minimal: 核心限流功能（无外部存储依赖）
 minimal = []

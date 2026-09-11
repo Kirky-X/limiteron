@@ -3024,6 +3024,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "dashmap",
+ "futures",
  "icu",
  "moka",
  "once_cell",

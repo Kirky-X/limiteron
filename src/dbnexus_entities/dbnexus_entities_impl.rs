@@ -11,6 +11,7 @@ pub fn create_all_tables_ddl() -> &'static str {
         ban_record::create_table_ddl(),
         quota_record::create_table_ddl(),
         rate_limit::create_table_ddl(),
+        event_outbox::create_table_ddl(),
     ];
     // Leak the string intentionally to return &'static str
     // This is safe because the DDL strings are &'static str and never need deallocation
@@ -28,5 +29,6 @@ mod tests {
         assert!(ddl.contains("limiteron_quotas"));
         assert!(ddl.contains("limiteron_rate_limits"));
         assert!(ddl.contains("limiteron_kv"));
+        assert!(ddl.contains("limiteron_event_outbox"));
     }
 }

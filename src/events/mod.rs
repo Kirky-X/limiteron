@@ -53,6 +53,17 @@ mod dispatcher;
 mod emitter;
 mod types;
 
+// 事件 Outbox（T616）：封禁/配额事件 outbox 表化（需 DB 后端 feature）
+#[cfg(all(
+    feature = "event-system",
+    any(feature = "postgres", feature = "sqlite", feature = "mysql")
+))]
+pub(crate) mod outbox;
+
+// 封禁跨实例同步（T616）：经 oxcache Pub/Sub 广播封禁变更
+#[cfg(all(feature = "event-system", feature = "ban-sync"))]
+pub(crate) mod ban_sync;
+
 // Webhook 外发签名（T614）：HMAC-SHA256 签名头 + 时间戳防重放。
 // 公开导出经 lib.rs 根（本模块为私有 mod）。
 #[cfg(feature = "webhook")]
@@ -62,3 +73,15 @@ pub(crate) mod webhook_signature;
 pub use dispatcher::EventDispatcher;
 pub use emitter::EventEmitter;
 pub use types::{Event, EventConfig, EventHandler, EventType};
+
+#[cfg(all(
+    feature = "event-system",
+    any(feature = "postgres", feature = "sqlite", feature = "mysql")
+))]
+pub use outbox::{EventOutboxStore, OutboxDialect, OutboxEntry, OutboxEventKind};
+
+#[cfg(all(feature = "event-system", feature = "ban-sync"))]
+pub use ban_sync::{
+    BanSyncApplier, BanSyncBus, BanSyncConfig, BanSyncKind, BanSyncListenerHandle, BanSyncMessage,
+    DEFAULT_BAN_SYNC_CHANNEL,
+};

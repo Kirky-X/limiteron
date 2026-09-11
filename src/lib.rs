@@ -191,6 +191,18 @@ pub use error::{
 // Event system types (feature-gated)
 #[cfg(feature = "event-system")]
 pub use events::{Event, EventConfig, EventDispatcher, EventEmitter, EventHandler, EventType};
+// 事件 Outbox（T616）：封禁/配额事件 outbox 表化
+#[cfg(all(
+    feature = "event-system",
+    any(feature = "postgres", feature = "sqlite", feature = "mysql")
+))]
+pub use events::{EventOutboxStore, OutboxDialect, OutboxEntry, OutboxEventKind};
+// 封禁跨实例同步（T616）：经 oxcache Pub/Sub 广播封禁变更
+#[cfg(all(feature = "event-system", feature = "ban-sync"))]
+pub use events::{
+    BanSyncApplier, BanSyncBus, BanSyncConfig, BanSyncKind, BanSyncListenerHandle, BanSyncMessage,
+    DEFAULT_BAN_SYNC_CHANNEL,
+};
 // Webhook 外发签名（T614）：HMAC-SHA256 签名头 + 时间戳防重放
 #[cfg(all(feature = "event-system", feature = "webhook"))]
 pub use events::webhook_signature::{

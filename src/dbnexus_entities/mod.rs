@@ -7,6 +7,7 @@
 //! rate limiting, ban management, and quota control data.
 
 pub mod ban_record;
+pub mod event_outbox;
 pub mod key_value;
 pub mod quota_record;
 pub mod rate_limit;
@@ -15,6 +16,10 @@ pub mod rate_limit;
 pub use ban_record::{
     ActiveModel as BanRecordActiveModel, Column as BanColumn, Entity as BanRecordEntity,
     Model as BanRecordModel, create_target_key,
+};
+pub use event_outbox::{
+    ActiveModel as EventOutboxActiveModel, Column as EventOutboxColumn,
+    Entity as EventOutboxEntity, Model as EventOutboxModel,
 };
 pub use key_value::{ActiveModel as KeyValueActiveModel, Entity as KeyValueEntity};
 pub use quota_record::{

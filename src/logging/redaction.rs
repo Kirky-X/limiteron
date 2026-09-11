@@ -374,6 +374,8 @@ pub fn redact_ban_target(target: &crate::storage::BanTarget) -> String {
         crate::storage::BanTarget::Geo { country_code } => {
             format!("Geo({})", redact_basic(Some(country_code)))
         }
+        // CIDR 网段本身是聚合信息（非个人标识），仅需基本长度脱敏
+        crate::storage::BanTarget::Cidr(cidr) => format!("Cidr({})", redact_basic(Some(cidr))),
     }
 }
 

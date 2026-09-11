@@ -176,7 +176,7 @@ pub struct UnbanRequest {
 
 /// DELETE /api/v1/ban/{target} 的 query 参数
 ///
-/// - `?type=ip|user|mac|geo`：显式指定目标类型，用于解封通过 API 创建的 MAC/Geo 封禁
+/// - `?type=ip|user|mac|geo|cidr`：显式指定目标类型，用于解封通过 API 创建的 MAC/Geo/CIDR 封禁
 /// - 未提供时按原有行为自动推断（IP 优先，回退 UserId）
 #[derive(Deserialize, Default)]
 pub struct BanTargetQuery {
@@ -188,7 +188,7 @@ pub struct BanTargetQuery {
 /// DELETE /api/v1/ban/{target}
 ///
 /// 路径 `target` 默认按 IP 解析，回退为 UserId；通过 `?type=` 可显式指定
-/// ip/user/mac/geo 之一，以解封非 IP/UserId 目标。
+/// ip/user/mac/geo/cidr 之一，以解封非 IP/UserId 目标。
 /// 状态码：200=成功, 400=不支持的 type, 404=未找到, 503=未配置, 500=内部错误
 ///
 /// vuln-0001 修复：operator 身份由 `OperatorIdentity`（鉴权 middleware 注入）决定，
@@ -214,6 +214,7 @@ pub async fn delete_ban(
         Some("geo") => BanTarget::Geo {
             country_code: target,
         },
+        Some("cidr") => BanTarget::Cidr(target),
         Some(other) => {
             return (
                 StatusCode::BAD_REQUEST,

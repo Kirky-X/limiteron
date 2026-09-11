@@ -4,7 +4,7 @@
 //!
 //! 使用分片计数实现 O(1) 时间复杂度的限流检查。
 
-use super::traits::{Limiter, validate_cost};
+use super::traits::{Limiter, RateLimitSnapshot, validate_cost};
 use crate::clock::{Clock, SystemClock};
 use crate::error::LimiteronError;
 use async_trait::async_trait;
@@ -290,6 +290,55 @@ impl Limiter for ShardedSlidingWindowLimiter {
     async fn allow(&self, cost: u64) -> Result<bool, LimiteronError> {
         let cost = validate_cost(cost)?;
         Ok(self.try_acquire(cost))
+    }
+
+    /// 非消费预检（T603）：读窗口计数，不递增分片
+    async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
+        let cost = validate_cost(cost)?;
+        let _ = cost;
+        Ok(self.current_snapshot())
+    }
+
+    /// 剩余额度查询（T603，非消费）
+    async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError> {
+        Ok(self.current_snapshot())
+    }
+}
+
+impl ShardedSlidingWindowLimiter {
+    /// 读取当前窗口快照（不修改分片计数）
+    fn current_snapshot(&self) -> RateLimitSnapshot {
+        let (_, now_secs) = self.get_current_shard();
+        let count = self.calculate_window_count(now_secs);
+        // 重置时间 = 最早活跃分片滑出窗口的秒数（MVP：以窗口全长近似上界，
+        // 与滑动窗口语义一致——任何时刻窗口翻转前计数只减不增）
+        let shard_duration = self.shard_duration_secs.max(1);
+        let reset_secs = if count == 0 {
+            0
+        } else {
+            self.window_size_secs
+                .saturating_sub(now_secs.saturating_sub(self.oldest_active_shard_secs(now_secs)))
+                .min(self.window_size_secs)
+                .max(shard_duration)
+        };
+        RateLimitSnapshot {
+            limit: self.max_requests,
+            remaining: self.max_requests.saturating_sub(count),
+            reset_secs,
+        }
+    }
+
+    /// 最早仍在窗口内的分片起始秒（无活跃分片时返回当前秒）
+    fn oldest_active_shard_secs(&self, now_secs: u64) -> u64 {
+        let window_start = now_secs.saturating_sub(self.window_size_secs);
+        let mut oldest = now_secs;
+        for ts in self.shard_timestamps.iter() {
+            let t = ts.load(Ordering::Acquire);
+            if t > window_start && t < oldest {
+                oldest = t;
+            }
+        }
+        oldest
     }
 }
 

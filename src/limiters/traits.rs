@@ -74,6 +74,30 @@ pub trait Limiter: Send + Sync {
     /// - `Err(_)`: 发生错误
     async fn allow(&self, cost: u64) -> Result<bool, LimiteronError>;
 
+    /// 非消费预检（T603）
+    ///
+    /// 查询「当前状态下消费 `cost` 是否可行」以及标准限流头数据
+    /// （limit/remaining/reset），**绝不修改限流器状态**。
+    /// 调用方以 `snapshot.remaining >= cost` 判断可行性。
+    ///
+    /// 默认实现返回 `Err`（限流器未支持预检），保持对所有既有实现者的
+    /// 源兼容；建议各限流器基于自身原子量覆盖实现。
+    async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
+        let _ = cost;
+        Err(LimiteronError::Other(
+            "peek is not supported by this limiter".to_string(),
+        ))
+    }
+
+    /// 查询剩余额度（T603，非消费）
+    ///
+    /// 返回标准限流头数据；默认实现返回 `Err`（未支持）。
+    async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError> {
+        Err(LimiteronError::Other(
+            "remaining is not supported by this limiter".to_string(),
+        ))
+    }
+
     /// 检查是否允许（接受 key 参数，用于宏）
     ///
     /// 默认实现：消费 1 个单位的 cost
@@ -96,6 +120,39 @@ pub trait Limiter: Send + Sync {
                 "rate limit exceeded".to_string(),
             ))
         }
+    }
+}
+
+/// 标准限流头数据（T603）
+///
+/// 对应 IETF draft-ietf-httpapi-ratelimit-headers 的三个标准头：
+/// `RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RateLimitSnapshot {
+    /// 窗口/桶容量上限（RateLimit-Limit）
+    pub limit: u64,
+    /// 当前剩余额度（RateLimit-Remaining）
+    pub remaining: u64,
+    /// 距额度重置的秒数（RateLimit-Reset；0 表示已可用或即时恢复）
+    pub reset_secs: u64,
+}
+
+impl RateLimitSnapshot {
+    /// 以给定 cost 计算可行性（非消费判定）
+    pub fn allows(&self, cost: u64) -> bool {
+        self.remaining >= cost
+    }
+
+    /// 渲染为标准限流头键值对
+    ///
+    /// 返回 `(header_name, header_value)` 三元组列表，供 HTTP 中间件
+    /// （如 tower `RateLimitLayer`）直接写入响应。
+    pub fn headers(&self) -> [(&'static str, String); 3] {
+        [
+            ("RateLimit-Limit", self.limit.to_string()),
+            ("RateLimit-Remaining", self.remaining.to_string()),
+            ("RateLimit-Reset", self.reset_secs.to_string()),
+        ]
     }
 }
 
@@ -266,5 +323,99 @@ mod tests {
                 other.is_ok()
             ),
         }
+    }
+
+    // ========================================================================
+    // T603：peek/remaining 默认实现与 RateLimitSnapshot
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_t603_peek_default_impl_returns_unsupported() {
+        struct BareLimiter;
+        #[async_trait]
+        impl Limiter for BareLimiter {
+            async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
+                Ok(true)
+            }
+        }
+
+        let limiter = BareLimiter;
+        assert!(
+            limiter.peek(1).await.is_err(),
+            "默认 peek 应返回 Err（未支持）"
+        );
+        assert!(
+            limiter.remaining().await.is_err(),
+            "默认 remaining 应返回 Err（未支持）"
+        );
+    }
+
+    #[test]
+    fn test_t603_rate_limit_snapshot_headers_and_allows() {
+        let snapshot = RateLimitSnapshot {
+            limit: 100,
+            remaining: 42,
+            reset_secs: 7,
+        };
+        assert!(snapshot.allows(42), "remaining == cost 应判定可行");
+        assert!(snapshot.allows(1));
+        assert!(!snapshot.allows(43), "remaining < cost 应判定不可行");
+
+        let headers = snapshot.headers();
+        assert_eq!(headers[0], ("RateLimit-Limit", "100".to_string()));
+        assert_eq!(headers[1], ("RateLimit-Remaining", "42".to_string()));
+        assert_eq!(headers[2], ("RateLimit-Reset", "7".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_t603_peek_is_zero_side_effect() {
+        use crate::limiters::TokenBucketLimiter;
+
+        let limiter = TokenBucketLimiter::new(100, 10);
+        let before = limiter.peek(10).await.unwrap();
+        assert_eq!(before.limit, 100);
+        assert_eq!(before.remaining, 100, "满桶 peek 剩余应为容量");
+
+        // peek 之后 allow 的结果与 peek 判定一致（peek 零副作用）
+        assert!(before.allows(10));
+        assert!(limiter.allow(10).await.unwrap());
+
+        let after = limiter.peek(10).await.unwrap();
+        assert_eq!(after.remaining, 90, "peek 不得重复扣减，allow 恰好扣减一次");
+        assert_eq!(after.limit, 100);
+        assert!(after.reset_secs <= 1, "缺口 10/速率 10 → 重置 ≤1s");
+    }
+
+    #[tokio::test]
+    async fn test_t603_remaining_reflects_state() {
+        use crate::limiters::{FixedWindowLimiter, TokenBucketLimiter};
+        use std::time::Duration;
+
+        // 令牌桶
+        let tb = TokenBucketLimiter::new(50, 5);
+        Limiter::allow(&tb, 20).await.unwrap();
+        let snap = tb.remaining().await.unwrap();
+        assert_eq!(snap.remaining, 30);
+        assert_eq!(snap.limit, 50);
+
+        // 固定窗口
+        let fw = FixedWindowLimiter::new(Duration::from_secs(60), 10);
+        Limiter::allow(&fw, 4).await.unwrap();
+        let snap = fw.remaining().await.unwrap();
+        assert_eq!(snap.remaining, 6, "固定窗口 remaining = max - count");
+        assert_eq!(snap.limit, 10);
+        assert!(
+            snap.reset_secs <= 60 && snap.reset_secs > 0,
+            "重置时间应在窗口内"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_t603_peek_zero_cost_is_valid() {
+        use crate::limiters::TokenBucketLimiter;
+
+        let limiter = TokenBucketLimiter::new(100, 10);
+        // cost=0 与 allow(0) 语义对齐：配置校验错误
+        assert!(limiter.peek(0).await.is_err());
     }
 }

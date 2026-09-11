@@ -44,7 +44,7 @@ pub use sharded_sliding_window::ShardedSlidingWindowLimiter;
 #[allow(deprecated)]
 pub use sliding_window::SlidingWindowLimiter;
 pub use token_bucket::TokenBucketLimiter;
-pub use traits::Limiter;
+pub use traits::{Limiter, RateLimitSnapshot};
 
 #[cfg(feature = "quota-control")]
 pub use quota_limiter::QuotaLimiter;

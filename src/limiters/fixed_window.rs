@@ -4,7 +4,7 @@
 //!
 //! 使用固定窗口算法实现速率限制。
 
-use super::traits::{Limiter, validate_cost};
+use super::traits::{Limiter, RateLimitSnapshot, validate_cost};
 use crate::clock::{Clock, SystemClock};
 use crate::error::LimiteronError;
 use async_trait::async_trait;
@@ -153,6 +153,45 @@ impl Limiter for FixedWindowLimiter {
                 Err(_) => continue,
             }
         }
+    }
+
+    /// 非消费预检（T603）：读窗口计数，不递增
+    async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
+        let cost = validate_cost(cost)?;
+        self.check_and_reset_window();
+        let count = self.count.load(Ordering::Acquire);
+        let remaining = self.max_requests.saturating_sub(count);
+        let _ = cost;
+        Ok(RateLimitSnapshot {
+            limit: self.max_requests,
+            remaining,
+            reset_secs: self.window_reset_secs(),
+        })
+    }
+
+    /// 剩余额度查询（T603，非消费）
+    async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError> {
+        self.check_and_reset_window();
+        let count = self.count.load(Ordering::Acquire);
+        Ok(RateLimitSnapshot {
+            limit: self.max_requests,
+            remaining: self.max_requests.saturating_sub(count),
+            reset_secs: self.window_reset_secs(),
+        })
+    }
+}
+
+impl FixedWindowLimiter {
+    /// 距当前窗口翻转的秒数（向上取整，窗口过期重置后为窗口全长）
+    fn window_reset_secs(&self) -> u64 {
+        let now_ns = self.clock.unix_timestamp_nanos();
+        let window_start_ns = self.window_start.load(Ordering::Acquire);
+        let window_ns = self.window_size.as_nanos() as u64;
+        let window_end_ns = window_start_ns.saturating_add(window_ns);
+        if window_end_ns <= now_ns {
+            return 0;
+        }
+        (window_end_ns - now_ns).div_ceil(1_000_000_000)
     }
 }
 

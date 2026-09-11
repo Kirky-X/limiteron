@@ -4,7 +4,7 @@
 //!
 //! 使用令牌桶算法实现速率限制。
 
-use super::traits::{Limiter, validate_cost};
+use super::traits::{Limiter, RateLimitSnapshot, validate_cost};
 use crate::clock::{Clock, SystemClock};
 use crate::error::LimiteronError;
 use async_trait::async_trait;
@@ -169,6 +169,37 @@ impl Limiter for TokenBucketLimiter {
             {
                 return Ok(true);
             }
+        }
+    }
+
+    /// 非消费预检（T603）：先补充令牌后读取余额，不扣减
+    async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
+        validate_cost(cost)?;
+        Ok(self.current_snapshot())
+    }
+
+    /// 剩余额度查询（T603，非消费）
+    async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError> {
+        Ok(self.current_snapshot())
+    }
+}
+
+impl TokenBucketLimiter {
+    /// 读取当前快照（不扣减；补充逻辑与 allow 一致）
+    fn current_snapshot(&self) -> RateLimitSnapshot {
+        self.refill_tokens();
+        let tokens = self.tokens.load(Ordering::SeqCst);
+        // 桶未满时，补满所需时间 = 缺口 / 补充速率（向上取整秒）
+        let missing = self.capacity.saturating_sub(tokens);
+        let reset_secs = if missing == 0 || self.refill_rate == 0 {
+            0
+        } else {
+            missing.div_ceil(self.refill_rate)
+        };
+        RateLimitSnapshot {
+            limit: self.capacity,
+            remaining: tokens,
+            reset_secs,
         }
     }
 }

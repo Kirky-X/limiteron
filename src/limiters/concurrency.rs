@@ -4,7 +4,7 @@
 //!
 //! 使用信号量实现并发控制。
 
-use super::traits::Limiter;
+use super::traits::{Limiter, RateLimitSnapshot};
 use crate::error::LimiteronError;
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -255,6 +255,35 @@ impl Limiter for ConcurrencyLimiter {
                 Ok(true)
             }
             Err(_) => Ok(false),
+        }
+    }
+
+    /// 非消费预检（T603）：读可用许可数，不获取
+    async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
+        let cost_u32 = cost as u32;
+        if cost_u32 as u64 != cost {
+            return Err(LimiteronError::LimitError(
+                "许可数量超出 u32 范围".to_string(),
+            ));
+        }
+        let _ = cost_u32;
+        Ok(self.current_snapshot())
+    }
+
+    /// 剩余额度查询（T603，非消费）
+    async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError> {
+        Ok(self.current_snapshot())
+    }
+}
+
+impl ConcurrencyLimiter {
+    /// 读取当前并发快照（available_permits 只读）
+    fn current_snapshot(&self) -> RateLimitSnapshot {
+        RateLimitSnapshot {
+            limit: self.max_concurrent,
+            remaining: self.semaphore.available_permits() as u64,
+            // 并发许可随请求结束即时释放，无时间维度重置
+            reset_secs: 0,
         }
     }
 }

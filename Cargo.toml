@@ -289,7 +289,8 @@ full = [
 
 default = []
 
-# Compatibility features (required by vecboost, currently no-op)
+# Compatibility features（vecboost 兼容声明）。
+# adaptive-limiting 自 rc4 起为真实实现（T610：AIMD 自适应并发限流器）。
 adaptive-limiting = []
 priority-queue = []
 admission-control = []

@@ -29,6 +29,10 @@ pub mod sliding_window;
 pub mod token_bucket;
 pub mod traits;
 
+// 自适应并发限流器（T610，AIMD 窗口；此前 no-op feature 的真实实现）
+#[cfg(feature = "adaptive-limiting")]
+pub mod adaptive;
+
 // Quota limiter (feature-gated)
 #[cfg(feature = "quota-control")]
 pub mod quota_limiter;
@@ -45,6 +49,9 @@ pub use sharded_sliding_window::ShardedSlidingWindowLimiter;
 pub use sliding_window::SlidingWindowLimiter;
 pub use token_bucket::TokenBucketLimiter;
 pub use traits::{Limiter, RateLimitSnapshot};
+
+#[cfg(feature = "adaptive-limiting")]
+pub use adaptive::{AdaptiveConcurrencyConfig, AdaptiveConcurrencyLimiter, AdaptivePermit};
 
 #[cfg(feature = "quota-control")]
 pub use quota_limiter::QuotaLimiter;

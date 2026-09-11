@@ -328,6 +328,8 @@ lua-script = ["oxcache/lua", "dep:redis"]
 # Core Features (核心功能)
 # ============================================
 ban-manager = []
+# 舱壁隔离（T611）：按资源组分池 + 独立并发预算/熔断/隔离指标
+bulkhead = []
 quota-control = []
 circuit-breaker = []
 fallback = []

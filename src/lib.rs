@@ -118,6 +118,8 @@ pub mod logging; // Contains audit_log and log_redaction
 mod rules; // Contains rule_builder and stats_manager
 pub mod storage; // Contains storage_trait and parallel_ban_checker
 
+#[cfg(feature = "bulkhead")]
+pub mod bulkhead;
 #[cfg(feature = "fallback")]
 pub mod fallback;
 mod governor;

@@ -251,6 +251,9 @@ limiteron = { path = ".", default-features = false, features = ["test-clock"] }
 # 测试时钟 MockClock 的公开门控 feature（不入任何生产 preset；
 # src 内联测试经 cfg(test) 可见，tests/ 外部用例经 self dev-dep 开启）
 test-clock = []
+# 配置 CLI（T612）：`limiteron-cli` 二进制 + src/cli 可单测核心。
+# 默认不编译（决策热路径零开销）。
+cli = []
 # ============================================
 # Minimal: 核心限流功能（无外部存储依赖）
 minimal = []
@@ -462,6 +465,13 @@ required-features = ["admin-api"]
 name = "otlp_export_tests"
 path = "tests/telemetry/otlp_export_tests.rs"
 required-features = ["otlp"]
+
+# T612：`limiteron-cli` 二进制（规则文件 校验/导出/apply dry-run）。
+# CLI 核心逻辑在 src/cli（`cli` feature）；二进制仅参数透传。
+[[bin]]
+name = "limiteron-cli"
+path = "src/bin/limiteron_cli.rs"
+required-features = ["cli"]
 
 [[bench]]
 name = "throughput"

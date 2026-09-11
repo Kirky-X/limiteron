@@ -156,6 +156,13 @@ pub struct Governor {
     #[cfg(feature = "telemetry")]
     tracer: Option<Arc<Tracer>>,
 
+    /// 租户解析器（可选，feature-gated `multi-tenant`，T602）
+    ///
+    /// 配置后，决策键（L1 缓存键/事件键/封禁键）以 tenant+key 复合键计算，
+    /// 实现存储/配额/封禁按租户隔离；未配置时行为与现状逐位一致。
+    #[cfg(feature = "multi-tenant")]
+    tenant_resolver: Option<Arc<dyn crate::tenant::TenantResolver>>,
+
     /// 优雅关闭令牌：取消时通知所有后台任务退出
     shutdown_token: tokio_util::sync::CancellationToken,
 
@@ -218,6 +225,9 @@ pub struct GovernorBuilder {
     /// 自定义匹配器注册表（可选）：提供后，配置中的 `Custom` 匹配器
     /// 在构建期从注册表解析并真实参与运行时求值（E1）
     custom_matcher_registry: Option<Arc<crate::matchers::custom::CustomMatcherRegistry>>,
+    /// 租户解析器（可选，T602）
+    #[cfg(feature = "multi-tenant")]
+    tenant_resolver: Option<Arc<dyn crate::tenant::TenantResolver>>,
 }
 
 impl GovernorBuilder {
@@ -245,7 +255,23 @@ impl GovernorBuilder {
             #[cfg(feature = "event-system")]
             event_emitter: None,
             custom_matcher_registry: None,
+            #[cfg(feature = "multi-tenant")]
+            tenant_resolver: None,
         }
+    }
+
+    /// 设置租户解析器（T602，feature `multi-tenant`）
+    ///
+    /// 配置后，Governor 决策键以 tenant+key 复合键计算：
+    /// L1 缓存键、事件键、封禁键均带租户命名空间前缀，
+    /// 存储/配额/封禁按租户隔离。未配置时行为与现状逐位一致。
+    #[cfg(feature = "multi-tenant")]
+    pub fn with_tenant_resolver(
+        mut self,
+        resolver: Arc<dyn crate::tenant::TenantResolver>,
+    ) -> Self {
+        self.tenant_resolver = Some(resolver);
+        self
     }
 
     /// 注入自定义匹配器注册表（E1）
@@ -507,6 +533,8 @@ impl GovernorBuilder {
             metrics: self.metrics,
             #[cfg(feature = "telemetry")]
             tracer: self.tracer,
+            #[cfg(feature = "multi-tenant")]
+            tenant_resolver: self.tenant_resolver,
             shutdown_token: tokio_util::sync::CancellationToken::new(),
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
         })
@@ -650,6 +678,8 @@ impl Governor {
             metrics: None,
             #[cfg(feature = "telemetry")]
             tracer: None,
+            #[cfg(feature = "multi-tenant")]
+            tenant_resolver: None,
             shutdown_token: tokio_util::sync::CancellationToken::new(),
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
         })
@@ -906,6 +936,12 @@ impl Governor {
         })?;
         trace!("Extracted identifier: {}", identifier.key());
 
+        // 多租户贯穿（T602）：决策键改写为 tenant+key 复合键。
+        // L1 缓存键、封禁精确匹配键、事件键均以限定后的标识符计算，
+        // 实现 L1 缓存与租户封禁按租户隔离；未配置 resolver 时原样返回。
+        #[cfg(feature = "multi-tenant")]
+        let identifier = self.tenant_scoped_identifier(context, identifier);
+
         // 规则匹配 - 只计算一次，贯穿整个检查流程
         let matched_rules = {
             let matcher = self.rule_matcher.read().await;
@@ -1078,6 +1114,10 @@ impl Governor {
         let identifier = self.identifier_extractor.extract(context).ok_or_else(|| {
             LimiteronError::ConfigError("Failed to extract identifier".to_string())
         })?;
+
+        // 多租户贯穿（T602）：与常规路径一致的租户限定决策键
+        #[cfg(feature = "multi-tenant")]
+        let identifier = self.tenant_scoped_identifier(context, identifier);
 
         let matched_rules = {
             let matcher = self.rule_matcher.read().await;
@@ -1361,6 +1401,138 @@ impl Governor {
     /// 获取配置历史
     pub async fn get_config_history(&self) -> Vec<ConfigChangeRecord> {
         self.config_history.read().await.get_records().to_vec()
+    }
+
+    // ========================================================================
+    // 多租户贯穿（T602，feature `multi-tenant`）
+    // ========================================================================
+
+    /// 从请求上下文解析租户命名空间（T602）
+    ///
+    /// 未配置 resolver 或解析失败时返回 `None`（决策键回退到无租户前缀的
+    /// 现状行为）。
+    #[cfg(feature = "multi-tenant")]
+    pub fn resolve_tenant(&self, context: &RequestContext) -> Option<crate::tenant::Namespace> {
+        self.tenant_resolver
+            .as_ref()
+            .and_then(|resolver| resolver.resolve(context))
+    }
+
+    /// 计算决策键：tenant + key 复合（T602）
+    ///
+    /// - 配置 resolver 且解析到租户 → `tenant:{id}:env:{env}:{identifier.key()}`
+    /// - 否则 → `identifier.key()`（与现状逐位一致）
+    ///
+    /// 该键贯穿 L1 负缓存、事件发射与封禁存储，实现按租户隔离。
+    #[cfg(feature = "multi-tenant")]
+    pub fn decision_key(&self, context: &RequestContext, identifier: &Identifier) -> String {
+        match self.resolve_tenant(context) {
+            Some(ns) => ns.qualify_key(&identifier.key()),
+            None => identifier.key(),
+        }
+    }
+
+    /// 将标识符改写为租户限定标识符（T602 内部）
+    ///
+    /// 保持标识符类型不变，仅对值加命名空间前缀——下游所有按值键控的
+    /// 消费点（L1 缓存键、封禁精确匹配、事件键）自动获得租户隔离。
+    /// 未配置 resolver / 解析失败 / 租户为默认 global 时原样返回。
+    #[cfg(feature = "multi-tenant")]
+    fn tenant_scoped_identifier(
+        &self,
+        context: &RequestContext,
+        identifier: Identifier,
+    ) -> Identifier {
+        let Some(ns) = self.resolve_tenant(context) else {
+            return identifier;
+        };
+        // 默认命名空间（global/development）不加前缀，保持与无租户部署逐位一致
+        if ns == crate::tenant::Namespace::default() {
+            return identifier;
+        }
+        let qualified = ns.qualify_key(identifier.as_str());
+        match identifier {
+            Identifier::UserId(_) => Identifier::UserId(qualified),
+            Identifier::Ip(_) => Identifier::Ip(qualified),
+            Identifier::Mac(_) => Identifier::Mac(qualified),
+            Identifier::ApiKey(_) => Identifier::ApiKey(qualified),
+            Identifier::DeviceId(_) => Identifier::DeviceId(qualified),
+        }
+    }
+
+    /// 按租户命名空间封禁标识符（T602）
+    ///
+    /// 封禁记录以 tenant 限定的 BanTarget 写入封禁存储，仅影响该租户内
+    /// 的同标识符请求；其他租户与无租户请求不受影响。
+    ///
+    /// 与 [`Governor::ban_identifier`] 不同，本方法写入租户限定的复合键，
+    /// 绕过面向外部输入的格式校验（tenant 前缀由 [`crate::tenant::Namespace`]
+    /// 的转义规则保证无歧义）。
+    #[cfg(feature = "multi-tenant")]
+    pub async fn ban_identifier_for_namespace(
+        &self,
+        namespace: &crate::tenant::Namespace,
+        identifier: &Identifier,
+        reason: &str,
+        duration: Option<std::time::Duration>,
+    ) -> Result<(), LimiteronError> {
+        let Some(mut target) = identifier.to_ban_target() else {
+            return Err(LimiteronError::ValidationError(
+                "Unsupported identifier type".to_string(),
+            ));
+        };
+        // 以租户前缀限定封禁键（保持 BanTarget 变体类型不变）；
+        // Geo 维度按国家码全局生效，不做租户限定
+        if let Some(qualified) = crate::storage::qualify_ban_target(&target, namespace) {
+            target = qualified;
+        }
+        let now = chrono::Utc::now();
+        let duration = duration.unwrap_or(std::time::Duration::from_secs(3600));
+        let record = crate::storage::BanRecord {
+            target,
+            ban_times: 1,
+            duration,
+            banned_at: now,
+            expires_at: now
+                + chrono::Duration::from_std(duration).unwrap_or(chrono::Duration::hours(1)),
+            is_manual: true,
+            reason: reason.to_string(),
+        };
+        self.ban_storage
+            .save(&record)
+            .await
+            .map_err(LimiteronError::StorageError)?;
+        info!(
+            "标识符已按租户封禁: namespace={}, key={}",
+            namespace,
+            crate::logging::redact_user_id(Some(identifier.key().as_str()))
+        );
+        Ok(())
+    }
+
+    /// 租户感知的封禁检查（T602）
+    ///
+    /// 先查租户限定键（tenant 隔离封禁），未命中再查无前缀键（全局封禁，
+    /// 如自动封禁/Geo 封禁，保持既有语义）。未配置 resolver 时仅查无前缀键。
+    #[cfg(feature = "multi-tenant")]
+    pub async fn is_identifier_banned(
+        &self,
+        context: &RequestContext,
+        identifier: &Identifier,
+    ) -> Result<Option<crate::storage::BanRecord>, LimiteronError> {
+        let Some(target) = identifier.to_ban_target() else {
+            return Ok(None);
+        };
+        if let Some(ns) = self.resolve_tenant(context) {
+            if ns != crate::tenant::Namespace::default() {
+                if let Some(scoped) = crate::storage::qualify_ban_target(&target, &ns) {
+                    if let Some(record) = self.ban_storage.is_banned(&scoped).await? {
+                        return Ok(Some(record));
+                    }
+                }
+            }
+        }
+        Ok(self.ban_storage.is_banned(&target).await?)
     }
 
     /// 停止配置监视器

@@ -94,6 +94,36 @@ pub enum BanTarget {
     Geo { country_code: String },
 }
 
+/// 取 BanTarget 的可限定值（T602）
+///
+/// 返回 `Some(value)` 表示该变体携带可被租户命名空间限定的字符串值；
+/// `Geo` 变体按国家码全局生效，返回 `None`。
+#[cfg(feature = "multi-tenant")]
+pub(crate) fn ban_target_value(target: &BanTarget) -> Option<&str> {
+    match target {
+        BanTarget::Ip(v) | BanTarget::UserId(v) | BanTarget::Mac(v) => Some(v),
+        BanTarget::Geo { .. } => None,
+    }
+}
+
+/// 以租户命名空间限定封禁目标（T602）
+///
+/// 保持 [`BanTarget`] 变体类型不变，仅将字符串值替换为
+/// `namespace.qualify_key(value)`；`Geo` 变体不限定（返回 `None`）。
+#[cfg(feature = "multi-tenant")]
+pub(crate) fn qualify_ban_target(
+    target: &BanTarget,
+    namespace: &crate::tenant::Namespace,
+) -> Option<BanTarget> {
+    let qualified = namespace.qualify_key(ban_target_value(target)?);
+    Some(match target {
+        BanTarget::Ip(_) => BanTarget::Ip(qualified),
+        BanTarget::UserId(_) => BanTarget::UserId(qualified),
+        BanTarget::Mac(_) => BanTarget::Mac(qualified),
+        BanTarget::Geo { .. } => return None,
+    })
+}
+
 /// 封禁记录
 #[derive(Debug, Clone)]
 pub struct BanRecord {

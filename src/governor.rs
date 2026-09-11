@@ -1587,6 +1587,84 @@ impl Governor {
         self.config.clone()
     }
 
+    /// 规则热更新：校验并原子换入新配置（T613）。
+    ///
+    /// 与 confers reload 的原子换装模式（`Arc<RwLock<FlowControlConfig>>`）
+    /// 一致，并在同一次换装中同步重建规则匹配器与决策链，保证热更新
+    /// **真实生效**（仅换 config 句柄不会改变构造期构建的 rule_matcher）。
+    ///
+    /// 流程：
+    /// 1. 校验新配置（失败 → Err，旧配置原样保留，即 rollback 语义）；
+    /// 2. 预构建新 `RuleMatcher` 与 rule→decision-chain 映射（构建失败同样拒绝）；
+    /// 3. 原子换入 config + rule_matcher + rule_chains；
+    /// 4. 清空 L1 决策缓存（旧配置下的缓存决策不再可信）；
+    /// 5. 记录 `ConfigChangeRecord`（`ChangeSource::Api`）。
+    ///
+    /// 供 Admin API `POST /api/v1/config` 与 confers watch 共同使用。
+    pub async fn apply_config(
+        &self,
+        new_config: FlowControlConfig,
+    ) -> Result<ConfigApplyReport, LimiteronError> {
+        // 1. 校验（规则非空 / ID 唯一 / 匹配器与限流器合法等）
+        new_config.validate().map_err(LimiteronError::ConfigError)?;
+
+        // 2. 预构建（任何失败都在换装前发生，旧配置不受影响）。
+        //    注：热更新路径不重建自定义匹配器注册表（registry 属构造期
+        //    builder 注入；含 Custom 匹配器的配置请走进程重启或经注册表
+        //    预注册后使用同名字段）。
+        let rules = RuleBuilder::build_rules(&new_config)?;
+        let new_matcher = RuleMatcher::with_dependencies(rules);
+        let new_chains = RuleBuilder::build_rule_chains(&new_config)?;
+        let new_hash = new_config.compute_hash();
+        let new_version = new_config.version.clone();
+        let rule_count = new_config.rules.len();
+
+        // 3. 原子换装（三把写锁在同一临界区依次获取；决策路径的读锁窗口
+        //    极短，换装期间在途请求要么走旧配置、要么走新配置，不存在撕裂读）
+        let (old_version, old_hash) = {
+            let mut cfg_guard = self.config.write().await;
+            *self.rule_matcher.write().await = new_matcher;
+            *self.rule_chains.write().await = new_chains;
+            let old = std::mem::replace(&mut *cfg_guard, new_config);
+            let old_hash = old.compute_hash();
+            let old_version = old.version;
+            (old_version, old_hash)
+        };
+
+        // 4. L1 决策缓存失效（best-effort：清空失败不阻断换装）
+        if let Err(e) = self.l1_cache.clear().await {
+            log::warn!("apply_config: L1 cache clear failed: {e}");
+        }
+
+        // 5. 记录配置变更历史
+        self.config_history
+            .write()
+            .await
+            .add_record(ConfigChangeRecord {
+                timestamp: chrono::Utc::now(),
+                old_version: Some(old_version.clone()),
+                new_version: new_version.clone(),
+                old_hash: Some(old_hash),
+                new_hash: new_hash.clone(),
+                source: crate::config::ChangeSource::Api,
+                changes: vec![format!("rules={rule_count} (hot-reload)")],
+            });
+
+        info!(
+            "apply_config: hot-reloaded config {} → {} (rules={})",
+            old_version, new_version, rule_count
+        );
+
+        Ok(ConfigApplyReport {
+            applied: true,
+            old_version,
+            new_version,
+            config_hash: new_hash,
+            rule_count,
+            applied_at: chrono::Utc::now(),
+        })
+    }
+
     // ==================== L1 缓存相关方法 ====================
 
     /// 获取 L1 缓存统计信息
@@ -1992,6 +2070,25 @@ impl From<&HealthStatus> for HealthIntrospection {
             background_tasks_alive: s.background_tasks_alive,
         }
     }
+}
+
+/// 配置热更新结果报告（T613）
+///
+/// [`Governor::apply_config`] 的返回值，供 Admin API JSON 输出与审计。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ConfigApplyReport {
+    /// 是否已换入（成功时恒为 true；失败走 Err 路径）
+    pub applied: bool,
+    /// 换装前的配置版本
+    pub old_version: String,
+    /// 换入的新配置版本
+    pub new_version: String,
+    /// 新配置哈希（`FlowControlConfig::compute_hash`）
+    pub config_hash: String,
+    /// 新配置规则数
+    pub rule_count: usize,
+    /// 换装完成时间（UTC）
+    pub applied_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// Governor 运行时自省快照（T608）

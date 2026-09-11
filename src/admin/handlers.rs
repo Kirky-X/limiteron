@@ -203,6 +203,197 @@ pub async fn introspect(State(state): State<AppState>) -> Json<serde_json::Value
     Json(body)
 }
 
+// ==================== 规则热更新 / 批量 API（T613） ====================
+
+/// 批量检查/预取的条目数上限（防单请求打爆控制面）
+const BATCH_MAX_ITEMS: usize = 1000;
+
+/// POST /api/v1/config —— 规则热更新（原子换配置，T613）
+///
+/// 请求体为完整 `FlowControlConfig` JSON。校验失败或预构建失败返回
+/// 400 且**旧配置原样保留**（rollback 语义）；成功则原子换入新配置
+/// 并同步重建规则匹配器与决策链（真实生效，见 `Governor::apply_config`）。
+/// 写操作：仅 admin 角色可调用。
+pub async fn apply_config(
+    State(state): State<AppState>,
+    Json(config): Json<crate::config::FlowControlConfig>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    match state.governor.apply_config(config).await {
+        Ok(report) => {
+            let data = serde_json::to_value(&report).unwrap_or_else(|_| serde_json::json!({}));
+            (
+                StatusCode::OK,
+                Json(ApiResponse {
+                    success: true,
+                    message: "config applied".to_string(),
+                    data: Some(data),
+                }),
+            )
+        }
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error(format!("config rejected: {e}"))),
+        ),
+    }
+}
+
+/// 批量检查请求条目（T613）
+#[derive(Deserialize)]
+pub struct BatchCheckItem {
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub ip: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub method: Option<String>,
+}
+
+/// 批量检查请求体（T613）：N 个 key 一次决策
+#[derive(Deserialize)]
+pub struct BatchCheckBody {
+    pub requests: Vec<BatchCheckItem>,
+}
+
+/// POST /api/v1/check/batch —— 批量检查端点（T613）
+///
+/// 请求体 `{"requests": [{user_id, ip, path, method}, ...]}`，对 N 个
+/// key 各执行一次完整 Governor 决策，返回逐项结果。单条失败不中断
+/// 整批（逐项报告 error）。上限 [`BATCH_MAX_ITEMS`] 条，超出返回 400。
+pub async fn check_batch(
+    State(state): State<AppState>,
+    Json(body): Json<BatchCheckBody>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    if body.requests.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error(
+                "batch check requires at least one request",
+            )),
+        );
+    }
+    if body.requests.len() > BATCH_MAX_ITEMS {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error(format!(
+                "batch check limited to {BATCH_MAX_ITEMS} requests per call"
+            ))),
+        );
+    }
+
+    let mut results = Vec::with_capacity(body.requests.len());
+    for (index, item) in body.requests.into_iter().enumerate() {
+        let mut ctx = crate::matchers::RequestContext::new();
+        // 默认 CompositeExtractor 从 X-User-Id 头 / 客户端 IP / X-API-Key
+        // 提取标识符；批量端点将 body 字段映射到对应提取源。
+        if let Some(user_id) = item.user_id {
+            ctx.headers.insert("x-user-id".to_string(), user_id);
+        }
+        ctx.ip = item.ip.clone();
+        ctx.client_ip = item.ip;
+        ctx.path = item.path.unwrap_or_default();
+        ctx.method = item.method.unwrap_or_else(|| "GET".to_string());
+
+        match state.governor.check(&ctx).await {
+            Ok(decision) => {
+                let (kind, allowed) = match &decision {
+                    crate::error::Decision::Allowed(_) => ("Allowed", true),
+                    crate::error::Decision::Rejected(_) => ("Rejected", false),
+                    crate::error::Decision::Banned(_) => ("Banned", false),
+                };
+                results.push(serde_json::json!({
+                    "index": index,
+                    "allowed": allowed,
+                    "decision": kind,
+                }));
+            }
+            Err(e) => {
+                results.push(serde_json::json!({
+                    "index": index,
+                    "allowed": false,
+                    "decision": "Error",
+                    "error": e.to_string(),
+                }));
+            }
+        }
+    }
+
+    let allowed_count = results.iter().filter(|r| r["allowed"] == true).count();
+    (
+        StatusCode::OK,
+        Json(ApiResponse {
+            success: true,
+            message: format!("{allowed_count}/{} allowed", results.len()),
+            data: Some(serde_json::json!({ "results": results })),
+        }),
+    )
+}
+
+/// 令牌预取条目（T613）
+#[derive(Deserialize)]
+pub struct TokenPrefetchItem {
+    /// 预取 key（客户端标识）
+    pub key: String,
+    /// 预取令牌数（一次原子预留）
+    pub tokens: u64,
+}
+
+/// 批量令牌预取请求体（T613）
+#[derive(Deserialize)]
+pub struct TokenPrefetchBody {
+    pub items: Vec<TokenPrefetchItem>,
+}
+
+/// 进程级批量令牌预取器（控制面专用，不参与决策热路径）。
+///
+/// Admin API 无状态 handler 的共享实例；容量即语义（last-config-wins）。
+static TOKEN_PREFETCHER: std::sync::OnceLock<crate::limiters::BatchTokenPrefetcher> =
+    std::sync::OnceLock::new();
+
+fn token_prefetcher() -> &'static crate::limiters::BatchTokenPrefetcher {
+    TOKEN_PREFETCHER.get_or_init(crate::limiters::BatchTokenPrefetcher::new)
+}
+
+/// POST /api/v1/tokens/prefetch —— 批量令牌预取（T613）
+///
+/// 请求体 `{"items": [{"key": "...", "tokens": N}, ...]}`，为 N 个 key
+/// 各一次性原子预留 tokens 个令牌（见 `BatchTokenPrefetcher`）。返回
+/// 逐项 `granted` 与汇总计数。上限 [`BATCH_MAX_ITEMS`] 条。
+pub async fn prefetch_tokens(
+    Json(body): Json<TokenPrefetchBody>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    if body.items.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error(
+                "token prefetch requires at least one item",
+            )),
+        );
+    }
+    if body.items.len() > BATCH_MAX_ITEMS {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error(format!(
+                "token prefetch limited to {BATCH_MAX_ITEMS} items per call"
+            ))),
+        );
+    }
+
+    let pairs: Vec<(String, u64)> = body.items.into_iter().map(|i| (i.key, i.tokens)).collect();
+    let results = token_prefetcher().prefetch_batch(&pairs).await;
+    let granted_count = results.iter().filter(|r| r.granted).count();
+
+    (
+        StatusCode::OK,
+        Json(ApiResponse {
+            success: true,
+            message: format!("{granted_count}/{} granted", results.len()),
+            data: Some(serde_json::to_value(&results).unwrap_or_else(|_| serde_json::json!([]))),
+        }),
+    )
+}
+
 // ==================== 封禁管理 ====================
 
 /// 解除封禁请求
@@ -1098,5 +1289,165 @@ mod tests {
         assert!(resp.1.0.success);
         let data = resp.1.0.data.unwrap();
         assert!(data.failure_rate > 0.0);
+    }
+
+    // ========================================================================
+    // T613：规则热更新 / 批量检查 / 批量令牌预取
+    // ========================================================================
+
+    /// 构造一条合法规则的最小配置（与 test_support::make_valid_config 同构）
+    fn t613_valid_config() -> crate::config::FlowControlConfig {
+        use crate::config::{Action, ActionConfig, LimiterConfig, Matcher, Rule};
+        crate::config::FlowControlConfig {
+            version: "1.0.1".to_string(),
+            global: crate::config::GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "hot_rule".to_string(),
+                name: "Hot Rule".to_string(),
+                priority: 50,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 1000,
+                    refill_rate: 100,
+                }],
+                action: ActionConfig {
+                    on_exceed: Action::Reject,
+                    ban: None,
+                },
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_t613_apply_config_swaps_rules() {
+        let state = make_state().await;
+        // 换入新配置（新规则 ID）
+        let resp = apply_config(State(state.clone()), Json(t613_valid_config())).await;
+        assert_eq!(resp.0, StatusCode::OK, "{:?}", resp.1.0.message);
+        assert!(resp.1.0.success);
+        let data = resp.1.0.data.unwrap();
+        assert_eq!(data["applied"], serde_json::json!(true));
+        assert_eq!(data["new_version"], serde_json::json!("1.0.1"));
+        assert_eq!(data["rule_count"], serde_json::json!(1));
+
+        // 自省应反映新规则 ID（换装真实生效，非仅换 config 句柄）
+        let snap = state.governor.introspect().await;
+        assert!(
+            snap.rules.iter().any(|r| r.id == "hot_rule"),
+            "hot-swapped rule must be visible in introspection"
+        );
+        // 配置历史应记录本次 API 换装
+        let history = state.governor.get_config_history().await;
+        assert!(
+            history.iter().any(|rec| rec.new_version == "1.0.1"),
+            "apply_config must record config history"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_t613_apply_config_rejects_invalid_and_rolls_back() {
+        let state = make_state().await;
+        // 非法配置：rules 为空 → validate 报错 → 400 且旧配置保留
+        let mut bad = t613_valid_config();
+        bad.rules.clear();
+        let resp = apply_config(State(state.clone()), Json(bad)).await;
+        assert_eq!(resp.0, StatusCode::BAD_REQUEST);
+        assert!(!resp.1.0.success);
+
+        // 自省仍是旧配置的规则（test_rule），未被空配置替换
+        let snap = state.governor.introspect().await;
+        assert!(
+            snap.rules.iter().any(|r| r.id == "test_rule"),
+            "invalid apply must keep old config (rollback semantics)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_t613_check_batch_decides_all_keys() {
+        let state = make_state().await;
+        let body = BatchCheckBody {
+            requests: vec![
+                BatchCheckItem {
+                    user_id: Some("batch-user-1".to_string()),
+                    ip: None,
+                    path: Some("/api".to_string()),
+                    method: Some("GET".to_string()),
+                },
+                BatchCheckItem {
+                    user_id: Some("batch-user-2".to_string()),
+                    ip: None,
+                    path: Some("/api".to_string()),
+                    method: Some("GET".to_string()),
+                },
+            ],
+        };
+        let resp = check_batch(State(state), Json(body)).await;
+        assert_eq!(resp.0, StatusCode::OK);
+        assert!(resp.1.0.success);
+        let data = resp.1.0.data.unwrap();
+        let results = data["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2, "one decision per key");
+        assert_eq!(results[0]["index"], serde_json::json!(0));
+        assert_eq!(results[1]["index"], serde_json::json!(1));
+        assert_eq!(results[0]["decision"], serde_json::json!("Allowed"));
+    }
+
+    #[tokio::test]
+    async fn test_t613_check_batch_empty_body_rejected() {
+        let state = make_state().await;
+        let body = BatchCheckBody { requests: vec![] };
+        let resp = check_batch(State(state), Json(body)).await;
+        assert_eq!(resp.0, StatusCode::BAD_REQUEST);
+        assert!(!resp.1.0.success);
+    }
+
+    #[tokio::test]
+    async fn test_t613_check_batch_over_limit_rejected() {
+        let state = make_state().await;
+        let body = BatchCheckBody {
+            requests: (0..=BATCH_MAX_ITEMS)
+                .map(|_| BatchCheckItem {
+                    user_id: Some("u".to_string()),
+                    ip: None,
+                    path: None,
+                    method: None,
+                })
+                .collect(),
+        };
+        let resp = check_batch(State(state), Json(body)).await;
+        assert_eq!(resp.0, StatusCode::BAD_REQUEST, "over-limit batch → 400");
+    }
+
+    #[tokio::test]
+    async fn test_t613_prefetch_tokens_grants_batch() {
+        let body = TokenPrefetchBody {
+            items: vec![
+                TokenPrefetchItem {
+                    key: "pf-key-1".to_string(),
+                    tokens: 5,
+                },
+                TokenPrefetchItem {
+                    key: "pf-key-2".to_string(),
+                    tokens: 5,
+                },
+            ],
+        };
+        let resp = prefetch_tokens(Json(body)).await;
+        assert_eq!(resp.0, StatusCode::OK);
+        assert!(resp.1.0.success);
+        assert_eq!(resp.1.0.message, "2/2 granted");
+        let data = resp.1.0.data.unwrap();
+        let results = data.as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0]["granted"], serde_json::json!(true));
+    }
+
+    #[tokio::test]
+    async fn test_t613_prefetch_tokens_empty_rejected() {
+        let body = TokenPrefetchBody { items: vec![] };
+        let resp = prefetch_tokens(Json(body)).await;
+        assert_eq!(resp.0, StatusCode::BAD_REQUEST);
     }
 }

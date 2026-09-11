@@ -142,6 +142,12 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
         )
         // Governor 运行时自省（T608）
         .route("/api/v1/introspect", get(handlers::introspect))
+        // 规则热更新（T613，原子换配置）
+        .route("/api/v1/config", post(handlers::apply_config))
+        // 批量检查（T613，N key 一次决策）
+        .route("/api/v1/check/batch", post(handlers::check_batch))
+        // 批量令牌预取（T613）
+        .route("/api/v1/tokens/prefetch", post(handlers::prefetch_tokens))
         .with_state(state);
 
     let api_key = config.api_key.clone();

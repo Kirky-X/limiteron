@@ -16,6 +16,7 @@
 //! - `manager`: 全局限流器管理器（供 `#[flow_control]` 宏使用）
 
 // 子模块
+pub mod batch_prefetch;
 pub mod concurrency;
 pub mod factory;
 pub mod fixed_window;
@@ -42,6 +43,7 @@ pub mod quota_limiter;
 pub mod distributed;
 
 // Re-export all public types
+pub use batch_prefetch::{BatchTokenPrefetcher, PrefetchResult};
 pub use concurrency::ConcurrencyLimiter;
 pub use fixed_window::FixedWindowLimiter;
 pub use sharded_sliding_window::ShardedSlidingWindowLimiter;

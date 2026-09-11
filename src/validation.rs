@@ -130,6 +130,32 @@ fn extract_ip_part(ip: &str) -> Result<&str, LimiteronError> {
     Ok(ip)
 }
 
+/// 验证 CIDR 网段格式（T604）
+///
+/// 接受 IPv4/IPv6 无类别域间路由表示法（如 "10.0.0.0/8"、"2001:db8::/32"）。
+/// host 位不为零的写法（如 "10.0.0.1/8"）按 ipnet 语义同样合法（ipnet 会
+/// 规范化掩码），此处沿用其行为不做额外收紧。
+pub fn validate_cidr(cidr: &str) -> Result<(), LimiteronError> {
+    if cidr.is_empty() {
+        return Err(LimiteronError::ValidationError(
+            "CIDR cannot be empty".to_string(),
+        ));
+    }
+
+    if cidr.len() > MAX_IP_ADDRESS_LENGTH + 4 {
+        return Err(LimiteronError::ValidationError(format!(
+            "CIDR exceeds maximum length (max: {}, actual: {})",
+            MAX_IP_ADDRESS_LENGTH + 4,
+            cidr.len()
+        )));
+    }
+
+    cidr.parse::<ipnet::IpNet>()
+        .map_err(|_| LimiteronError::ValidationError(format!("Invalid CIDR format: {}", cidr)))?;
+
+    Ok(())
+}
+
 /// Validates a user ID.
 ///
 /// # Arguments
@@ -312,6 +338,7 @@ pub fn validate_ban_target(target: &BanTarget) -> Result<(), LimiteronError> {
         BanTarget::UserId(user_id) => validate_user_id(user_id),
         BanTarget::Mac(mac) => validate_mac_address(mac),
         BanTarget::Geo { country_code } => validate_geo_country_code(country_code),
+        BanTarget::Cidr(cidr) => validate_cidr(cidr),
     }
 }
 

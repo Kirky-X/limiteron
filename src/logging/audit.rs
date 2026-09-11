@@ -135,6 +135,12 @@ pub struct AuditLogEntry {
     /// 签名算法版本
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature_version: Option<u32>,
+    /// 链式哈希——前一条目的链哈希（T609；首条为 [`Self::GENESIS`]）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chain_prev: Option<String>,
+    /// 链式哈希——本条目的 HMAC-SHA256(prev_hash ‖ payload)（T609）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chain_hash: Option<String>,
 }
 
 #[cfg(feature = "audit-log")]
@@ -145,6 +151,8 @@ impl AuditLogEntry {
             event,
             signature: None,
             signature_version: None,
+            chain_prev: None,
+            chain_hash: None,
         }
     }
 
@@ -155,11 +163,71 @@ impl AuditLogEntry {
         entry
     }
 
+    /// 链式哈希的创世前缀（首条目 chain_prev）
+    pub const GENESIS: &'static str = "GENESIS";
+
     /// 对日志条目进行签名
     pub fn sign(&mut self, signing_key: &str) {
         let signature = Self::generate_signature(&self.event, signing_key);
         self.signature = Some(signature);
         self.signature_version = Some(1); // 当前签名算法版本
+    }
+
+    /// 计算本条目的链哈希（T609）
+    ///
+    /// 工作区统一模式：`chain_hash = HMAC-SHA256(key, prev_hash ‖ payload)`，
+    /// payload 为条目签名消息（与 [`Self::generate_signature`] 同源），实现
+    /// 删除/重排/篡改任意中间记录均可被 [`Self::verify_chain`] 检出。
+    pub fn chain_link(&self, signing_key: &str, prev_hash: &str) -> String {
+        let mut mac = Hmac::<Sha256>::new_from_slice(signing_key.as_bytes())
+            .expect("HMAC can take key of any size");
+        mac.update(prev_hash.as_bytes());
+        mac.update(b"|");
+        mac.update(Self::signature_message(&self.event).as_bytes());
+        hex::encode(mac.finalize().into_bytes())
+    }
+
+    /// 附加到哈希链（T609）
+    ///
+    /// 以 `prev_hash`（前一条链哈希或 [`Self::GENESIS`]）计算并写入
+    /// `chain_prev`/`chain_hash`，返回本条链哈希供调用方串链。
+    pub fn chain_onto(&mut self, signing_key: &str, prev_hash: &str) -> String {
+        let hash = self.chain_link(signing_key, prev_hash);
+        self.chain_prev = Some(prev_hash.to_string());
+        self.chain_hash = Some(hash.clone());
+        hash
+    }
+
+    /// 校验条目序列的哈希链完整性（T609）
+    ///
+    /// - 首条必须 `chain_prev == GENESIS`；
+    /// - 逐条重算 `HMAC(key, prev ‖ payload)` 并与存储值比对；
+    /// - 篡改 payload、删除中间条目、重排序列均会导致链接断裂 → `Ok(false)`；
+    /// - 序列中出现未串链（chain_hash 缺失）的条目 → `Ok(false)`；
+    /// - 空序列视为完整链（`Ok(true)`）。
+    pub fn verify_chain(
+        entries: &[AuditLogEntry],
+        signing_key: &str,
+    ) -> Result<bool, LimiteronError> {
+        let mut prev = Self::GENESIS.to_string();
+        for entry in entries {
+            let Some(stored) = &entry.chain_hash else {
+                return Ok(false);
+            };
+            let Some(stored_prev) = &entry.chain_prev else {
+                return Ok(false);
+            };
+            if stored_prev != &prev {
+                // 链接断裂：删除/重排/插入记录
+                return Ok(false);
+            }
+            let expected = entry.chain_link(signing_key, &prev);
+            if !Self::constant_time_compare(stored, &expected) {
+                return Ok(false);
+            }
+            prev = expected;
+        }
+        Ok(true)
     }
 
     /// 生成 HMAC-SHA256 签名
@@ -170,14 +238,7 @@ impl AuditLogEntry {
     /// - target: 目标标识
     /// - result: 操作结果
     fn generate_signature(event: &AuditEvent, signing_key: &str) -> String {
-        // 构建签名消息
-        let message = format!(
-            "{}|{}|{}|{}",
-            event.timestamp().to_rfc3339(),
-            event.operation(),
-            event.target(),
-            event.result()
-        );
+        let message = Self::signature_message(event);
 
         // 创建 HMAC-SHA256 实例
         let mut mac = Hmac::<Sha256>::new_from_slice(signing_key.as_bytes())
@@ -188,6 +249,17 @@ impl AuditLogEntry {
         // 返回十六进制编码的签名
         let result = mac.finalize();
         hex::encode(result.into_bytes())
+    }
+
+    /// 条目签名消息（条目签名与 T609 链哈希共用同一 payload）
+    fn signature_message(event: &AuditEvent) -> String {
+        format!(
+            "{}|{}|{}|{}",
+            event.timestamp().to_rfc3339(),
+            event.operation(),
+            event.target(),
+            event.result()
+        )
     }
 
     /// 验证签名完整性
@@ -515,6 +587,7 @@ impl AuditLogger {
         stats: Arc<AuditLogStats>,
         config: AuditLogConfig,
     ) {
+        let mut chain_head: Option<String> = None; // T609：哈希链头（跨批次延续）
         let mut batch = Vec::with_capacity(config.batch_size);
         let mut timeout = tokio::time::interval(config.batch_timeout);
 
@@ -545,13 +618,13 @@ impl AuditLogger {
                             }
 
                             if batch.len() >= config.batch_size {
-                                Self::write_batch(&batch, &config, &stats);
+                                Self::write_batch(&batch, &config, &stats, &mut chain_head);
                                 batch.clear();
                             }
                         }
                         None => {
                             if !batch.is_empty() {
-                                Self::write_batch(&batch, &config, &stats);
+                                Self::write_batch(&batch, &config, &stats, &mut chain_head);
                             }
                             break;
                         }
@@ -559,7 +632,7 @@ impl AuditLogger {
                 }
                 _ = timeout.tick() => {
                     if !batch.is_empty() {
-                        Self::write_batch(&batch, &config, &stats);
+                        Self::write_batch(&batch, &config, &stats, &mut chain_head);
                         batch.clear();
                     }
                 }
@@ -569,17 +642,31 @@ impl AuditLogger {
         info!("审计日志写入任务结束");
     }
 
-    fn write_batch(batch: &[AuditEvent], config: &AuditLogConfig, stats: &AuditLogStats) {
+    fn write_batch(
+        batch: &[AuditEvent],
+        config: &AuditLogConfig,
+        stats: &AuditLogStats,
+        chain_head: &mut Option<String>,
+    ) {
         stats.batch_writes.fetch_add(1, Ordering::Relaxed);
 
         for event in batch {
             // 创建带签名的日志条目
-            let entry = if let Some(ref signing_key) = config.signing_key {
+            let mut entry = if let Some(ref signing_key) = config.signing_key {
                 let key = signing_key.expose_secret();
                 AuditLogEntry::with_signature(event.clone(), key)
             } else {
                 AuditLogEntry::new(event.clone())
             };
+
+            // T609：配置签名密钥时串接哈希链（HMAC-SHA256(prev ‖ payload)）。
+            // 链头跨批次延续（write_task 持有），批内按事件顺序串接。
+            if let Some(ref signing_key) = config.signing_key {
+                let prev = chain_head
+                    .clone()
+                    .unwrap_or_else(|| AuditLogEntry::GENESIS.to_string());
+                *chain_head = Some(entry.chain_onto(signing_key.expose_secret(), &prev));
+            }
 
             // 必须用 compact JSON：文件以「一行一条」写入，read_and_verify
             // 逐行解析；pretty JSON 的多行格式会使完整性验证 100% 失败。
@@ -1794,7 +1881,7 @@ mod tests {
 
         // write_batch 应正常返回，但内部 write_to_file 失败
         // 应触发 stats.write_failures +1 和 error! 日志
-        AuditLogger::write_batch(&[event], &config, &stats);
+        AuditLogger::write_batch(&[event], &config, &stats, &mut None);
 
         assert_eq!(stats.write_failures(), 1);
         assert_eq!(stats.batch_writes(), 1);
@@ -1845,5 +1932,108 @@ mod tests {
         // 新内容应写入新的 audit.log
         let new_content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(new_content, "new entry\n");
+    }
+
+    // ========================================================================
+    // T609：审计哈希链（HMAC-SHA256(prev ‖ payload)）篡改检测
+    // ========================================================================
+
+    fn t609_entry(op: &str) -> AuditEvent {
+        use chrono::Utc;
+        AuditEvent::SystemEvent {
+            level: "info".to_string(),
+            name: op.to_string(),
+            details: format!("t609-{op}"),
+            timestamp: Utc::now(),
+        }
+    }
+
+    fn t609_build_chain(n: usize, key: &str) -> Vec<AuditLogEntry> {
+        let mut entries = Vec::new();
+        let mut prev = AuditLogEntry::GENESIS.to_string();
+        for i in 0..n {
+            let mut e = AuditLogEntry::with_signature(t609_entry(&format!("op{i}")), key);
+            prev = e.chain_onto(key, &prev);
+            entries.push(e);
+        }
+        entries
+    }
+
+    #[test]
+    fn test_t609_chain_verify_ok() {
+        let key = "t609-signing-key";
+        let chain = t609_build_chain(5, key);
+        assert!(
+            AuditLogEntry::verify_chain(&chain, key).unwrap(),
+            "完整链必须通过校验"
+        );
+        assert_eq!(chain[0].chain_prev.as_deref(), Some(AuditLogEntry::GENESIS));
+        assert!(chain[0].chain_hash.is_some());
+    }
+
+    #[test]
+    fn test_t609_chain_empty_is_valid() {
+        let key = "t609-signing-key";
+        assert!(
+            AuditLogEntry::verify_chain(&[], key).unwrap(),
+            "空序列视为完整链"
+        );
+    }
+
+    #[test]
+    fn test_t609_chain_tamper_payload_detected() {
+        let key = "t609-signing-key";
+        let mut chain = t609_build_chain(3, key);
+        // 篡改中间条目的 payload（换 operation → 签名消息改变）
+        if let AuditEvent::SystemEvent { name, .. } = &mut chain[1].event {
+            *name = "tampered".to_string();
+        }
+        assert!(
+            !AuditLogEntry::verify_chain(&chain, key).unwrap(),
+            "篡改 payload 必须被检出"
+        );
+    }
+
+    #[test]
+    fn test_t609_chain_delete_middle_detected() {
+        let key = "t609-signing-key";
+        let mut chain = t609_build_chain(4, key);
+        chain.remove(1); // 删除中间记录
+        assert!(
+            !AuditLogEntry::verify_chain(&chain, key).unwrap(),
+            "删除中间条目必须因链接断裂被检出"
+        );
+    }
+
+    #[test]
+    fn test_t609_chain_reorder_detected() {
+        let key = "t609-signing-key";
+        let mut chain = t609_build_chain(3, key);
+        chain.swap(0, 2);
+        assert!(
+            !AuditLogEntry::verify_chain(&chain, key).unwrap(),
+            "重排序列必须被检出（首条不再是 GENESIS）"
+        );
+    }
+
+    #[test]
+    fn test_t609_chain_wrong_key_detected() {
+        let chain = t609_build_chain(3, "correct-key");
+        assert!(
+            !AuditLogEntry::verify_chain(&chain, "wrong-key").unwrap(),
+            "错误密钥必须校验失败"
+        );
+    }
+
+    #[test]
+    fn test_t609_chain_unchained_entry_detected() {
+        let key = "t609-signing-key";
+        let mut chain = t609_build_chain(2, key);
+        // 攻击者追加一条未串链的伪造记录
+        chain.push(AuditLogEntry::with_signature(t609_entry("forged"), key));
+        assert!(
+            !AuditLogEntry::verify_chain(&chain, key).unwrap(),
+            "未串链的追加记录必须被检出"
+        );
     }
 }

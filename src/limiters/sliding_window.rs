@@ -4,7 +4,7 @@
 //!
 //! 使用滑动窗口算法实现速率限制。
 
-use super::traits::{Limiter, validate_cost};
+use super::traits::{Limiter, RateLimitSnapshot, validate_cost};
 use crate::error::LimiteronError;
 use async_trait::async_trait;
 use parking_lot::Mutex;
@@ -105,6 +105,48 @@ impl Limiter for SlidingWindowLimiter {
         }
 
         Ok(true)
+    }
+
+    /// 非消费预检（T603）：读窗口计数，不追加记录
+    async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
+        validate_cost(cost)?;
+        let _ = &cost;
+        Ok(self.current_snapshot())
+    }
+
+    /// 剩余额度查询（T603，非消费）
+    async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError> {
+        Ok(self.current_snapshot())
+    }
+}
+
+impl SlidingWindowLimiter {
+    /// 读取当前快照（清理过期记录但不追加）
+    fn current_snapshot(&self) -> RateLimitSnapshot {
+        let now = Instant::now();
+        let mut requests = self.requests.lock();
+        let cutoff = now - self.window_size;
+        while let Some(&front) = requests.front() {
+            if front <= cutoff {
+                requests.pop_front();
+            } else {
+                break;
+            }
+        }
+        let count = requests.len() as u64;
+        // 重置时间 = 最旧记录滑出窗口所需秒数（向上取整）；窗口空则 0
+        let reset_secs = requests
+            .front()
+            .map(|oldest| {
+                let elapsed = now.duration_since(*oldest).as_secs();
+                self.window_size.as_secs().saturating_sub(elapsed)
+            })
+            .unwrap_or(0);
+        RateLimitSnapshot {
+            limit: self.max_requests,
+            remaining: self.max_requests.saturating_sub(count),
+            reset_secs,
+        }
     }
 }
 

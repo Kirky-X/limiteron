@@ -23,12 +23,14 @@ fn target_key(target: &BanTarget) -> String {
         BanTarget::UserId(_) => "uid",
         BanTarget::Mac(_) => "mac",
         BanTarget::Geo { .. } => "geo",
+        BanTarget::Cidr(_) => "cidr",
     };
     format!(
         "ban:{tag}:{}",
         match target {
             BanTarget::Ip(v) | BanTarget::UserId(v) | BanTarget::Mac(v) => v,
             BanTarget::Geo { country_code } => country_code,
+            BanTarget::Cidr(cidr) => cidr,
         }
     )
 }

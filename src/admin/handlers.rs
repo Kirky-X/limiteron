@@ -6,6 +6,7 @@ use axum::{
     Extension, Json,
     extract::{Path, Query, State},
     http::StatusCode,
+    response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +41,65 @@ impl<T: Serialize> ApiResponse<T> {
             data: None,
         }
     }
+}
+
+// ==================== K8s 探针与指标端点（T601，bypass 认证） ====================
+//
+// 三个端点在 routes 层 bypass 速率限制与 API key 认证：
+// K8s kubelet 探针与 Prometheus 抓取器不携带管理凭证。
+
+/// GET /healthz — 存活探针
+///
+/// 进程存活且事件循环可响应即返回 200（不做组件级检查——那是 /readyz 的职责）。
+pub async fn healthz() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "status": "ok" }))
+}
+
+/// GET /readyz — 就绪探针
+///
+/// 聚合 [`Governor::health_status()`] 的组件级状态：
+/// - 全部健康 → 200 + `{"status":"ready", ...}`
+/// - 任一不健康 → 503 + 不健康组件明细
+pub async fn readyz(State(state): State<AppState>) -> axum::response::Response {
+    let status = state.governor.health_status().await;
+    let body = serde_json::json!({
+        "status": if status.healthy() { "ready" } else { "not_ready" },
+        "storage_healthy": status.storage_healthy,
+        "ban_storage_healthy": status.ban_storage_healthy,
+        "cache_healthy": status.cache_healthy,
+        "background_tasks_alive": status.background_tasks_alive,
+    });
+    if status.healthy() {
+        (StatusCode::OK, Json(body)).into_response()
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response()
+    }
+}
+
+/// GET /metrics — Prometheus 文本格式指标
+///
+/// 数据源优先级：`AppState.metrics`（显式注入）→ 全局指标（`try_global()`）
+/// → 空 exposition（合法 Prometheus 注释行，保持 200 契约）。
+#[cfg(feature = "monitoring")]
+pub async fn metrics(State(state): State<AppState>) -> axum::response::Response {
+    use axum::http::header;
+    let content_type = "text/plain; version=0.0.4";
+    let text = match state.metrics.clone().or_else(crate::telemetry::try_global) {
+        Some(m) => m.gather(),
+        None => "# limiteron metrics not configured\n".to_string(),
+    };
+    ([(header::CONTENT_TYPE, content_type)], text).into_response()
+}
+
+/// GET /metrics（无 monitoring feature）——空 exposition
+#[cfg(not(feature = "monitoring"))]
+pub async fn metrics() -> axum::response::Response {
+    use axum::http::header;
+    (
+        [(header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        "# limiteron metrics feature disabled\n".to_string(),
+    )
+        .into_response()
 }
 
 // ==================== 系统状态 ====================
@@ -99,6 +159,241 @@ pub async fn get_status(State(state): State<AppState>) -> Json<ApiResponse<Syste
     }))
 }
 
+// ==================== Governor 自省（T608） ====================
+
+/// GET /api/v1/introspect —— 运行时自省快照（JSON）
+///
+/// 聚合 Governor 的规则/决策链/统计/L1 缓存/健康状态，并叠加
+/// 封禁清单（ban-manager）与熔断状态（circuit-breaker）。
+/// 只读端点：viewer 角色即可访问。
+pub async fn introspect(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let snapshot = state.governor.introspect().await;
+    let mut body = serde_json::to_value(&snapshot).unwrap_or_else(|_| serde_json::json!({}));
+
+    #[cfg(feature = "ban-manager")]
+    if let Some(ref bm) = state.ban_manager {
+        if let Ok(bans) = bm
+            .list_bans(BanFilter {
+                active_only: true,
+                ..Default::default()
+            })
+            .await
+        {
+            let items: Vec<serde_json::Value> = bans
+                .iter()
+                .map(|b| {
+                    serde_json::json!({
+                        "target": b.target,
+                        "ban_times": b.ban_times,
+                        "is_manual": b.is_manual,
+                        "reason": b.reason,
+                        "expires_at": b.expires_at.to_rfc3339(),
+                    })
+                })
+                .collect();
+            body["active_bans"] = serde_json::Value::Array(items);
+        }
+    }
+
+    #[cfg(feature = "circuit-breaker")]
+    if let Some(ref cb) = state.circuit_breaker {
+        body["circuit_breaker_state"] = serde_json::json!(cb.get_state().await.to_string());
+    }
+
+    Json(body)
+}
+
+// ==================== 规则热更新 / 批量 API（T613） ====================
+
+/// 批量检查/预取的条目数上限（防单请求打爆控制面）
+const BATCH_MAX_ITEMS: usize = 1000;
+
+/// POST /api/v1/config —— 规则热更新（原子换配置，T613）
+///
+/// 请求体为完整 `FlowControlConfig` JSON。校验失败或预构建失败返回
+/// 400 且**旧配置原样保留**（rollback 语义）；成功则原子换入新配置
+/// 并同步重建规则匹配器与决策链（真实生效，见 `Governor::apply_config`）。
+/// 写操作：仅 admin 角色可调用。
+pub async fn apply_config(
+    State(state): State<AppState>,
+    Json(config): Json<crate::config::FlowControlConfig>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    match state.governor.apply_config(config).await {
+        Ok(report) => {
+            let data = serde_json::to_value(&report).unwrap_or_else(|_| serde_json::json!({}));
+            (
+                StatusCode::OK,
+                Json(ApiResponse {
+                    success: true,
+                    message: "config applied".to_string(),
+                    data: Some(data),
+                }),
+            )
+        }
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error(format!("config rejected: {e}"))),
+        ),
+    }
+}
+
+/// 批量检查请求条目（T613）
+#[derive(Deserialize)]
+pub struct BatchCheckItem {
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub ip: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub method: Option<String>,
+}
+
+/// 批量检查请求体（T613）：N 个 key 一次决策
+#[derive(Deserialize)]
+pub struct BatchCheckBody {
+    pub requests: Vec<BatchCheckItem>,
+}
+
+/// POST /api/v1/check/batch —— 批量检查端点（T613）
+///
+/// 请求体 `{"requests": [{user_id, ip, path, method}, ...]}`，对 N 个
+/// key 各执行一次完整 Governor 决策，返回逐项结果。单条失败不中断
+/// 整批（逐项报告 error）。上限 [`BATCH_MAX_ITEMS`] 条，超出返回 400。
+pub async fn check_batch(
+    State(state): State<AppState>,
+    Json(body): Json<BatchCheckBody>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    if body.requests.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error(
+                "batch check requires at least one request",
+            )),
+        );
+    }
+    if body.requests.len() > BATCH_MAX_ITEMS {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error(format!(
+                "batch check limited to {BATCH_MAX_ITEMS} requests per call"
+            ))),
+        );
+    }
+
+    let mut results = Vec::with_capacity(body.requests.len());
+    for (index, item) in body.requests.into_iter().enumerate() {
+        let mut ctx = crate::matchers::RequestContext::new();
+        // 默认 CompositeExtractor 从 X-User-Id 头 / 客户端 IP / X-API-Key
+        // 提取标识符；批量端点将 body 字段映射到对应提取源。
+        if let Some(user_id) = item.user_id {
+            ctx.headers.insert("x-user-id".to_string(), user_id);
+        }
+        ctx.ip = item.ip.clone();
+        ctx.client_ip = item.ip;
+        ctx.path = item.path.unwrap_or_default();
+        ctx.method = item.method.unwrap_or_else(|| "GET".to_string());
+
+        match state.governor.check(&ctx).await {
+            Ok(decision) => {
+                let (kind, allowed) = match &decision {
+                    crate::error::Decision::Allowed(_) => ("Allowed", true),
+                    crate::error::Decision::Rejected(_) => ("Rejected", false),
+                    crate::error::Decision::Banned(_) => ("Banned", false),
+                };
+                results.push(serde_json::json!({
+                    "index": index,
+                    "allowed": allowed,
+                    "decision": kind,
+                }));
+            }
+            Err(e) => {
+                results.push(serde_json::json!({
+                    "index": index,
+                    "allowed": false,
+                    "decision": "Error",
+                    "error": e.to_string(),
+                }));
+            }
+        }
+    }
+
+    let allowed_count = results.iter().filter(|r| r["allowed"] == true).count();
+    (
+        StatusCode::OK,
+        Json(ApiResponse {
+            success: true,
+            message: format!("{allowed_count}/{} allowed", results.len()),
+            data: Some(serde_json::json!({ "results": results })),
+        }),
+    )
+}
+
+/// 令牌预取条目（T613）
+#[derive(Deserialize)]
+pub struct TokenPrefetchItem {
+    /// 预取 key（客户端标识）
+    pub key: String,
+    /// 预取令牌数（一次原子预留）
+    pub tokens: u64,
+}
+
+/// 批量令牌预取请求体（T613）
+#[derive(Deserialize)]
+pub struct TokenPrefetchBody {
+    pub items: Vec<TokenPrefetchItem>,
+}
+
+/// 进程级批量令牌预取器（控制面专用，不参与决策热路径）。
+///
+/// Admin API 无状态 handler 的共享实例；容量即语义（last-config-wins）。
+static TOKEN_PREFETCHER: std::sync::OnceLock<crate::limiters::BatchTokenPrefetcher> =
+    std::sync::OnceLock::new();
+
+fn token_prefetcher() -> &'static crate::limiters::BatchTokenPrefetcher {
+    TOKEN_PREFETCHER.get_or_init(crate::limiters::BatchTokenPrefetcher::new)
+}
+
+/// POST /api/v1/tokens/prefetch —— 批量令牌预取（T613）
+///
+/// 请求体 `{"items": [{"key": "...", "tokens": N}, ...]}`，为 N 个 key
+/// 各一次性原子预留 tokens 个令牌（见 `BatchTokenPrefetcher`）。返回
+/// 逐项 `granted` 与汇总计数。上限 [`BATCH_MAX_ITEMS`] 条。
+pub async fn prefetch_tokens(
+    Json(body): Json<TokenPrefetchBody>,
+) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
+    if body.items.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error(
+                "token prefetch requires at least one item",
+            )),
+        );
+    }
+    if body.items.len() > BATCH_MAX_ITEMS {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResponse::error(format!(
+                "token prefetch limited to {BATCH_MAX_ITEMS} items per call"
+            ))),
+        );
+    }
+
+    let pairs: Vec<(String, u64)> = body.items.into_iter().map(|i| (i.key, i.tokens)).collect();
+    let results = token_prefetcher().prefetch_batch(&pairs).await;
+    let granted_count = results.iter().filter(|r| r.granted).count();
+
+    (
+        StatusCode::OK,
+        Json(ApiResponse {
+            success: true,
+            message: format!("{granted_count}/{} granted", results.len()),
+            data: Some(serde_json::to_value(&results).unwrap_or_else(|_| serde_json::json!([]))),
+        }),
+    )
+}
+
 // ==================== 封禁管理 ====================
 
 /// 解除封禁请求
@@ -116,7 +411,7 @@ pub struct UnbanRequest {
 
 /// DELETE /api/v1/ban/{target} 的 query 参数
 ///
-/// - `?type=ip|user|mac|geo`：显式指定目标类型，用于解封通过 API 创建的 MAC/Geo 封禁
+/// - `?type=ip|user|mac|geo|cidr`：显式指定目标类型，用于解封通过 API 创建的 MAC/Geo/CIDR 封禁
 /// - 未提供时按原有行为自动推断（IP 优先，回退 UserId）
 #[derive(Deserialize, Default)]
 pub struct BanTargetQuery {
@@ -128,7 +423,7 @@ pub struct BanTargetQuery {
 /// DELETE /api/v1/ban/{target}
 ///
 /// 路径 `target` 默认按 IP 解析，回退为 UserId；通过 `?type=` 可显式指定
-/// ip/user/mac/geo 之一，以解封非 IP/UserId 目标。
+/// ip/user/mac/geo/cidr 之一，以解封非 IP/UserId 目标。
 /// 状态码：200=成功, 400=不支持的 type, 404=未找到, 503=未配置, 500=内部错误
 ///
 /// vuln-0001 修复：operator 身份由 `OperatorIdentity`（鉴权 middleware 注入）决定，
@@ -154,6 +449,7 @@ pub async fn delete_ban(
         Some("geo") => BanTarget::Geo {
             country_code: target,
         },
+        Some("cidr") => BanTarget::Cidr(target),
         Some(other) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -515,6 +811,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // 未封禁的 IP → Ban not found
         let req = UnbanRequest {
@@ -546,6 +844,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // 非 IP 字符串 → UserId 目标
         let req = UnbanRequest {
@@ -601,6 +901,8 @@ mod tests {
             quota_controller: Some(quota_controller),
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // new_limit > 0 → 不支持
         let req = UpdateQuotaRequest {
@@ -637,6 +939,8 @@ mod tests {
             #[cfg(feature = "quota-control")]
             quota_controller: None,
             circuit_breaker: Some(cb),
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         let resp = get_circuit_breaker_status(State(state)).await;
         assert!(resp.1.0.success);
@@ -661,6 +965,8 @@ mod tests {
             #[cfg(feature = "quota-control")]
             quota_controller: None,
             circuit_breaker: Some(cb),
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         let resp = get_status(State(state)).await;
         assert!(resp.0.success);
@@ -699,6 +1005,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         let req = UnbanRequest {
             reason: Some("manual unban".to_string()),
@@ -746,6 +1054,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // ?type=mac 显式指定 → 成功解封
         let req = UnbanRequest {
@@ -799,6 +1109,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // ?type=geo 显式指定 → 成功解封
         let req = UnbanRequest {
@@ -833,6 +1145,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // ?type=foo 不支持 → 400 BAD_REQUEST
         let req = UnbanRequest {
@@ -885,6 +1199,8 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         // 不指定 type → 自动推断为 UserId（MAC 字符串不是合法 IP）→ 404 NOT_FOUND
         // 这验证了 ?type=mac 是解封 MAC 的必要条件（修复前的 bug 复现）
@@ -927,6 +1243,8 @@ mod tests {
             quota_controller: Some(quota_controller),
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         let req = UpdateQuotaRequest {
             resource: "api".to_string(),
@@ -964,10 +1282,172 @@ mod tests {
             #[cfg(feature = "quota-control")]
             quota_controller: None,
             circuit_breaker: Some(cb),
+            #[cfg(feature = "monitoring")]
+            metrics: None,
         };
         let resp = get_circuit_breaker_status(State(state)).await;
         assert!(resp.1.0.success);
         let data = resp.1.0.data.unwrap();
         assert!(data.failure_rate > 0.0);
+    }
+
+    // ========================================================================
+    // T613：规则热更新 / 批量检查 / 批量令牌预取
+    // ========================================================================
+
+    /// 构造一条合法规则的最小配置（与 test_support::make_valid_config 同构）
+    fn t613_valid_config() -> crate::config::FlowControlConfig {
+        use crate::config::{Action, ActionConfig, LimiterConfig, Matcher, Rule};
+        crate::config::FlowControlConfig {
+            version: "1.0.1".to_string(),
+            global: crate::config::GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "hot_rule".to_string(),
+                name: "Hot Rule".to_string(),
+                priority: 50,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 1000,
+                    refill_rate: 100,
+                }],
+                action: ActionConfig {
+                    on_exceed: Action::Reject,
+                    ban: None,
+                },
+            }],
+        }
+    }
+
+    #[tokio::test]
+    async fn test_t613_apply_config_swaps_rules() {
+        let state = make_state().await;
+        // 换入新配置（新规则 ID）
+        let resp = apply_config(State(state.clone()), Json(t613_valid_config())).await;
+        assert_eq!(resp.0, StatusCode::OK, "{:?}", resp.1.0.message);
+        assert!(resp.1.0.success);
+        let data = resp.1.0.data.unwrap();
+        assert_eq!(data["applied"], serde_json::json!(true));
+        assert_eq!(data["new_version"], serde_json::json!("1.0.1"));
+        assert_eq!(data["rule_count"], serde_json::json!(1));
+
+        // 自省应反映新规则 ID（换装真实生效，非仅换 config 句柄）
+        let snap = state.governor.introspect().await;
+        assert!(
+            snap.rules.iter().any(|r| r.id == "hot_rule"),
+            "hot-swapped rule must be visible in introspection"
+        );
+        // 配置历史应记录本次 API 换装
+        let history = state.governor.get_config_history().await;
+        assert!(
+            history.iter().any(|rec| rec.new_version == "1.0.1"),
+            "apply_config must record config history"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_t613_apply_config_rejects_invalid_and_rolls_back() {
+        let state = make_state().await;
+        // 非法配置：rules 为空 → validate 报错 → 400 且旧配置保留
+        let mut bad = t613_valid_config();
+        bad.rules.clear();
+        let resp = apply_config(State(state.clone()), Json(bad)).await;
+        assert_eq!(resp.0, StatusCode::BAD_REQUEST);
+        assert!(!resp.1.0.success);
+
+        // 自省仍是旧配置的规则（test_rule），未被空配置替换
+        let snap = state.governor.introspect().await;
+        assert!(
+            snap.rules.iter().any(|r| r.id == "test_rule"),
+            "invalid apply must keep old config (rollback semantics)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_t613_check_batch_decides_all_keys() {
+        let state = make_state().await;
+        let body = BatchCheckBody {
+            requests: vec![
+                BatchCheckItem {
+                    user_id: Some("batch-user-1".to_string()),
+                    ip: None,
+                    path: Some("/api".to_string()),
+                    method: Some("GET".to_string()),
+                },
+                BatchCheckItem {
+                    user_id: Some("batch-user-2".to_string()),
+                    ip: None,
+                    path: Some("/api".to_string()),
+                    method: Some("GET".to_string()),
+                },
+            ],
+        };
+        let resp = check_batch(State(state), Json(body)).await;
+        assert_eq!(resp.0, StatusCode::OK);
+        assert!(resp.1.0.success);
+        let data = resp.1.0.data.unwrap();
+        let results = data["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2, "one decision per key");
+        assert_eq!(results[0]["index"], serde_json::json!(0));
+        assert_eq!(results[1]["index"], serde_json::json!(1));
+        assert_eq!(results[0]["decision"], serde_json::json!("Allowed"));
+    }
+
+    #[tokio::test]
+    async fn test_t613_check_batch_empty_body_rejected() {
+        let state = make_state().await;
+        let body = BatchCheckBody { requests: vec![] };
+        let resp = check_batch(State(state), Json(body)).await;
+        assert_eq!(resp.0, StatusCode::BAD_REQUEST);
+        assert!(!resp.1.0.success);
+    }
+
+    #[tokio::test]
+    async fn test_t613_check_batch_over_limit_rejected() {
+        let state = make_state().await;
+        let body = BatchCheckBody {
+            requests: (0..=BATCH_MAX_ITEMS)
+                .map(|_| BatchCheckItem {
+                    user_id: Some("u".to_string()),
+                    ip: None,
+                    path: None,
+                    method: None,
+                })
+                .collect(),
+        };
+        let resp = check_batch(State(state), Json(body)).await;
+        assert_eq!(resp.0, StatusCode::BAD_REQUEST, "over-limit batch → 400");
+    }
+
+    #[tokio::test]
+    async fn test_t613_prefetch_tokens_grants_batch() {
+        let body = TokenPrefetchBody {
+            items: vec![
+                TokenPrefetchItem {
+                    key: "pf-key-1".to_string(),
+                    tokens: 5,
+                },
+                TokenPrefetchItem {
+                    key: "pf-key-2".to_string(),
+                    tokens: 5,
+                },
+            ],
+        };
+        let resp = prefetch_tokens(Json(body)).await;
+        assert_eq!(resp.0, StatusCode::OK);
+        assert!(resp.1.0.success);
+        assert_eq!(resp.1.0.message, "2/2 granted");
+        let data = resp.1.0.data.unwrap();
+        let results = data.as_array().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0]["granted"], serde_json::json!(true));
+    }
+
+    #[tokio::test]
+    async fn test_t613_prefetch_tokens_empty_rejected() {
+        let body = TokenPrefetchBody { items: vec![] };
+        let resp = prefetch_tokens(Json(body)).await;
+        assert_eq!(resp.0, StatusCode::BAD_REQUEST);
     }
 }

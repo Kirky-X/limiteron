@@ -51,6 +51,7 @@ impl DBNexusBanStorageAdapter {
             BanTarget::UserId(user_id) => create_target_key("user", user_id),
             BanTarget::Mac(mac) => create_target_key("mac", mac),
             BanTarget::Geo { country_code } => create_target_key("geo", country_code),
+            BanTarget::Cidr(cidr) => create_target_key("cidr", cidr),
         }
     }
 
@@ -61,6 +62,7 @@ impl DBNexusBanStorageAdapter {
             BanTarget::UserId(user_id) => ("user".to_string(), user_id.clone()),
             BanTarget::Mac(mac) => ("mac".to_string(), mac.clone()),
             BanTarget::Geo { country_code } => ("geo".to_string(), country_code.clone()),
+            BanTarget::Cidr(cidr) => ("cidr".to_string(), cidr.clone()),
         }
     }
 
@@ -79,6 +81,10 @@ impl DBNexusBanStorageAdapter {
                 BanTarget::Geo {
                     country_code: model.target_value.clone(),
                 },
+                model.target_value.clone(),
+            ),
+            "cidr" => (
+                BanTarget::Cidr(model.target_value.clone()),
                 model.target_value.clone(),
             ),
             _ => (

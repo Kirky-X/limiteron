@@ -1273,3 +1273,238 @@ mod cross_module {
         assert_eq!(node_rej.get("reject_node"), Some(&3));
     }
 }
+
+// ============================================================================
+// 模块 11（T602）: 多租户贯穿 Governor（feature = "multi-tenant"）
+// ============================================================================
+
+#[cfg(feature = "multi-tenant")]
+mod t602_tenant_governor {
+    use limiteron::config::{
+        Action, ActionConfig, FlowControlConfig, GlobalConfig, LimiterConfig, Matcher, Rule,
+    };
+    use limiteron::matchers::{Identifier, RequestContext};
+    use limiteron::storage::{BanStorage, MemoryBanStorage, MemoryStorage, Storage};
+    use limiteron::{Governor, HeaderTenantResolver, Namespace};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    fn tenant_ctx(tenant: &str, user: &str) -> RequestContext {
+        let mut ctx = RequestContext::new();
+        ctx.user_id = Some(user.to_string());
+        ctx = ctx.with_header("X-Tenant-ID", tenant);
+        ctx
+    }
+
+    fn test_config() -> FlowControlConfig {
+        FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "t602_rule".to_string(),
+                name: "T602 Rule".to_string(),
+                priority: 100,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig {
+                    on_exceed: Action::Reject,
+                    ban: None,
+                },
+            }],
+        }
+    }
+
+    async fn make_tenant_governor() -> Governor {
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+        Governor::builder()
+            .with_config(test_config())
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .with_tenant_resolver(Arc::new(HeaderTenantResolver::new("X-Tenant-ID", "prod")))
+            .build()
+            .await
+            .expect("tenant governor build")
+    }
+
+    /// 决策键 = tenant + key 复合：两租户同 key 决策键必须不同
+    #[tokio::test]
+    async fn decision_key_composes_tenant_and_key() {
+        let governor = make_tenant_governor().await;
+        let id = Identifier::UserId("u1".to_string());
+        let key_acme = governor.decision_key(&tenant_ctx("acme", "u1"), &id);
+        let key_globex = governor.decision_key(&tenant_ctx("globex", "u1"), &id);
+        assert_ne!(key_acme, key_globex, "两租户同 key 的决策键必须不同");
+        assert!(
+            key_acme.contains("acme"),
+            "决策键应包含租户标识: {key_acme}"
+        );
+        assert!(
+            key_acme.contains(&id.key()),
+            "决策键应包含原始 key: {key_acme}"
+        );
+    }
+
+    /// 未配置 resolver 时决策键与现状逐位一致（向后兼容）
+    #[tokio::test]
+    async fn no_resolver_keeps_legacy_decision_key() {
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+        let governor = Governor::builder()
+            .with_config(test_config())
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .unwrap();
+        let id = Identifier::UserId("u1".to_string());
+        assert_eq!(
+            governor.decision_key(&tenant_ctx("acme", "u1"), &id),
+            id.key(),
+            "无 resolver 时决策键不得变化"
+        );
+    }
+
+    /// 两租户同 key 封禁互不影响（封禁按租户隔离）
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn tenant_scoped_ban_isolation() {
+        let governor = make_tenant_governor().await;
+        let id = Identifier::UserId("u1".to_string());
+        let acme = Namespace::new("acme", "prod");
+
+        // 仅封禁 acme 租户的 u1
+        governor
+            .ban_identifier_for_namespace(
+                &acme,
+                &id,
+                "t602 ban test",
+                Some(Duration::from_secs(600)),
+            )
+            .await
+            .expect("scoped ban write");
+
+        let banned_acme = governor
+            .is_identifier_banned(&tenant_ctx("acme", "u1"), &id)
+            .await
+            .expect("read acme");
+        let banned_globex = governor
+            .is_identifier_banned(&tenant_ctx("globex", "u1"), &id)
+            .await
+            .expect("read globex");
+        assert!(banned_acme.is_some(), "acme 租户的 u1 应已被封禁");
+        assert!(
+            banned_globex.is_none(),
+            "globex 租户的 u1 不应受 acme 封禁影响"
+        );
+    }
+
+    /// 进程内 QuotaStorage 测试替身（HashMap + Mutex，consume 为无条件累加）
+    #[cfg(feature = "quota-control")]
+    struct SimpleQuotaStorage {
+        state: std::sync::Mutex<std::collections::HashMap<(String, String), u64>>,
+    }
+
+    #[cfg(feature = "quota-control")]
+    impl SimpleQuotaStorage {
+        fn new() -> Self {
+            Self {
+                state: std::sync::Mutex::new(std::collections::HashMap::new()),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    #[cfg(feature = "quota-control")]
+    impl limiteron::storage::QuotaStorage for SimpleQuotaStorage {
+        async fn get_quota(
+            &self,
+            user_id: &str,
+            resource: &str,
+        ) -> Result<Option<limiteron::storage::QuotaInfo>, limiteron::error::StorageError> {
+            let map = self.state.lock().unwrap();
+            Ok(map
+                .get(&(user_id.to_string(), resource.to_string()))
+                .map(|&consumed| limiteron::storage::QuotaInfo {
+                    consumed,
+                    limit: 0,
+                    window_start: chrono::Utc::now(),
+                    window_end: chrono::Utc::now(),
+                }))
+        }
+
+        async fn consume(
+            &self,
+            user_id: &str,
+            resource: &str,
+            cost: u64,
+            _limit: u64,
+            _window: Duration,
+        ) -> Result<limiteron::error::ConsumeResult, limiteron::error::StorageError> {
+            let mut map = self.state.lock().unwrap();
+            let key = (user_id.to_string(), resource.to_string());
+            let consumed = map.entry(key).or_insert(0);
+            *consumed += cost;
+            Ok(limiteron::error::ConsumeResult {
+                allowed: true,
+                remaining: 0,
+                alert_triggered: false,
+                usage_percent: 0.0,
+            })
+        }
+
+        async fn reset(
+            &self,
+            user_id: &str,
+            resource: &str,
+            _limit: u64,
+            _window: Duration,
+        ) -> Result<(), limiteron::error::StorageError> {
+            let mut map = self.state.lock().unwrap();
+            map.remove(&(user_id.to_string(), resource.to_string()));
+            Ok(())
+        }
+    }
+
+    /// 两租户同 key 配额互不影响（配额按租户隔离）
+    #[cfg(feature = "quota-control")]
+    #[tokio::test]
+    async fn two_tenants_same_key_quota_independent() {
+        use limiteron::QuotaController;
+        use limiteron::quota::QuotaConfig;
+        use limiteron::storage::QuotaStorage;
+
+        let storage: Arc<dyn QuotaStorage> = Arc::new(SimpleQuotaStorage::new());
+        let config = QuotaConfig {
+            limit: 5,
+            ..QuotaConfig::default()
+        };
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // acme 租户的 u1 消耗完默认配额
+        for _ in 0..5 {
+            let r = controller
+                .consume_for_tenant("acme", "u1", "api", 1)
+                .await
+                .unwrap();
+            assert!(r.allowed, "acme 前 5 次消费应放行");
+        }
+        let exhausted = controller
+            .consume_for_tenant("acme", "u1", "api", 1)
+            .await
+            .unwrap();
+        assert!(!exhausted.allowed, "acme 第 6 次消费应被拒绝");
+
+        // globex 租户的同名 u1 配额不受影响
+        let other = controller
+            .consume_for_tenant("globex", "u1", "api", 1)
+            .await
+            .unwrap();
+        assert!(other.allowed, "globex 的 u1 配额不应受 acme 消耗影响");
+    }
+}

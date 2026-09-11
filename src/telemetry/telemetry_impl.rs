@@ -311,7 +311,24 @@ impl Tracer {
     /// # 返回
     /// - Tracer实例
     pub fn new(enabled: bool) -> Self {
-        Self { enabled }
+        Self {
+            enabled,
+            #[cfg(feature = "otlp")]
+            span_sink: None,
+        }
+    }
+
+    /// 创建携带 OTLP 导出句柄的追踪器（T606，`otlp` feature）
+    #[cfg(feature = "otlp")]
+    pub fn with_otlp_sink(
+        enabled: bool,
+        span_sink: Option<Arc<crate::telemetry::otlp::SpanSink>>,
+    ) -> Self {
+        Self {
+            enabled,
+            #[cfg(feature = "otlp")]
+            span_sink,
+        }
     }
 
     /// 开始追踪
@@ -321,12 +338,27 @@ impl Tracer {
     ///
     /// # 返回
     /// - Span实例
-    pub fn start_span(&self, _name: &str) -> Span {
+    pub fn start_span(&self, name: &str) -> Span {
         if !self.enabled {
             return Span::new_disabled();
         }
 
-        Span::new()
+        #[cfg(feature = "otlp")]
+        if let Some(sink) = &self.span_sink {
+            let mut span = Span::new();
+            span.otlp_export = Some((name.to_string(), sink.clone()));
+            span
+        } else {
+            #[allow(unused_mut)]
+            let span = Span::new();
+            span
+        }
+
+        #[cfg(not(feature = "otlp"))]
+        {
+            let _ = name;
+            Span::new()
+        }
     }
 
     /// 检查是否启用
@@ -350,6 +382,8 @@ impl Span {
             attributes: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
             events: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
             error: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+            #[cfg(feature = "otlp")]
+            otlp_export: None,
         }
     }
 
@@ -361,6 +395,8 @@ impl Span {
             attributes: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
             events: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
             error: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+            #[cfg(feature = "otlp")]
+            otlp_export: None,
         }
     }
 
@@ -409,6 +445,24 @@ impl Span {
             let elapsed = self.elapsed();
             if let Some(duration) = elapsed {
                 log::debug!("Span finished in {:?}", duration);
+            }
+
+            // T606：OTLP 导出（非阻塞提交，观测数据不阻塞决策热路径）
+            #[cfg(feature = "otlp")]
+            if let Some((name, sink)) = &self.otlp_export {
+                let end = crate::telemetry::otlp::unix_nano_now();
+                let start = end.saturating_sub(elapsed.map(|d| d.as_nanos() as u64).unwrap_or(0));
+                sink.submit(crate::telemetry::otlp::OtlpSpanData {
+                    name: name.clone(),
+                    service_name: sink.service_name().to_string(),
+                    trace_id: crate::telemetry::otlp::next_id_hex(16),
+                    span_id: crate::telemetry::otlp::next_id_hex(8),
+                    start_unix_nano: start,
+                    end_unix_nano: end,
+                    attributes: self.attributes(),
+                    events: self.events(),
+                    error: self.error(),
+                });
             }
         }
     }
@@ -544,13 +598,12 @@ pub async fn init_telemetry(config: &TelemetryConfig) -> Result<(Metrics, Tracer
         );
 
         if let Some(ref jaeger_endpoint) = config.jaeger_endpoint {
-            init_jaeger_tracer(config, jaeger_endpoint).await?;
+            init_jaeger_tracer(config, jaeger_endpoint).await?
         } else {
             info!("No Jaeger endpoint provided, using console exporter");
             init_console_tracer(config)?;
+            Tracer::new(true)
         }
-
-        Tracer::new(true)
     } else {
         info!("OpenTelemetry tracing disabled");
         Tracer::new(false)
@@ -561,29 +614,48 @@ pub async fn init_telemetry(config: &TelemetryConfig) -> Result<(Metrics, Tracer
 }
 
 /// 初始化Jaeger追踪器
+///
+/// T606：`otlp` feature 下构建 OTLP/HTTP exporter（手工 HTTP 客户端 +
+/// 后台导出 worker，`Span::finish()` 自动提交）；未启用 `otlp` 时回退到
+/// 简化模式（仅本地 subscriber，不外出导出）。
 #[cfg(feature = "telemetry")]
-async fn init_jaeger_tracer(config: &TelemetryConfig, endpoint: &str) -> Result<(), String> {
-    #[cfg(feature = "telemetry")]
-    {
-        // 简化的 Jaeger 追踪器初始化
-        // 由于 OpenTelemetry SDK API 变更，完整功能需要更新依赖版本
-        info!("Jaeger tracing configured for endpoint: {}", endpoint);
-        info!("Service name: {}", config.service_name);
-        info!("Sampling rate: {}", config.sampling_rate);
-
-        // 设置基本的 tracing subscriber（如果尚未设置）
-        if let Err(e) = tracing_subscriber::fmt().try_init() {
-            warn!("Tracing subscriber already set: {}", e);
-        }
-
-        info!("Jaeger tracer initialized successfully (simplified mode)");
-        Ok(())
+async fn init_jaeger_tracer(
+    config: &TelemetryConfig,
+    endpoint: &str,
+) -> Result<crate::telemetry::Tracer, String> {
+    // 设置基本的 tracing subscriber（如果尚未设置）
+    if let Err(e) = tracing_subscriber::fmt().try_init() {
+        warn!("Tracing subscriber already set: {}", e);
     }
-    #[cfg(not(feature = "telemetry"))]
+    info!("Jaeger tracing configured for endpoint: {}", endpoint);
+    info!("Service name: {}", config.service_name);
+    info!("Sampling rate: {}", config.sampling_rate);
+
+    #[cfg(feature = "otlp")]
     {
-        let _ = config;
-        let _ = endpoint;
-        Err("telemetry feature is disabled".to_string())
+        use crate::telemetry::otlp::{HttpTransport, OtlpSpanExporter};
+        use std::sync::Arc;
+
+        let exporter = OtlpSpanExporter::new(
+            config.service_name.clone(),
+            Arc::new(HttpTransport::new(3000)),
+            endpoint.to_string(),
+        );
+        let (sink, worker) = OtlpSpanExporter::spawn_worker(exporter, 1024);
+        tokio::spawn(worker.run());
+        info!("OTLP span exporter initialized (OTLP/HTTP JSON, endpoint: {endpoint})");
+        Ok(crate::telemetry::Tracer::with_otlp_sink(
+            true,
+            Some(Arc::new(sink)),
+        ))
+    }
+
+    #[cfg(not(feature = "otlp"))]
+    {
+        info!(
+            "Jaeger tracer initialized (simplified mode; enable `otlp` feature for real OTLP export)"
+        );
+        Ok(crate::telemetry::Tracer::new(true))
     }
 }
 

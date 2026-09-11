@@ -58,7 +58,7 @@ use crate::telemetry::Tracer;
 /// Governor 统计信息
 ///
 /// 保持向后兼容性的统计信息结构体。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct GovernorStats {
     /// 总请求数
     pub total_requests: u64,
@@ -156,6 +156,13 @@ pub struct Governor {
     #[cfg(feature = "telemetry")]
     tracer: Option<Arc<Tracer>>,
 
+    /// 租户解析器（可选，feature-gated `multi-tenant`，T602）
+    ///
+    /// 配置后，决策键（L1 缓存键/事件键/封禁键）以 tenant+key 复合键计算，
+    /// 实现存储/配额/封禁按租户隔离；未配置时行为与现状逐位一致。
+    #[cfg(feature = "multi-tenant")]
+    tenant_resolver: Option<Arc<dyn crate::tenant::TenantResolver>>,
+
     /// 优雅关闭令牌：取消时通知所有后台任务退出
     shutdown_token: tokio_util::sync::CancellationToken,
 
@@ -218,6 +225,9 @@ pub struct GovernorBuilder {
     /// 自定义匹配器注册表（可选）：提供后，配置中的 `Custom` 匹配器
     /// 在构建期从注册表解析并真实参与运行时求值（E1）
     custom_matcher_registry: Option<Arc<crate::matchers::custom::CustomMatcherRegistry>>,
+    /// 租户解析器（可选，T602）
+    #[cfg(feature = "multi-tenant")]
+    tenant_resolver: Option<Arc<dyn crate::tenant::TenantResolver>>,
 }
 
 impl GovernorBuilder {
@@ -245,7 +255,23 @@ impl GovernorBuilder {
             #[cfg(feature = "event-system")]
             event_emitter: None,
             custom_matcher_registry: None,
+            #[cfg(feature = "multi-tenant")]
+            tenant_resolver: None,
         }
+    }
+
+    /// 设置租户解析器（T602，feature `multi-tenant`）
+    ///
+    /// 配置后，Governor 决策键以 tenant+key 复合键计算：
+    /// L1 缓存键、事件键、封禁键均带租户命名空间前缀，
+    /// 存储/配额/封禁按租户隔离。未配置时行为与现状逐位一致。
+    #[cfg(feature = "multi-tenant")]
+    pub fn with_tenant_resolver(
+        mut self,
+        resolver: Arc<dyn crate::tenant::TenantResolver>,
+    ) -> Self {
+        self.tenant_resolver = Some(resolver);
+        self
     }
 
     /// 注入自定义匹配器注册表（E1）
@@ -507,6 +533,8 @@ impl GovernorBuilder {
             metrics: self.metrics,
             #[cfg(feature = "telemetry")]
             tracer: self.tracer,
+            #[cfg(feature = "multi-tenant")]
+            tenant_resolver: self.tenant_resolver,
             shutdown_token: tokio_util::sync::CancellationToken::new(),
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
         })
@@ -650,6 +678,8 @@ impl Governor {
             metrics: None,
             #[cfg(feature = "telemetry")]
             tracer: None,
+            #[cfg(feature = "multi-tenant")]
+            tenant_resolver: None,
             shutdown_token: tokio_util::sync::CancellationToken::new(),
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
         })
@@ -906,6 +936,12 @@ impl Governor {
         })?;
         trace!("Extracted identifier: {}", identifier.key());
 
+        // 多租户贯穿（T602）：决策键改写为 tenant+key 复合键。
+        // L1 缓存键、封禁精确匹配键、事件键均以限定后的标识符计算，
+        // 实现 L1 缓存与租户封禁按租户隔离；未配置 resolver 时原样返回。
+        #[cfg(feature = "multi-tenant")]
+        let identifier = self.tenant_scoped_identifier(context, identifier);
+
         // 规则匹配 - 只计算一次，贯穿整个检查流程
         let matched_rules = {
             let matcher = self.rule_matcher.read().await;
@@ -1078,6 +1114,10 @@ impl Governor {
         let identifier = self.identifier_extractor.extract(context).ok_or_else(|| {
             LimiteronError::ConfigError("Failed to extract identifier".to_string())
         })?;
+
+        // 多租户贯穿（T602）：与常规路径一致的租户限定决策键
+        #[cfg(feature = "multi-tenant")]
+        let identifier = self.tenant_scoped_identifier(context, identifier);
 
         let matched_rules = {
             let matcher = self.rule_matcher.read().await;
@@ -1363,6 +1403,138 @@ impl Governor {
         self.config_history.read().await.get_records().to_vec()
     }
 
+    // ========================================================================
+    // 多租户贯穿（T602，feature `multi-tenant`）
+    // ========================================================================
+
+    /// 从请求上下文解析租户命名空间（T602）
+    ///
+    /// 未配置 resolver 或解析失败时返回 `None`（决策键回退到无租户前缀的
+    /// 现状行为）。
+    #[cfg(feature = "multi-tenant")]
+    pub fn resolve_tenant(&self, context: &RequestContext) -> Option<crate::tenant::Namespace> {
+        self.tenant_resolver
+            .as_ref()
+            .and_then(|resolver| resolver.resolve(context))
+    }
+
+    /// 计算决策键：tenant + key 复合（T602）
+    ///
+    /// - 配置 resolver 且解析到租户 → `tenant:{id}:env:{env}:{identifier.key()}`
+    /// - 否则 → `identifier.key()`（与现状逐位一致）
+    ///
+    /// 该键贯穿 L1 负缓存、事件发射与封禁存储，实现按租户隔离。
+    #[cfg(feature = "multi-tenant")]
+    pub fn decision_key(&self, context: &RequestContext, identifier: &Identifier) -> String {
+        match self.resolve_tenant(context) {
+            Some(ns) => ns.qualify_key(&identifier.key()),
+            None => identifier.key(),
+        }
+    }
+
+    /// 将标识符改写为租户限定标识符（T602 内部）
+    ///
+    /// 保持标识符类型不变，仅对值加命名空间前缀——下游所有按值键控的
+    /// 消费点（L1 缓存键、封禁精确匹配、事件键）自动获得租户隔离。
+    /// 未配置 resolver / 解析失败 / 租户为默认 global 时原样返回。
+    #[cfg(feature = "multi-tenant")]
+    fn tenant_scoped_identifier(
+        &self,
+        context: &RequestContext,
+        identifier: Identifier,
+    ) -> Identifier {
+        let Some(ns) = self.resolve_tenant(context) else {
+            return identifier;
+        };
+        // 默认命名空间（global/development）不加前缀，保持与无租户部署逐位一致
+        if ns == crate::tenant::Namespace::default() {
+            return identifier;
+        }
+        let qualified = ns.qualify_key(identifier.as_str());
+        match identifier {
+            Identifier::UserId(_) => Identifier::UserId(qualified),
+            Identifier::Ip(_) => Identifier::Ip(qualified),
+            Identifier::Mac(_) => Identifier::Mac(qualified),
+            Identifier::ApiKey(_) => Identifier::ApiKey(qualified),
+            Identifier::DeviceId(_) => Identifier::DeviceId(qualified),
+        }
+    }
+
+    /// 按租户命名空间封禁标识符（T602）
+    ///
+    /// 封禁记录以 tenant 限定的 BanTarget 写入封禁存储，仅影响该租户内
+    /// 的同标识符请求；其他租户与无租户请求不受影响。
+    ///
+    /// 与 [`Governor::ban_identifier`] 不同，本方法写入租户限定的复合键，
+    /// 绕过面向外部输入的格式校验（tenant 前缀由 [`crate::tenant::Namespace`]
+    /// 的转义规则保证无歧义）。
+    #[cfg(feature = "multi-tenant")]
+    pub async fn ban_identifier_for_namespace(
+        &self,
+        namespace: &crate::tenant::Namespace,
+        identifier: &Identifier,
+        reason: &str,
+        duration: Option<std::time::Duration>,
+    ) -> Result<(), LimiteronError> {
+        let Some(mut target) = identifier.to_ban_target() else {
+            return Err(LimiteronError::ValidationError(
+                "Unsupported identifier type".to_string(),
+            ));
+        };
+        // 以租户前缀限定封禁键（保持 BanTarget 变体类型不变）；
+        // Geo 维度按国家码全局生效，不做租户限定
+        if let Some(qualified) = crate::storage::qualify_ban_target(&target, namespace) {
+            target = qualified;
+        }
+        let now = chrono::Utc::now();
+        let duration = duration.unwrap_or(std::time::Duration::from_secs(3600));
+        let record = crate::storage::BanRecord {
+            target,
+            ban_times: 1,
+            duration,
+            banned_at: now,
+            expires_at: now
+                + chrono::Duration::from_std(duration).unwrap_or(chrono::Duration::hours(1)),
+            is_manual: true,
+            reason: reason.to_string(),
+        };
+        self.ban_storage
+            .save(&record)
+            .await
+            .map_err(LimiteronError::StorageError)?;
+        info!(
+            "标识符已按租户封禁: namespace={}, key={}",
+            namespace,
+            crate::logging::redact_user_id(Some(identifier.key().as_str()))
+        );
+        Ok(())
+    }
+
+    /// 租户感知的封禁检查（T602）
+    ///
+    /// 先查租户限定键（tenant 隔离封禁），未命中再查无前缀键（全局封禁，
+    /// 如自动封禁/Geo 封禁，保持既有语义）。未配置 resolver 时仅查无前缀键。
+    #[cfg(feature = "multi-tenant")]
+    pub async fn is_identifier_banned(
+        &self,
+        context: &RequestContext,
+        identifier: &Identifier,
+    ) -> Result<Option<crate::storage::BanRecord>, LimiteronError> {
+        let Some(target) = identifier.to_ban_target() else {
+            return Ok(None);
+        };
+        if let Some(ns) = self.resolve_tenant(context) {
+            if ns != crate::tenant::Namespace::default() {
+                if let Some(scoped) = crate::storage::qualify_ban_target(&target, &ns) {
+                    if let Some(record) = self.ban_storage.is_banned(&scoped).await? {
+                        return Ok(Some(record));
+                    }
+                }
+            }
+        }
+        Ok(self.ban_storage.is_banned(&target).await?)
+    }
+
     /// 停止配置监视器
     pub async fn stop_config_watcher(&self) -> Result<(), LimiteronError> {
         info!("停止配置监视器");
@@ -1413,6 +1585,84 @@ impl Governor {
     /// 原子地替换当前运行配置。替换后所有后续 `check()` 调用均使用新配置。
     pub fn config_handle(&self) -> Arc<RwLock<FlowControlConfig>> {
         self.config.clone()
+    }
+
+    /// 规则热更新：校验并原子换入新配置（T613）。
+    ///
+    /// 与 confers reload 的原子换装模式（`Arc<RwLock<FlowControlConfig>>`）
+    /// 一致，并在同一次换装中同步重建规则匹配器与决策链，保证热更新
+    /// **真实生效**（仅换 config 句柄不会改变构造期构建的 rule_matcher）。
+    ///
+    /// 流程：
+    /// 1. 校验新配置（失败 → Err，旧配置原样保留，即 rollback 语义）；
+    /// 2. 预构建新 `RuleMatcher` 与 rule→decision-chain 映射（构建失败同样拒绝）；
+    /// 3. 原子换入 config + rule_matcher + rule_chains；
+    /// 4. 清空 L1 决策缓存（旧配置下的缓存决策不再可信）；
+    /// 5. 记录 `ConfigChangeRecord`（`ChangeSource::Api`）。
+    ///
+    /// 供 Admin API `POST /api/v1/config` 与 confers watch 共同使用。
+    pub async fn apply_config(
+        &self,
+        new_config: FlowControlConfig,
+    ) -> Result<ConfigApplyReport, LimiteronError> {
+        // 1. 校验（规则非空 / ID 唯一 / 匹配器与限流器合法等）
+        new_config.validate().map_err(LimiteronError::ConfigError)?;
+
+        // 2. 预构建（任何失败都在换装前发生，旧配置不受影响）。
+        //    注：热更新路径不重建自定义匹配器注册表（registry 属构造期
+        //    builder 注入；含 Custom 匹配器的配置请走进程重启或经注册表
+        //    预注册后使用同名字段）。
+        let rules = RuleBuilder::build_rules(&new_config)?;
+        let new_matcher = RuleMatcher::with_dependencies(rules);
+        let new_chains = RuleBuilder::build_rule_chains(&new_config)?;
+        let new_hash = new_config.compute_hash();
+        let new_version = new_config.version.clone();
+        let rule_count = new_config.rules.len();
+
+        // 3. 原子换装（三把写锁在同一临界区依次获取；决策路径的读锁窗口
+        //    极短，换装期间在途请求要么走旧配置、要么走新配置，不存在撕裂读）
+        let (old_version, old_hash) = {
+            let mut cfg_guard = self.config.write().await;
+            *self.rule_matcher.write().await = new_matcher;
+            *self.rule_chains.write().await = new_chains;
+            let old = std::mem::replace(&mut *cfg_guard, new_config);
+            let old_hash = old.compute_hash();
+            let old_version = old.version;
+            (old_version, old_hash)
+        };
+
+        // 4. L1 决策缓存失效（best-effort：清空失败不阻断换装）
+        if let Err(e) = self.l1_cache.clear().await {
+            log::warn!("apply_config: L1 cache clear failed: {e}");
+        }
+
+        // 5. 记录配置变更历史
+        self.config_history
+            .write()
+            .await
+            .add_record(ConfigChangeRecord {
+                timestamp: chrono::Utc::now(),
+                old_version: Some(old_version.clone()),
+                new_version: new_version.clone(),
+                old_hash: Some(old_hash),
+                new_hash: new_hash.clone(),
+                source: crate::config::ChangeSource::Api,
+                changes: vec![format!("rules={rule_count} (hot-reload)")],
+            });
+
+        info!(
+            "apply_config: hot-reloaded config {} → {} (rules={})",
+            old_version, new_version, rule_count
+        );
+
+        Ok(ConfigApplyReport {
+            applied: true,
+            old_version,
+            new_version,
+            config_hash: new_hash,
+            rule_count,
+            applied_at: chrono::Utc::now(),
+        })
     }
 
     // ==================== L1 缓存相关方法 ====================
@@ -1519,6 +1769,66 @@ impl Governor {
     pub async fn audit_logger(&self) -> Option<Arc<AuditLogger>> {
         let guard = self.audit_logger.read().await;
         guard.as_ref().cloned()
+    }
+
+    // ========================================================================
+    // 运行时自省（T608）
+    // ========================================================================
+
+    /// 获取运行时自省快照（T608）
+    ///
+    /// 一次性聚合「规则 → 决策链 → 统计 → L1 缓存 → 健康」的结构化状态，
+    /// 供 Admin API `GET /api/v1/introspect`（JSON）与排障工具消费。
+    pub async fn introspect(&self) -> IntrospectionSnapshot {
+        let config = self.config.read().await;
+        let config_version = config.version.clone();
+        let rules = config
+            .rules
+            .iter()
+            .map(|r| RuleIntrospection {
+                id: r.id.clone(),
+                name: r.name.clone(),
+                priority: r.priority,
+                matcher_count: r.matchers.len(),
+                limiters: r.limiters.iter().map(limiter_kind).collect(),
+                ban_on_exceed: r.action.ban.is_some(),
+            })
+            .collect();
+        drop(config);
+
+        let rule_chains = self.rule_chains.read().await;
+        let mut chains: Vec<ChainIntrospection> = Vec::with_capacity(rule_chains.len());
+        for entry in rule_chains.iter() {
+            let chain = entry.value();
+            let stats = chain.stats().await;
+            chains.push(ChainIntrospection {
+                rule_id: entry.key().clone(),
+                node_count: chain.node_count(),
+                enabled_node_count: chain.enabled_node_count(),
+                total_checks: stats.total_checks,
+                allowed_count: stats.allowed_count,
+                rejected_count: stats.rejected_count,
+                error_count: stats.error_count,
+                node_rejections: stats.node_rejections,
+            });
+        }
+        drop(rule_chains);
+        chains.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+
+        IntrospectionSnapshot {
+            config_version,
+            rules,
+            chains,
+            stats: self.stats().await,
+            l1_cache: L1Introspection {
+                enabled: self.is_l1_cache_enabled(),
+                size: self.l1_cache_size().await,
+            },
+            health: HealthIntrospection::from(&self.health_status().await),
+            #[cfg(feature = "multi-tenant")]
+            multi_tenant_enabled: self.tenant_resolver.is_some(),
+            is_shutdown: self.is_shutdown(),
+        }
     }
 
     /// 健康检查
@@ -1688,6 +1998,131 @@ impl HealthStatus {
             && self.ban_storage_healthy
             && self.cache_healthy
             && self.background_tasks_alive
+    }
+}
+
+// ============================================================================
+// 自省快照类型（T608，serde Serialize 供 Admin API JSON 输出）
+// ============================================================================
+
+/// 规则自省摘要
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RuleIntrospection {
+    /// 规则 ID
+    pub id: String,
+    /// 规则名
+    pub name: String,
+    /// 优先级
+    pub priority: u16,
+    /// 匹配器数量
+    pub matcher_count: usize,
+    /// 限流器类型列表
+    pub limiters: Vec<String>,
+    /// 超限是否联动封禁
+    pub ban_on_exceed: bool,
+}
+
+/// 决策链自省摘要（含运行统计）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChainIntrospection {
+    /// 规则 ID
+    pub rule_id: String,
+    /// 节点数
+    pub node_count: usize,
+    /// 启用节点数
+    pub enabled_node_count: usize,
+    /// 总检查次数
+    pub total_checks: u64,
+    /// 允许次数
+    pub allowed_count: u64,
+    /// 拒绝次数
+    pub rejected_count: u64,
+    /// 错误次数
+    pub error_count: u64,
+    /// 各节点拒绝计数
+    pub node_rejections: Vec<(String, u64)>,
+}
+
+/// L1 缓存自省摘要
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct L1Introspection {
+    /// 是否启用
+    pub enabled: bool,
+    /// 当前条目数
+    pub size: usize,
+}
+
+/// 健康自省摘要
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct HealthIntrospection {
+    pub storage_healthy: bool,
+    pub ban_storage_healthy: bool,
+    pub cache_healthy: bool,
+    pub background_tasks_alive: bool,
+}
+
+impl From<&HealthStatus> for HealthIntrospection {
+    fn from(s: &HealthStatus) -> Self {
+        Self {
+            storage_healthy: s.storage_healthy,
+            ban_storage_healthy: s.ban_storage_healthy,
+            cache_healthy: s.cache_healthy,
+            background_tasks_alive: s.background_tasks_alive,
+        }
+    }
+}
+
+/// 配置热更新结果报告（T613）
+///
+/// [`Governor::apply_config`] 的返回值，供 Admin API JSON 输出与审计。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ConfigApplyReport {
+    /// 是否已换入（成功时恒为 true；失败走 Err 路径）
+    pub applied: bool,
+    /// 换装前的配置版本
+    pub old_version: String,
+    /// 换入的新配置版本
+    pub new_version: String,
+    /// 新配置哈希（`FlowControlConfig::compute_hash`）
+    pub config_hash: String,
+    /// 新配置规则数
+    pub rule_count: usize,
+    /// 换装完成时间（UTC）
+    pub applied_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Governor 运行时自省快照（T608）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct IntrospectionSnapshot {
+    /// 配置版本
+    pub config_version: String,
+    /// 规则清单
+    pub rules: Vec<RuleIntrospection>,
+    /// 决策链清单（按规则 ID 排序）
+    pub chains: Vec<ChainIntrospection>,
+    /// 聚合统计
+    pub stats: GovernorStats,
+    /// L1 缓存状态
+    pub l1_cache: L1Introspection,
+    /// 组件健康
+    pub health: HealthIntrospection,
+    /// 是否启用多租户（multi-tenant feature）
+    #[cfg(feature = "multi-tenant")]
+    pub multi_tenant_enabled: bool,
+    /// 是否已关闭
+    pub is_shutdown: bool,
+}
+
+/// 限流器配置类型名（自省输出用）
+fn limiter_kind(l: &crate::config::LimiterConfig) -> String {
+    use crate::config::LimiterConfig as L;
+    match l {
+        L::TokenBucket { .. } => "token_bucket".to_string(),
+        L::SlidingWindow { .. } => "sliding_window".to_string(),
+        L::FixedWindow { .. } => "fixed_window".to_string(),
+        L::Quota { .. } => "quota".to_string(),
+        L::Concurrency { .. } => "concurrency".to_string(),
+        L::Custom { name, .. } => format!("custom:{name}"),
     }
 }
 

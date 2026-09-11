@@ -386,6 +386,27 @@ impl QuotaController {
         resource: &str,
         cost: u64,
     ) -> Result<ConsumeResult, LimiteronError> {
+        // 防碰撞校验（I2）：user_id/resource 以 `{user_id}:{resource}` 拼接为
+        // 存储 key，含 ':' 的输入会使 ("a:b","c") 与 ("a","b:c") 共享同一 key，
+        // 造成跨账户配额污染。封禁路径已有 validate_user_id 同类防护，
+        // 配额路径在此补齐。
+        if user_id.contains(':') || resource.contains(':') {
+            return Err(LimiteronError::ValidationError(
+                "user_id/resource must not contain ':' (quota key collision)".to_string(),
+            ));
+        }
+        self.consume_keyed(user_id, resource, cost).await
+    }
+
+    /// 以最终存储键消费配额（`consume` 与 T602 租户配额路径共用）
+    ///
+    /// 调用方负责保证 `user_id` 不含 ':'（无碰撞）。
+    async fn consume_keyed(
+        &self,
+        user_id: &str,
+        resource: &str,
+        cost: u64,
+    ) -> Result<ConsumeResult, LimiteronError> {
         // 验证消费数量
         if cost == 0 {
             // 获取当前配额状态（用于计算 usage_percent）
@@ -396,16 +417,6 @@ impl QuotaController {
                 alert_triggered: false,
                 usage_percent,
             });
-        }
-
-        // 防碰撞校验（I2）：user_id/resource 以 `{user_id}:{resource}` 拼接为
-        // 存储 key，含 ':' 的输入会使 ("a:b","c") 与 ("a","b:c") 共享同一 key，
-        // 造成跨账户配额污染。封禁路径已有 validate_user_id 同类防护，
-        // 配额路径在此补齐。
-        if user_id.contains(':') || resource.contains(':') {
-            return Err(LimiteronError::ValidationError(
-                "user_id/resource must not contain ':' (quota key collision)".to_string(),
-            ));
         }
 
         // 获取当前配额状态
@@ -525,6 +536,87 @@ impl QuotaController {
         self.alert_dedup.retain(|key, _| !key.starts_with(&prefix));
 
         Ok(())
+    }
+
+    // ========================================================================
+    // 租户配额隔离（T602，feature `multi-tenant`）
+    // ========================================================================
+
+    /// 构造租户限定的配额用户键
+    ///
+    /// 存储键 = `t:{tenant_id}:{user_id}`，其中 tenant_id 经
+    /// [`crate::tenant::sanitize_tenant_id`] 转义 ':' 防前缀碰撞；
+    /// `user_id` 由调用方校验不含 ':'。
+    #[cfg(feature = "multi-tenant")]
+    pub fn tenant_user_key(tenant_id: &str, user_id: &str) -> String {
+        format!(
+            "t:{}:{}",
+            crate::tenant::config::sanitize_tenant_id(tenant_id),
+            user_id
+        )
+    }
+
+    /// 校验租户配额入参（T602 内部）
+    #[cfg(feature = "multi-tenant")]
+    fn validate_tenant_quota_args(
+        tenant_id: &str,
+        user_id: &str,
+        resource: &str,
+    ) -> Result<(), LimiteronError> {
+        if tenant_id.is_empty() {
+            return Err(LimiteronError::ValidationError(
+                "tenant_id cannot be empty".to_string(),
+            ));
+        }
+        if user_id.contains(':') || resource.contains(':') {
+            return Err(LimiteronError::ValidationError(
+                "user_id/resource must not contain ':' (quota key collision)".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// 按租户消费配额（T602）
+    ///
+    /// 存储键为租户限定键（[`Self::tenant_user_key`]），不同租户的同名
+    /// 用户配额完全隔离。
+    #[cfg(feature = "multi-tenant")]
+    pub async fn consume_for_tenant(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        resource: &str,
+        cost: u64,
+    ) -> Result<ConsumeResult, LimiteronError> {
+        Self::validate_tenant_quota_args(tenant_id, user_id, resource)?;
+        let keyed = Self::tenant_user_key(tenant_id, user_id);
+        self.consume_keyed(&keyed, resource, cost).await
+    }
+
+    /// 按租户获取配额状态（T602）
+    #[cfg(feature = "multi-tenant")]
+    pub async fn get_quota_for_tenant(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        resource: &str,
+    ) -> Result<Option<QuotaState>, LimiteronError> {
+        Self::validate_tenant_quota_args(tenant_id, user_id, resource)?;
+        let keyed = Self::tenant_user_key(tenant_id, user_id);
+        self.get_quota(&keyed, resource).await
+    }
+
+    /// 按租户重置配额（T602）
+    #[cfg(feature = "multi-tenant")]
+    pub async fn reset_quota_for_tenant(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        resource: &str,
+    ) -> Result<(), LimiteronError> {
+        Self::validate_tenant_quota_args(tenant_id, user_id, resource)?;
+        let keyed = Self::tenant_user_key(tenant_id, user_id);
+        self.reset_quota(&keyed, resource).await
     }
 
     /// 获取或创建配额状态

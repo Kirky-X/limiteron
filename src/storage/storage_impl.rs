@@ -134,7 +134,42 @@ impl BanStorage for MemoryBanStorage {
             }
         }
 
-        Ok(self.bans.read().await.get(target).cloned())
+        if let Some(record) = self.bans.read().await.get(target) {
+            return Ok(Some(record.clone()));
+        }
+
+        // T604：CIDR 网段两级检查——精确 IP 未命中时，遍历网段封禁记录
+        // 做最长前缀匹配（未过期）。命中即返回前缀最具体的记录。
+        if let BanTarget::Ip(ip_str) = target {
+            if let Ok(ip) = ip_str.parse::<std::net::IpAddr>() {
+                let bans = self.bans.read().await;
+                let expiration = self.expiration.read().await;
+                let mut best: Option<(&BanRecord, u8)> = None;
+                for record in bans.values() {
+                    if !matches!(record.target, BanTarget::Cidr(_)) {
+                        continue;
+                    }
+                    // 过滤已过期的网段封禁
+                    if let Some(exp) = expiration.get(&record.target) {
+                        if *exp <= now {
+                            continue;
+                        }
+                    }
+                    if !record.target.contains_ip(&ip) {
+                        continue;
+                    }
+                    let prefix = record.target.prefix_len().unwrap_or(0);
+                    if best.is_none_or(|(_, p)| prefix > p) {
+                        best = Some((record, prefix));
+                    }
+                }
+                if let Some((record, _)) = best {
+                    return Ok(Some(record.clone()));
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     async fn save(&self, record: &BanRecord) -> Result<(), StorageError> {
@@ -1492,5 +1527,201 @@ mod memory_ban_storage_tests {
             result.is_ok(),
             "concurrent add_ban + cleanup should not hang within 5s"
         );
+    }
+
+    // ========================================================================
+    // T604：CIDR 网段封禁
+    // ========================================================================
+
+    fn make_cidr_record(cidr: &str, ttl_secs: i64) -> BanRecord {
+        BanRecord {
+            target: BanTarget::Cidr(cidr.to_string()),
+            ban_times: 1,
+            duration: std::time::Duration::from_secs(3600),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(ttl_secs),
+            is_manual: true,
+            reason: "t604".to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_t604_cidr_v4_contains_ip() {
+        let storage = MemoryBanStorage::new();
+        storage
+            .save(&make_cidr_record("10.0.0.0/8", 3600))
+            .await
+            .unwrap();
+
+        // 网段内 IP 命中
+        let hit = storage
+            .is_banned(&BanTarget::Ip("10.1.2.3".to_string()))
+            .await
+            .unwrap();
+        assert!(hit.is_some(), "10.1.2.3 应命中 10.0.0.0/8 网段封禁");
+
+        // 网段外 IP 不误伤
+        let miss = storage
+            .is_banned(&BanTarget::Ip("11.0.0.1".to_string()))
+            .await
+            .unwrap();
+        assert!(miss.is_none(), "11.0.0.1 不应命中 10.0.0.0/8 网段封禁");
+    }
+
+    #[tokio::test]
+    async fn test_t604_cidr_v6() {
+        let storage = MemoryBanStorage::new();
+        storage
+            .save(&make_cidr_record("2001:db8::/32", 3600))
+            .await
+            .unwrap();
+
+        let hit = storage
+            .is_banned(&BanTarget::Ip("2001:db8::1".to_string()))
+            .await
+            .unwrap();
+        assert!(hit.is_some(), "2001:db8::1 应命中 2001:db8::/32 网段封禁");
+
+        let miss = storage
+            .is_banned(&BanTarget::Ip("2001:db9::1".to_string()))
+            .await
+            .unwrap();
+        assert!(miss.is_none(), "2001:db9::1 不应命中 2001:db8::/32");
+    }
+
+    #[tokio::test]
+    async fn test_t604_cidr_longest_prefix_wins() {
+        let storage = MemoryBanStorage::new();
+        storage
+            .save(&make_cidr_record("10.0.0.0/8", 3600))
+            .await
+            .unwrap();
+        storage
+            .save(&make_cidr_record("10.1.0.0/16", 3600))
+            .await
+            .unwrap();
+
+        let hit = storage
+            .is_banned(&BanTarget::Ip("10.1.2.3".to_string()))
+            .await
+            .unwrap();
+        assert!(hit.is_some());
+        assert_eq!(
+            hit.unwrap().target,
+            BanTarget::Cidr("10.1.0.0/16".to_string()),
+            "最长前缀（/16）应优先于 /8"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_t604_cidr_exact_ip_still_works() {
+        let storage = MemoryBanStorage::new();
+        storage
+            .save(&make_cidr_record("10.0.0.0/8", 3600))
+            .await
+            .unwrap();
+        let exact = BanRecord {
+            target: BanTarget::Ip("10.9.9.9".to_string()),
+            ban_times: 3,
+            duration: std::time::Duration::from_secs(3600),
+            banned_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(3600),
+            is_manual: true,
+            reason: "exact".to_string(),
+        };
+        storage.save(&exact).await.unwrap();
+
+        let hit = storage
+            .is_banned(&BanTarget::Ip("10.9.9.9".to_string()))
+            .await
+            .unwrap();
+        assert!(hit.is_some());
+        assert_eq!(hit.unwrap().ban_times, 3, "精确命中优先于网段匹配");
+    }
+
+    #[tokio::test]
+    async fn test_t604_cidr_direct_lookup_and_expiry() {
+        let storage = MemoryBanStorage::new();
+
+        // 直接以 Cidr 目标查询（精确键）
+        storage
+            .save(&make_cidr_record("192.168.0.0/16", 3600))
+            .await
+            .unwrap();
+        let direct = storage
+            .is_banned(&BanTarget::Cidr("192.168.0.0/16".to_string()))
+            .await
+            .unwrap();
+        assert!(direct.is_some(), "Cidr 目标应支持精确键查询");
+
+        // 已过期网段不再命中
+        storage
+            .save(&make_cidr_record("172.16.0.0/12", -1))
+            .await
+            .unwrap();
+        let expired = storage
+            .is_banned(&BanTarget::Ip("172.16.5.5".to_string()))
+            .await
+            .unwrap();
+        assert!(expired.is_none(), "过期网段封禁不应命中");
+    }
+
+    #[test]
+    fn test_t604_cidr_target_validation() {
+        // 合法 v4/v6 CIDR
+        assert!(crate::validation::validate_cidr("10.0.0.0/8").is_ok());
+        assert!(crate::validation::validate_cidr("2001:db8::/32").is_ok());
+        assert!(crate::validation::validate_cidr("0.0.0.0/0").is_ok());
+        // 非法格式
+        assert!(crate::validation::validate_cidr("").is_err());
+        assert!(crate::validation::validate_cidr("not-a-net").is_err());
+        assert!(crate::validation::validate_cidr("10.0.0.0").is_err());
+        assert!(crate::validation::validate_cidr("10.0.0.0/99").is_err());
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_t604_ban_manager_creates_cidr_ban() {
+        use crate::ban::{BanManager, BanManagerConfig, BanSource};
+
+        let storage: std::sync::Arc<dyn BanStorage> = std::sync::Arc::new(MemoryBanStorage::new());
+        let manager = BanManager::with_dependencies(storage.clone(), BanManagerConfig::default())
+            .await
+            .unwrap();
+
+        // 合法 CIDR 经 BanManager 校验路径创建
+        manager
+            .create_ban(
+                BanTarget::Cidr("203.0.113.0/24".to_string()),
+                "t604 manager".to_string(),
+                BanSource::Manual {
+                    operator: "tester".to_string(),
+                },
+                serde_json::json!({}),
+                None,
+            )
+            .await
+            .expect("合法 CIDR 应通过校验并创建");
+
+        // 网段内 IP 经 Governor 同款存储查询路径命中
+        let hit = storage
+            .is_banned(&BanTarget::Ip("203.0.113.50".to_string()))
+            .await
+            .unwrap();
+        assert!(hit.is_some(), "203.0.113.50 应命中网段封禁");
+
+        // 非法 CIDR 被校验拒绝
+        let err = manager
+            .create_ban(
+                BanTarget::Cidr("not-a-net".to_string()),
+                "t604 invalid".to_string(),
+                BanSource::Manual {
+                    operator: "tester".to_string(),
+                },
+                serde_json::json!({}),
+                None,
+            )
+            .await;
+        assert!(err.is_err(), "非法 CIDR 应被校验拒绝");
     }
 }

@@ -218,12 +218,59 @@ impl Drop for EventDispatcher {
     }
 }
 
+/// 签名头对（header 名, header 值）×2：时间戳 + 签名
+#[cfg(feature = "webhook")]
+type SigningHeaders = Option<[(reqwest::header::HeaderName, reqwest::header::HeaderValue); 2]>;
+
+/// 构造 webhook 请求负载与签名头（T614，纯函数便于单测）。
+///
+/// 返回 `(body, signing_headers)`：
+/// - 未设置进程级签名器 → `signing_headers = None`，body 为 `serde_json` 序列化
+///   （向后兼容，无签名头）；
+/// - 已设置 → body 为**同一份序列化字节**（签名覆盖线上精确字节），
+///   `signing_headers = Some([(X-Limiteron-Timestamp, v), (X-Limiteron-Signature, v)])`。
+#[cfg(feature = "webhook")]
+pub(crate) fn signed_webhook_payload(
+    event: &Event,
+) -> Result<(String, SigningHeaders), Box<dyn std::error::Error + Send + Sync>> {
+    use crate::events::webhook_signature::{
+        SIGNATURE_HEADER, TIMESTAMP_HEADER, global_webhook_signer,
+    };
+    use reqwest::header::HeaderValue;
+
+    let payload = serde_json::to_string(event)?;
+    Ok(match global_webhook_signer() {
+        Some(signer) => {
+            let signature = signer.sign(&payload);
+            let to_header_value = |v: String| {
+                HeaderValue::from_str(&v)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            };
+            let ts_name: reqwest::header::HeaderName = TIMESTAMP_HEADER
+                .parse()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+            let sig_name: reqwest::header::HeaderName = SIGNATURE_HEADER
+                .parse()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+            let ts_value = to_header_value(signature.timestamp_header_value())?;
+            let sig_value = to_header_value(signature.header_value().to_string())?;
+            (payload, Some([(ts_name, ts_value), (sig_name, sig_value)]))
+        }
+        None => (payload, None),
+    })
+}
+
 /// 发送事件到 Webhook
 ///
 /// 当 webhook feature 启用时，使用 reqwest 发送 POST 请求。
 /// 否则返回错误。
+///
+/// T614：若已设置进程级签名器（`webhook_signature::global_webhook_signer`），
+/// 请求体以序列化后的精确字节发送，并附带
+/// `X-Limiteron-Timestamp` + `X-Limiteron-Signature: sha256=<hex>` 签名头
+/// （HMAC-SHA256(secret, "{timestamp}.{payload}")，时间戳防重放窗口默认 300s）。
 #[cfg(feature = "webhook")]
-async fn send_webhook(
+pub(crate) async fn send_webhook(
     url: &str,
     event: &Event,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -231,13 +278,21 @@ async fn send_webhook(
     validate_webhook_url(url, !cfg!(debug_assertions))
         .map_err(Box::<dyn std::error::Error + Send + Sync>::from)?;
 
+    let (payload, signing_headers) = signed_webhook_payload(event)?;
+
     let client = reqwest::Client::new();
-    let response = client
+    let mut request = client
         .post(url)
-        .json(event)
         .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await?;
+        .header(reqwest::header::CONTENT_TYPE, "application/json");
+
+    if let Some([(ts_name, ts_value), (sig_name, sig_value)]) = signing_headers {
+        request = request
+            .header(ts_name, ts_value)
+            .header(sig_name, sig_value);
+    }
+
+    let response = request.body(payload).send().await?;
 
     if response.status().is_success() {
         debug!("Webhook sent successfully to {}", url);
@@ -407,5 +462,59 @@ mod tests {
 
         // 清理
         dispatcher.stop().await;
+    }
+    // ========================================================================
+    // T614：webhook 签名头注入（signed_webhook_payload 纯函数）
+    // ========================================================================
+
+    /// 已设置进程级签名器时：body 与签名头自洽（签名覆盖线上精确字节）
+    #[cfg(feature = "webhook")]
+    #[tokio::test]
+    async fn test_t614_signed_webhook_payload_self_consistent() {
+        use crate::events::webhook_signature::{
+            WebhookSigner, global_webhook_signer, set_global_webhook_signer,
+        };
+
+        // 进程级 signer 为 set-once；同测试二进制内可能已被其他用例设置。
+        // 未设置则此处安装，保证后续断言有 signer 可用。
+        if global_webhook_signer().is_none() {
+            assert!(set_global_webhook_signer(WebhookSigner::new(
+                "dispatcher-t614-secret"
+            )));
+        }
+        let signer = global_webhook_signer().expect("signer installed");
+
+        let event = Event::new(EventType::RateLimitTriggered {
+            key: "192.0.2.7".to_string(),
+            rule_id: "t614_rule".to_string(),
+            decision: "Deny".to_string(),
+        });
+
+        let (body, headers) = signed_webhook_payload(&event).unwrap();
+        let [(ts_name, ts_value), (sig_name, sig_value)] =
+            headers.expect("signer set → headers present");
+        assert_eq!(ts_name.as_str(), "x-limiteron-timestamp");
+        assert_eq!(sig_name.as_str(), "x-limiteron-signature");
+
+        // 头值格式：时间戳为数字；签名为 sha256=<hex>
+        let ts: i64 = ts_value
+            .to_str()
+            .unwrap()
+            .parse()
+            .expect("timestamp header numeric");
+        let sig = sig_value.to_str().unwrap();
+        assert!(sig.starts_with("sha256="));
+
+        // 用全局 signer 校验：签名必须与传输 body 匹配（防篡改核心链路）
+        assert!(
+            signer.verify(&body, ts, sig).is_ok(),
+            "signature must verify against the transmitted body"
+        );
+        // body 是合法 JSON 且与事件同源
+        let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(
+            parsed["event_type"]["data"]["key"],
+            serde_json::json!("192.0.2.7")
+        );
     }
 }

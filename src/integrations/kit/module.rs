@@ -45,6 +45,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use oxcache::integrations::kit::OxcacheModule;
 use trait_kit::prelude::*;
 
 /// 存储覆盖配置 — 通过 `AsyncKit::set_config(LimiteronStorageConfig::...)`
@@ -102,8 +103,12 @@ pub struct LimiteronModule;
 impl ModuleMeta for LimiteronModule {
     const NAME: &'static str = "limiteron";
 
+    /// T617：依赖 `OxcacheModule`（dbnexus `DbNexusModule` T413 同款范式）——
+    /// 上游 oxcache 先构建缓存后端，limiteron 构建期经 `require` 注入并做
+    /// 探活写读（缓存链路故障快速失败；未注入/不可用时降级为内存 L1，不阻断）。
     fn dependencies() -> &'static [(&'static str, TypeId)] {
-        &[]
+        static DEPS: std::sync::OnceLock<Vec<(&'static str, TypeId)>> = std::sync::OnceLock::new();
+        DEPS.get_or_init(|| vec![("oxcache", TypeId::of::<OxcacheModule>())])
     }
 }
 
@@ -131,6 +136,28 @@ impl AsyncAutoBuilder for LimiteronModule {
                 .as_ref()
                 .and_then(|o| o.ban_storage())
                 .unwrap_or_else(|| Arc::new(MemoryBanStorage::new()) as Arc<dyn BanStorage>);
+            // T617：经 OxcacheModule 注入缓存——上游缓存后端可用时执行
+            // set/get/delete 探活写读（验证 kit 缓存链路）；探测失败仅告警
+            // 并继续（Governor 自带内存 L1 兜底，缓存故障不阻断限流主链路）。
+            if let Ok(cache) = kit.require::<OxcacheModule>() {
+                const PROBE_KEY: &str = "limiteron:kit:probe";
+                let payload: Arc<Vec<u8>> = Arc::new(b"limiteron-cache-probe".to_vec());
+                let probe_ok = async {
+                    cache
+                        .set(Arc::from(PROBE_KEY), payload.clone(), None)
+                        .await
+                        .ok()?;
+                    let got = cache.get(PROBE_KEY).await.ok().flatten()?;
+                    cache.delete(PROBE_KEY).await.ok()?;
+                    (got.as_slice() == payload.as_slice()).then_some(())
+                }
+                .await;
+                if probe_ok.is_none() {
+                    log::warn!(
+                        "LimiteronModule: OxcacheModule cache probe failed; continuing with in-memory L1"
+                    );
+                }
+            }
             let governor = Governor::builder()
                 .with_config(config)
                 .with_storage(storage)
@@ -138,6 +165,60 @@ impl AsyncAutoBuilder for LimiteronModule {
                 .build()
                 .await?;
             Ok(Arc::new(governor))
+        })
+    }
+}
+
+/// T617：trait-kit 健康端口——`AsyncHealthCheck` 经
+/// [`Governor::health_status`](crate::governor::Governor::health_status)
+/// 汇报存储/封禁存储/缓存/后台任务健康（`/healthz` 同一数据源）。
+impl trait_kit::core::health::AsyncHealthCheck for LimiteronModule {
+    fn check(cap: &Self::Capability) -> trait_kit::core::health::HealthStatus {
+        use trait_kit::core::health::HealthStatus;
+        // health_status 含快速 IO 探针；与 OxcacheModule 同款 block_on 方案
+        let hs = futures::executor::block_on(cap.health_status());
+        if hs.healthy() {
+            HealthStatus::Healthy
+        } else {
+            let mut detail = Vec::new();
+            if !hs.storage_healthy {
+                detail.push("storage");
+            }
+            if !hs.ban_storage_healthy {
+                detail.push("ban-storage");
+            }
+            if !hs.cache_healthy {
+                detail.push("l1-cache");
+            }
+            if !hs.background_tasks_alive {
+                detail.push("background-tasks");
+            }
+            HealthStatus::unhealthy(format!("unhealthy components: {}", detail.join(",")))
+        }
+    }
+}
+
+/// T617：trait-kit 生命周期端口——`AsyncLifecycle::on_shutdown` 优雅停机
+/// Governor（停止接新 + 停后台任务，与 admin API 停机路径一致）。
+impl trait_kit::core::lifecycle::AsyncLifecycle for LimiteronModule {
+    fn on_ready<'a>(
+        kit: &'a trait_kit::kit::AsyncKit<trait_kit::kit::async_kit::Ready>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), Self::Error>> + Send + 'a>> {
+        Box::pin(async move {
+            // 能力已就绪：经 require 取回 Governor 确认链路完整（依赖
+            // OxcacheModule 已在前序层级构建完成）
+            let _governor: Arc<Governor> = kit.require::<LimiteronModule>().map_err(|e| {
+                LimiteronError::ConfigError(format!("LimiteronModule on_ready: {e}"))
+            })?;
+            Ok(())
+        })
+    }
+
+    fn on_shutdown<'a>(cap: &'a Self::Capability) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            if let Err(e) = cap.shutdown().await {
+                log::warn!("LimiteronModule shutdown error: {e}");
+            }
         })
     }
 }
@@ -153,6 +234,7 @@ mod tests {
     use crate::matchers::Identifier;
     #[cfg(feature = "ban-manager")]
     use crate::storage::{BanHistory, BanRecord, BanTarget};
+    use oxcache::integrations::kit::OxcacheConfig;
     #[cfg(feature = "ban-manager")]
     use std::any::Any;
     use std::any::TypeId;
@@ -265,22 +347,30 @@ mod tests {
         assert_eq!(LimiteronModule::NAME, "limiteron");
     }
 
-    /// R-limiteron-module-001: `LimiteronModule::dependencies()` is empty
-    /// (limiteron is a leaf module — no upstream deps).
+    /// T617：`LimiteronModule` 依赖 `OxcacheModule`（dbnexus T413 范式——
+    /// 缓存经上游 OxcacheModule 注入）
     #[test]
-    fn limiteron_module_meta_dependencies_empty() {
-        assert_eq!(
-            LimiteronModule::dependencies(),
-            &[] as &[(&'static str, TypeId)]
-        );
+    fn limiteron_module_meta_dependencies_declare_oxcache() {
+        let deps = LimiteronModule::dependencies();
+        assert_eq!(deps.len(), 1, "single upstream dep: oxcache");
+        assert_eq!(deps[0].0, "oxcache");
+        assert_eq!(deps[0].1, TypeId::of::<OxcacheModule>());
     }
 
     /// R-limiteron-module-001: register `LimiteronModule` + `set_config` +
     /// `build()` + `require::<LimiteronModule>()` returns an `Arc<Governor>`
     /// capability that was constructed from the kit's config.
+    /// 带 OxcacheModule 的标准 kit 组装（T617 范式）
+    fn register_modules(kit: &mut AsyncKit) {
+        kit.set_config(OxcacheConfig::default());
+        kit.register::<OxcacheModule>()
+            .expect("register OxcacheModule");
+    }
+
     #[tokio::test]
     async fn limiteron_module_build_returns_governor_capability() {
         let mut kit = AsyncKit::new();
+        register_modules(&mut kit);
         kit.set_config(make_minimal_valid_config());
         kit.register::<LimiteronModule>()
             .expect("register LimiteronModule");
@@ -300,6 +390,7 @@ mod tests {
     #[tokio::test]
     async fn limiteron_module_build_reads_config_from_kit() {
         let mut kit = AsyncKit::new();
+        register_modules(&mut kit);
         kit.set_config(make_minimal_valid_config());
         kit.register::<LimiteronModule>()
             .expect("register LimiteronModule");
@@ -339,6 +430,7 @@ mod tests {
         let recording_for_assert = recording.clone();
 
         let mut kit = AsyncKit::new();
+        register_modules(&mut kit);
         kit.set_config(make_minimal_valid_config());
         kit.set_config(
             LimiteronStorageConfig::new()
@@ -375,6 +467,7 @@ mod tests {
     #[tokio::test]
     async fn limiteron_module_defaults_to_memory_storage() {
         let mut kit = AsyncKit::new();
+        register_modules(&mut kit);
         kit.set_config(make_minimal_valid_config());
         kit.register::<LimiteronModule>()
             .expect("register LimiteronModule");
@@ -404,5 +497,59 @@ mod tests {
         let empty = LimiteronStorageConfig::new();
         assert!(empty.storage().is_none());
         assert!(empty.ban_storage().is_none());
+    }
+    // ========================================================================
+    // T617：健康/生命周期端口 + OxcacheModule 缓存注入
+    // ========================================================================
+
+    /// AsyncHealthCheck：健康 Governor → Healthy
+    #[tokio::test]
+    async fn t617_health_check_reports_healthy() {
+        use trait_kit::core::health::AsyncHealthCheck;
+        let mut kit = AsyncKit::new();
+        register_modules(&mut kit);
+        kit.set_config(make_minimal_valid_config());
+        kit.register::<LimiteronModule>().unwrap();
+        let kit = kit.build().await.unwrap();
+        let governor: Arc<Governor> = kit.require::<LimiteronModule>().unwrap();
+        let status = <LimiteronModule as AsyncHealthCheck>::check(&governor);
+        assert!(
+            matches!(status, trait_kit::core::health::HealthStatus::Healthy),
+            "内存存储 Governor 应为 Healthy，实际: {status:?}"
+        );
+    }
+
+    /// AsyncLifecycle：on_shutdown 优雅停机 Governor
+    #[tokio::test]
+    async fn t617_lifecycle_on_shutdown_stops_governor() {
+        use trait_kit::core::lifecycle::AsyncLifecycle;
+        let mut kit = AsyncKit::new();
+        register_modules(&mut kit);
+        kit.set_config(make_minimal_valid_config());
+        kit.register::<LimiteronModule>().unwrap();
+        let kit = kit.build().await.unwrap();
+        let governor: Arc<Governor> = kit.require::<LimiteronModule>().unwrap();
+        assert!(!governor.is_shutdown());
+        <LimiteronModule as AsyncLifecycle>::on_shutdown(&governor).await;
+        assert!(
+            governor.is_shutdown(),
+            "on_shutdown 必须停机 Governor（后台任务退出）"
+        );
+    }
+
+    /// 缓存注入探活：注册 OxcacheModule 后 build 走缓存探活路径（成功不告警不阻断）
+    #[tokio::test]
+    async fn t617_cache_probe_via_oxcache_module() {
+        let mut kit = AsyncKit::new();
+        register_modules(&mut kit);
+        kit.set_config(make_minimal_valid_config());
+        kit.register::<LimiteronModule>().unwrap();
+        let kit = kit.build().await.unwrap();
+        // 上游缓存能力可取回（拓扑序保证先于 limiteron 构建）
+        let cache = kit
+            .require::<OxcacheModule>()
+            .expect("OxcacheModule capability");
+        let health = cache.health_check().await;
+        assert!(health.is_ok(), "注入的缓存后端应健康");
     }
 }

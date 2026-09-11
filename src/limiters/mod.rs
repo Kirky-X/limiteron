@@ -16,11 +16,13 @@
 //! - `manager`: 全局限流器管理器（供 `#[flow_control]` 宏使用）
 
 // 子模块
+pub mod batch_prefetch;
 pub mod concurrency;
 pub mod factory;
 pub mod fixed_window;
 #[cfg(feature = "gcra")]
 pub mod gcra;
+pub mod htb;
 #[cfg(feature = "macros")]
 pub mod manager;
 pub mod sharded_sliding_window;
@@ -28,6 +30,10 @@ pub mod sharded_sliding_window;
 pub mod sliding_window;
 pub mod token_bucket;
 pub mod traits;
+
+// 自适应并发限流器（T610，AIMD 窗口；此前 no-op feature 的真实实现）
+#[cfg(feature = "adaptive-limiting")]
+pub mod adaptive;
 
 // Quota limiter (feature-gated)
 #[cfg(feature = "quota-control")]
@@ -38,13 +44,18 @@ pub mod quota_limiter;
 pub mod distributed;
 
 // Re-export all public types
+pub use batch_prefetch::{BatchTokenPrefetcher, PrefetchResult};
 pub use concurrency::ConcurrencyLimiter;
 pub use fixed_window::FixedWindowLimiter;
+pub use htb::HierarchicalTokenBucket;
 pub use sharded_sliding_window::ShardedSlidingWindowLimiter;
 #[allow(deprecated)]
 pub use sliding_window::SlidingWindowLimiter;
 pub use token_bucket::TokenBucketLimiter;
-pub use traits::Limiter;
+pub use traits::{Limiter, RateLimitSnapshot};
+
+#[cfg(feature = "adaptive-limiting")]
+pub use adaptive::{AdaptiveConcurrencyConfig, AdaptiveConcurrencyLimiter, AdaptivePermit};
 
 #[cfg(feature = "quota-control")]
 pub use quota_limiter::QuotaLimiter;

@@ -66,6 +66,8 @@ pub async fn make_state() -> AppState {
         quota_controller: None,
         #[cfg(feature = "circuit-breaker")]
         circuit_breaker: None,
+        #[cfg(feature = "monitoring")]
+        metrics: None,
     }
 }
 
@@ -86,5 +88,7 @@ pub async fn make_state_with_ban_manager() -> AppState {
         quota_controller: None,
         #[cfg(feature = "circuit-breaker")]
         circuit_breaker: None,
+        #[cfg(feature = "monitoring")]
+        metrics: None,
     }
 }

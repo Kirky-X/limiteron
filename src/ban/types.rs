@@ -65,6 +65,8 @@ pub enum BanPriority {
     ApiKey = 5,
     /// 地理位置封禁（最低优先级，粗粒度）
     Geo = 6,
+    /// CIDR 网段封禁（T604：网络级批量封禁，粗粒度，最低优先级）
+    Cidr = 7,
 }
 
 impl BanPriority {
@@ -75,6 +77,7 @@ impl BanPriority {
             BanTarget::UserId(_) => BanPriority::UserId,
             BanTarget::Mac(_) => BanPriority::Mac,
             BanTarget::Geo { .. } => BanPriority::Geo,
+            BanTarget::Cidr(_) => BanPriority::Cidr,
         }
     }
 }
@@ -434,6 +437,7 @@ fn validate_ban_target(target: &BanTarget) -> Result<(), LimiteronError> {
         BanTarget::Geo { country_code } => {
             crate::validation::validate_geo_country_code(country_code)
         }
+        BanTarget::Cidr(cidr) => crate::validation::validate_cidr(cidr),
     }
 }
 
@@ -807,6 +811,7 @@ impl BanManager {
                     BanTarget::UserId(ref uid) => uid.clone(),
                     BanTarget::Mac(ref mac) => mac.clone(),
                     BanTarget::Geo { ref country_code } => country_code.clone(),
+                    BanTarget::Cidr(ref cidr) => cidr.clone(),
                 };
                 let event = crate::events::Event::new(crate::events::EventType::BanApplied {
                     target: target_str,
@@ -987,6 +992,7 @@ impl BanManager {
                         BanTarget::UserId(uid) => uid.contains(target_value),
                         BanTarget::Mac(mac) => mac.contains(target_value),
                         BanTarget::Geo { country_code } => country_code.contains(target_value),
+                        BanTarget::Cidr(cidr) => cidr.contains(target_value),
                     };
                     if !value_matches {
                         return false;
@@ -1240,6 +1246,7 @@ impl BanManager {
             BanTarget::UserId(user_id) => user_id.clone(),
             BanTarget::Mac(mac) => mac.clone(),
             BanTarget::Geo { country_code } => country_code.clone(),
+            BanTarget::Cidr(cidr) => cidr.clone(),
         };
         provider
             .check_authorization(action, operator, &target_str)

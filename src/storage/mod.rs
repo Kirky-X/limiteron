@@ -92,6 +92,72 @@ pub enum BanTarget {
     /// 地理位置封禁（国家代码，ISO 3166-1 alpha-2）
     #[serde(rename = "geo")]
     Geo { country_code: String },
+    /// CIDR 网段封禁（T604，IPv4/IPv6，如 "10.0.0.0/8"、"2001:db8::/32"）
+    ///
+    /// 命中语义：查询目标为 [`BanTarget::Ip`] 且精确未命中时，按
+    /// 最长前缀匹配网段封禁记录（见 MemoryBanStorage::is_banned 两级检查）。
+    #[serde(rename = "cidr")]
+    Cidr(String),
+}
+
+impl BanTarget {
+    /// 网段封禁是否包含指定 IP（仅 [`BanTarget::Cidr`] 有意义）
+    ///
+    /// 解析失败的 CIDR 串视为不包含（不 panic、不放行语义歧义）。
+    pub fn contains_ip(&self, ip: &std::net::IpAddr) -> bool {
+        match self {
+            BanTarget::Cidr(cidr) => cidr
+                .parse::<ipnet::IpNet>()
+                .map(|net| net.contains(ip))
+                .unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    /// 网段前缀长度（仅 [`BanTarget::Cidr`]；解析失败返回 `None`）
+    ///
+    /// 用于多网段命中时的最长前缀优先选择。
+    pub fn prefix_len(&self) -> Option<u8> {
+        match self {
+            BanTarget::Cidr(cidr) => cidr
+                .parse::<ipnet::IpNet>()
+                .ok()
+                .map(|net| net.prefix_len()),
+            _ => None,
+        }
+    }
+}
+
+/// 取 BanTarget 的可限定值（T602）
+///
+/// 返回 `Some(value)` 表示该变体携带可被租户命名空间限定的字符串值；
+/// `Geo` 变体按国家码全局生效，返回 `None`。
+#[cfg(feature = "multi-tenant")]
+pub(crate) fn ban_target_value(target: &BanTarget) -> Option<&str> {
+    match target {
+        BanTarget::Ip(v) | BanTarget::UserId(v) | BanTarget::Mac(v) => Some(v),
+        // Geo 按国家码、Cidr 按网段全局生效，不做租户限定
+        BanTarget::Geo { .. } | BanTarget::Cidr(_) => None,
+    }
+}
+
+/// 以租户命名空间限定封禁目标（T602）
+///
+/// 保持 [`BanTarget`] 变体类型不变，仅将字符串值替换为
+/// `namespace.qualify_key(value)`；`Geo` 变体不限定（返回 `None`）。
+#[cfg(feature = "multi-tenant")]
+pub(crate) fn qualify_ban_target(
+    target: &BanTarget,
+    namespace: &crate::tenant::Namespace,
+) -> Option<BanTarget> {
+    let qualified = namespace.qualify_key(ban_target_value(target)?);
+    Some(match target {
+        BanTarget::Ip(_) => BanTarget::Ip(qualified),
+        BanTarget::UserId(_) => BanTarget::UserId(qualified),
+        BanTarget::Mac(_) => BanTarget::Mac(qualified),
+        // Geo/Cidr 全局生效，不参与租户限定
+        BanTarget::Geo { .. } | BanTarget::Cidr(_) => return None,
+    })
 }
 
 /// 封禁记录

@@ -36,6 +36,7 @@ use dashmap::DashMap;
 use log::debug;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration as StdDuration;
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
@@ -152,30 +153,40 @@ pub struct QuotaController {
     alert_semaphore: Arc<Semaphore>,
     /// 后台清理任务停止信号
     cleanup_token: CancellationToken,
+    /// 存活句柄计数：Drop 仅在最后一个句柄释放时才取消后台任务。
+    /// CancellationToken 克隆共享同一状态，若无此计数，克隆体先行
+    /// drop 就会把原始实例的后台清理任务一并取消。
+    live_handles: Arc<AtomicUsize>,
 }
 
 impl Clone for QuotaController {
     fn clone(&self) -> Self {
+        self.live_handles.fetch_add(1, Ordering::SeqCst);
         Self {
             storage: self.storage.clone(),
             config: self.config.clone(),
             alert_dedup: self.alert_dedup.clone(),
             alert_semaphore: self.alert_semaphore.clone(),
             cleanup_token: self.cleanup_token.clone(),
+            live_handles: self.live_handles.clone(),
         }
     }
 }
 
 /// QuotaController 的 Drop 实现
 ///
-/// 当 QuotaController 被丢弃时，取消后台清理任务的 `CancellationToken`，
-/// 让后台任务的 `select! { _ = token.cancelled() => ... }` 分支触发，优雅退出。
+/// 当**最后一个** QuotaController 句柄被丢弃时，取消后台清理任务的
+/// `CancellationToken`，让后台任务的 `select! { _ = token.cancelled() => ... }`
+/// 分支触发，优雅退出。克隆体共享同一 CancellationToken 但各自持有
+/// 独立计数，先行 drop 不影响其余实例的后台任务。
 /// 注意：`CancellationToken::cancel()` 是同步方法，可在 `Drop::drop` 中安全调用。
 #[cfg(feature = "quota-control")]
 impl Drop for QuotaController {
     fn drop(&mut self) {
-        self.cleanup_token.cancel();
-        debug!("QuotaController 已停止后台清理任务");
+        if self.live_handles.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.cleanup_token.cancel();
+            debug!("QuotaController 已停止后台清理任务");
+        }
     }
 }
 
@@ -345,6 +356,7 @@ impl QuotaController {
             alert_dedup,
             alert_semaphore,
             cleanup_token,
+            live_handles: Arc::new(AtomicUsize::new(1)),
         }
     }
 
@@ -429,8 +441,8 @@ impl QuotaController {
         let overdraft_limit = self.calculate_overdraft_limit();
         let total_limit = self.calculate_total_limit(overdraft_limit);
 
-        // 检查是否超过总限制
-        if updated_state.consumed + cost > total_limit {
+        // 检查是否超过总限制（减法形式：consumed 接近 u64::MAX 时加法回绕会误放行）
+        if cost > total_limit.saturating_sub(updated_state.consumed) {
             let usage_percent = self.calculate_usage_percent(updated_state.consumed, total_limit);
             return Ok(ConsumeResult {
                 allowed: false,
@@ -440,7 +452,7 @@ impl QuotaController {
             });
         }
 
-        // 更新消费量
+        // 更新消费量（上方已验证 cost ≤ total_limit - consumed，不会溢出）
         let new_consumed = updated_state.consumed + cost;
 
         // 保存到存储并尊重存储侧的裁决（A8）：存储层（如 DB 条件 UPDATE）
@@ -742,9 +754,10 @@ impl QuotaController {
             return Ok(false);
         }
 
-        // 计算使用率
+        // 计算使用率（钳制 255：透支场景下百分比可超 100，
+        // 裸 as u8 会在 255% 处回绕、令阈值比较失真）
         let usage_percent = if self.config.limit > 0 {
-            (consumed as f64 / self.config.limit as f64 * 100.0) as u8
+            (consumed as f64 / self.config.limit as f64 * 100.0).min(255.0) as u8
         } else {
             100
         };
@@ -1021,9 +1034,9 @@ mod tests {
                 quota_info.limit = limit;
             }
 
-            if quota_info.consumed + cost > quota_info.limit {
+            if cost > quota_info.limit.saturating_sub(quota_info.consumed) {
                 let usage_percent = if limit > 0 {
-                    ((quota_info.consumed + cost) as f64 / limit as f64) * 100.0
+                    (quota_info.consumed.saturating_add(cost) as f64 / limit as f64) * 100.0
                 } else {
                     100.0
                 };
@@ -2211,6 +2224,34 @@ mod tests {
         let result = controller.consume("user1", "resource1", 20).await.unwrap();
         assert!(result.allowed);
         assert_eq!(result.remaining, 50);
+    }
+
+    /// 回归：克隆体先行 drop 不得取消原始实例的后台清理任务。
+    ///
+    /// 克隆共享 CancellationToken，若无存活句柄计数，任意克隆体的 Drop
+    /// 都会触发 cancel，把仍在使用的原始实例的后台任务一并杀掉。
+    #[tokio::test]
+    async fn test_quota_controller_clone_drop_keeps_original_cleanup_alive() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let controller = QuotaController::with_dependencies(storage, QuotaConfig::default());
+
+        let cloned = controller.clone();
+        drop(cloned);
+
+        // 克隆体 drop 后：原始实例的后台任务停止信号必须仍未触发
+        assert!(
+            !controller.cleanup_token.is_cancelled(),
+            "克隆体 drop 不应取消原始实例的后台清理任务"
+        );
+
+        // 原始实例继续可用
+        let result = controller.consume("user1", "resource1", 1).await.unwrap();
+        assert!(result.allowed);
+
+        // 最后一个句柄 drop → 取消信号触发
+        let token = controller.cleanup_token.clone();
+        drop(controller);
+        assert!(token.is_cancelled(), "最后一个句柄 drop 应取消后台任务");
     }
 
     /// 测试 QuotaControllerBuilder 的 Default 实现

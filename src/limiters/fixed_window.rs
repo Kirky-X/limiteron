@@ -139,7 +139,8 @@ impl Limiter for FixedWindowLimiter {
         loop {
             let current = self.count.load(Ordering::Acquire);
 
-            if current + cost > self.max_requests {
+            // 以减法形式比较：current 接近 u64::MAX 时加法会回绕、误放行
+            if cost > self.max_requests.saturating_sub(current) {
                 return Ok(false);
             }
 

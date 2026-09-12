@@ -20,7 +20,7 @@ use super::token_bucket::TokenBucketLimiter;
 use super::traits::Limiter;
 
 /// 单 key 预取结果
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PrefetchResult {
     /// 请求的 key
     pub key: String,
@@ -53,7 +53,12 @@ impl BatchTokenPrefetcher {
             false
         } else {
             let limiter = self.bucket_for(key, tokens);
-            limiter.allow(tokens).await.unwrap_or(false)
+            // 校验类错误（如 cost 超 MAX_COST）与预算耗尽同样落为
+            // granted=false（批量逐项报告契约），但至少留下诊断日志
+            limiter.allow(tokens).await.unwrap_or_else(|e| {
+                log::warn!(target: "limiteron", "prefetch allow failed for key '{key}': {e}");
+                false
+            })
         };
         PrefetchResult {
             key: key.to_string(),

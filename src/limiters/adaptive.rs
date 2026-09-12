@@ -228,8 +228,15 @@ impl AdaptiveConcurrencyLimiter {
     }
 
     /// 释放 `units` 个占用
+    ///
+    /// 饱和扣减：重复释放（手动 release 后许可又 Drop）不得把在途计数
+    /// 打成负值——负在途会让后续占用判定长期失真、超额放行。
     pub fn release(&self, units: u64) {
-        self.in_flight.fetch_sub(units as i64, Ordering::AcqRel);
+        let _ = self
+            .in_flight
+            .fetch_update(Ordering::AcqRel, Ordering::Relaxed, |cur| {
+                Some(cur.saturating_sub(units as i64))
+            });
     }
 }
 

@@ -99,10 +99,14 @@ impl ConcurrencyLimiterBuilder {
     /// 构建 ConcurrencyLimiter 实例
     pub fn build(self) -> Result<ConcurrencyLimiter, LimiteronError> {
         if let Some(semaphore) = self.semaphore {
+            // 外部信号量的容量以构建时刻的可用许可数上报：
+            // 供 max_concurrent()/current_snapshot 观测，不参与限流判定
+            // （限流始终由信号量本身执行）
+            let observed = semaphore.available_permits() as u64;
             return Ok(ConcurrencyLimiter {
                 semaphore,
                 timeout: self.timeout,
-                max_concurrent: 0,
+                max_concurrent: observed,
             });
         }
 
@@ -159,14 +163,18 @@ impl ConcurrencyLimiter {
     }
 
     /// 使用依赖注入创建 ConcurrencyLimiter 实例
+    ///
+    /// `max_concurrent` 记录构建时刻信号量的可用许可数（仅观测用途；
+    /// 若信号量随后被外部共享方调整，此值不再反映实际容量）。
     pub fn with_dependencies(
         semaphore: Arc<tokio::sync::Semaphore>,
         timeout: Option<Duration>,
     ) -> Self {
+        let observed = semaphore.available_permits() as u64;
         Self {
             semaphore,
             timeout,
-            max_concurrent: 0,
+            max_concurrent: observed,
         }
     }
 
@@ -369,6 +377,8 @@ mod tests {
             ConcurrencyLimiter::with_dependencies(semaphore, Some(Duration::from_secs(2)));
         assert_eq!(limiter.available_permits(), 15);
         assert_eq!(limiter.timeout(), Some(Duration::from_secs(2)));
+        // 观测口径：注入信号量的容量应反映在 max_concurrent，而非恒 0
+        assert_eq!(limiter.max_concurrent(), 15);
     }
 
     #[tokio::test]

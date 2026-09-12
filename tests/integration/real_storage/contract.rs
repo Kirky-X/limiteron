@@ -28,6 +28,14 @@ pub async fn storage_contract(storage: &Arc<dyn Storage>) -> Result<(), StorageE
 
     assert_eq!(storage.get("contract:ttl").await?, Some("gone".to_string()));
 
+    // TTL 过期语义：到期前已确认存在，1 秒 TTL 过后必须 miss
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    assert_eq!(
+        storage.get("contract:ttl").await?,
+        None,
+        "TTL=1s 的 key 到期后应过期 miss"
+    );
+
     Ok(())
 }
 

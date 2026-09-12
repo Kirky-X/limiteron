@@ -87,10 +87,19 @@ impl DBNexusBanStorageAdapter {
                 BanTarget::Cidr(model.target_value.clone()),
                 model.target_value.clone(),
             ),
-            _ => (
-                BanTarget::Mac(model.target_value.clone()),
-                model.target_value.clone(),
-            ),
+            // 未知 target_type 回退 Mac 仅保证不 panic；数据异常必须留痕，
+            // 否则损坏/扩展的类型信息会被静默吞掉
+            unknown => {
+                log::warn!(
+                    target: "limiteron",
+                    "unknown ban target_type '{}', falling back to Mac (value redacted)",
+                    unknown
+                );
+                (
+                    BanTarget::Mac(model.target_value.clone()),
+                    model.target_value.clone(),
+                )
+            }
         };
 
         // Convert i64 seconds to std::time::Duration
@@ -110,6 +119,21 @@ impl DBNexusBanStorageAdapter {
     /// Map dbnexus DbError to StorageError
     fn map_err(e: dbnexus::DbError) -> StorageError {
         StorageError::QueryError(e.to_string())
+    }
+
+    /// 校验连接后端为 PostgreSQL
+    ///
+    /// 本适配器的原生 SQL（UPSERT/RETURNING/GREATEST、`$N` 占位符）与
+    /// 建表 DDL 均为 Postgres 方言；对其他后端静默执行会产生错误的 SQL，
+    /// 故显性拒绝而非带病运行。
+    fn ensure_postgres(conn: &sea_orm::DatabaseConnection) -> Result<(), StorageError> {
+        if conn.get_database_backend() != sea_orm::DatabaseBackend::Postgres {
+            return Err(StorageError::InvalidConfig(format!(
+                "DBNexusBanStorageAdapter native-SQL path only supports PostgreSQL, got {:?}",
+                conn.get_database_backend()
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -233,29 +257,40 @@ impl BanStorage for DBNexusBanStorageAdapter {
     }
 
     /// Increment ban times for a target
+    ///
+    /// 单条 `UPDATE .. SET ban_times = ban_times + 1 .. RETURNING` 在数据库
+    /// 侧自增：拆成「读计数 → 写回 +1」两次语句会在并发下互相覆盖、丢失计数。
     async fn increment_ban_times(&self, target: &BanTarget) -> Result<u64, StorageError> {
+        use sea_orm::Statement;
+
         let session = self.get_session().await?;
         let conn = Self::get_conn(&session)?;
+        Self::ensure_postgres(conn)?;
         let target_key = Self::target_to_key(target);
 
-        // Find existing record
-        let existing_opt = BanRecordEntity::find()
-            .filter(BanColumn::TargetKey.eq(target_key))
-            .one(conn)
+        const SQL: &str = r#"
+            UPDATE limiteron_bans
+            SET ban_times = ban_times + 1, updated_at = $1
+            WHERE target_key = $2
+            RETURNING ban_times
+        "#;
+        let row = conn
+            .query_one_raw(Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                SQL,
+                [Utc::now().into(), target_key.into()],
+            ))
             .await
-            .map_err(|e| StorageError::QueryError(e.to_string()))?;
-
-        if let Some(existing) = existing_opt {
-            let new_ban_times = existing.ban_times + 1;
-            let mut active_model: BanRecordActiveModel = existing.into();
-            active_model.ban_times = Set(new_ban_times);
-            active_model.updated_at = Set(Utc::now());
-            active_model.save(conn).await.map_err(|e| {
+            .map_err(|e| {
                 StorageError::QueryError(format!("Failed to increment ban times: {}", e))
             })?;
-            Ok(new_ban_times as u64)
-        } else {
-            Err(StorageError::NotFound("Ban record not found".to_string()))
+
+        match row {
+            Some(r) => r
+                .try_get::<i32>("", "ban_times")
+                .map(|v| v as u64)
+                .map_err(|e| StorageError::QueryError(format!("Failed to read ban_times: {}", e))),
+            None => Err(StorageError::NotFound("Ban record not found".to_string())),
         }
     }
 
@@ -269,10 +304,13 @@ impl BanStorage for DBNexusBanStorageAdapter {
 
         let session = self.get_session().await?;
         let conn = Self::get_conn(&session)?;
+        Self::ensure_postgres(conn)?;
         let now = Utc::now();
         let (target_type, target_value) = Self::target_to_type_value(&record.target);
         let target_key = create_target_key(&target_type, &target_value);
 
+        // 长度防护（I3）：target_key 列为 VARCHAR(511)，超长输入由应用侧
+        // 显性拒绝（ValidationError），而非依赖数据库 22001 报错
         if target_key.len() > 511 {
             return Err(StorageError::ValidationError(format!(
                 "ban target_key exceeds column limit ({} > 511)",

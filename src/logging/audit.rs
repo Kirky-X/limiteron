@@ -587,7 +587,7 @@ impl AuditLogger {
         stats: Arc<AuditLogStats>,
         config: AuditLogConfig,
     ) {
-        let mut chain_head: Option<String> = None; // 哈希链头（跨批次延续）
+        let mut chain_head: Option<String> = None; // 哈希链头（跨批次延续；进程重启后重置为 GENESIS）
         let mut batch = Vec::with_capacity(config.batch_size);
         let mut timeout = tokio::time::interval(config.batch_timeout);
 
@@ -618,13 +618,25 @@ impl AuditLogger {
                             }
 
                             if batch.len() >= config.batch_size {
-                                Self::write_batch(&batch, &config, &stats, &mut chain_head);
-                                batch.clear();
+                                chain_head = Self::flush_batch(
+                                    std::mem::take(&mut batch),
+                                    config.clone(),
+                                    Arc::clone(&stats),
+                                    chain_head,
+                                )
+                                .await;
+                                batch = Vec::with_capacity(config.batch_size);
                             }
                         }
                         None => {
                             if !batch.is_empty() {
-                                Self::write_batch(&batch, &config, &stats, &mut chain_head);
+                                Self::flush_batch(
+                                    std::mem::take(&mut batch),
+                                    config.clone(),
+                                    Arc::clone(&stats),
+                                    chain_head,
+                                )
+                                .await;
                             }
                             break;
                         }
@@ -632,14 +644,47 @@ impl AuditLogger {
                 }
                 _ = timeout.tick() => {
                     if !batch.is_empty() {
-                        Self::write_batch(&batch, &config, &stats, &mut chain_head);
-                        batch.clear();
+                        chain_head = Self::flush_batch(
+                            std::mem::take(&mut batch),
+                            config.clone(),
+                            Arc::clone(&stats),
+                            chain_head,
+                        )
+                        .await;
+                        batch = Vec::with_capacity(config.batch_size);
                     }
                 }
             }
         }
 
         info!("审计日志写入任务结束");
+    }
+
+    /// 将一个批次移入阻塞线程池执行写入
+    ///
+    /// [`Self::write_batch`] 内含阻塞文件 IO（含轮转检查），直接在异步
+    /// worker 上执行会长时间占用运行时线程；`spawn_blocking` 将其移出。
+    /// 批处理 panic 时链头丢失、后续批次从 GENESIS 重建，链断裂会以
+    /// 校验失败形式暴露（安全方向：响亮失败而非静默延续）。
+    async fn flush_batch(
+        batch: Vec<AuditEvent>,
+        config: AuditLogConfig,
+        stats: Arc<AuditLogStats>,
+        chain_head: Option<String>,
+    ) -> Option<String> {
+        match tokio::task::spawn_blocking(move || {
+            let mut head = chain_head;
+            Self::write_batch(&batch, &config, &stats, &mut head);
+            head
+        })
+        .await
+        {
+            Ok(head) => head,
+            Err(e) => {
+                error!("审计日志批处理任务异常: {}", e);
+                None
+            }
+        }
     }
 
     fn write_batch(

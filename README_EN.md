@@ -1,14 +1,24 @@
 <div align="center">
 
-<img src="docs/assets/limiteron.png" alt="Limiteron Logo" width="200">
+<img src="docs/assets/limiteron.png" alt="Limiteron Logo" width="180">
 
 [![CI Status](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg)](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml) [![Version](https://img.shields.io/crates/v/limiteron.svg)](https://crates.io/crates/limiteron) [![Docs.rs](https://docs.rs/limiteron/badge.svg)](https://docs.rs/limiteron) [![Downloads](https://img.shields.io/crates/d/limiteron.svg)](https://crates.io/crates/limiteron) [![License](https://img.shields.io/crates/l/limiteron.svg)](LICENSE) [![Rust](https://img.shields.io/badge/rust-1.97.1%2B-orange.svg)](https://www.rust-lang.org/)
 
 [中文](README.md) | **English**
 
-**Rust Unified Flow Control Framework** — Rate limiting, quota management, circuit breaking, and ban management in one solution.
+**Unified Flow Control Framework for Rust**
 
 [✨ Features](#-features) • [🚀 Quick Start](#-quick-start) • [📚 Documentation](#-documentation) • [💻 Examples](#-examples) • [🤝 Contributing](#-contributing)
+
+</div>
+
+---
+
+<div align="center">
+
+| 🚦 Multi-Algorithm Limiting | 🛡️ Layered Control | 🔌 Pluggable Foundation | 📈 Production Observability |
+|:---:|:---:|:---:|:---:|
+| Token bucket, sliding/fixed window, concurrency, GCRA, HTB hierarchical token bucket | Bans, quotas, circuit breaking, and fallback cooperate along one decision chain | In-memory storage out of the box; persistence and distributed cache via dbnexus and oxcache | Prometheus metrics, OTLP tracing export, HMAC hash-chained audit log |
 
 </div>
 
@@ -17,18 +27,16 @@
 ## 📋 Table of Contents
 
 <details open>
-<summary>Click to expand</summary>
+<summary>📑 Table of Contents</summary>
 
 - [✨ Features](#-features)
 - [🚀 Quick Start](#-quick-start)
-  - [📦 Installation](#-installation)
-  - [💡 Basic Usage](#-basic-usage)
 - [🎨 Feature Flags](#-feature-flags)
 - [📚 Documentation](#-documentation)
 - [💻 Examples](#-examples)
 - [🏗️ Architecture](#️-architecture)
-- [🎯 Use Cases](#-use-cases)
-- [⚙️ Configuration](#️-configuration)
+- [🎯 Core Decision Flow](#-core-decision-flow)
+- [🔗 Ecosystem & Integrations](#-ecosystem--integrations)
 - [🧪 Testing](#-testing)
 - [📊 Performance](#-performance)
 - [🔒 Security](#-security)
@@ -48,53 +56,47 @@
 
 <table>
 <tr>
-<td width="50%">
+<td width="50%" valign="top">
 
-### 🎯 Core Features
+### 🎯 Traffic Governance
 
-- ✅ **Multiple Rate Limiting Algorithms** — Token bucket, fixed window, sliding window, concurrency control, GCRA
-- ✅ **Ban Management** — IP / User / MAC / Geo bans, automatic bans, priority system (IP > User > MAC > Device > APIKey), YAML file bulk loading with hot reload
-- ✅ **Quota Control** — Periodic quota allocation, quota alerts, quota overdraw
-- ✅ **Circuit Breaker** — Automatic failover, state recovery, fallback strategy
-- ✅ **Identifier Matching** — IP, user ID, device ID, API key, geolocation, device info, custom matchers
-- ✅ **Admin REST API** — Ban / quota / status management endpoints
+- ✅ **Multiple Rate Limiting Algorithms** — Token bucket, sliding window, sharded sliding window, fixed window, concurrency control, GCRA, HTB hierarchical token bucket (`src/limiters/`)
+- ✅ **Ban Management** — IP / User / MAC / Geo targets, CIDR range bans, priority system, YAML bulk loading with hot reload, cross-instance sync (`ban-sync`)
+- ✅ **Quota Control** — Periodic quota allocation, quota alerts, quota overdraw (`src/quota/`)
+- ✅ **Circuit Breaking & Fallback** — Automatic failover, state recovery, fallback strategies (`src/circuit/`, `src/fallback.rs`)
 
 </td>
-<td width="50%">
+<td width="50%" valign="top">
 
-### ⚡ Advanced Features
+### ⚡ Engineering
 
 - 🚀 **High Performance** — Token bucket at 12M+ ops/s, P99 latency < 1µs (see [Performance](#-performance))
-- 🔐 **Secure and Reliable** — Rust memory safety, SQL injection protection, log redaction
-- 🌐 **Multi-Storage Support** — In-memory storage out of the box; PostgreSQL / SQLite persistence via DBNexus; caching unified through oxcache
-- 📦 **Easy to Use** — `#[flow_control]` declarative macro, Tower middleware, clean API
-- 📈 **Observability** — Prometheus metrics, OpenTelemetry tracing, audit logging
+- 🧩 **Declarative Integration** — `#[flow_control]` procedural macro, Tower middleware, Admin REST API, `limiteron-cli`
+- 🏢 **Multi-Tenancy** — tenant+key compound decision keys; cache, bans, and quotas isolated per tenant
+- 📈 **Observability** — Prometheus metrics, OTLP tracing export, HMAC-SHA256 hash-chained audit log, K8s probe endpoints
+- 🔐 **Built-in Security** — Identifier key sanitization, log redaction, signed and replay-protected webhooks, Admin RBAC
 
 </td>
 </tr>
 </table>
 
-### 🎨 Feature Highlights
+<details>
+<summary><b>📦 Full Capability List</b></summary>
 
-```mermaid
-graph LR
-    A[Request] --> B[Identifier Extraction]
-    B --> C[Rate Limit Check]
-    B --> D[Ban Check]
-    B --> E[Quota Check]
-    C --> F[Decision Chain]
-    D --> F
-    E --> F
-    F --> G[Allow/Deny]
+<br>
 
-    style A fill:#e1f5ff
-    style B fill:#b3e5fc
-    style C fill:#81d4fa
-    style D fill:#81d4fa
-    style E fill:#81d4fa
-    style F fill:#4fc3f7
-    style G fill:#29b6f6
-```
+- Decision chain (DecisionChain): cascades rules by priority with short-circuit support (`src/decision_chain/`)
+- Identifier matching: IP, user ID, device ID, API key, geolocation (MaxMindDB), device info (woothee), custom matchers (`src/matchers/`)
+- L1 negative cache: only deny/ban decisions are cached; cache hits never bypass rate-limit or ban semantics (`src/l1_cache.rs`)
+- Distributed rate limiting: `DistributedLimiter` trait + in-memory implementation + Redis Lua implementation (`distributed` + `lua-script`)
+- Batch APIs: batch decision checks and batch token prefetching (`BatchTokenPrefetcher`)
+- Hot reload: atomic config swap via `POST /api/v1/config`, config file watching (`config-watcher`), confers-based hot reload
+- Event system: `EventEmitter` / `EventDispatcher`, Transactional Outbox, signed outbound webhooks
+- Probe endpoints: `/healthz`, `/readyz`, `/metrics` (authentication bypassed by design)
+- Internationalization: ICU4X locale-aware formatting (`i18n`)
+- Limit pre-check: non-consuming `Limiter::peek(cost)` / `remaining()` with IETF `RateLimit-*` header data
+
+</details>
 
 ---
 
@@ -106,41 +108,43 @@ graph LR
 cargo add limiteron
 ```
 
-Or add it to your `Cargo.toml` manually:
+Requirements: Rust 1.97.1+ (see [rust-toolchain.toml](rust-toolchain.toml)). The default feature set is empty (`default = []`) so core rate limiting has zero external storage dependencies; enable a storage feature when persistence is needed:
 
 ```toml
 [dependencies]
-limiteron = { version = "0.3.0-rc.2", features = ["macros"] }
+limiteron = { version = "0.3.0-rc.3", features = ["macros"] }
 ```
 
-Enable a storage backend when persistence is needed:
+### 💡 Minimal Runnable Example
 
-```toml
-[dependencies]
-limiteron = { version = "0.3.0-rc.2", features = ["postgres", "macros"] }
-```
-
-### 💡 Basic Usage
-
-**Token bucket limiter:**
+The following example comes from [`examples/src/bin/simple_rate_limit.rs`](examples/src/bin/simple_rate_limit.rs) and demonstrates the most basic token bucket usage:
 
 ```rust
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 10 tokens, refill 1 per second
+    // Capacity 10, refill 1 token per second
     let limiter = TokenBucketLimiter::new(10, 1);
 
-    match limiter.allow(1).await? {
-        true => println!("✅ Request allowed"),
-        false => println!("❌ Request rate limited"),
+    for i in 0..15 {
+        match limiter.allow(1).await {
+            Ok(true) => println!("Request {} allowed", i),
+            Ok(false) => println!("Request {} rate limited", i),
+            Err(e) => println!("Request {} error: {:?}", i, e),
+        }
     }
     Ok(())
 }
 ```
 
-**Declarative macro:**
+Run it:
+
+```bash
+cargo run -p limiteron-examples --bin simple_rate_limit
+```
+
+**Declarative macro** (`macros` feature, in the style of the existing examples):
 
 ```rust
 use limiteron::flow_control;
@@ -151,122 +155,87 @@ async fn api_handler(user_id: &str) -> Result<String, limiteron::error::Limitero
 }
 ```
 
-**End-to-end control with Governor:**
+### 🧭 Core Concepts
 
-```rust
-use limiteron::Governor;
-
-let governor = Governor::new().await;
-```
-
-<details>
-<summary><b>📖 Complete Example</b></summary>
-
-<br>
-
-```rust
-use limiteron::limiters::{Limiter, TokenBucketLimiter};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Step 1: Create limiter
-    let limiter = TokenBucketLimiter::new(10, 1); // 10 tokens, refill 1 per second
-
-    // Step 2: Rate limit check
-    match limiter.allow(1).await {
-        Ok(true) => println!("✅ Request allowed"),
-        Ok(false) => println!("❌ Request rate limited"),
-        Err(e) => println!("❌ Error: {:?}", e),
-    }
-
-    // Step 3: Check with cost
-    match limiter.allow(2).await {
-        Ok(true) => println!("✅ Request with cost 2 allowed"),
-        Ok(false) => println!("❌ Request with cost 2 rate limited"),
-        Err(e) => println!("❌ Error: {:?}", e),
-    }
-
-    Ok(())
-}
-```
-
-</details>
-
-More examples can be found in the [`examples/`](examples/) directory.
+- **Governor**: the main controller (`src/governor.rs`) that takes a `RequestContext` and returns a `Decision`
+- **FlowControlConfig**: `version` / `global` / `rules` layered configuration with file loading and environment variable overrides (`ConfigLoader::load_from_file_with_env`)
+- **Decision**: three outcomes, `Allowed` / `Rejected` / `Banned` (`src/error/mod.rs`)
+- **DecisionChain**: a priority-ordered responsibility chain whose nodes are `Limiters` (`src/decision_chain/`)
+- **Storage abstraction**: `Storage` / `BanStorage` / `QuotaStorage` (`src/storage/`) with an in-memory implementation out of the box, plus dbnexus adapters for PostgreSQL / SQLite / MySQL
 
 ---
 
 ## 🎨 Feature Flags
 
-Limiteron enables no optional functionality by default (`default = []`); turn features on as needed:
+Limiteron enables no optional functionality by default (`default = []`); compose features as needed. The list below mirrors the `[features]` section of [Cargo.toml](Cargo.toml) item by item:
+
+**Feature Presets**
 
 | Preset | Description | Enabled Features |
 |--------|-------------|------------------|
-| `minimal` | Core rate limiting (no external storage dependencies) | — |
-| `standard` | Core + basic advanced features | `sqlite`, `ban-manager`, `quota-control`, `circuit-breaker` |
-| `full` | All features | Everything |
-
-```toml
-# Minimal: core rate limiting only
-limiteron = { version = "0.3.0-rc.2", features = ["minimal"] }
-
-# Standard: core + basic advanced features
-limiteron = { version = "0.3.0-rc.2", features = ["standard"] }
-
-# Full: all features
-limiteron = { version = "0.3.0-rc.2", features = ["full"] }
-```
+| `minimal` | Core rate limiting, no external storage dependencies | none |
+| `standard` | Core features + SQLite persistence | `sqlite`, `ban-manager`, `quota-control`, `circuit-breaker` |
+| `full` | Everything (includes `postgres`, excludes `sqlite` / `mysql` / `cli`) | 25 features, see Cargo.toml |
 
 <details>
-<summary><b>📋 Complete Feature List</b></summary>
+<summary><b>📋 Complete Feature List (by Category)</b></summary>
 
 <br>
 
-| Feature | Description | Default |
-|---------|-------------|---------|
-| `postgres` | PostgreSQL storage (DBNexus, mutually exclusive with `sqlite`) | ❌ |
-| `sqlite` | SQLite storage (DBNexus embedded driver, default local backend) | ❌ |
-| `cache-service` | Unified cache service (DI support) | ❌ |
-| `cache-storage` | Cache storage (oxcache Redis integration) | ❌ |
-| `lua-script` | Lua script support (oxcache) | ❌ |
-| `ban-manager` | Ban management | ❌ |
-| `quota-control` | Quota control | ❌ |
-| `circuit-breaker` | Circuit breaker | ❌ |
-| `fallback` | Fallback strategy | ❌ |
-| `custom-limiter` | Custom rate limiter support | ❌ |
-| `gcra` | GCRA rate limiting algorithm | ❌ |
-| `log-redaction` | Log redaction | ❌ |
-| `config-security` | Configuration security validation | ❌ |
-| `validation` | Request validation | ❌ |
-| `parallel-checker` | Parallel ban checking | ❌ |
-| `geo-matching` | Geographic matching | ❌ |
-| `device-matching` | Device matching | ❌ |
-| `telemetry` | OpenTelemetry tracing | ❌ |
-| `monitoring` | Prometheus metrics | ❌ |
-| `metrics` | DBNexus metrics export | ❌ |
-| `audit-log` | Audit logging | ❌ |
-| `macros` | `#[flow_control]` macro support | ❌ |
-| `config-watcher` | Configuration hot-reload | ❌ |
-| `webhook` | Webhook notifications | ❌ |
-| `tower-middleware` | Tower HTTP middleware integration | ❌ |
-| `event-system` | Event system | ❌ |
-| `multi-tenant` | Multi-tenant support | ❌ |
-| `admin-api` | Admin REST API | ❌ |
-| `distributed` | Distributed rate limiting support (DistributedLimiter trait + InMemoryDistributedLimiter implementation) | ❌ |
-| `kit` | trait-kit AsyncKit integration (LimiteronModule); `LimiteronStorageConfig` injection hooks (`with_storage`/`with_ban_storage`, defaults to Memory for backward compatibility) | ❌ |
-| `i18n` | Internationalization support | ❌ |
-| `inklog` | inklog log integration | ❌ |
-| `test-clock` | Test clock (`MockClock`) for external consumers only: MockClock was removed from the default public API (BREAKING); external property/chaos tests must enable this feature explicitly | ❌ |
-| `chaos-testing` | Chaos testing (fault injection and latency injection, test-only) | ❌ |
-| `legacy-tests` | Legacy test marker (tests for features not yet implemented) | ❌ |
+<table>
+<tr><th>Category</th><th>Feature</th><th>Description</th><th>Default</th></tr>
+<tr><td rowspan="5">Storage Backends</td><td><code>postgres</code></td><td>PostgreSQL storage (dbnexus server-side driver + sea-orm)</td><td>❌</td></tr>
+<tr><td><code>sqlite</code></td><td>SQLite storage (dbnexus embedded driver, default local backend)</td><td>❌</td></tr>
+<tr><td><code>mysql</code></td><td>MySQL storage (dbnexus server-side driver)</td><td>❌</td></tr>
+<tr><td><code>cache-storage</code></td><td>Cache storage (oxcache Redis backend)</td><td>❌</td></tr>
+<tr><td><code>lua-script</code></td><td>Redis Lua script execution (via oxcache <code>eval_lua</code>)</td><td>❌</td></tr>
+<tr><td rowspan="8">Core</td><td><code>ban-manager</code></td><td>Ban management (target bans, priorities, file loading)</td><td>❌</td></tr>
+<tr><td><code>bulkhead</code></td><td>Bulkhead isolation: per-resource-group pools + independent concurrency budgets and isolation metrics</td><td>❌</td></tr>
+<tr><td><code>quota-control</code></td><td>Quota control</td><td>❌</td></tr>
+<tr><td><code>circuit-breaker</code></td><td>Circuit breaker</td><td>❌</td></tr>
+<tr><td><code>fallback</code></td><td>Fallback strategies (FallbackManager)</td><td>❌</td></tr>
+<tr><td><code>custom-limiter</code></td><td>Custom rate limiter support</td><td>❌</td></tr>
+<tr><td><code>cache-service</code></td><td>Unified cache service (DI support)</td><td>❌</td></tr>
+<tr><td><code>gcra</code></td><td>GCRA rate limiting algorithm</td><td>❌</td></tr>
+<tr><td rowspan="3">Security</td><td><code>log-redaction</code></td><td>Log redaction</td><td>❌</td></tr>
+<tr><td><code>config-security</code></td><td>Configuration security validation</td><td>❌</td></tr>
+<tr><td><code>validation</code></td><td>Identifier input validation (IP / User ID / MAC)</td><td>❌</td></tr>
+<tr><td>Performance</td><td><code>parallel-checker</code></td><td>Parallel ban checking</td><td>❌</td></tr>
+<tr><td rowspan="2">Advanced Matching</td><td><code>geo-matching</code></td><td>Geographic matching (MaxMindDB)</td><td>❌</td></tr>
+<tr><td><code>device-matching</code></td><td>Device matching (woothee User-Agent parsing)</td><td>❌</td></tr>
+<tr><td rowspan="2">Control Plane</td><td><code>admin-api</code></td><td>Admin REST API (axum, with RBAC and self rate-limit protection)</td><td>❌</td></tr>
+<tr><td><code>cli</code></td><td><code>limiteron-cli</code> binary: rule file validation / export / apply dry-run</td><td>❌</td></tr>
+<tr><td rowspan="5">Observability</td><td><code>telemetry</code></td><td>Tracing initialization (tracing-subscriber)</td><td>❌</td></tr>
+<tr><td><code>monitoring</code></td><td>Prometheus metrics</td><td>❌</td></tr>
+<tr><td><code>metrics</code></td><td>Governor allow / reject / ban three-point metrics (implies <code>monitoring</code>)</td><td>❌</td></tr>
+<tr><td><code>audit-log</code></td><td>Audit logging (HMAC-SHA256 hash chain with tamper detection)</td><td>❌</td></tr>
+<tr><td><code>otlp</code></td><td>OTLP/HTTP tracing export</td><td>❌</td></tr>
+<tr><td rowspan="3">Tooling</td><td><code>macros</code></td><td><code>#[flow_control]</code> declarative macro (limiteron-macros)</td><td>❌</td></tr>
+<tr><td><code>config-watcher</code></td><td>Config file watching and hot reload</td><td>❌</td></tr>
+<tr><td><code>webhook</code></td><td>Outbound webhooks (HMAC-SHA256 signature header + timestamp replay protection)</td><td>❌</td></tr>
+<tr><td rowspan="2">Events</td><td><code>event-system</code></td><td>Event system (EventEmitter / Dispatcher / Outbox)</td><td>❌</td></tr>
+<tr><td><code>ban-sync</code></td><td>Cross-instance ban sync (oxcache Pub/Sub broadcast)</td><td>❌</td></tr>
+<tr><td>Multi-Tenancy</td><td><code>multi-tenant</code></td><td>tenant+key compound decision keys and per-tenant isolation</td><td>❌</td></tr>
+<tr><td>Middleware</td><td><code>tower-middleware</code></td><td>Tower Layer / Service integration</td><td>❌</td></tr>
+<tr><td>Distributed</td><td><code>distributed</code></td><td><code>DistributedLimiter</code> trait + in-memory implementation (Redis implementation additionally requires <code>lua-script</code>)</td><td>❌</td></tr>
+<tr><td rowspan="3">Algorithms</td><td><code>adaptive-limiting</code></td><td>AIMD adaptive concurrency limiter (latency/error-rate feedback window tuning)</td><td>❌</td></tr>
+<tr><td><code>priority-queue</code></td><td>Compatibility declaration, no effect when enabled</td><td>❌</td></tr>
+<tr><td><code>admission-control</code></td><td>Compatibility declaration, no effect when enabled</td><td>❌</td></tr>
+<tr><td rowspan="5">Ecosystem</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> integration (health/lifecycle ports)</td><td>❌</td></tr>
+<tr><td><code>i18n</code></td><td>ICU4X locale-aware formatting</td><td>❌</td></tr>
+<tr><td><code>inklog</code></td><td>inklog structured logging integration</td><td>❌</td></tr>
+<tr><td><code>config-confers</code></td><td>Load configuration from confers sources</td><td>❌</td></tr>
+<tr><td><code>config-confers-reload</code></td><td>confers hot reload (implies <code>config-confers</code>)</td><td>❌</td></tr>
+<tr><td rowspan="3">Development/Testing</td><td><code>test-clock</code></td><td><code>MockClock</code> test clock (external test consumers only)</td><td>❌</td></tr>
+<tr><td><code>chaos-testing</code></td><td>Chaos testing (fault/latency injection, test-only)</td><td>❌</td></tr>
+<tr><td><code>legacy_tests</code></td><td>Legacy test marker</td><td>❌</td></tr>
+</table>
 
 </details>
 
-> ⚠️ **Declared but unimplemented no-op features**: `adaptive-limiting`, `priority-queue`, and `admission-control` are declared only for downstream compatibility and have no effect when enabled. Do not rely on them for capability detection.
-
-> 📌 **Note**: `postgres` and `sqlite` both go through DBNexus and are mutually exclusive (embedded and server-side drivers cannot coexist in one build), so avoid `--all-features`.
-
-See the `[features]` section of [Cargo.toml](Cargo.toml) for the complete feature list.
+> ⚠️ **Storage driver exclusivity**: `postgres` / `sqlite` / `mysql` all go through dbnexus; embedded and server-side drivers cannot coexist in one build, so avoid `--all-features` and use explicit feature combinations.
+>
+> ⚠️ **No-op features**: `priority-queue` and `admission-control` are declared only for downstream compatibility and have no effect when enabled. Do not rely on them for capability detection.
 
 ---
 
@@ -274,388 +243,226 @@ See the `[features]` section of [Cargo.toml](Cargo.toml) for the complete featur
 
 | Documentation | Description |
 |---------------|-------------|
-| [📖 User Guide](docs/USER_GUIDE.md) | Complete tutorial from installation to advanced usage |
+| [📖 User Guide](docs/USER_GUIDE.md) | Complete tutorial from installation and core concepts to advanced usage and troubleshooting |
 | [📘 API Reference](docs/API_REFERENCE.md) | Detailed description of all public APIs |
-| [🏗️ Architecture](docs/ARCHITECTURE.md) | Design philosophy and internal implementation |
-| [🔒 Security](docs/SECURITY.md) | Security design and best practices |
+| [🏗️ Architecture](docs/ARCHITECTURE.md) | Design philosophy, module breakdown, and extension mechanisms |
 | [❓ FAQ](docs/FAQ.md) | Frequently asked questions and troubleshooting |
-| [🧪 Testing Guide](docs/TESTING.md) | Test categories and commands |
+| [🧪 Testing Guide](docs/TESTING.md) | Test categories, commands, and coverage notes |
+| [🧬 Test Scenarios](docs/TEST_SCENARIOS.md) | Test pyramid baseline and E2E scenario definitions |
+| [📈 Coverage Report](docs/COVERAGE_REPORT.md) | Historical baseline data (generated in the v0.1.0 era, pending CI coverage refresh) |
+| [🔒 Security](docs/SECURITY.md) | Security design, version support policy, and vulnerability reporting process |
 | [📋 Changelog](docs/CHANGELOG.md) | Changes in every release |
 | [🤝 Contributing](docs/CONTRIBUTING.md) | How to participate in development |
-| [📦 Online API Docs](https://docs.rs/limiteron) | Latest docs generated by docs.rs |
+| [📦 docs.rs](https://docs.rs/limiteron) | Latest API documentation generated by docs.rs |
+| [📦 crates.io](https://crates.io/crates/limiteron) | Release page |
 
 ---
 
 ## 💻 Examples
 
-**Example 1: Basic Rate Limiting**
-
-```rust
-use limiteron::limiters::{Limiter, TokenBucketLimiter};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let limiter = TokenBucketLimiter::new(10, 1);
-
-    for i in 0..15 {
-        match limiter.allow(1).await {
-            Ok(true) => println!("Request {} ✅", i),
-            Ok(false) => println!("Request {} ❌", i),
-            Err(e) => println!("Request {} Error: {:?}", i, e),
-        }
-    }
-
-    Ok(())
-}
-```
-
-<details>
-<summary>View Output</summary>
-
-```text
-Request 0 ✅
-Request 1 ✅
-...
-Request 9 ✅
-Request 10 ❌
-...
-Request 14 ❌
-✅ First 10 requests allowed, remaining rate limited
-```
-
-</details>
-
-**Example 2: Using the Macro**
-
-```rust
-use limiteron::flow_control;
-
-#[flow_control(rate = "100/s", quota = "10000/m")]
-async fn api_handler(user_id: &str) -> Result<String, limiteron::error::LimiteronError> {
-    // API business logic
-    Ok(format!("Processing request for user {}", user_id))
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let result = api_handler("user123").await?;
-    println!("{}", result);
-    Ok(())
-}
-```
-
-The `examples/` directory covers 21 runnable scenarios (`governor_demo`, `ban_manager`, `ban_file_loader`, `ban_http_api`, `circuit_breaker`, `quota_control`, `decision_chain`, `custom_matchers`, `device_geo_matching`, `fallback_demo`, `graceful_shutdown`, `tower_middleware`, `telemetry_demo`, `audit_log_demo`, `authorization_demo`, `validation_demo`, `storage_factory`, `macro_usage`, `matchers_demo`, `rate_limiters`, `simple_rate_limit`):
+[`examples/`](examples/) is a standalone sub-crate in the workspace (`limiteron-examples`) containing 21 runnable examples. Enable the required features when running feature-gated examples:
 
 ```bash
-# Run a specific example
-cargo run -p limiteron-examples --bin governor_demo
+cargo run -p limiteron-examples --bin simple_rate_limit
+cargo run -p limiteron-examples --features "ban-manager,admin-api" --bin ban_http_api
 ```
 
-**[📂 View All Examples →](examples/)**
+| Example | Description |
+|---------|-------------|
+| `simple_rate_limit` | The most basic token bucket usage |
+| `rate_limiters` | Five algorithms: token bucket, sliding window, fixed window, concurrency limiter, GCRA |
+| `macro_usage` | Using the `flow_control` macro and its current-version constraints |
+| `governor_demo` | Three Governor construction modes, request checks, decision parsing, and statistics |
+| `matchers_demo` | Complete flow of identifier extractors, request contexts, and rule matchers |
+| `decision_chain` | Responsibility-chain decisions: composing limiters, priority execution, short-circuiting |
+| `custom_matchers` | Custom matcher trait implementation, registry, and built-in Header / TimeWindow matchers |
+| `authorization_demo` | Implementing the authorization provider trait and the built-in `SimpleAuthorizationProvider` |
+| `graceful_shutdown` | Listening for Ctrl+C and invoking the idempotent `Governor::shutdown()` |
+| `circuit_breaker` | Circuit breaker: failure detection, opening, half-open probing, and timeout recovery |
+| `quota_control` | Quota consumption tracking, enforcement, and usage percentage calculation |
+| `ban_manager` | Creating, querying, updating, and removing bans for IP / User ID / MAC targets |
+| `ban_file_loader` | Loading ban rules from YAML with file-change hot reload |
+| `ban_http_api` | Starting an AdminServer and calling ban management endpoints over HTTP |
+| `validation_demo` | Unified validation: IP, user ID, MAC, API key, ban target validation |
+| `storage_factory` | Creating Postgres / MySQL / SQLite backends from a DSN via `StorageFactory` |
+| `fallback_demo` | Fallback manager: strategy configuration, fault injection, fallback execution, island mode |
+| `audit_log_demo` | Audit logging: event recording, configuration, statistics, and signature verification |
+| `tower_middleware` | Integrating Governor flow control into a Tower Service pipeline |
+| `telemetry_demo` | Prometheus metrics collection and OpenTelemetry distributed tracing |
+| `device_geo_matching` | User-Agent parsing, device detection, IP geolocation, and geo condition matching |
 
 ---
 
 ## 🏗️ Architecture
 
+Limiteron uses a layered architecture: the access layer (Tower middleware, Admin API) hands traffic to the **Governor** main controller; Governor extracts identifiers and matches rules through **matchers**, then cascades along each rule's **decision_chain**, whose nodes are limiter algorithm instances from **limiters**; bans, quotas, circuit breaking, and fallback participate in decisions as domain components; state is persisted through the **storage** abstraction with a default in-memory implementation, switchable in production to the dbnexus adapters (PostgreSQL / SQLite / MySQL) in **adapters**; **telemetry** and **events** provide metrics, tracing, and outbound events.
+
 ```mermaid
-graph TB
-    A[Request] --> B[API Layer / Tower Middleware]
-    B --> C[Governor Main Controller]
-    C --> D[Identifier Extraction Matchers]
-    C --> E[Decision Chain]
-    D --> F[Rule Matching]
-    E --> G[Limiters]
-    E --> H[Ban Management]
-    E --> I[Quota Control]
-    E --> J[Circuit Breaker]
-    G --> K[L1/L2/L3 Cache]
-    H --> K
-    I --> K
-    K --> L[Storage Layer]
-    L --> M[PostgreSQL via DBNexus]
-    L --> N[In-Memory Storage]
+flowchart TD
+    MW["middleware · Tower Middleware"] --> GV["governor · Main Controller"]
+    ADM["admin · Admin REST API"] --> GV
+    GV --> MT["matchers · Identifier Extraction and Rule Matching"]
+    GV --> DC["decision_chain · Decision Chain"]
+    GV --> L1["l1_cache · Negative Cache"]
+    GV --> CB["circuit · Circuit Breaker"]
+    GV --> FB["fallback · Fallback Strategies"]
+    DC --> LM["limiters · Rate Limiting Algorithms"]
+    GV --> BN["ban · Ban Management"]
+    BN --> ST["storage · Storage Abstraction"]
+    QU["quota · Quota Control"] --> ST
+    ST --> AD["adapters · dbnexus Adapters"]
+    GV --> TE["telemetry · Metrics and Tracing"]
+    GV --> EV["events · Event System"]
 ```
 
-Core modules:
-
-| Module | Path | Description |
-|--------|------|-------------|
-| Governor | `src/governor.rs` | Main controller, end-to-end flow control |
-| Limiters | `src/limiters/` | Rate limiting algorithms (token bucket, fixed window, sliding window, GCRA, concurrency) |
-| Matchers | `src/matchers/` | Identifier extraction and rule matching |
-| Ban | `src/ban/` | Ban management, file loading, hot reload |
-| Quota | `src/quota/` | Quota control |
+| Module | Path | Responsibility |
+|--------|------|----------------|
+| Governor | `src/governor.rs` | Main controller: identifier extraction, rule matching, cascaded decisions, statistics, introspection |
+| Limiters | `src/limiters/` | Token bucket, sliding/sharded-sliding/fixed window, concurrency, GCRA, HTB, AIMD adaptive, quota limiter |
+| Matchers | `src/matchers/` | Identifier extractors, rule matching engine, custom matcher registry |
+| DecisionChain | `src/decision_chain/` | Priority-ordered responsibility chain with chain-level statistics |
+| Ban | `src/ban/` | Ban types, YAML file loading, hot reload |
+| Quota | `src/quota/` | Quota controller and periodic windows |
 | Circuit | `src/circuit/` | Circuit breaker |
-| Storage | `src/storage/` | Storage traits and in-memory implementation |
-| Adapters | `src/adapters/` | DBNexus storage adapters (PostgreSQL) |
+| Storage | `src/storage/` | `Storage` / `BanStorage` / `QuotaStorage` traits, in-memory implementation, parallel ban checker |
+| Adapters | `src/adapters/` | dbnexus storage adapters and `StorageFactory` (DSN-based creation) |
 | Cache | `src/cache/` | Unified cache service via oxcache |
-| DecisionChain | `src/decision_chain/` | Policy decision engine |
-| Middleware | `src/middleware/` | Tower HTTP middleware |
-| Admin | `src/admin/` | Admin REST API |
-| Telemetry | `src/telemetry/` | Metrics and tracing |
-
-<details>
-<summary><b>📐 Component Details</b></summary>
-
-<br>
-
-| Component | Description | Status |
-|-----------|-------------|--------|
-| **Governor** | Main controller, end-to-end flow control | ✅ Stable |
-| **Matchers** | Identifier extraction (IP, User ID, Device ID, etc.) | ✅ Stable |
-| **Limiters** | Multiple rate limiting algorithms | ✅ Stable |
-| **Ban Management** | IP ban, automatic ban | ✅ Stable |
-| **Quota Control** | Quota allocation, quota alerts | ✅ Stable |
-| **Circuit Breaker** | Automatic failover, state recovery | ✅ Stable |
-| **Cache** | L1/L2/L3 cache support | ✅ Stable |
-| **Storage Layer** | DBNexus (PostgreSQL / SQLite), in-memory | ✅ Stable |
-
-</details>
+| Events | `src/events/` | Event emission/dispatch, Outbox, webhook signatures, ban sync |
+| Middleware | `src/middleware/` | Tower Layer / Service, rate limit response headers |
+| Admin | `src/admin/` | Admin REST API server, RBAC, K8s probes |
+| Telemetry | `src/telemetry/` | Prometheus metrics, OTLP export |
 
 <details>
 <summary><b>💾 Storage Backends</b></summary>
 
 <br>
 
-Limiteron supports multiple storage backends through trait abstraction for pluggability:
+| Backend | Module | Feature | Description |
+|---------|--------|---------|-------------|
+| MemoryStorage | `src/storage/` | always available | In-memory storage for single-instance development and testing |
+| DBNexus adapters | `src/adapters/` | `postgres` / `sqlite` / `mysql` | Persistence via dbnexus, created from a DSN through `StorageFactory` |
 
-| Storage Backend | Module | Feature | Description |
-|----------------|--------|---------|-------------|
-| **MemoryStorage** | `src/storage/mod.rs` | (always available) | In-memory storage, suitable for single-instance development and testing |
-| **DBNexus Storage Adapter** | `src/adapters/dbnexus_storage.rs` | `postgres` / `sqlite` | Persistence via DBNexus, production-grade storage |
-
-> **Note:** `RedisStorage` and the `redis-storage` feature were removed in v0.2.1. Caching is now unified through oxcache (enable `cache-storage` to access the Redis cache backend).
+> **Note:** `RedisStorage` and the `redis-storage` feature were removed in v0.2.1; caching is now unified through oxcache (enable `cache-storage` to use the Redis cache backend).
 
 </details>
 
-For an in-depth design overview, see the [Architecture document](docs/ARCHITECTURE.md).
+See the [Architecture document](docs/ARCHITECTURE.md) for an in-depth design overview.
 
 ---
 
-## 🎯 Use Cases
+## 🎯 Core Decision Flow
 
-<details>
-<summary><b>💼 Enterprise Applications</b></summary>
+The complete decision path of a single `Governor::check(context)` call (distilled from `src/governor.rs`):
 
-<br>
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Caller
+    participant G as Governor
+    participant M as matchers
+    participant L as L1 Negative Cache
+    participant D as decision_chain
+    participant R as limiters
+    participant E as events
 
-```rust
-use limiteron::limiters::{Limiter, TokenBucketLimiter};
-
-async fn enterprise_api() -> Result<(), Box<dyn std::error::Error>> {
-    let limiter = TokenBucketLimiter::new(100, 10); // 100 tokens, refill 10 per second
-
-    // Rate limiting check
-    match limiter.allow(1).await {
-        Ok(true) => {
-            // Process request
-            process_request().await;
-        }
-        Ok(false) => {
-            eprintln!("Rate limit exceeded");
-        }
-        Err(e) => {
-            eprintln!("Error: {:?}", e);
-        }
-    }
-
-    Ok(())
-}
-
-async fn process_request() {
-    println!("Processing request...");
-}
+    C->>G: check request context
+    G->>M: extract identifier and match rules
+    M-->>G: identifier and matched rules
+    G->>L: look up cache key
+    alt cached deny or ban decision
+        L-->>G: cached decision
+        G-->>C: return early without consuming tokens
+    else cache miss or allow decision
+        loop each matched rule in priority order
+            G->>D: run rule decision chain
+            D->>R: consume tokens or quota
+            R-->>D: node decision
+            D-->>G: chain decision
+        end
+        alt any rule denies or bans
+            G->>L: write negative cache non-allow decisions only
+            G->>E: emit rate limit event
+            G-->>C: Rejected or Banned
+        else all rules allow
+            G-->>C: Allowed
+        end
+    end
 ```
 
-Suitable for enterprise applications requiring high concurrency and reliability.
+Key semantics (each traceable in the source):
 
-</details>
-
-<details>
-<summary><b>🔧 API Services</b></summary>
-
-<br>
-
-```rust
-use limiteron::flow_control;
-
-#[flow_control(rate = "100/s", quota = "10000/m")]
-async fn api_handler(user_id: &str) -> Result<String, limiteron::error::LimiteronError> {
-    // API business logic
-    Ok(format!("Processing request for user {}", user_id))
-}
-```
-
-Suitable for protecting API services from abuse and DDoS attacks.
-
-</details>
-
-<details>
-<summary><b>🌐 Web Applications</b></summary>
-
-<br>
-
-```rust
-use limiteron::ban_manager::{BanManager, BanManagerConfig, BanTarget};
-use limiteron::adapters::StorageFactory;
-use std::sync::Arc;
-
-async fn web_app() -> Result<(), Box<dyn std::error::Error>> {
-    // Create storage using DBNexus factory
-    let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
-    factory.initialize(None).await?;
-    let ban_storage = factory.create_ban_storage().await?;
-    let ban_manager = BanManager::with_dependencies(ban_storage, BanManagerConfig::default()).await?;
-
-    // Check if user is banned
-    let user_target = BanTarget::UserId("user123".to_string());
-    if let Some(ban_detail) = ban_manager.is_banned(&user_target).await? {
-        println!("User is banned: {}", ban_detail.reason);
-        return Err("User is banned".into());
-    }
-
-    // Process request
-    println!("Processing request for user123");
-    Ok(())
-}
-```
-
-Suitable for web applications that need to prevent malicious users and crawlers.
-
-</details>
+- **Rule matching is computed once**, and the matched rules flow through the entire check
+- **Negative caching is fail-closed**: only deny/ban decisions enter the L1 cache; "allow" decisions are never cached, so every request truly executes its rate limit checks
+- **Cascade execution**: any rule rejecting rejects the request; only unanimous approval passes
+- With `parallel-checker` enabled, the ban check runs before the cache read, so banned identifiers cannot bypass bans via the cache
 
 ---
 
-## ⚙️ Configuration
+## 🔗 Ecosystem & Integrations
 
-Limiteron uses TOML-format configuration files (`config.toml`) with environment variable override support.
+Limiteron collaborates closely with its sibling crates in the workspace; each integration is feature-gated and excluded by default:
 
-<table>
-<tr>
-<td width="50%">
+| Integration | Features | Description |
+|-------------|----------|-------------|
+| [dbnexus](https://github.com/Kirky-X/dbnexus) | `postgres` / `sqlite` / `mysql` | Database abstraction layer providing persistent storage adapters and metrics propagation |
+| [oxcache](https://github.com/Kirky-X/oxcache) | `cache-service` / `cache-storage` / `lua-script` / `ban-sync` | Unified cache service, Redis Lua execution, Pub/Sub ban broadcast |
+| [trait-kit](https://github.com/Kirky-X/trait-kit) | `kit` | `LimiteronModule` modular integration + health/lifecycle ports |
+| [inklog](https://github.com/Kirky-X/inklog) | `inklog` | Structured logging (console/file/database sinks) with the `SinkRateLimit` port |
+| [confers](https://github.com/Kirky-X/confers) | `config-confers` / `config-confers-reload` | Configuration source loading and hot reload (automatic rollback on validation failure) |
 
-**TOML Configuration (config.toml)**
-
-```toml
-version = "1.0"
-
-[global]
-storage = "memory"
-cache = "memory"
-metrics = "prometheus"
-
-[[rules]]
-id = "api_rate_limit"
-name = "API Rate Limit"
-priority = 100
-
-[rules.matchers]
-type = "User"
-user_ids = ["*"]
-
-[[rules.limiters]]
-type = "TokenBucket"
-capacity = 1000
-refill_rate = 100
-
-[rules.action]
-on_exceed = "reject"
-```
-
-</td>
-<td width="50%">
-
-**Environment Variable Override**
-
-```bash
-# Override global storage
-export LIMITERON_GLOBAL_STORAGE=redis
-```
-
-**Load Configuration**
-
-```rust
-use limiteron::ConfigLoader;
-
-let config = ConfigLoader::load_from_file("config.toml")?;
-```
-
-</td>
-</tr>
-</table>
-
-<details>
-<summary><b>🔧 All Configuration Options</b></summary>
-
-<br>
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `version` | String | "0.1.0" | Configuration version |
-| `global.storage` | String | "memory" | Storage type: memory / postgres (via DBNexus) |
-| `global.cache` | String | "memory" | Cache type: memory / redis |
-| `global.metrics` | String | "prometheus" | Metrics type |
-| `rules[].id` | String | - | Rule identifier |
-| `rules[].name` | String | - | Rule name |
-| `rules[].priority` | u16 | 100 | Rule priority |
-| `rules[].limiters[].capacity` | u64 | - | Limiter capacity |
-| `rules[].limiters[].refill_rate` | u64 | - | Limiter refill rate |
-
-</details>
-
-**ConfigBuilder (Programmatic)**
-
-```rust
-use limiteron::ConfigBuilder;
-
-let config = ConfigBuilder::new()
-    .with_storage("memory")
-    .with_rule(|rule| {
-        rule.id("default")
-            .token_bucket(1000, 100)
-    })
-    .build()?;
-```
+Additionally, the `i18n` feature integrates [ICU4X](https://github.com/unicode-org/icu4x) for locale-aware formatting.
 
 ---
 
 ## 🧪 Testing
 
-**Test Status: 2000+ tests all passing ✅**
+**Testing strategy matrix**
 
-| Test Type | Count | Status |
-|-----------|-------|--------|
-| Unit tests | 1700+ | ✅ Pass |
-| Integration tests | 161 | ✅ Pass |
-| Doc tests | 145+ | ✅ Pass |
+| Layer | Location | Description |
+|-------|----------|-------------|
+| Unit tests | `#[cfg(test)]` inline in `src/**` | Covers governor, limiters, ban, quota, circuit, matchers, and more |
+| Integration/E2E | `tests/` top-level targets and subdirectories | `unified_tests`, `integration_tests`, `e2e_tests`, `common_tests`, `security_tests`, `admin_security_tests`, `chaos_tests`, `e2e_advanced`, `probes_e2e`, `otlp_export_tests`, and more |
+| Property tests | `tests/property_tests/` | proptest: concurrency, fixed window, sliding window, token bucket |
+| Doc tests | Doc-comment code blocks | Compiled and executed with `cargo test` |
+| Benchmarks | `benches/` | criterion: throughput / latency / memory / regression |
+
+**Test scale** (grep count of `#[test]` / `#[tokio::test]` attributes, as of v0.3.0-rc.3):
+
+| Metric | Count |
+|--------|-------|
+| In-library test functions (`src/`) | 2,160 (#[test] 1,410 + #[tokio::test] 750) |
+| External test functions (`tests/`) | 599 (#[test] 157 + #[tokio::test] 442) |
+| Property test groups (proptest) | 4 |
+
+**Commands** (identical to [CI](.github/workflows/ci.yml)):
 
 ```bash
-# Run library unit tests (full features)
+# Full CI test command
+cargo test --workspace --no-default-features --features full
+
+# Library unit tests
 cargo test --features full --lib
 
-# Run unified integration tests (enable features explicitly)
+# Unified integration tests (enable features explicitly)
 cargo test --test unified_tests --features "ban-manager,quota-control,circuit-breaker"
 
-# Run benchmarks
-cargo bench
-
-# Generate coverage report
-cargo tarpaulin --out Html
+# Coverage gate (enforced in CI and the lefthook pre-push hook, >= 80% lines)
+cargo llvm-cov --workspace --no-default-features --features full --lib --fail-under-lines 80
 ```
 
-> 📌 `postgres` and `sqlite` are mutually exclusive; `--all-features` triggers a DBNexus compile error — use explicit feature combinations instead.
+> 📌 `postgres` / `sqlite` / `mysql` are mutually exclusive; `--all-features` triggers a dbnexus compile error, so always use explicit feature combinations.
 
-See the [Testing Guide](docs/TESTING.md) for detailed instructions and the [Coverage Report](docs/COVERAGE_REPORT.md) for coverage data.
+See the [Testing Guide](docs/TESTING.md) and [Test Scenarios](docs/TEST_SCENARIOS.md) for details.
 
 ---
 
 ## 📊 Performance
 
-> **Note:** The following data represents actual benchmark results from comprehensive testing (2026-01-19).
+> **Note:** The following data represents actual results from comprehensive testing on 2026-01-19.
 
 <table>
 <tr>
-<td width="50%">
+<td width="50%" valign="top">
 
 **Throughput**
 
@@ -666,7 +473,7 @@ See the [Testing Guide](docs/TESTING.md) for detailed instructions and the [Cove
 | ConcurrencyLimiter | **12M+ ops/s** | 200K ops/s | ✅ 60x |
 
 </td>
-<td width="50%">
+<td width="50%" valign="top">
 
 **Latency**
 
@@ -680,147 +487,72 @@ See the [Testing Guide](docs/TESTING.md) for detailed instructions and the [Cove
 </tr>
 </table>
 
-#### Concurrency Test Results
-
-| Test Item | Result | Status |
-|-----------|--------|--------|
-| Data Consistency | 100% | ✅ Pass |
-| High Concurrency Stability | 50/100 concurrent | ✅ Pass |
-| Rate Limit Correctness | 1000/1000 | ✅ Pass |
-
 <details>
-<summary><b>📈 Detailed Benchmarks</b></summary>
+<summary><b>📈 Detailed Benchmark Data</b></summary>
 
 <br>
 
-```bash
-# Run performance tests
-cd temp/comprehensive_test
-./target/release/functional_test    # Functional tests
-./target/release/performance_test   # Performance tests
-./target/release/concurrency_test   # Concurrency tests
-```
-
-**Sample output:**
-
 ```text
-Functional Tests: 7/7 Pass (100%)
 TokenBucket: 12,088,759 ops/s
 FixedWindow: 19,920,188 ops/s
 ConcurrencyLimiter: 11,891,237 ops/s
-Concurrency Test: 100% Data Consistency
+Concurrency tests: 100% data consistency, rate limit correctness 1000/1000
 ```
 
 </details>
+
+**Benchmark facility**: the repository ships four criterion benchmark suites (all require the `full` feature) for reproduction and regression detection:
+
+| Benchmark | File | Contents |
+|-----------|------|----------|
+| Throughput | `benches/throughput.rs` | Single-thread/concurrent throughput and scaling curves |
+| Latency | `benches/latency.rs` | P50/P90/P99/P99.9 latency measurement and operation comparison |
+| Memory | `benches/memory.rs` | Memory footprint by key count, data structure comparison, leak detection |
+| Regression | `benches/regression.rs` | Historical baseline storage and automatic comparison alerts |
+
+```bash
+cargo bench --features full
+```
 
 ---
 
 ## 🔒 Security
 
-- ✅ **Memory Safety** — Guaranteed by Rust's ownership model
-- ✅ **Input Validation** — IP address, User ID, MAC address validation
-- ✅ **SQL Injection Protection** — Parameterized queries via DBNexus / sea-orm
-- ✅ **Sensitive Data Protection** — secrecy crate for sensitive data, log redaction support
-- ✅ **Audit Logging** — Complete operation tracking
-- ✅ **Trusted Proxy Support** — Secure client IP extraction from X-Forwarded-For (only trusted proxies are honored)
-- ✅ **SSRF Protection** — Webhook URL validation blocks internal addresses
+**Reporting a vulnerability**: please do not report security vulnerabilities through public issues. Use the GitHub [Security Advisories](https://github.com/Kirky-X/limiteron/security/advisories/new) private disclosure channel ("Report a vulnerability"). The maintainer commits to acknowledging reports within 48 hours and providing an initial assessment within 7 days, following coordinated disclosure. See [SECURITY.md](SECURITY.md) and the [Security document](docs/SECURITY.md) for the full process.
 
-For the full security design, vulnerability reporting process, and best practices, see the [Security document](docs/SECURITY.md).
+**Security design highlights** (each traceable in the source and the [Security document](docs/SECURITY.md)):
+
+- **Input defenses** — identifier key sanitization (ASCII allowlist + 128-char truncation, defending against key injection and homoglyph attacks); IP / user ID / MAC format validation (`src/validation.rs`)
+- **Algorithm boundaries** — saturating arithmetic and capacity capping in the token bucket; clock-fallback protection in quota windows
+- **Admin self-protection** — per-path/per-client rate limiting on admin endpoints + bucket memory caps + multi-key token authentication with an admin/viewer role matrix (RBAC)
+- **Data protection** — secrecy for sensitive data, log redaction (`log-redaction`), HMAC-SHA256 hash-chained audit events with tamper detection
+- **Transport defenses** — trusted-proxy X-Forwarded-For extraction; outbound webhook signatures + timestamp replay protection + URL validation (SSRF)
+- **Supply chain** — rustls-webpki minimum version pin (CVE-2025-48369); [cargo-deny](deny.toml) checks vulnerabilities/licenses/duplicate dependencies; the CI Security job and the pre-push hook run `cargo deny check` and `cargo audit`
 
 ---
 
 ## 🗺️ Roadmap
 
-```mermaid
-gantt
-    title Limiteron Roadmap
-    dateFormat  YYYY-MM
-    section Phase 1
-    Core Features           :done, 2026-01, 2026-03
-    section Phase 2
-    Feature Extensions      :active, 2026-03, 2026-06
-    section Phase 3
-    Performance Optimization :2026-06, 2026-09
-    section Phase 4
-    Production Ready        :2026-09, 2026-12
-```
-
 <table>
 <tr>
-<td width="50%">
-
-### ✅ Completed
-
-- [x] Core rate limiting
-- [x] Ban management
-- [x] Quota control
-- [x] Circuit breaker
-- [x] Unit and integration tests
-- [x] Macro support
-- [x] PostgreSQL storage via DBNexus
-- [x] RedisStorage backend (v0.2.0, **removed in v0.2.1** — replaced by oxcache-backed cache)
-- [x] Governor graceful shutdown & health check (v0.2.0)
-- [x] ConfigLoader environment variable override (v0.2.0)
-- [x] CircuitBreaker `new()` default constructor (v0.2.0)
-- [x] 95%+ test coverage (v0.2.0)
-- [x] pangu industrial-grade harness complete (v0.2.0)
-- [x] diting full-dimension code review (v0.2.0)
-- [x] Documentation & 20 examples (v0.2.0)
-
-</td>
-<td width="50%">
-
-### 🚧 In Progress
-
-- [ ] Performance optimization
-- [ ] Monitoring and tracing improvements
-
-</td>
+<td width="12%" align="center"><b>✅ Completed</b></td>
+<td>Core rate limiting algorithms, ban management, quota control, circuit breaker, the <code>#[flow_control]</code> macro, unit and integration test suites, PostgreSQL / SQLite storage via dbnexus, Governor graceful shutdown and health check, ConfigLoader environment variable overrides (v0.2.0); Tower middleware refinement, event system enhancements, RedisStorage removal with caching unified through oxcache (v0.2.1)</td>
 </tr>
 <tr>
-<td width="50%">
-
-### ✅ v0.2.1 Shipped
-
-- [x] Tower middleware integration refinement
-- [x] Event system enhancements
-- [x] More storage backend test coverage
-- [x] Performance benchmark updates
-- [x] `RedisStorage` removal (unified through oxcache)
-
-</td>
-<td width="50%">
-
-### 🚀 v0.3.0-rc.2 (Current)
-
-- [ ] Distributed rate limiting (cross-instance Redis Lua coordination)
-- [ ] Governor shutdown full implementation (background task await/state flush/connection release/Drop trait)
-- [ ] MySQL storage support (pending DBNexus support; SQLite is already provided by the `sqlite` feature)
-- [ ] HTB hierarchical token bucket
-- [ ] Bulkhead isolation
-
-</td>
+<td width="12%" align="center"><b>✅ Shipped in v0.3.0-rc.3</b></td>
+<td>MySQL storage, HTB hierarchical token bucket, bulkhead isolation, AIMD adaptive concurrency limiting, Redis distributed limiter (cross-instance Lua coordination), multi-tenancy through Governor, K8s probe endpoints, Admin RBAC, CIDR range bans, OTLP tracing export, <code>limiteron-cli</code>, webhook signatures, event Outbox, cross-instance ban sync (see the <a href="docs/CHANGELOG.md">changelog</a>)</td>
 </tr>
 <tr>
-<td width="50%">
-
-### 📋 Planned
-
-- [ ] Lua script enhancements
-- [ ] Custom matcher extensions
-- [ ] Additional storage backends
-- [ ] Web UI management interface
-
-</td>
-<td width="50%">
-
-### 💡 Future Ideas
-
-- [ ] Machine learning-driven rate limiting
-- [ ] Additional rate limiting algorithms
-- [ ] Community plugin system
-
-</td>
+<td width="12%" align="center"><b>🚧 In Progress</b></td>
+<td>Performance optimization, monitoring and tracing improvements</td>
+</tr>
+<tr>
+<td width="12%" align="center"><b>📋 Planned</b></td>
+<td>Governor shutdown full implementation (background task awaiting/state flush/connection release/Drop trait), Lua script enhancements, custom matcher extensions, additional storage backends, Web UI management interface</td>
+</tr>
+<tr>
+<td width="12%" align="center"><b>💡 Future Ideas</b></td>
+<td>Machine learning-driven rate limiting, additional rate limiting algorithms, community plugin system</td>
 </tr>
 </table>
 
@@ -828,7 +560,7 @@ gantt
 
 ## 🤝 Contributing
 
-Contributions of any kind are welcome! See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for the development environment, TDD workflow, coding conventions, and PR process; see [AGENTS.md](AGENTS.md) for AI-agent development conventions.
+Contributions of any kind are welcome! See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for the development environment, TDD workflow, coding conventions, and the PR process.
 
 <table>
 <tr>
@@ -860,25 +592,23 @@ Want to contribute?<br>
 </table>
 
 <details>
-<summary><b>📝 Contribution Steps</b></summary>
+<summary><b>🔧 Development Environment Baseline</b></summary>
 
 <br>
 
-1. **Fork** the repository
-2. **Clone** your fork: `git clone https://github.com/yourusername/limiteron.git`
-3. **Create** a branch: `git checkout -b feature/amazing-feature`
-4. **Make** your changes
-5. **Test** your changes: `cargo test --features full --lib`
-6. **Commit** your changes: `git commit -m 'Add amazing feature'`
-7. **Push** to branch: `git push origin feature/amazing-feature`
-8. **Create** a Pull Request
+- **Toolchain**: Rust 1.97.1 (pinned in [rust-toolchain.toml](rust-toolchain.toml))
+- **Commit messages**: follow Conventional Commits (`feat` / `fix` / `refactor` / `docs` / `test` / `chore`, etc.)
+- **lefthook hooks** (enable via `lefthook install`):
+  - pre-commit: `cargo fmt --all -- --check`, `cargo clippy --all-targets --no-default-features --features full -- -D warnings`, `cargo deny check`, private key scanning
+  - commit-msg: Conventional Commits format check
+  - pre-push: `cargo audit`, line coverage >= 80% gate
 
-### Code Style
-
-- Follow Rust standard coding conventions
-- Write comprehensive tests
-- Update documentation
-- Add examples for new features
+```bash
+git clone https://github.com/yourusername/limiteron.git
+cd limiteron
+lefthook install
+cargo test --workspace --no-default-features --features full
+```
 
 </details>
 
@@ -888,15 +618,15 @@ Want to contribute?<br>
 
 See [CHANGELOG.md](docs/CHANGELOG.md) for the full history. Recent releases:
 
-- **0.3.0-rc.2** (2026-09-03) — Documentation sync (version numbers / MSRV 1.85+ / roadmap), workspace dependency path localization, `Cargo.lock` committed to version control
-- **0.2.10** (2026-07-22) — Added `tests/e2e_advanced.rs` (76 boundary and edge-case tests), removed unused dependencies, sea-orm upgraded to 2.0 stable
-- **0.2.9** (2026-07-18) — `#[flow_control]` macro gains `on_exceed` / `key_prefix` / `tracing` / `metrics` parameters, LimiterManager LRU eviction, fixed TOCTOU rate-limit bypass and key leakage
+- **0.3.0-rc.3** (2026-09-10) — Multi-tenancy through Governor, CIDR range bans, Admin RBAC, OTLP tracing export, MySQL storage, HTB hierarchical token bucket, bulkhead isolation, AIMD adaptive limiting, `limiteron-cli`, webhook signatures, event Outbox, cross-instance ban sync
+- **0.3.0-rc.2** (2026-09-03) — Documentation synced to the 0.3 line, workspace dependency path localization, `Cargo.lock` committed to version control
+- **0.2.10** (2026-07-22) — Added 76 boundary and edge-case tests, sea-orm upgraded to 2.0 stable, unused dependencies removed
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT + Commons Clause License. Commercial use requires separate authorization. See [LICENSE](LICENSE). Copyright (c) 2026 Kirky.X.
+This project is licensed under the MIT + Commons Clause License; commercial use requires separate authorization. See [LICENSE](LICENSE). Copyright (c) 2026 Kirky.X🌠.
 
 ---
 
@@ -909,8 +639,6 @@ This project is licensed under the MIT + Commons Clause License. Commercial use 
   - [trait-kit](https://github.com/Kirky-X/trait-kit) — Trait integration modules
   - [inklog](https://github.com/Kirky-X/inklog) — Structured logging
   - [dashmap](https://github.com/xacrimon/dashmap) — Concurrent HashMap
-  - [lru](https://github.com/jeromefroe/lru-rs) — LRU cache
-
 - 👥 **Contributors** — Thanks to all contributors!
 - 💬 **Community** — Special thanks to community members
 

@@ -408,7 +408,6 @@ pub struct UnbanRequest {
     /// 此字段保留仅为向后兼容（旧客户端仍可发送），但服务端会忽略其值。
     /// 实际 operator 身份由 `OperatorIdentity`（来自鉴权 middleware）决定。
     #[serde(default)]
-    #[allow(dead_code)]
     pub operator: Option<String>,
 }
 
@@ -517,7 +516,6 @@ pub struct CreateBanRequest {
     /// 此字段保留仅为向后兼容（旧客户端仍可发送），但服务端会忽略其值。
     /// 实际 operator 身份由 `OperatorIdentity`（来自鉴权 middleware）决定。
     #[serde(default)]
-    #[allow(dead_code)]
     pub operator: Option<String>,
     /// 封禁时长（秒），None = 使用退避算法自动计算
     #[serde(default)]

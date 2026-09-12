@@ -1,5 +1,7 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
+// 公共助手被 5 个测试入口分别取用（common/e2e/integration/security/unified），
+// dead_code 按 crate 判定，未被某入口用到的助手在该 crate 内必然告警，模块级放行。
 #![allow(dead_code)]
 #![allow(unused_imports)]
 

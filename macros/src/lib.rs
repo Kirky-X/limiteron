@@ -228,13 +228,11 @@ impl FlowControlConfig {
 
 /// 速率限制配置
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 struct RateLimit {
     amount: u64,
     unit: String,
 }
 
-#[allow(dead_code)]
 impl RateLimit {
     fn from_str(s: &str) -> Result<Self, String> {
         let parts: Vec<&str> = s.split('/').collect();
@@ -261,6 +259,10 @@ impl RateLimit {
         Ok(Self { amount, unit })
     }
 
+    #[expect(
+        dead_code,
+        reason = "与 QuotaLimit::to_duration 同构，rate 参数生成路径尚未接入"
+    )]
     fn to_duration(&self) -> proc_macro2::TokenStream {
         let amount = self.amount;
         match self.unit.as_str() {

@@ -19,12 +19,6 @@ async fn create_storage_with_cache() -> (Arc<MemoryStorage>, Cache<String, Strin
     (storage, cache)
 }
 
-/// 生成缓存键
-#[allow(dead_code)]
-fn make_cache_key(prefix: &str, key: &str) -> String {
-    format!("{}:{}", prefix, key)
-}
-
 // ==================== 缓存一致性验证 ====================
 
 /// 测试内存存储 基本读写

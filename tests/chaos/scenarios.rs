@@ -28,7 +28,7 @@ pub trait ChaosScenario: Send + Sync {
     fn name(&self) -> &str;
 
     /// 场景描述
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "场景元信息接口，报告输出尚未接入")]
     fn description(&self) -> &str;
 
     /// 运行场景
@@ -44,18 +44,16 @@ pub struct StorageIntermittentFailure {
     /// 请求数量
     pub request_count: usize,
     /// 限流器类型
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "场景声明限流目标，执行路径暂未消费")]
     pub limiter_type: LimiterType,
 }
 
 /// 限流器类型枚举
 #[derive(Clone)]
-#[allow(dead_code)]
 pub enum LimiterType {
-    TokenBucket {
-        capacity: u64,
-        refill_rate: u64,
-    },
+    #[expect(dead_code, reason = "变体随场景声明写入，执行路径暂未读取参数")]
+    TokenBucket { capacity: u64, refill_rate: u64 },
+    #[expect(dead_code, reason = "固定窗口场景待接入")]
     FixedWindow {
         window_size: Duration,
         max_requests: u64,

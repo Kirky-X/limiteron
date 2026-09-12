@@ -15,13 +15,13 @@ use std::time::Duration;
 
 /// 延迟分布类型
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum LatencyDistribution {
     /// 固定延迟
     Constant(Duration),
     /// 均匀分布 [min, max]
     Uniform { min: Duration, max: Duration },
     /// 指数分布 (平均延迟)
+    #[expect(dead_code, reason = "分布已实现采样逻辑，尚无场景构造")]
     Exponential { mean: Duration },
     /// 带抖动的延迟 (基础延迟 ± 抖动范围)
     Jitter {
@@ -192,11 +192,14 @@ impl LatencyInjector {
 
 /// 延迟统计信息
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct LatencyStats {
     /// 总操作数
     pub total_operations: u64,
     /// 累计注入延迟
+    #[expect(
+        dead_code,
+        reason = "由 stats() 写入累计，测试仅断言 avg_latency/总次数"
+    )]
     pub total_injected: Duration,
     /// 平均延迟
     pub avg_latency: Duration,
@@ -248,7 +251,7 @@ pub fn high_latency_network_partition() -> LatencyInjector {
 }
 
 /// 创建指数分布延迟 (平均100ms)
-#[allow(dead_code)]
+#[expect(dead_code, reason = "便捷构造器，与 low_jitter 等同族，尚无场景调用")]
 pub fn exponential_latency(mean_ms: u64) -> LatencyInjector {
     LatencyInjector::new(LatencyDistribution::Exponential {
         mean: Duration::from_millis(mean_ms),

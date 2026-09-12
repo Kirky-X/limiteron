@@ -5,6 +5,8 @@
 //! This module provides well-documented constants used throughout the library.
 //! All magic numbers are defined here with their purpose and usage context.
 
+// 常量按 feature 分批使用（cache/circuit-breaker/ban 等门内才被引用），
+// 模块级放行避免在默认/最小 feature 组合下产生成片误报。
 #![allow(dead_code)]
 
 /// Maximum cost value for rate limiting operations.

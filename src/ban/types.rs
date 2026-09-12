@@ -1361,20 +1361,6 @@ mod tests {
             }
         }
 
-        #[allow(dead_code)]
-        async fn set_behavior(&self, behavior: MockBanBehavior) {
-            let mut current = self.behavior.write().await;
-            *current = behavior;
-        }
-
-        #[allow(dead_code)]
-        async fn clear(&self) {
-            let mut bans = self.bans.write().await;
-            let mut history = self.history.write().await;
-            bans.clear();
-            history.clear();
-        }
-
         async fn should_fail(&self) -> bool {
             self.behavior.read().await.fail_mode
         }
@@ -1572,15 +1558,6 @@ mod tests {
     async fn create_test_ban_manager() -> BanManager {
         let storage = Arc::new(MockBanStorage::new());
         BanManager::with_dependencies(storage, BanManagerConfig::default())
-            .await
-            .unwrap()
-    }
-
-    /// 创建带有自定义配置的 BanManager
-    #[allow(dead_code)]
-    async fn create_test_ban_manager_with_config(config: BanManagerConfig) -> BanManager {
-        let storage = Arc::new(MockBanStorage::new());
-        BanManager::with_dependencies(storage, config)
             .await
             .unwrap()
     }

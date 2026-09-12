@@ -20,7 +20,6 @@ use std::time::Duration;
 
 /// 故障模式
 #[derive(Debug, Clone, Copy, Default)]
-#[allow(dead_code)]
 pub enum FaultPattern {
     /// 随机故障 - 每次操作有固定概率失败
     #[default]
@@ -33,6 +32,7 @@ pub enum FaultPattern {
         fail_count: u64,
     },
     /// 突发性故障 - 短时间突发大量失败
+    #[expect(dead_code, reason = "Bursty 模式已实现注入逻辑，尚无场景构造")]
     Bursty {
         /// 突发概率 (0.0 - 1.0)
         burst_probability: f64,
@@ -79,7 +79,10 @@ pub struct FaultInjectionStorage {
     /// 故障状态 (内部可变性)
     state: Mutex<FaultState>,
     /// 随机数生成器种子 (用于可重现测试)
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "种子经构造器写入留存，注入逻辑暂按操作计数派生随机"
+    )]
     seed: u64,
 }
 
@@ -106,7 +109,10 @@ impl FaultInjectionStorage {
     }
 
     /// 创建带有自定义种子的故障注入存储
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "供 FaultInjectionBuilder::build 复用，构建器尚无调用方"
+    )]
     pub fn with_seed(
         inner: Arc<dyn Storage>,
         failure_rate: f64,
@@ -129,7 +135,7 @@ impl FaultInjectionStorage {
     }
 
     /// 构建器模式创建
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "构建器入口，尚无场景调用（见模块文档示例）")]
     pub fn builder() -> FaultInjectionBuilder {
         FaultInjectionBuilder::default()
     }
@@ -199,7 +205,7 @@ impl FaultInjectionStorage {
     }
 
     /// 获取内部存储的引用
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "诊断辅助方法，暂无调用方")]
     pub fn inner(&self) -> &dyn Storage {
         self.inner.as_ref()
     }
@@ -258,7 +264,10 @@ impl Storage for FaultInjectionStorage {
 
 /// 故障注入存储构建器
 #[derive(Default)]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "链式构建器尚无场景调用（见 chaos/mod.rs 文档示例）"
+)]
 pub struct FaultInjectionBuilder {
     inner: Option<Arc<dyn Storage>>,
     failure_rate: f64,
@@ -268,7 +277,7 @@ pub struct FaultInjectionBuilder {
     seed: u64,
 }
 
-#[allow(dead_code)]
+#[expect(dead_code, reason = "链式构建器尚无场景调用，方法随构建器整体保留")]
 impl FaultInjectionBuilder {
     /// 设置内部存储
     pub fn with_inner(mut self, inner: Arc<dyn Storage>) -> Self {

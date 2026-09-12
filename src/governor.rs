@@ -3934,6 +3934,7 @@ mod governor_construction_tests {
 // ============================================================================
 
 #[cfg(test)]
+// 部分测试助手仅被 feature 门控用例引用（默认组合下无调用方），保留放行。
 #[allow(clippy::field_reassign_with_default, dead_code, unused_imports)]
 mod governor_feature_gated_tests {
     use super::*;

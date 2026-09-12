@@ -4,7 +4,6 @@
 //!
 //! 以「同一组操作断言」跑在不同 DSN 后端上，保证 postgres / mysql /
 //! sqlite 适配器行为一致（契约共享，新增后端只需以 DSN 接入）。
-#![allow(dead_code)]
 
 use limiteron::error::StorageError;
 use limiteron::{
@@ -14,6 +13,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// Storage 契约：set → get → delete → get(miss) + TTL 过期语义
+//
+// 契约断言按后端逐个接入（当前仅 mysql_storage 引用），未接入方组合下暂无调用者。
+#[cfg_attr(
+    not(feature = "mysql"),
+    expect(
+        dead_code,
+        reason = "契约套件按后端逐步接入，mysql 之外的组合暂无调用方"
+    )
+)]
 pub async fn storage_contract(storage: &Arc<dyn Storage>) -> Result<(), StorageError> {
     storage.set("contract:key", "v1", None).await?;
     assert_eq!(
@@ -40,6 +48,13 @@ pub async fn storage_contract(storage: &Arc<dyn Storage>) -> Result<(), StorageE
 }
 
 /// BanStorage 契约：save → is_banned → list → remove
+#[cfg_attr(
+    not(feature = "mysql"),
+    expect(
+        dead_code,
+        reason = "契约套件按后端逐步接入，mysql 之外的组合暂无调用方"
+    )
+)]
 pub async fn ban_contract(bans: &Arc<dyn BanStorage>) -> Result<(), StorageError> {
     let record = BanRecord {
         target: BanTarget::Ip("203.0.113.77".to_string()),
@@ -75,6 +90,13 @@ pub async fn ban_contract(bans: &Arc<dyn BanStorage>) -> Result<(), StorageError
 }
 
 /// QuotaStorage 契约：consume → get_quota → reset
+#[cfg_attr(
+    not(feature = "mysql"),
+    expect(
+        dead_code,
+        reason = "契约套件按后端逐步接入，mysql 之外的组合暂无调用方"
+    )
+)]
 pub async fn quota_contract(quota: &Arc<dyn QuotaStorage>) -> Result<(), StorageError> {
     let ConsumeResult { allowed, .. } = quota
         .consume("contract_user", "api", 2, 10, Duration::from_secs(60))

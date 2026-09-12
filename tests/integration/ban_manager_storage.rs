@@ -23,15 +23,6 @@ mod ban_manager_tests {
             .unwrap()
     }
 
-    /// 创建带有自定义配置的 BanManager
-    #[allow(dead_code)]
-    async fn create_ban_manager_with_config(config: BanManagerConfig) -> BanManager {
-        let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
-        BanManager::with_dependencies(storage, config)
-            .await
-            .unwrap()
-    }
-
     // ==================== 封禁操作测试 ====================
 
     /// 测试添加封禁记录 - IP 封禁

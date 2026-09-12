@@ -30,7 +30,7 @@ pub use fault_injection::FaultPattern;
 
 /// 混沌测试配置
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
+#[expect(dead_code, reason = "预置的混沌场景配置结构，尚无场景消费")]
 pub struct ChaosConfig {
     /// 故障注入率 (0.0 - 1.0)
     pub failure_rate: f64,
@@ -76,7 +76,7 @@ pub struct ChaosTestResult {
 
 impl ChaosTestResult {
     /// 成功率
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "结果统计 API，混沌场景尚在接入")]
     pub fn success_rate(&self) -> f64 {
         if self.total_requests == 0 {
             return 0.0;
@@ -85,7 +85,7 @@ impl ChaosTestResult {
     }
 
     /// 失败率
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "结果统计 API，混沌场景尚在接入")]
     pub fn failure_rate(&self) -> f64 {
         1.0 - self.success_rate()
     }

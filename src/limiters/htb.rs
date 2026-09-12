@@ -80,9 +80,21 @@ impl HtbBucket {
         self.refill_and_available()
     }
 
-    fn take(&self, amount: u64) {
+    /// 原子「补充并消费」：单次持锁完成刷新与扣减，返回实际消费量。
+    ///
+    /// 消费量 ≤ `amount`，余额不足时只消费全部余额（不透支）。若把
+    /// 「读余额」与「扣减」拆成两次持锁，并发调用会在间隙内重复通过
+    /// 余额检查、合计超发——本方法消除该窗口，调用方以返回值判断缺口。
+    fn try_take(&self, amount: u64) -> u64 {
         let mut st = self.state.lock();
-        st.tokens = (st.tokens - amount as f64).max(0.0);
+        let elapsed = st.last_refill.elapsed().as_secs_f64();
+        if elapsed > 0.0 && self.refill_rate > 0 {
+            st.tokens = (st.tokens + elapsed * self.refill_rate as f64).min(self.capacity as f64);
+            st.last_refill = std::time::Instant::now();
+        }
+        let taken = st.tokens.min(amount as f64).max(0.0) as u64;
+        st.tokens -= taken as f64;
+        taken
     }
 
     fn give(&self, amount: u64) {
@@ -193,9 +205,9 @@ impl HierarchicalTokenBucket {
         Some(node)
     }
 
-    /// 消费 `cost`：叶子自身令牌优先，缺口向祖先借用（全有或全无）。
+    /// 消费 `cost`：叶子自身令牌优先（原子扣减），缺口向祖先借用（全有或全无）。
     ///
-    /// 返回 `false` 表示任一环节预算不足（状态不变）。
+    /// 返回 `false` 表示任一环节预算不足（已扣减部分全部归还，状态不变）。
     pub async fn allow(&self, class_path: &[&str], cost: u64) -> Result<bool, LimiteronError> {
         if cost == 0 {
             return Err(LimiteronError::ConfigError(
@@ -226,39 +238,36 @@ impl HierarchicalTokenBucket {
             }
         }
 
-        // 令牌刷新 + 自身可用
+        // 叶子刷新+扣减原子完成；返回实际消费量与 cost 的差即缺口
         let leaf = chain[chain.len() - 1].clone();
-        let own = leaf.available();
-        let deficit = cost.saturating_sub(own);
+        let taken = leaf.try_take(cost);
+        let deficit = cost - taken;
         if deficit == 0 {
-            leaf.take(cost);
             return Ok(true);
         }
 
-        // 向祖先逐级借：全有或全无（不足则整体拒绝，零副作用）
+        // 向祖先逐级借（父 → 根）：每级原子扣减且不透支，并记录扣减明细；
+        // 合计补不齐缺口则全部归还（零副作用，可重试）。逐级原子扣减保证
+        // 任何时刻被借走的总量不超过当时余额，杜绝「计划-执行」窗口超预算。
         let mut remaining = deficit;
-        let mut plan: Vec<(std::sync::Arc<HtbBucket>, u64)> = Vec::new();
+        let mut borrowed: Vec<(std::sync::Arc<HtbBucket>, u64)> = Vec::new();
         for and in chain[..chain.len() - 1].iter().rev() {
             if remaining == 0 {
                 break;
             }
-            let avail = and.available();
-            let lend = avail.min(remaining);
-            if lend > 0 {
-                plan.push((and.clone(), lend));
-                remaining -= lend;
+            let got = and.try_take(remaining);
+            if got > 0 {
+                borrowed.push((and.clone(), got));
+                remaining -= got;
             }
         }
         if remaining > 0 {
+            for (and, got) in &borrowed {
+                and.give(*got);
+            }
+            leaf.give(taken);
             return Ok(false);
         }
-
-        // 执行：祖先扣减 → 叶子补齐 → 叶子消费 cost
-        for (and, lend) in &plan {
-            and.take(*lend);
-        }
-        leaf.give(deficit);
-        leaf.take(cost);
         Ok(true)
     }
 
@@ -401,6 +410,54 @@ mod tests {
     async fn test_t615_htb_zero_cost_rejected() {
         let htb = HierarchicalTokenBucket::new(100, 100);
         assert!(htb.allow(&[], 0).await.is_err());
+    }
+
+    /// 并发消费不得超发：预算 10，100 路并发各请求 1 → 恰好 10 笔通过
+    /// （回归「读余额-扣减」间隙导致的并发透支）
+    #[tokio::test]
+    async fn test_t615_htb_concurrent_allow_never_overdraws() {
+        let htb = std::sync::Arc::new(HierarchicalTokenBucket::new(10, 0));
+        let mut set = tokio::task::JoinSet::new();
+        for _ in 0..100 {
+            let htb = htb.clone();
+            set.spawn(async move { htb.allow(&[], 1).await.unwrap() });
+        }
+        let mut granted = 0usize;
+        while let Some(result) = set.join_next().await {
+            if result.unwrap() {
+                granted += 1;
+            }
+        }
+        assert_eq!(granted, 10, "预算 10：并发下不得超发");
+        assert_eq!(htb.available(&[]).unwrap(), 0);
+    }
+
+    /// 并发借用路径同样不超预算：父+根总预算 10 < 两路各需 6 → 恰好一笔成功
+    #[tokio::test]
+    async fn test_t615_htb_concurrent_borrow_all_or_nothing() {
+        // 链预算：叶 10 + 父 5 + 根 5
+        let htb = std::sync::Arc::new(HierarchicalTokenBucket::new(5, 0));
+        htb.add_class(&["api"], 5, 0).unwrap();
+        htb.add_class(&["api", "premium"], 10, 0).unwrap();
+        // 预置：叶子自身耗尽，可借预算只剩父 5 + 根 5
+        assert!(htb.allow(&["api", "premium"], 10).await.unwrap());
+
+        // 两路并发各请求 6：总需求 12 > 可借 10 → 只可能成功一笔
+        let mut set = tokio::task::JoinSet::new();
+        for _ in 0..2 {
+            let htb = htb.clone();
+            set.spawn(async move { htb.allow(&["api", "premium"], 6).await.unwrap() });
+        }
+        let mut granted = 0usize;
+        while let Some(result) = set.join_next().await {
+            if result.unwrap() {
+                granted += 1;
+            }
+        }
+        assert_eq!(granted, 1, "可借预算仅 10 < 需求 12：两路并发只能成功一笔");
+        // 成功笔借走 6（父 5 + 根 1）：祖先进剩余恰为根 4、父 0
+        assert_eq!(htb.available(&["api"]).unwrap(), 0);
+        assert_eq!(htb.available(&[]).unwrap(), 4);
     }
 
     /// Limiter trait 桥接：默认根桶路径消费

@@ -175,13 +175,20 @@ impl SinkBucket {
     }
 
     /// 同步 CAS 式扣减（端口决策点在 sink 写入前同步执行，不可 await）
+    ///
+    /// 刷新与扣减在单次持锁内完成：拆成「读余额-释放锁-再持锁写回」
+    /// 会产生读-写窗口，并发调用互相覆盖写回值，合计消费超过实际预算。
     fn try_acquire(&self) -> bool {
-        let mut tokens = self.refill();
-        if tokens < 1.0 {
+        let mut st = self.state.lock();
+        let elapsed = st.last_refill.elapsed().as_secs_f64();
+        if elapsed > 0.0 {
+            st.tokens = (st.tokens + elapsed * self.refill_per_sec).min(self.capacity as f64);
+            st.last_refill = std::time::Instant::now();
+        }
+        if st.tokens < 1.0 {
             return false;
         }
-        tokens -= 1.0;
-        self.state.lock().tokens = tokens;
+        st.tokens -= 1.0;
         true
     }
 

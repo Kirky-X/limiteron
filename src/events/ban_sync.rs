@@ -210,7 +210,12 @@ impl BanSyncBus {
                     };
                 let msg = match BanSyncMessage::decode(&payload) {
                     Ok(m) => m,
-                    Err(_) => continue, // 无法解析的消息跳过（不 panic）
+                    // 无法解析的消息跳过（不 panic），但必须留痕：
+                    // 静默丢弃会让通道污染/版本失配完全不可见
+                    Err(e) => {
+                        log::warn!(target: "limiteron", "dropping undecodable ban-sync message: {e}");
+                        continue;
+                    }
                 };
                 // 自消息豁免
                 if msg.origin == instance_id {

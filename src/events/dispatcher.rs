@@ -51,6 +51,12 @@ pub struct EventDispatcher {
 
     /// Webhook URL 列表
     webhook_urls: Arc<RwLock<Vec<String>>>,
+
+    /// 共享 HTTP 客户端（webhook 外发复用连接池；
+    /// Client 内部为 Arc，克隆廉价。每次发送新建 Client 会丢失
+    /// TCP/TLS 复用，高事件量下造成套接字抖动）
+    #[cfg(feature = "webhook")]
+    http_client: reqwest::Client,
 }
 
 impl EventDispatcher {
@@ -66,6 +72,8 @@ impl EventDispatcher {
             handlers: Arc::new(RwLock::new(Vec::new())),
             dispatch_handle: Arc::new(RwLock::new(None)),
             webhook_urls: Arc::new(RwLock::new(webhook_urls)),
+            #[cfg(feature = "webhook")]
+            http_client: reqwest::Client::new(),
         }
     }
 
@@ -128,6 +136,8 @@ impl EventDispatcher {
 
         let handlers = self.handlers.clone();
         let webhook_urls = self.webhook_urls.clone();
+        #[cfg(feature = "webhook")]
+        let http_client = self.http_client.clone();
 
         // 在 spawn 之前订阅，避免「start() 返回后立即 emit()」的竞态：
         // 若在 spawn 的任务内才 subscribe，emit 可能在 subscribe 之前执行，
@@ -164,7 +174,7 @@ impl EventDispatcher {
                         // 发送到 Webhook
                         let urls = webhook_urls.read().await.clone();
                         for url in &urls {
-                            if let Err(e) = send_webhook(url, &event).await {
+                            if let Err(e) = send_webhook(&http_client, url, &event).await {
                                 error!("Failed to send webhook to {}: {}", url, e);
                             }
                         }
@@ -238,6 +248,14 @@ pub(crate) fn signed_webhook_payload(
     };
     use reqwest::header::HeaderValue;
 
+    // 头名是编译期常量：const 构造避免每次外发都做 HeaderName 解析
+    const TS_NAME: reqwest::header::HeaderName =
+        reqwest::header::HeaderName::from_static("x-limiteron-timestamp");
+    const SIG_NAME: reqwest::header::HeaderName =
+        reqwest::header::HeaderName::from_static("x-limiteron-signature");
+    debug_assert_eq!(TS_NAME.as_str(), TIMESTAMP_HEADER.to_ascii_lowercase());
+    debug_assert_eq!(SIG_NAME.as_str(), SIGNATURE_HEADER.to_ascii_lowercase());
+
     let payload = serde_json::to_string(event)?;
     Ok(match global_webhook_signer() {
         Some(signer) => {
@@ -246,15 +264,9 @@ pub(crate) fn signed_webhook_payload(
                 HeaderValue::from_str(&v)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
             };
-            let ts_name: reqwest::header::HeaderName = TIMESTAMP_HEADER
-                .parse()
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-            let sig_name: reqwest::header::HeaderName = SIGNATURE_HEADER
-                .parse()
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
             let ts_value = to_header_value(signature.timestamp_header_value())?;
             let sig_value = to_header_value(signature.header_value().to_string())?;
-            (payload, Some([(ts_name, ts_value), (sig_name, sig_value)]))
+            (payload, Some([(TS_NAME, ts_value), (SIG_NAME, sig_value)]))
         }
         None => (payload, None),
     })
@@ -271,6 +283,7 @@ pub(crate) fn signed_webhook_payload(
 /// （HMAC-SHA256(secret, "{timestamp}.{payload}")，时间戳防重放窗口默认 300s）。
 #[cfg(feature = "webhook")]
 pub(crate) async fn send_webhook(
+    client: &reqwest::Client,
     url: &str,
     event: &Event,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -280,7 +293,6 @@ pub(crate) async fn send_webhook(
 
     let (payload, signing_headers) = signed_webhook_payload(event)?;
 
-    let client = reqwest::Client::new();
     let mut request = client
         .post(url)
         .timeout(std::time::Duration::from_secs(5))

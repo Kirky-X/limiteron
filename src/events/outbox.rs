@@ -3,11 +3,15 @@
 //! 事件 Outbox：封禁/配额事件 outbox 表化。
 //!
 //! Transactional Outbox 模式的 MVP：
-//! - 业务路径（封禁/配额变更）把事件**同事务**写入 `limiteron_event_outbox`
-//!   （status = `pending`）；
+//! - 业务路径（封禁/配额变更）把事件写入 `limiteron_event_outbox`
+//!   （status = `pending`）。**当前** [`EventOutboxStore::append_event`]
+//!   是独立的自动提交 INSERT，尚未接入调用方事务——严格同事务原子性
+//!   （领域变更与事件行同生共死）需业务侧在自己的事务内写 outbox 行，
+//!   本方法适用于「先提交领域变更、再登记事件」的可接受顺序；
 //! - 后台投递器经 [`EventOutboxStore::pending`] 批量取出，投递（webhook /
 //!   ban-sync 总线）成功后 [`EventOutboxStore::mark_published`]；
-//! - 崩溃恢复：pending 行天然留在表中，重启后续投（at-least-once）。
+//! - 崩溃恢复：pending 行天然留在表中，重启后续投（at-least-once，
+//!   投递方须按事件幂等消费）。
 //!
 //! 与 dbnexus saga 持久化同一测试口径：sqlite 本地 DSN 全链路读写。
 //!
@@ -158,11 +162,27 @@ impl EventOutboxStore {
             .map_err(|e| StorageError::QueryError(e.to_string()))?;
         Ok(rows
             .into_iter()
-            .map(|m| OutboxEntry {
-                id: m.id,
-                event_type: m.event_type,
-                aggregate_id: m.aggregate_id,
-                payload: serde_json::from_str(&m.payload).unwrap_or(serde_json::Value::Null),
+            .map(|m| {
+                // 损坏 payload（截断写入/迁移失配）不能静默变成 Null——
+                // 那会以合法形态投递错误数据；至少留下可定位的告警
+                let payload = match serde_json::from_str(&m.payload) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log::warn!(
+                            target: "limiteron",
+                            "outbox entry {} has corrupt payload, delivering as null: {}",
+                            m.id,
+                            e
+                        );
+                        serde_json::Value::Null
+                    }
+                };
+                OutboxEntry {
+                    id: m.id,
+                    event_type: m.event_type,
+                    aggregate_id: m.aggregate_id,
+                    payload,
+                }
             })
             .collect())
     }

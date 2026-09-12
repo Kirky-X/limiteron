@@ -10,7 +10,7 @@ use crate::Governor;
 #[cfg(feature = "quota-control")]
 use crate::QuotaController;
 
-use super::config::AdminApiConfig;
+use super::config::{AdminApiConfig, ConfigError};
 use super::routes;
 use axum::Router;
 use std::net::SocketAddr;
@@ -122,8 +122,13 @@ impl AdminServer {
     }
 
     /// 创建Router(不启动服务器)
-    pub fn into_router(self) -> Router {
-        routes::create_router(self.state.clone(), &self.config)
+    ///
+    /// 与 [`Self::start`] 一致地先执行配置校验：以无效 api_key（空或过短）
+    /// 构建的路由会让 "Bearer " 之类的畸形凭证通过鉴权，因此校验失败时
+    /// 返回 Err 而非产出可被外部 runner 挂载的 Router。
+    pub fn into_router(self) -> Result<Router, ConfigError> {
+        self.config.validate()?;
+        Ok(routes::create_router(self.state.clone(), &self.config))
     }
 }
 
@@ -210,8 +215,24 @@ mod tests {
         let config = AdminApiConfig::new("test-api-key-16chars!!");
         let server = AdminServer::new(governor, config);
         // into_router 应返回一个 Router 而不启动服务器
-        let _router = server.into_router();
+        let _router = server.into_router().expect("valid config yields router");
         // 如果没有 panic 则说明路由创建成功
+    }
+
+    #[tokio::test]
+    async fn test_admin_server_into_router_rejects_invalid_config() {
+        let governor = Arc::new(make_governor().await);
+        // enabled 但 api_key 为空 → 校验必须失败，不允许产出无凭证路由
+        // （默认配置 enabled=false，空 key 合法，不触发校验）
+        let config = AdminApiConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        let server = AdminServer::new(governor, config);
+        match server.into_router() {
+            Err(ConfigError::ApiKeyRequired) => {}
+            other => panic!("expected ApiKeyRequired, got {:?}", other),
+        }
     }
 
     #[cfg(feature = "ban-manager")]

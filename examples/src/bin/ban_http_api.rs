@@ -129,7 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //    AdminServer::start 会绑定 TcpListener 并阻塞，所以需要先获取路由
     //    这里改为手动绑定 listener 以获取实际端口，再 axum::serve 后台运行
     let admin_server = AdminServer::new(governor, config).with_ban_manager(ban_manager.clone());
-    let router = admin_server.into_router();
+    let router = admin_server.into_router().expect("admin config valid");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
     let base_url = format!("http://{}", addr);

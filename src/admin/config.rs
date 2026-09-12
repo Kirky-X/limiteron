@@ -51,7 +51,7 @@ impl AdminRole {
 }
 
 /// Admin API configuration
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdminApiConfig {
     /// Listening host
     #[serde(default = "default_host")]

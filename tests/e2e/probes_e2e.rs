@@ -35,7 +35,7 @@ async fn make_app() -> axum::Router {
             .expect("governor ok"),
     );
     let server = AdminServer::new(governor, AdminApiConfig::new(API_KEY));
-    server.into_router()
+    server.into_router().expect("admin config valid")
 }
 
 fn test_config() -> limiteron::config::FlowControlConfig {

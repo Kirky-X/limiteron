@@ -119,10 +119,14 @@ pub struct SystemStatus {
 pub async fn get_status(State(state): State<AppState>) -> Json<ApiResponse<SystemStatus>> {
     let stats = state.governor.stats().await;
 
-    let blocked = stats.rejected_requests + stats.banned_requests;
+    // 饱和运算：计数器持续累加可能接近 u64::MAX，且回退场景下
+    // blocked 可能超过 total，裸加减会 panic（debug）或回绕（release）
+    let blocked = stats
+        .rejected_requests
+        .saturating_add(stats.banned_requests);
     let total = stats.total_requests;
     let success_rate = if total > 0 {
-        (total - blocked) as f64 / total as f64
+        (total.saturating_sub(blocked)) as f64 / total as f64
     } else {
         1.0
     };

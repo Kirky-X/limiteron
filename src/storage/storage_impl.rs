@@ -42,7 +42,7 @@ impl Storage for MemoryStorage {
     async fn get(&self, key: &str) -> Result<Option<String>, StorageError> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
 
         let expiration = self.expiration.read().await.get(key).copied();
@@ -69,7 +69,7 @@ impl Storage for MemoryStorage {
         if let Some(ttl_seconds) = ttl {
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+                .unwrap_or_default()
                 .as_secs();
             expiration.insert(key.to_string(), now + ttl_seconds);
         } else {

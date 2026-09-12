@@ -63,14 +63,14 @@ pub use telemetry_impl::start_prometheus_server;
 pub use telemetry_impl::{set_global_metrics, try_global};
 
 #[cfg(not(feature = "monitoring"))]
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Metrics;
 
 /// 监控指标
 ///
 #[cfg(feature = "monitoring")]
 /// 包含所有Prometheus指标的定义和操作方法。
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Metrics {
     /// 总请求数
     pub requests_total: Counter,
@@ -103,7 +103,7 @@ pub struct Metrics {
 /// 追踪器
 ///
 /// 使用OpenTelemetry实现的分布式追踪器。
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Tracer {
     /// 是否启用
     enabled: bool,
@@ -117,6 +117,7 @@ pub struct Tracer {
 ///
 /// 表示一个追踪操作。
 #[allow(clippy::type_complexity)]
+#[derive(Debug)]
 pub struct Span {
     /// 开始时间
     started_at: Option<Instant>,

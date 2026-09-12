@@ -289,7 +289,7 @@ fn attribute(k: &str, v: &str) -> serde_json::Value {
 }
 
 /// span 提交句柄（`Tracer` 持有；`Span::finish()` 调用）
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SpanSink {
     service_name: String,
     sender: tokio::sync::mpsc::Sender<OtlpSpanData>,

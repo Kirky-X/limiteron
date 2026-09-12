@@ -17,9 +17,14 @@
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let invocation = limiteron::cli::run(args);
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&invocation.output).unwrap_or_default()
-    );
+    // 序列化失败必须显性报错：静默输出空串 + 退出码 0 会让下游把
+    // 失败当作合法的空结果消费
+    match serde_json::to_string_pretty(&invocation.output) {
+        Ok(json) => println!("{json}"),
+        Err(e) => {
+            eprintln!("limiteron-cli: failed to serialize output: {e}");
+            std::process::exit(2);
+        }
+    }
     std::process::exit(invocation.exit_code);
 }

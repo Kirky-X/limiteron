@@ -129,7 +129,9 @@ async fn test_t606_http_transport_posts_to_mock_collector() {
                     .then(|| v.trim().parse().ok())?
             })
             .expect("Content-Length header");
-        let body_len = content_length - (buf.len() - header_end);
+        // 饱和扣减：畸形响应的 Content-Length 小于已收头部长度时不得下溢 panic
+        let headers_len = buf.len() - header_end;
+        let body_len = content_length.saturating_sub(headers_len);
         while buf.len() < header_end + body_len {
             let mut chunk = [0u8; 1024];
             let n = stream.read(&mut chunk).expect("read body");

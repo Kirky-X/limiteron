@@ -229,7 +229,7 @@ pub struct BanInfo {
 }
 
 /// 配额消费结果
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConsumeResult {
     /// 是否允许继续消费
     pub allowed: bool,

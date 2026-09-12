@@ -715,16 +715,17 @@ pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result
     loop {
         match listener.accept().await {
             Ok((mut socket, addr)) => {
-                // 检查并发连接数
-                let current_connections = connection_count.load(Ordering::Relaxed);
-                if current_connections >= MAX_CONCURRENT_CONNECTIONS {
+                // 原子占位：先 load 再 fetch_add 的间隙可让并发连接突破上限；
+                // 超限时回退本次占位再拒绝
+                let prev = connection_count.fetch_add(1, Ordering::Relaxed);
+                if prev >= MAX_CONCURRENT_CONNECTIONS {
+                    connection_count.fetch_sub(1, Ordering::Relaxed);
                     warn!("Too many concurrent connections, rejecting: {}", addr);
                     let response = "HTTP/1.1 503 Service Unavailable\r\n\r\n";
                     let _ = socket.write_all(response.as_bytes()).await;
                     continue;
                 }
 
-                connection_count.fetch_add(1, Ordering::Relaxed);
                 let metrics = metrics.clone();
                 let connection_count_clone = connection_count.clone();
 

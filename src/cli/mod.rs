@@ -215,15 +215,23 @@ fn cmd_export(path: &str) -> CliInvocation {
     fields.insert("file".to_string(), serde_json::json!(path));
 
     match load_config(path) {
-        Ok(config) => {
-            fields.insert("ok".to_string(), serde_json::json!(true));
-            fields.insert("format".to_string(), serde_json::json!("json"));
-            fields.insert(
-                "config".to_string(),
-                serde_json::to_value(&config).unwrap_or_else(|_| serde_json::json!({})),
-            );
-            CliInvocation::new(EXIT_OK, "export", fields)
-        }
+        Ok(config) => match serde_json::to_value(&config) {
+            Ok(value) => {
+                fields.insert("ok".to_string(), serde_json::json!(true));
+                fields.insert("format".to_string(), serde_json::json!("json"));
+                fields.insert("config".to_string(), value);
+                CliInvocation::new(EXIT_OK, "export", fields)
+            }
+            Err(e) => {
+                // 序列化失败不得以空对象 + ok:true 伪装成功
+                fields.insert("ok".to_string(), serde_json::json!(false));
+                fields.insert(
+                    "errors".to_string(),
+                    serde_json::json!([format!("config serialization failed: {e}")]),
+                );
+                CliInvocation::new(EXIT_ERROR, "export", fields)
+            }
+        },
         Err(e) => {
             fields.insert("ok".to_string(), serde_json::json!(false));
             fields.insert("errors".to_string(), serde_json::json!([e]));
@@ -288,9 +296,21 @@ fn cmd_apply(rest: &[String]) -> CliInvocation {
     );
     fields.insert("warnings".to_string(), serde_json::json!(warnings));
 
-    // 3. 可选：规范化 JSON 落盘（--out），写失败 → exit 2
+    // 3. 可选：规范化 JSON 落盘（--out）。先序列化再写入：序列化失败
+    // 时不得产出空文件、也不得继续以 applied:true 报告成功
     if let Some(out) = out_path {
-        let canonical = serde_json::to_string_pretty(&config).unwrap_or_default();
+        let canonical = match serde_json::to_string_pretty(&config) {
+            Ok(s) => s,
+            Err(e) => {
+                fields.insert("ok".to_string(), serde_json::json!(false));
+                fields.insert("applied".to_string(), serde_json::json!(false));
+                fields.insert(
+                    "errors".to_string(),
+                    serde_json::json!([format!("config serialization failed: {e}")]),
+                );
+                return CliInvocation::new(EXIT_ERROR, "apply", fields);
+            }
+        };
         match std::fs::write(out, canonical) {
             Ok(()) => {
                 fields.insert("written_to".to_string(), serde_json::json!(out));

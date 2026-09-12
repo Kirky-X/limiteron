@@ -44,7 +44,7 @@ struct FlowControlConfig {
     /// 是否启用 metrics 记录（默认 true）
     enable_metrics: bool,
     /// throttle 排队模式：队列最大等待时长（毫秒，默认 2000）。
-    /// 超时仍未获得令牌 → 返回 `LimiteronError::Throttled`（T615）。
+    /// 超时仍未获得令牌 → 返回 `LimiteronError::Throttled`。
     queue_ms: u64,
     /// throttle 排队模式：令牌轮询间隔（毫秒，默认 20）
     poll_ms: u64,
@@ -68,9 +68,9 @@ impl Default for FlowControlConfig {
     }
 }
 
-/// throttle 排队默认队列时限（毫秒，T615）
+/// throttle 排队默认队列时限（毫秒）
 const DEFAULT_QUEUE_MAX_WAIT_MS: u64 = 2_000;
-/// throttle 排队默认轮询间隔（毫秒，T615）
+/// throttle 排队默认轮询间隔（毫秒）
 const DEFAULT_QUEUE_POLL_MS: u64 = 20;
 
 impl FlowControlConfig {
@@ -338,7 +338,7 @@ fn build_exceed_handler(
     mode: &str,
     error_variant: &str,
     reject_message: &str,
-    // T615：throttle 排队模式的重试表达式（产生 bool）。None = 该限流器不支持排队。
+    // throttle 排队模式的重试表达式（产生 bool）。None = 该限流器不支持排队。
     retry_expr: Option<proc_macro2::TokenStream>,
     queue_ms: u64,
     poll_ms: u64,
@@ -356,7 +356,7 @@ fn build_exceed_handler(
         },
         "throttle" => match retry_expr {
             Some(retry_ok) => {
-                // T615 排队 MVP：有界等待重试——令牌耗尽时进入队列轮询，
+                // 排队 MVP：有界等待重试——令牌耗尽时进入队列轮询，
                 // 直至拿到令牌或超过队列时限（queue_ms）；超时返回
                 // `LimiteronError::Throttled`（失败显性化，不静默丢弃）。
                 let msg = reject_message.to_string();
@@ -436,7 +436,7 @@ fn generate_flow_control(
     let sanitized_prefix = sanitize_key_component(&key_prefix_str);
     let sanitized_fname = sanitize_key_component(&fn_name_str);
 
-    // T615：throttle 排队模式要求 async fn（生成的队列轮询使用 .await）
+    // throttle 排队模式要求 async fn（生成的队列轮询使用 .await）
     if on_exceed_mode == "throttle" && !is_async {
         return Err(
             "on_exceed = \"throttle\" (queueing) requires an async fn; mark the function async or use on_exceed = \"reject\""
@@ -447,7 +447,7 @@ fn generate_flow_control(
     // 根据 on_exceed 模式生成 rate check 失败时的处理代码
     // - "reject": 返回 RateLimitExceeded 错误（默认行为）
     // - "log_only": 不返回错误，继续执行原函数
-    // - "throttle"（T615）: 排队重试直至获得令牌或超时返回 Throttled
+    // - "throttle": 排队重试直至获得令牌或超时返回 Throttled
     let rate_exceed_handler = build_exceed_handler(
         on_exceed_mode,
         "RateLimitExceeded",
@@ -459,7 +459,7 @@ fn generate_flow_control(
 
     let rate_check = if let Some(ref rate) = config.rate {
         let amount = rate.amount;
-        // T006 修复: 根据 unit 计算 unit_secs，传给 get_rate_limiter
+        // 根据 unit 计算 unit_secs，传给 get_rate_limiter
         // 之前 hardcoded 1 导致 rate="100/m" 被当作 100/s 处理（unit 信息丢失）
         let unit_secs: u64 = match rate.unit.as_str() {
             "s" => 1,
@@ -535,7 +535,7 @@ fn generate_flow_control(
             }
         } else {
             quote! {
-                // T006 修复: 使用 check(&key) 真正消费配额，而非 allow(1)（默认返回 Ok(true) 不消费）
+                // 使用 check(&key) 真正消费配额，而非 allow(1)（默认返回 Ok(true) 不消费）
                 if quota_limiter.check(&quota_key).await.is_err() {
                     #quota_exceed_handler
                 }
@@ -594,7 +594,7 @@ fn generate_flow_control(
             }
         } else {
             quote! {
-                // T006 修复: 持有 permit 到函数结束（用 Option 包装）
+                // 持有 permit 到函数结束（用 Option 包装）
                 // 之前 _permit 在 match 作用域结束即 drop，并发控制失效
                 #allow_attr
                 let _concurrency_permit = match concurrency_limiter.acquire(1).await {
@@ -760,15 +760,15 @@ mod tests {
         // 注意：手动实现 Default 将 String 字段默认为空字符串
         assert_eq!(config.on_exceed, "");
         assert_eq!(config.reject_message, "");
-        // T007: key_prefix 默认 None
+        // key_prefix 默认 None
         assert!(config.key_prefix.is_none());
-        // T008: tracing/metrics 默认 true
+        // tracing/metrics 默认 true
         assert!(config.enable_tracing);
         assert!(config.enable_metrics);
     }
 
     // ========================================================================
-    // T006: on_exceed 参数解析与代码生成测试
+    // on_exceed 参数解析与代码生成测试
     // ========================================================================
 
     #[test]
@@ -797,7 +797,7 @@ mod tests {
 
     #[test]
     fn test_parse_on_exceed_throttle_accepted() {
-        // T615：throttle 为真实排队模式（生成有界等待重试 + Throttled 超时）
+        // throttle 为真实排队模式（生成有界等待重试 + Throttled 超时）
         let tokens: proc_macro2::TokenStream =
             quote::quote! { rate = "100/s", on_exceed = "throttle" };
         let config = FlowControlConfig::parse(&tokens).unwrap();
@@ -829,7 +829,7 @@ mod tests {
 
     #[test]
     fn test_generate_rate_check_reject_mode() {
-        // T006: on_exceed = "reject" 应生成 RateLimitExceeded 错误
+        // on_exceed = "reject" 应生成 RateLimitExceeded 错误
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -852,7 +852,7 @@ mod tests {
 
     #[test]
     fn test_generate_rate_check_log_only_mode() {
-        // T006 + audit-M2: on_exceed = "log_only" 不应生成 RateLimitExceeded 错误
+        // on_exceed = "log_only" 不应生成 RateLimitExceeded 错误
         // 且不调用 rate_limiter.allow()（语义=仅记录，不消费 token）
         let config = FlowControlConfig {
             rate: Some(RateLimit {
@@ -882,7 +882,7 @@ mod tests {
 
     #[test]
     fn test_generate_default_mode_matches_reject() {
-        // T006: 默认（on_exceed = "reject"）应与 reject 模式行为一致
+        // 默认（on_exceed = "reject"）应与 reject 模式行为一致
         let config_default = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -913,7 +913,7 @@ mod tests {
 
     #[test]
     fn test_generate_throttle_mode_emits_queue_code() {
-        // T615: on_exceed = "throttle" 生成排队重试代码（轮询 + 队列时限 +
+        // on_exceed = "throttle" 生成排队重试代码（轮询 + 队列时限 +
         // 超时返回 Throttled），替代此前的 compile_error 占位
         let config = FlowControlConfig {
             rate: Some(RateLimit {
@@ -952,7 +952,7 @@ mod tests {
 
     #[test]
     fn test_generate_throttle_mode_custom_queue_params() {
-        // T615: queue_ms / poll_ms 宏参数覆盖默认队列参数
+        // queue_ms / poll_ms 宏参数覆盖默认队列参数
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 10,
@@ -976,7 +976,7 @@ mod tests {
 
     #[test]
     fn test_generate_throttle_mode_sync_fn_rejected() {
-        // T615：throttle 排队需要 .await，同步函数应被拒绝（展开期错误）
+        // throttle 排队需要 .await，同步函数应被拒绝（展开期错误）
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 10,
@@ -999,7 +999,7 @@ mod tests {
 
     #[test]
     fn test_generate_throttle_mode_concurrency_emits_compile_error() {
-        // T615 MVP：并发限流器不支持排队（permit 持有语义冲突）→ compile_error
+        // MVP：并发限流器不支持排队（permit 持有语义冲突）→ compile_error
         let config = FlowControlConfig {
             concurrency: Some(5),
             on_exceed: "throttle".to_string(),
@@ -1018,7 +1018,7 @@ mod tests {
 
     #[test]
     fn test_parse_queue_params_defaults_and_overrides() {
-        // T615：queue_ms/poll_ms 解析与默认值
+        // queue_ms/poll_ms 解析与默认值
         let tokens = quote::quote! { rate = "100/s" };
         let config = FlowControlConfig::parse(&tokens).unwrap();
         assert_eq!(config.queue_ms, 2_000, "default queue_ms");
@@ -1033,7 +1033,7 @@ mod tests {
 
     #[test]
     fn test_generate_quota_check_log_only_no_error() {
-        // T006: quota check 在 log_only 模式下不应生成 QuotaExceeded
+        // quota check 在 log_only 模式下不应生成 QuotaExceeded
         let config = FlowControlConfig {
             quota: Some(QuotaLimit {
                 max: 1000,
@@ -1056,7 +1056,7 @@ mod tests {
 
     #[test]
     fn test_generate_concurrency_check_log_only_no_error() {
-        // T006: concurrency check 在 log_only 模式下不应生成 ConcurrencyLimitExceeded
+        // concurrency check 在 log_only 模式下不应生成 ConcurrencyLimitExceeded
         let config = FlowControlConfig {
             concurrency: Some(10),
             on_exceed: "log_only".to_string(),
@@ -1075,7 +1075,7 @@ mod tests {
     }
 
     // ========================================================================
-    // T007: key_prefix 参数解析与代码生成测试
+    // key_prefix 参数解析与代码生成测试
     // ========================================================================
 
     #[test]
@@ -1095,7 +1095,7 @@ mod tests {
 
     #[test]
     fn test_generate_key_prefix_in_rate_key() {
-        // T007: key_prefix 应出现在 rate_key 中
+        // key_prefix 应出现在 rate_key 中
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -1123,7 +1123,7 @@ mod tests {
 
     #[test]
     fn test_generate_key_prefix_in_quota_key() {
-        // T007: key_prefix 应出现在 quota_key 中
+        // key_prefix 应出现在 quota_key 中
         let config = FlowControlConfig {
             quota: Some(QuotaLimit {
                 max: 1000,
@@ -1150,7 +1150,7 @@ mod tests {
 
     #[test]
     fn test_generate_key_prefix_in_concurrency_key() {
-        // T007: key_prefix 应出现在 concurrency_key 中
+        // key_prefix 应出现在 concurrency_key 中
         let config = FlowControlConfig {
             concurrency: Some(10),
             key_prefix: Some("conc_ns".to_string()),
@@ -1202,7 +1202,7 @@ mod tests {
     }
 
     // ========================================================================
-    // T008: tracing/metrics toggles 测试
+    // tracing/metrics toggles 测试
     // ========================================================================
 
     #[test]
@@ -1239,7 +1239,7 @@ mod tests {
 
     #[test]
     fn test_generate_tracing_disabled_no_span() {
-        // T008: tracing = false 时不生成 tracing::span! 代码
+        // tracing = false 时不生成 tracing::span! 代码
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -1266,7 +1266,7 @@ mod tests {
 
     #[test]
     fn test_generate_tracing_enabled_has_span() {
-        // T008: tracing = true（默认）时应生成 tracing::span! 代码
+        // tracing = true（默认）时应生成 tracing::span! 代码
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -1288,7 +1288,7 @@ mod tests {
 
     #[test]
     fn test_generate_metrics_disabled_no_try_global() {
-        // T008: metrics = false 时不生成 try_global() 调用
+        // metrics = false 时不生成 try_global() 调用
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -1315,7 +1315,7 @@ mod tests {
 
     #[test]
     fn test_generate_metrics_enabled_has_try_global() {
-        // T008: metrics = true（默认）时应生成 try_global() 调用
+        // metrics = true（默认）时应生成 try_global() 调用
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -1337,7 +1337,7 @@ mod tests {
 
     #[test]
     fn test_generate_all_toggles_off() {
-        // T008: tracing=false + metrics=false 同时禁用
+        // tracing=false + metrics=false 同时禁用
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -1362,12 +1362,12 @@ mod tests {
     }
 
     // ========================================================================
-    // audit-macro-followup T001: build_exceed_handler DRY 验证
+    // build_exceed_handler DRY 验证
     // ========================================================================
 
     #[test]
     fn test_build_exceed_handler_dry() {
-        // T001: 三个 error variant 都应通过辅助函数正确生成
+        // 三个 error variant 都应通过辅助函数正确生成
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -1404,12 +1404,12 @@ mod tests {
     }
 
     // ========================================================================
-    // audit-macro-followup T002: key_prefix sanitize 验证
+    // key_prefix sanitize 验证
     // ========================================================================
 
     #[test]
     fn test_generate_key_prefix_sanitized() {
-        // T002: key_prefix 中的特殊字符（: ! 等）应在宏展开期被过滤
+        // key_prefix 中的特殊字符（: ! 等）应在宏展开期被过滤
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -1441,12 +1441,12 @@ mod tests {
     }
 
     // ========================================================================
-    // audit-macro-followup T003: key_prefix=None 时无前导冒号验证
+    // key_prefix=None 时无前导冒号验证
     // ========================================================================
 
     #[test]
     fn test_generate_key_prefix_none_no_leading_colon() {
-        // T003: key_prefix=None 时所有三类 key 都不应有前导冒号
+        // key_prefix=None 时所有三类 key 都不应有前导冒号
         // rate: "rate:fn:xxx"，quota: "quota:fn:xxx"，concurrency: "concurrency:fn:xxx"
         let config = FlowControlConfig {
             rate: Some(RateLimit {
@@ -1502,7 +1502,7 @@ mod tests {
 
     #[test]
     fn test_generate_key_prefix_some_has_prefix() {
-        // T003 配套：key_prefix=Some(p) 时应生成 "p:rate:fn:xxx" 格式
+        // key_prefix=Some(p) 时应生成 "p:rate:fn:xxx" 格式
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -1530,12 +1530,12 @@ mod tests {
     }
 
     // ========================================================================
-    // audit-macro-followup T004: fname sanitize 验证
+    // fname sanitize 验证
     // ========================================================================
 
     #[test]
     fn test_generate_fname_sanitized_in_key() {
-        // T004: fname 经 sanitize_key_component 处理后应作为字面量出现在 key 中
+        // fname 经 sanitize_key_component 处理后应作为字面量出现在 key 中
         // Rust 标识符字符集已受限（字母数字下划线），sanitize 后应保持不变
         // 这里通过合法标识符 test_fn 验证 sanitize 路径已生效
         let config = FlowControlConfig {
@@ -1558,12 +1558,12 @@ mod tests {
     }
 
     // ========================================================================
-    // audit-macro-followup T005: log_only 模式下不消费配额验证
+    // log_only 模式下不消费配额验证
     // ========================================================================
 
     #[test]
     fn test_generate_log_only_rate_no_allow_call() {
-        // T005: log_only 模式下 rate_check 不应调用 rate_limiter.allow()
+        // log_only 模式下 rate_check 不应调用 rate_limiter.allow()
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,
@@ -1584,7 +1584,7 @@ mod tests {
 
     #[test]
     fn test_generate_log_only_quota_no_check_call() {
-        // T005: log_only 模式下 quota_check 不应调用 quota_limiter.check()
+        // log_only 模式下 quota_check 不应调用 quota_limiter.check()
         let config = FlowControlConfig {
             quota: Some(QuotaLimit {
                 max: 1000,
@@ -1605,7 +1605,7 @@ mod tests {
 
     #[test]
     fn test_generate_log_only_concurrency_no_acquire_call() {
-        // T005: log_only 模式下 concurrency_check 不应调用 concurrency_limiter.acquire()
+        // log_only 模式下 concurrency_check 不应调用 concurrency_limiter.acquire()
         let config = FlowControlConfig {
             concurrency: Some(10),
             on_exceed: "log_only".to_string(),
@@ -1622,12 +1622,12 @@ mod tests {
     }
 
     // ========================================================================
-    // audit-macro-followup T006: 条件生成 #[allow(unreachable_code)] 验证
+    // 条件生成 #[allow(unreachable_code)] 验证
     // ========================================================================
 
     #[test]
     fn test_generate_reject_mode_has_unreachable_allow_attr() {
-        // T006: reject 模式下应生成 #[allow(unreachable_code)] attr
+        // reject 模式下应生成 #[allow(unreachable_code)] attr
         let config = FlowControlConfig {
             concurrency: Some(10),
             on_exceed: "reject".to_string(),
@@ -1645,7 +1645,7 @@ mod tests {
 
     #[test]
     fn test_generate_log_only_no_unreachable_allow_attr() {
-        // T006: log_only 模式下不应生成 #[allow(unreachable_code)] attr
+        // log_only 模式下不应生成 #[allow(unreachable_code)] attr
         // 因为 log_only 不调用 acquire，没有 unreachable 分支
         let config = FlowControlConfig {
             concurrency: Some(10),

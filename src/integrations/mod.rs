@@ -14,6 +14,6 @@ pub mod kit;
 #[cfg(feature = "config-confers")]
 pub mod confers;
 
-// dbnexus 查询限流端口（T617）：语义文档化 + limiteron 实现。
+// dbnexus 查询限流端口：语义文档化 + limiteron 实现。
 // 仅依赖核心 limiters（无外部依赖），决策热路径不经过本模块。
 pub mod query_throttle;

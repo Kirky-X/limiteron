@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! `LimiteronModule` — trait-kit `AsyncKit` integration for limiteron.
 //!
-//! Phase 3 (T021 Red / T022 Green) of the `trait-kit-async-integration`
-//! change. Wires limiteron's [`Governor`] into the `AsyncKit` dependency
+//! Wires limiteron's [`Governor`] into the `AsyncKit` dependency
 //! injection framework as a leaf module (no upstream dependencies).
 //!
 //! # Design divergence from `design.md` / `spec.md` (Rule 7: expose, don't
@@ -20,7 +19,7 @@
 //!    cost and returns `bool`. `Governor` is the *controller* (orchestrates
 //!    a `DecisionChain` of `Limiter`s), not itself a `Limiter`. We therefore
 //!    expose the capability as `Arc<Governor>` (concrete type) instead of
-//!    `Arc<dyn Limiter>`. This mirrors oxcache Phase 2's approach (using
+//!    `Arc<dyn Limiter>`. This mirrors oxcache's approach (using
 //!    `CacheBackend` instead of non-object-safe `UnifiedCache`).
 //!
 //! 2. **`LimiteronError` does NOT exist** — limiteron's error type is
@@ -31,7 +30,7 @@
 //!    ("LimiteronConfig 类型从 limiteron 现有配置类型复用"), we reuse
 //!    limiteron's existing [`FlowControlConfig`] directly.
 //!
-//! **Follow-up** (out of scope for T020-T022): if the spec owner requires
+//! **Follow-up**: if the spec owner requires
 //! the literal `Arc<dyn Limiter>` form, `Governor` must be made to implement
 //! `Limiter` (or a new `RateLimiter` trait introduced). That change affects
 //! limiteron's public API and is deferred to its own change spec.
@@ -103,7 +102,7 @@ pub struct LimiteronModule;
 impl ModuleMeta for LimiteronModule {
     const NAME: &'static str = "limiteron";
 
-    /// T617：依赖 `OxcacheModule`（dbnexus `DbNexusModule` T413 同款范式）——
+    /// 依赖 `OxcacheModule`（dbnexus `DbNexusModule` 同款范式）——
     /// 上游 oxcache 先构建缓存后端，limiteron 构建期经 `require` 注入并做
     /// 探活写读（缓存链路故障快速失败；未注入/不可用时降级为内存 L1，不阻断）。
     fn dependencies() -> &'static [(&'static str, TypeId)] {
@@ -136,7 +135,7 @@ impl AsyncAutoBuilder for LimiteronModule {
                 .as_ref()
                 .and_then(|o| o.ban_storage())
                 .unwrap_or_else(|| Arc::new(MemoryBanStorage::new()) as Arc<dyn BanStorage>);
-            // T617：经 OxcacheModule 注入缓存——上游缓存后端可用时执行
+            // 经 OxcacheModule 注入缓存——上游缓存后端可用时执行
             // set/get/delete 探活写读（验证 kit 缓存链路）；探测失败仅告警
             // 并继续（Governor 自带内存 L1 兜底，缓存故障不阻断限流主链路）。
             if let Ok(cache) = kit.require::<OxcacheModule>() {
@@ -169,7 +168,7 @@ impl AsyncAutoBuilder for LimiteronModule {
     }
 }
 
-/// T617：trait-kit 健康端口——`AsyncHealthCheck` 经
+/// trait-kit 健康端口——`AsyncHealthCheck` 经
 /// [`Governor::health_status`](crate::governor::Governor::health_status)
 /// 汇报存储/封禁存储/缓存/后台任务健康（`/healthz` 同一数据源）。
 impl trait_kit::core::health::AsyncHealthCheck for LimiteronModule {
@@ -198,7 +197,7 @@ impl trait_kit::core::health::AsyncHealthCheck for LimiteronModule {
     }
 }
 
-/// T617：trait-kit 生命周期端口——`AsyncLifecycle::on_shutdown` 优雅停机
+/// trait-kit 生命周期端口——`AsyncLifecycle::on_shutdown` 优雅停机
 /// Governor（停止接新 + 停后台任务，与 admin API 停机路径一致）。
 impl trait_kit::core::lifecycle::AsyncLifecycle for LimiteronModule {
     fn on_ready<'a>(
@@ -347,7 +346,7 @@ mod tests {
         assert_eq!(LimiteronModule::NAME, "limiteron");
     }
 
-    /// T617：`LimiteronModule` 依赖 `OxcacheModule`（dbnexus T413 范式——
+    /// `LimiteronModule` 依赖 `OxcacheModule`（dbnexus 范式——
     /// 缓存经上游 OxcacheModule 注入）
     #[test]
     fn limiteron_module_meta_dependencies_declare_oxcache() {
@@ -360,7 +359,7 @@ mod tests {
     /// R-limiteron-module-001: register `LimiteronModule` + `set_config` +
     /// `build()` + `require::<LimiteronModule>()` returns an `Arc<Governor>`
     /// capability that was constructed from the kit's config.
-    /// 带 OxcacheModule 的标准 kit 组装（T617 范式）
+    /// 带 OxcacheModule 的标准 kit 组装（dbnexus 同款范式）
     fn register_modules(kit: &mut AsyncKit) {
         kit.set_config(OxcacheConfig::default());
         kit.register::<OxcacheModule>()
@@ -499,7 +498,7 @@ mod tests {
         assert!(empty.ban_storage().is_none());
     }
     // ========================================================================
-    // T617：健康/生命周期端口 + OxcacheModule 缓存注入
+    // 健康/生命周期端口 + OxcacheModule 缓存注入
     // ========================================================================
 
     /// AsyncHealthCheck：健康 Governor → Healthy

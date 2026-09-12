@@ -48,7 +48,7 @@ use std::time::{Duration, Instant};
 #[cfg(feature = "telemetry")]
 use tracing_subscriber;
 
-// OTLP 追踪导出（T606）
+// OTLP 追踪导出
 #[cfg(feature = "otlp")]
 pub mod otlp;
 
@@ -107,7 +107,7 @@ pub struct Metrics {
 pub struct Tracer {
     /// 是否启用
     enabled: bool,
-    /// OTLP span 导出句柄（T606，`otlp` feature 下可选注入；
+    /// OTLP span 导出句柄（`otlp` feature 下可选注入；
     /// 注入后 `Span::finish()` 自动将已完成 span 提交导出）
     #[cfg(feature = "otlp")]
     span_sink: Option<Arc<otlp::SpanSink>>,
@@ -128,7 +128,7 @@ pub struct Span {
     events: std::sync::Arc<tokio::sync::Mutex<Vec<(String, Vec<(String, String)>)>>>,
     /// 错误（使用 Mutex 代替 RwLock，简化并发控制）
     error: std::sync::Arc<tokio::sync::Mutex<Option<String>>>,
-    /// OTLP 导出接线（T606）：span 名 + sink；finish() 时提交导出
+    /// OTLP 导出接线：span 名 + sink；finish() 时提交导出
     #[cfg(feature = "otlp")]
     otlp_export: Option<(String, std::sync::Arc<otlp::SpanSink>)>,
 }

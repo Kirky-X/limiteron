@@ -398,7 +398,7 @@ impl QuotaController {
         self.consume_keyed(user_id, resource, cost).await
     }
 
-    /// 以最终存储键消费配额（`consume` 与 T602 租户配额路径共用）
+    /// 以最终存储键消费配额（`consume` 与租户配额路径共用）
     ///
     /// 调用方负责保证 `user_id` 不含 ':'（无碰撞）。
     async fn consume_keyed(
@@ -539,7 +539,7 @@ impl QuotaController {
     }
 
     // ========================================================================
-    // 租户配额隔离（T602，feature `multi-tenant`）
+    // 租户配额隔离（feature `multi-tenant`）
     // ========================================================================
 
     /// 构造租户限定的配额用户键
@@ -556,7 +556,7 @@ impl QuotaController {
         )
     }
 
-    /// 校验租户配额入参（T602 内部）
+    /// 校验租户配额入参（内部）
     #[cfg(feature = "multi-tenant")]
     fn validate_tenant_quota_args(
         tenant_id: &str,
@@ -576,7 +576,7 @@ impl QuotaController {
         Ok(())
     }
 
-    /// 按租户消费配额（T602）
+    /// 按租户消费配额
     ///
     /// 存储键为租户限定键（[`Self::tenant_user_key`]），不同租户的同名
     /// 用户配额完全隔离。
@@ -593,7 +593,7 @@ impl QuotaController {
         self.consume_keyed(&keyed, resource, cost).await
     }
 
-    /// 按租户获取配额状态（T602）
+    /// 按租户获取配额状态
     #[cfg(feature = "multi-tenant")]
     pub async fn get_quota_for_tenant(
         &self,
@@ -606,7 +606,7 @@ impl QuotaController {
         self.get_quota(&keyed, resource).await
     }
 
-    /// 按租户重置配额（T602）
+    /// 按租户重置配额
     #[cfg(feature = "multi-tenant")]
     pub async fn reset_quota_for_tenant(
         &self,

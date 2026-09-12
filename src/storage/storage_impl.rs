@@ -138,7 +138,7 @@ impl BanStorage for MemoryBanStorage {
             return Ok(Some(record.clone()));
         }
 
-        // T604：CIDR 网段两级检查——精确 IP 未命中时，遍历网段封禁记录
+        // CIDR 网段两级检查——精确 IP 未命中时，遍历网段封禁记录
         // 做最长前缀匹配（未过期）。命中即返回前缀最具体的记录。
         if let BanTarget::Ip(ip_str) = target {
             if let Ok(ip) = ip_str.parse::<std::net::IpAddr>() {
@@ -1530,7 +1530,7 @@ mod memory_ban_storage_tests {
     }
 
     // ========================================================================
-    // T604：CIDR 网段封禁
+    // CIDR 网段封禁
     // ========================================================================
 
     fn make_cidr_record(cidr: &str, ttl_secs: i64) -> BanRecord {

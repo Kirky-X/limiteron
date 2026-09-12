@@ -32,14 +32,14 @@ use super::{
 #[derive(Debug, Clone)]
 pub struct OperatorIdentity(pub String);
 
-/// T605：通过 request extensions 传递的鉴权角色
+/// 通过 request extensions 传递的鉴权角色
 ///
 /// middleware 鉴权通过后按 `AdminApiConfig::api_key_roles` 解析角色写入
 /// extensions；handlers 可据此区分调用者权限级别。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OperatorRole(pub AdminRole);
 
-/// T605：端点所需角色（基于 HTTP 方法）
+/// 端点所需角色（基于 HTTP 方法）
 ///
 /// GET/HEAD 为只读（viewer 可访问）；其余方法（POST/PUT/DELETE 等）为
 /// 写操作，需要 admin。探针路径（/healthz /readyz /metrics）在更早的
@@ -95,7 +95,7 @@ fn lock_rate_buckets(buckets: &Mutex<RateBucketMap>) -> std::sync::MutexGuard<'_
     })
 }
 
-/// T601：K8s 探针/指标端点 bypass 路径
+/// K8s 探针/指标端点 bypass 路径
 ///
 /// 这些端点跳过速率限制与 API key 认证：K8s kubelet 探针与 Prometheus
 /// 抓取器不携带管理凭证；端点本身只读且不泄露敏感数据（/metrics 仅暴露
@@ -124,7 +124,7 @@ fn group_for_path(path: &str) -> &'static str {
 
 pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
     let mut router = Router::new()
-        // K8s 探针与指标端点（T601，bypass 认证）
+        // K8s 探针与指标端点（bypass 认证）
         .route("/healthz", get(handlers::healthz))
         .route("/readyz", get(handlers::readyz))
         .route("/metrics", get(handlers::metrics))
@@ -140,13 +140,13 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
             "/api/v1/status/circuit-breaker",
             get(handlers::get_circuit_breaker_status),
         )
-        // Governor 运行时自省（T608）
+        // Governor 运行时自省
         .route("/api/v1/introspect", get(handlers::introspect))
-        // 规则热更新（T613，原子换配置）
+        // 规则热更新（原子换配置）
         .route("/api/v1/config", post(handlers::apply_config))
-        // 批量检查（T613，N key 一次决策）
+        // 批量检查（N key 一次决策）
         .route("/api/v1/check/batch", post(handlers::check_batch))
-        // 批量令牌预取（T613）
+        // 批量令牌预取
         .route("/api/v1/tokens/prefetch", post(handlers::prefetch_tokens))
         .with_state(state);
 
@@ -174,7 +174,7 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
             let rate_limits = rate_limits.clone();
             let rate_buckets = rate_buckets.clone();
             async move {
-                // T601：探针/指标端点 bypass 速率限制与认证
+                // 探针/指标端点 bypass 速率限制与认证
                 if is_probe_path(req.uri().path()) {
                     return next.run(req).await;
                 }
@@ -270,7 +270,7 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
                 });
                 req.extensions_mut().insert(OperatorIdentity(operator));
 
-                // T605 RBAC：解析角色 → 端点授权（越权 403，与凭证无效 401 区分）。
+                // RBAC：解析角色 → 端点授权（越权 403，与凭证无效 401 区分）。
                 // 未在角色映射中的合法 key 默认 admin（向后兼容单 key 部署）。
                 let role = role_mapping
                     .get(&raw_key)
@@ -1184,7 +1184,7 @@ mod tests {
     }
 
     // ========================================================================
-    // T605：Admin RBAC（admin/viewer 角色矩阵，越权 403）
+    // Admin RBAC（admin/viewer 角色矩阵，越权 403）
     // ========================================================================
 
     #[tokio::test]
@@ -1316,7 +1316,7 @@ mod tests {
     }
 
     // ========================================================================
-    // T608：Governor 自省 API（JSON）
+    // Governor 自省 API（JSON）
     // ========================================================================
 
     #[tokio::test]

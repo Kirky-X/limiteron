@@ -172,13 +172,13 @@ impl Limiter for TokenBucketLimiter {
         }
     }
 
-    /// 非消费预检（T603）：先补充令牌后读取余额，不扣减
+    /// 非消费预检：先补充令牌后读取余额，不扣减
     async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
         validate_cost(cost)?;
         Ok(self.current_snapshot())
     }
 
-    /// 剩余额度查询（T603，非消费）
+    /// 剩余额度查询（非消费）
     async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError> {
         Ok(self.current_snapshot())
     }

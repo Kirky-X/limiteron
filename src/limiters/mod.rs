@@ -31,7 +31,7 @@ pub mod sliding_window;
 pub mod token_bucket;
 pub mod traits;
 
-// 自适应并发限流器（T610，AIMD 窗口；此前 no-op feature 的真实实现）
+// 自适应并发限流器（AIMD 窗口；此前 no-op feature 的真实实现）
 #[cfg(feature = "adaptive-limiting")]
 pub mod adaptive;
 

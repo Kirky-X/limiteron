@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! 批量令牌预取器（T613）
+//! 批量令牌预取器
 //!
 //! 「批量令牌预取」= 一次调用为 N 个 key 各预留一批令牌（每 key 一次
 //! 原子 `allow(cost)`，而非 N 次单令牌往返），供客户端在突发前一次性

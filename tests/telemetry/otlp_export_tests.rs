@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! T606 e2e：OTLP 追踪导出（mock collector）
+//! e2e：OTLP 追踪导出（mock collector）
 //!
 //! - Tracer 注入 OTLP sink 后，`Span::finish()` 自动导出（InMemoryTransport 收集）
 //! - HttpTransport 对本地 mock TCP collector（HTTP/1.1 POST）端到端发送

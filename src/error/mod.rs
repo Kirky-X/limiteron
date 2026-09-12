@@ -77,7 +77,7 @@ pub enum LimiteronError {
     #[error("并发限制超出: {0}")]
     ConcurrencyLimitExceeded(String),
 
-    /// 排队超时（T615）：`on_exceed = "throttle"` 模式下，请求在限流队列中
+    /// 排队超时：`on_exceed = "throttle"` 模式下，请求在限流队列中
     /// 等待超过队列时限仍未获得令牌时返回
     #[error("排队超时: {0}")]
     Throttled(String),

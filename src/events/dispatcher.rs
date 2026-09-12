@@ -222,7 +222,7 @@ impl Drop for EventDispatcher {
 #[cfg(feature = "webhook")]
 type SigningHeaders = Option<[(reqwest::header::HeaderName, reqwest::header::HeaderValue); 2]>;
 
-/// 构造 webhook 请求负载与签名头（T614，纯函数便于单测）。
+/// 构造 webhook 请求负载与签名头（纯函数便于单测）。
 ///
 /// 返回 `(body, signing_headers)`：
 /// - 未设置进程级签名器 → `signing_headers = None`，body 为 `serde_json` 序列化
@@ -265,7 +265,7 @@ pub(crate) fn signed_webhook_payload(
 /// 当 webhook feature 启用时，使用 reqwest 发送 POST 请求。
 /// 否则返回错误。
 ///
-/// T614：若已设置进程级签名器（`webhook_signature::global_webhook_signer`），
+/// 若已设置进程级签名器（`webhook_signature::global_webhook_signer`），
 /// 请求体以序列化后的精确字节发送，并附带
 /// `X-Limiteron-Timestamp` + `X-Limiteron-Signature: sha256=<hex>` 签名头
 /// （HMAC-SHA256(secret, "{timestamp}.{payload}")，时间戳防重放窗口默认 300s）。
@@ -464,7 +464,7 @@ mod tests {
         dispatcher.stop().await;
     }
     // ========================================================================
-    // T614：webhook 签名头注入（signed_webhook_payload 纯函数）
+    // webhook 签名头注入（signed_webhook_payload 纯函数）
     // ========================================================================
 
     /// 已设置进程级签名器时：body 与签名头自洽（签名覆盖线上精确字节）

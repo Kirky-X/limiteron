@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! EventOutbox — DBNexus entity for the event outbox table (T616)
+//! EventOutbox — DBNexus entity for the event outbox table
 //!
 //! 封禁/配额事件的 outbox 表：事务内写入 pending 行，后台投递成功后标记
 //! published（Transactional Outbox 模式，跨实例最终一致）。

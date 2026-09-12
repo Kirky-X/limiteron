@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! `limiteron-cli` —— limiteron 规则文件配置 CLI（T612）。
+//! `limiteron-cli` —— limiteron 规则文件配置 CLI。
 //!
 //! 子命令：`validate` / `export` / `apply`（dry-run）/ `help` / `--version`。
 //! 全子命令输出机器可读 JSON，退出码契约：0 成功 / 1 成功带告警 / 2 错误。

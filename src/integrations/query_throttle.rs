@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! dbnexus 查询限流端口（QueryThrottle）语义文档化 + limiteron 实现（T617）。
+//! dbnexus 查询限流端口（QueryThrottle）语义文档化 + limiteron 实现。
 //!
 //! # 端口语义（design D3 跨项目端口边：dbnexus 定义 → limiteron 实现）
 //!
@@ -18,8 +18,8 @@
 //!
 //! # 注入方式（当 dbnexus 侧端口 trait 落地后）
 //!
-//! dbnexus 的 `DbPool` 持有 `Arc<dyn QueryThrottle>`（`dbnexus` 侧任务
-//! T421 组内交付 trait 定义）；落地前 limiteron 先以本模块固定语义，
+//! dbnexus 的 `DbPool` 持有 `Arc<dyn QueryThrottle>`（`dbnexus` 侧
+//! 交付 trait 定义）；落地前 limiteron 先以本模块固定语义，
 //! trait 对齐即插即用：
 //!
 //! ```rust,ignore

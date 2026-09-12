@@ -135,10 +135,10 @@ pub struct AuditLogEntry {
     /// 签名算法版本
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature_version: Option<u32>,
-    /// 链式哈希——前一条目的链哈希（T609；首条为 [`Self::GENESIS`]）
+    /// 链式哈希——前一条目的链哈希（首条为 [`Self::GENESIS`]）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chain_prev: Option<String>,
-    /// 链式哈希——本条目的 HMAC-SHA256(prev_hash ‖ payload)（T609）
+    /// 链式哈希——本条目的 HMAC-SHA256(prev_hash ‖ payload)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chain_hash: Option<String>,
 }
@@ -173,7 +173,7 @@ impl AuditLogEntry {
         self.signature_version = Some(1); // 当前签名算法版本
     }
 
-    /// 计算本条目的链哈希（T609）
+    /// 计算本条目的链哈希
     ///
     /// 工作区统一模式：`chain_hash = HMAC-SHA256(key, prev_hash ‖ payload)`，
     /// payload 为条目签名消息（与 [`Self::generate_signature`] 同源），实现
@@ -187,7 +187,7 @@ impl AuditLogEntry {
         hex::encode(mac.finalize().into_bytes())
     }
 
-    /// 附加到哈希链（T609）
+    /// 附加到哈希链
     ///
     /// 以 `prev_hash`（前一条链哈希或 [`Self::GENESIS`]）计算并写入
     /// `chain_prev`/`chain_hash`，返回本条链哈希供调用方串链。
@@ -198,7 +198,7 @@ impl AuditLogEntry {
         hash
     }
 
-    /// 校验条目序列的哈希链完整性（T609）
+    /// 校验条目序列的哈希链完整性
     ///
     /// - 首条必须 `chain_prev == GENESIS`；
     /// - 逐条重算 `HMAC(key, prev ‖ payload)` 并与存储值比对；
@@ -251,7 +251,7 @@ impl AuditLogEntry {
         hex::encode(result.into_bytes())
     }
 
-    /// 条目签名消息（条目签名与 T609 链哈希共用同一 payload）
+    /// 条目签名消息（条目签名与链哈希共用同一 payload）
     fn signature_message(event: &AuditEvent) -> String {
         format!(
             "{}|{}|{}|{}",
@@ -587,7 +587,7 @@ impl AuditLogger {
         stats: Arc<AuditLogStats>,
         config: AuditLogConfig,
     ) {
-        let mut chain_head: Option<String> = None; // T609：哈希链头（跨批次延续）
+        let mut chain_head: Option<String> = None; // 哈希链头（跨批次延续）
         let mut batch = Vec::with_capacity(config.batch_size);
         let mut timeout = tokio::time::interval(config.batch_timeout);
 
@@ -659,7 +659,7 @@ impl AuditLogger {
                 AuditLogEntry::new(event.clone())
             };
 
-            // T609：配置签名密钥时串接哈希链（HMAC-SHA256(prev ‖ payload)）。
+            // 配置签名密钥时串接哈希链（HMAC-SHA256(prev ‖ payload)）。
             // 链头跨批次延续（write_task 持有），批内按事件顺序串接。
             if let Some(ref signing_key) = config.signing_key {
                 let prev = chain_head
@@ -1935,7 +1935,7 @@ mod tests {
     }
 
     // ========================================================================
-    // T609：审计哈希链（HMAC-SHA256(prev ‖ payload)）篡改检测
+    // 审计哈希链（HMAC-SHA256(prev ‖ payload)）篡改检测
     // ========================================================================
 
     fn t609_entry(op: &str) -> AuditEvent {

@@ -115,7 +115,7 @@ mod tests {
         );
     }
 
-    /// T053: `init_inklog_logger_with_config` accepts custom InklogConfig.
+    /// `init_inklog_logger_with_config` accepts custom InklogConfig.
     #[tokio::test]
     #[serial_test::serial]
     async fn init_inklog_logger_with_config_works() {
@@ -129,7 +129,7 @@ mod tests {
 }
 
 // ============================================================================
-// inklog `SinkRateLimit` 端口实现（T617，分层铁律：inklog 定义端口 +
+// inklog `SinkRateLimit` 端口实现（分层铁律：inklog 定义端口 +
 // NoOp 默认，limiteron 作为上层提供真实 token 预算实现）
 // ============================================================================
 
@@ -198,7 +198,7 @@ impl SinkBucket {
 
 /// limiteron 实现的 inklog [`SinkRateLimit`] 端口：按 target 分桶的令牌预算限流。
 ///
-/// 策略（防护性默认，与 inklog T511 端口契约对齐）：
+/// 策略（防护性默认，与 inklog 端口契约对齐）：
 /// - **按 target 分桶**：日志洪水通常来自单个失控模块，预算按 target 隔离；
 /// - **ERROR 直通**：严重日志不参与限流（排障关键时刻不可丢）；
 /// - **写失败归还**：`report(Failed)` 归还预算（不因下游故障白扣额度）。

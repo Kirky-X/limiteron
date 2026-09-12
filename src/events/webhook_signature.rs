@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! Webhook 外发签名（T614）：HMAC-SHA256 签名头 + 时间戳防重放。
+//! Webhook 外发签名：HMAC-SHA256 签名头 + 时间戳防重放。
 //!
-//! 复用工作区统一 HMAC-SHA256 模式（与审计链 T609 同源算法）：
+//! 复用工作区统一 HMAC-SHA256 模式（与审计链同源算法）：
 //!
 //! - 签名 = `HMAC-SHA256(secret, "{timestamp}.{payload}")` 的 hex 编码；
 //! - 外发请求携带 `X-Limiteron-Timestamp`（Unix 秒）与
@@ -159,7 +159,7 @@ impl WebhookSigner {
     }
 }
 
-/// 恒等比较（与审计链 T609 的 constant_time_compare 同构）
+/// 恒等比较（与审计链的 constant_time_compare 同构）
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;

@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! DB 存储后端共享契约测试套件（T607）
+//! DB 存储后端共享契约测试套件
 //!
 //! 以「同一组操作断言」跑在不同 DSN 后端上，保证 postgres / mysql /
 //! sqlite 适配器行为一致（契约共享，新增后端只需以 DSN 接入）。

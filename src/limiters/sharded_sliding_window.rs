@@ -292,14 +292,14 @@ impl Limiter for ShardedSlidingWindowLimiter {
         Ok(self.try_acquire(cost))
     }
 
-    /// 非消费预检（T603）：读窗口计数，不递增分片
+    /// 非消费预检：读窗口计数，不递增分片
     async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
         let cost = validate_cost(cost)?;
         let _ = cost;
         Ok(self.current_snapshot())
     }
 
-    /// 剩余额度查询（T603，非消费）
+    /// 剩余额度查询（非消费）
     async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError> {
         Ok(self.current_snapshot())
     }

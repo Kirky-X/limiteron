@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! MySQL Storage 集成测试（T607）
+//! MySQL Storage 集成测试
 //!
 //! 与 postgres_storage.rs 同一套契约断言（经 contract.rs 共享），
 //! 跑在 MySQL DSN 上。dbnexus 驱动互斥：mysql 与 postgres/sqlite

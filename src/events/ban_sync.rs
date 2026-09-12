@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! 封禁跨实例同步（T616）：经 oxcache Pub/Sub 语义广播封禁变更。
+//! 封禁跨实例同步：经 oxcache Pub/Sub 语义广播封禁变更。
 //!
-//! 复用 oxcache T301 跨实例失效总线的**协议层抽象**
+//! 复用 oxcache 跨实例失效总线的**协议层抽象**
 //! （`oxcache::invalidation::PubSubTransport`）：生产为 Redis Pub/Sub，
 //! 测试/进程内为 `InMemoryPubSubTransport`（mock 协议层，语义与 Redis
 //! 一致：订阅后发布的消息广播给全部订阅者，无离线补投）。
@@ -11,7 +11,7 @@
 //! - [`BanSyncBus::spawn_listener`] 订阅通道，把**其他实例**的封禁事件
 //!   应用到本地（自身消息按 `instance_id` 豁免，防回环）；
 //! - 可靠性兜底：Pub/Sub 为 at-most-once，重要封禁同时落 outbox
-//!   （T616 outbox），本组件承担实时面。
+//!   （持久化兜底），本组件承担实时面。
 //!
 //! # Example
 //!

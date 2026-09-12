@@ -87,7 +87,7 @@ pub mod circuit;
 mod clock;
 pub mod config;
 
-// 配置 CLI 核心逻辑（T612）：`limiteron-cli` 二进制的可单测实现。
+// 配置 CLI 核心逻辑：`limiteron-cli` 二进制的可单测实现。
 // 默认 feature 不编译（决策热路径零开销；`cli` feature 显式开启）。
 #[cfg(feature = "cli")]
 pub mod cli;
@@ -152,7 +152,7 @@ pub mod i18n;
 // External integrations. Each integration lives under `integrations/` and
 // is gated by its own feature so the core limiteron library stays
 // dependency-free when integrations are not needed.
-// （T617：`query_throttle` 无外部依赖，恒编译；其余子模块保持 feature 门控）
+//
 pub mod integrations;
 
 // Tower 中间件层 (feature-gated)
@@ -191,19 +191,19 @@ pub use error::{
 // Event system types (feature-gated)
 #[cfg(feature = "event-system")]
 pub use events::{Event, EventConfig, EventDispatcher, EventEmitter, EventHandler, EventType};
-// 事件 Outbox（T616）：封禁/配额事件 outbox 表化
+// 事件 Outbox：封禁/配额事件 outbox 表化
 #[cfg(all(
     feature = "event-system",
     any(feature = "postgres", feature = "sqlite", feature = "mysql")
 ))]
 pub use events::{EventOutboxStore, OutboxDialect, OutboxEntry, OutboxEventKind};
-// 封禁跨实例同步（T616）：经 oxcache Pub/Sub 广播封禁变更
+// 封禁跨实例同步：经 oxcache Pub/Sub 广播封禁变更
 #[cfg(all(feature = "event-system", feature = "ban-sync"))]
 pub use events::{
     BanSyncApplier, BanSyncBus, BanSyncConfig, BanSyncKind, BanSyncListenerHandle, BanSyncMessage,
     DEFAULT_BAN_SYNC_CHANNEL,
 };
-// Webhook 外发签名（T614）：HMAC-SHA256 签名头 + 时间戳防重放
+// Webhook 外发签名：HMAC-SHA256 签名头 + 时间戳防重放
 #[cfg(all(feature = "event-system", feature = "webhook"))]
 pub use events::webhook_signature::{
     SIGNATURE_HEADER, TIMESTAMP_HEADER, WebhookSignature, WebhookSigner, WebhookVerifyError,

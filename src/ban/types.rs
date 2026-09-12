@@ -65,7 +65,7 @@ pub enum BanPriority {
     ApiKey = 5,
     /// 地理位置封禁（最低优先级，粗粒度）
     Geo = 6,
-    /// CIDR 网段封禁（T604：网络级批量封禁，粗粒度，最低优先级）
+    /// CIDR 网段封禁
     Cidr = 7,
 }
 

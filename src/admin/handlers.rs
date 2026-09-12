@@ -43,7 +43,6 @@ impl<T: Serialize> ApiResponse<T> {
     }
 }
 
-// ==================== K8s 探针与指标端点（T601，bypass 认证） ====================
 //
 // 三个端点在 routes 层 bypass 速率限制与 API key 认证：
 // K8s kubelet 探针与 Prometheus 抓取器不携带管理凭证。
@@ -159,7 +158,7 @@ pub async fn get_status(State(state): State<AppState>) -> Json<ApiResponse<Syste
     }))
 }
 
-// ==================== Governor 自省（T608） ====================
+// ==================== Governor 自省 ====================
 
 /// GET /api/v1/introspect —— 运行时自省快照（JSON）
 ///
@@ -203,12 +202,12 @@ pub async fn introspect(State(state): State<AppState>) -> Json<serde_json::Value
     Json(body)
 }
 
-// ==================== 规则热更新 / 批量 API（T613） ====================
+// ==================== 规则热更新 / 批量 API ====================
 
 /// 批量检查/预取的条目数上限（防单请求打爆控制面）
 const BATCH_MAX_ITEMS: usize = 1000;
 
-/// POST /api/v1/config —— 规则热更新（原子换配置，T613）
+/// POST /api/v1/config —— 规则热更新（原子换配置）
 ///
 /// 请求体为完整 `FlowControlConfig` JSON。校验失败或预构建失败返回
 /// 400 且**旧配置原样保留**（rollback 语义）；成功则原子换入新配置
@@ -237,7 +236,7 @@ pub async fn apply_config(
     }
 }
 
-/// 批量检查请求条目（T613）
+/// 批量检查请求条目
 #[derive(Deserialize)]
 pub struct BatchCheckItem {
     #[serde(default)]
@@ -250,13 +249,13 @@ pub struct BatchCheckItem {
     pub method: Option<String>,
 }
 
-/// 批量检查请求体（T613）：N 个 key 一次决策
+/// 批量检查请求体：N 个 key 一次决策
 #[derive(Deserialize)]
 pub struct BatchCheckBody {
     pub requests: Vec<BatchCheckItem>,
 }
 
-/// POST /api/v1/check/batch —— 批量检查端点（T613）
+/// POST /api/v1/check/batch —— 批量检查端点
 ///
 /// 请求体 `{"requests": [{user_id, ip, path, method}, ...]}`，对 N 个
 /// key 各执行一次完整 Governor 决策，返回逐项结果。单条失败不中断
@@ -330,7 +329,7 @@ pub async fn check_batch(
     )
 }
 
-/// 令牌预取条目（T613）
+/// 令牌预取条目
 #[derive(Deserialize)]
 pub struct TokenPrefetchItem {
     /// 预取 key（客户端标识）
@@ -339,7 +338,7 @@ pub struct TokenPrefetchItem {
     pub tokens: u64,
 }
 
-/// 批量令牌预取请求体（T613）
+/// 批量令牌预取请求体
 #[derive(Deserialize)]
 pub struct TokenPrefetchBody {
     pub items: Vec<TokenPrefetchItem>,
@@ -355,7 +354,7 @@ fn token_prefetcher() -> &'static crate::limiters::BatchTokenPrefetcher {
     TOKEN_PREFETCHER.get_or_init(crate::limiters::BatchTokenPrefetcher::new)
 }
 
-/// POST /api/v1/tokens/prefetch —— 批量令牌预取（T613）
+/// POST /api/v1/tokens/prefetch —— 批量令牌预取
 ///
 /// 请求体 `{"items": [{"key": "...", "tokens": N}, ...]}`，为 N 个 key
 /// 各一次性原子预留 tokens 个令牌（见 `BatchTokenPrefetcher`）。返回
@@ -1292,7 +1291,7 @@ mod tests {
     }
 
     // ========================================================================
-    // T613：规则热更新 / 批量检查 / 批量令牌预取
+    // 规则热更新 / 批量检查 / 批量令牌预取
     // ========================================================================
 
     /// 构造一条合法规则的最小配置（与 test_support::make_valid_config 同构）

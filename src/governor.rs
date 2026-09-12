@@ -156,7 +156,7 @@ pub struct Governor {
     #[cfg(feature = "telemetry")]
     tracer: Option<Arc<Tracer>>,
 
-    /// 租户解析器（可选，feature-gated `multi-tenant`，T602）
+    /// 租户解析器（可选，feature-gated `multi-tenant`）
     ///
     /// 配置后，决策键（L1 缓存键/事件键/封禁键）以 tenant+key 复合键计算，
     /// 实现存储/配额/封禁按租户隔离；未配置时行为与现状逐位一致。
@@ -225,7 +225,7 @@ pub struct GovernorBuilder {
     /// 自定义匹配器注册表（可选）：提供后，配置中的 `Custom` 匹配器
     /// 在构建期从注册表解析并真实参与运行时求值（E1）
     custom_matcher_registry: Option<Arc<crate::matchers::custom::CustomMatcherRegistry>>,
-    /// 租户解析器（可选，T602）
+    /// 租户解析器（可选）
     #[cfg(feature = "multi-tenant")]
     tenant_resolver: Option<Arc<dyn crate::tenant::TenantResolver>>,
 }
@@ -260,7 +260,7 @@ impl GovernorBuilder {
         }
     }
 
-    /// 设置租户解析器（T602，feature `multi-tenant`）
+    /// 设置租户解析器（feature `multi-tenant`）
     ///
     /// 配置后，Governor 决策键以 tenant+key 复合键计算：
     /// L1 缓存键、事件键、封禁键均带租户命名空间前缀，
@@ -936,7 +936,7 @@ impl Governor {
         })?;
         trace!("Extracted identifier: {}", identifier.key());
 
-        // 多租户贯穿（T602）：决策键改写为 tenant+key 复合键。
+        // 多租户贯穿：决策键改写为 tenant+key 复合键。
         // L1 缓存键、封禁精确匹配键、事件键均以限定后的标识符计算，
         // 实现 L1 缓存与租户封禁按租户隔离；未配置 resolver 时原样返回。
         #[cfg(feature = "multi-tenant")]
@@ -1115,7 +1115,7 @@ impl Governor {
             LimiteronError::ConfigError("Failed to extract identifier".to_string())
         })?;
 
-        // 多租户贯穿（T602）：与常规路径一致的租户限定决策键
+        // 多租户贯穿：与常规路径一致的租户限定决策键
         #[cfg(feature = "multi-tenant")]
         let identifier = self.tenant_scoped_identifier(context, identifier);
 
@@ -1404,10 +1404,10 @@ impl Governor {
     }
 
     // ========================================================================
-    // 多租户贯穿（T602，feature `multi-tenant`）
+    // 多租户贯穿（feature `multi-tenant`）
     // ========================================================================
 
-    /// 从请求上下文解析租户命名空间（T602）
+    /// 从请求上下文解析租户命名空间
     ///
     /// 未配置 resolver 或解析失败时返回 `None`（决策键回退到无租户前缀的
     /// 现状行为）。
@@ -1418,7 +1418,7 @@ impl Governor {
             .and_then(|resolver| resolver.resolve(context))
     }
 
-    /// 计算决策键：tenant + key 复合（T602）
+    /// 计算决策键：tenant + key 复合
     ///
     /// - 配置 resolver 且解析到租户 → `tenant:{id}:env:{env}:{identifier.key()}`
     /// - 否则 → `identifier.key()`（与现状逐位一致）
@@ -1432,7 +1432,7 @@ impl Governor {
         }
     }
 
-    /// 将标识符改写为租户限定标识符（T602 内部）
+    /// 将标识符改写为租户限定标识符（内部）
     ///
     /// 保持标识符类型不变，仅对值加命名空间前缀——下游所有按值键控的
     /// 消费点（L1 缓存键、封禁精确匹配、事件键）自动获得租户隔离。
@@ -1460,7 +1460,7 @@ impl Governor {
         }
     }
 
-    /// 按租户命名空间封禁标识符（T602）
+    /// 按租户命名空间封禁标识符
     ///
     /// 封禁记录以 tenant 限定的 BanTarget 写入封禁存储，仅影响该租户内
     /// 的同标识符请求；其他租户与无租户请求不受影响。
@@ -1510,7 +1510,7 @@ impl Governor {
         Ok(())
     }
 
-    /// 租户感知的封禁检查（T602）
+    /// 租户感知的封禁检查
     ///
     /// 先查租户限定键（tenant 隔离封禁），未命中再查无前缀键（全局封禁，
     /// 如自动封禁/Geo 封禁，保持既有语义）。未配置 resolver 时仅查无前缀键。
@@ -1587,7 +1587,7 @@ impl Governor {
         self.config.clone()
     }
 
-    /// 规则热更新：校验并原子换入新配置（T613）。
+    /// 规则热更新：校验并原子换入新配置。
     ///
     /// 与 confers reload 的原子换装模式（`Arc<RwLock<FlowControlConfig>>`）
     /// 一致，并在同一次换装中同步重建规则匹配器与决策链，保证热更新
@@ -1772,10 +1772,10 @@ impl Governor {
     }
 
     // ========================================================================
-    // 运行时自省（T608）
+    // 运行时自省
     // ========================================================================
 
-    /// 获取运行时自省快照（T608）
+    /// 获取运行时自省快照
     ///
     /// 一次性聚合「规则 → 决策链 → 统计 → L1 缓存 → 健康」的结构化状态，
     /// 供 Admin API `GET /api/v1/introspect`（JSON）与排障工具消费。
@@ -2002,7 +2002,7 @@ impl HealthStatus {
 }
 
 // ============================================================================
-// 自省快照类型（T608，serde Serialize 供 Admin API JSON 输出）
+// 自省快照类型（serde Serialize 供 Admin API JSON 输出）
 // ============================================================================
 
 /// 规则自省摘要
@@ -2072,7 +2072,7 @@ impl From<&HealthStatus> for HealthIntrospection {
     }
 }
 
-/// 配置热更新结果报告（T613）
+/// 配置热更新结果报告
 ///
 /// [`Governor::apply_config`] 的返回值，供 Admin API JSON 输出与审计。
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -2091,7 +2091,7 @@ pub struct ConfigApplyReport {
     pub applied_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// Governor 运行时自省快照（T608）
+/// Governor 运行时自省快照
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct IntrospectionSnapshot {
     /// 配置版本
@@ -4643,7 +4643,7 @@ mod governor_feature_gated_tests {
     }
 
     // ============================================================================
-    // T052: metrics feature 门控计数测试
+    // metrics feature 门控计数测试
     // metrics 隐含 monitoring，启用后 governor check() 中 allow/reject/ban
     // 三点指标记录自动激活
     // ============================================================================

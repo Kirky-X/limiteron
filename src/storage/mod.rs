@@ -92,7 +92,7 @@ pub enum BanTarget {
     /// 地理位置封禁（国家代码，ISO 3166-1 alpha-2）
     #[serde(rename = "geo")]
     Geo { country_code: String },
-    /// CIDR 网段封禁（T604，IPv4/IPv6，如 "10.0.0.0/8"、"2001:db8::/32"）
+    /// CIDR 网段封禁（IPv4/IPv6，如 "10.0.0.0/8"、"2001:db8::/32"）
     ///
     /// 命中语义：查询目标为 [`BanTarget::Ip`] 且精确未命中时，按
     /// 最长前缀匹配网段封禁记录（见 MemoryBanStorage::is_banned 两级检查）。
@@ -128,7 +128,7 @@ impl BanTarget {
     }
 }
 
-/// 取 BanTarget 的可限定值（T602）
+/// 取 BanTarget 的可限定值
 ///
 /// 返回 `Some(value)` 表示该变体携带可被租户命名空间限定的字符串值；
 /// `Geo` 变体按国家码全局生效，返回 `None`。
@@ -141,7 +141,7 @@ pub(crate) fn ban_target_value(target: &BanTarget) -> Option<&str> {
     }
 }
 
-/// 以租户命名空间限定封禁目标（T602）
+/// 以租户命名空间限定封禁目标
 ///
 /// 保持 [`BanTarget`] 变体类型不变，仅将字符串值替换为
 /// `namespace.qualify_key(value)`；`Geo` 变体不限定（返回 `None`）。

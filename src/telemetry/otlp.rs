@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! OTLP 追踪导出（T606，`otlp` feature）
+//! OTLP 追踪导出（`otlp` feature）
 //!
 //! 将 [`Tracer`](super::Tracer) 决策链路 span（规则匹配/封禁检查/限流器执行）
 //! 以 OTLP/HTTP JSON 形态（`resourceSpans` 信封）导出到 OTLP 端点，替代
@@ -8,7 +8,7 @@
 //!
 //! - **传输**：[`HttpTransport`] —— 手工 HTTP/1.1 POST over TcpStream
 //!   （阻塞 IO 经 `spawn_blocking` 隔离），MVP 无新增依赖（与 dbnexus
-//!   T412 同范式）
+//!   同范式）
 //! - **mock**：[`InMemoryTransport`] —— 测试/离线验证用内存收集器
 //! - **接线**：[`SpanSink`] 经无界 channel 解耦 `Span::finish()`（同步）
 //!   与网络导出（异步后台任务）
@@ -37,7 +37,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 
-/// 单个已完成 span 的 OTLP 导出数据（T606）
+/// 单个已完成 span 的 OTLP 导出数据
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OtlpSpanData {
     /// span 名（如 `governor_check`）
@@ -60,7 +60,7 @@ pub struct OtlpSpanData {
     pub error: Option<String>,
 }
 
-/// OTLP 传输抽象（T606：mock collector / 真实 HTTP 皆可实现）
+/// OTLP 传输抽象
 #[async_trait]
 pub trait OtlpTransport: Send + Sync {
     /// 发送 OTLP 请求体（JSON 形态）到端点
@@ -93,7 +93,7 @@ impl OtlpTransport for HttpTransport {
     }
 }
 
-/// 内存传输（T606 mock collector：记录请求体供断言）
+/// 内存传输（mock collector：记录请求体供断言）
 #[derive(Default)]
 pub struct InMemoryTransport {
     requests: std::sync::Mutex<Vec<(String, serde_json::Value)>>,

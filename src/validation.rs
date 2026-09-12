@@ -130,7 +130,7 @@ fn extract_ip_part(ip: &str) -> Result<&str, LimiteronError> {
     Ok(ip)
 }
 
-/// 验证 CIDR 网段格式（T604）
+/// 验证 CIDR 网段格式
 ///
 /// 接受 IPv4/IPv6 无类别域间路由表示法（如 "10.0.0.0/8"、"2001:db8::/32"）。
 /// host 位不为零的写法（如 "10.0.0.1/8"）按 ipnet 语义同样合法（ipnet 会

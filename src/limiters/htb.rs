@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! HTB 分层令牌桶（T615）：层次令牌桶，父/子借用。
+//! HTB 分层令牌桶：层次令牌桶，父/子借用。
 //!
 //! 语义对齐 Linux HTB（Hierarchical Token Bucket）的核心思想：
 //! - 树状桶结构：根桶（总量）→ 分类桶（子类）→ 叶子桶（具体限流对象）；

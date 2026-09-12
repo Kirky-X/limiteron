@@ -12,7 +12,7 @@
 #[cfg(feature = "postgres")]
 pub mod postgres_storage;
 
-// MySQL 存储测试（T607：契约测试共享，与 postgres 同一套 contract.rs 断言）
+// MySQL 存储测试
 #[cfg(feature = "mysql")]
 pub mod mysql_storage;
 

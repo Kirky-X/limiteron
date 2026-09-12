@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! T601 e2e：K8s 探针与指标端点
+//! e2e：K8s 探针与指标端点
 //!
 //! 验证 admin API 的三个运维端点（bypass 认证）：
 //! - `GET /healthz`（存活探针）→ 200

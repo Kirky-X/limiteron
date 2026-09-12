@@ -74,7 +74,7 @@ pub trait Limiter: Send + Sync {
     /// - `Err(_)`: 发生错误
     async fn allow(&self, cost: u64) -> Result<bool, LimiteronError>;
 
-    /// 非消费预检（T603）
+    /// 非消费预检
     ///
     /// 查询「当前状态下消费 `cost` 是否可行」以及标准限流头数据
     /// （limit/remaining/reset），**绝不修改限流器状态**。
@@ -89,7 +89,7 @@ pub trait Limiter: Send + Sync {
         ))
     }
 
-    /// 查询剩余额度（T603，非消费）
+    /// 查询剩余额度（非消费）
     ///
     /// 返回标准限流头数据；默认实现返回 `Err`（未支持）。
     async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError> {
@@ -123,7 +123,7 @@ pub trait Limiter: Send + Sync {
     }
 }
 
-/// 标准限流头数据（T603）
+/// 标准限流头数据
 ///
 /// 对应 IETF draft-ietf-httpapi-ratelimit-headers 的三个标准头：
 /// `RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset`。
@@ -326,7 +326,7 @@ mod tests {
     }
 
     // ========================================================================
-    // T603：peek/remaining 默认实现与 RateLimitSnapshot
+    // peek/remaining 默认实现与 RateLimitSnapshot
     // ========================================================================
 
     #[tokio::test]

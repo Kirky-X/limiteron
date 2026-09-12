@@ -15,7 +15,7 @@ pub enum ConfigError {
     ApiKeyTooShort(usize),
 }
 
-/// 管理面角色（T605）
+/// 管理面角色
 ///
 /// - `Admin`：读写全部端点（封禁增删、配额修改、热更新等）
 /// - `Viewer`：只读端点（status / circuit-breaker / 探针自省查询等）
@@ -71,7 +71,7 @@ pub struct AdminApiConfig {
     /// 回退到默认 `"admin-api"` 并记录 warn 日志（向后兼容）。
     #[serde(default)]
     pub api_key_operators: HashMap<String, String>,
-    /// API key → 角色映射（T605 RBAC）
+    /// API key → 角色映射（RBAC）
     ///
     /// 配置后，鉴权中间件按 key 解析角色并执行端点级授权：
     /// viewer 访问写端点返回 403。**未在此映射中的合法 key**（含主
@@ -191,7 +191,7 @@ impl AdminApiConfig {
         self
     }
 
-    /// 添加 API key → 角色映射（T605 RBAC）
+    /// 添加 API key → 角色映射（RBAC）
     ///
     /// # 示例
     ///
@@ -206,7 +206,7 @@ impl AdminApiConfig {
         self
     }
 
-    /// 解析 API key 的角色（T605）
+    /// 解析 API key 的角色
     ///
     /// 未在映射中的 key 默认 `Admin`——保持既有单 key 部署（主 key 即
     /// 管理员）的行为不变。
@@ -217,7 +217,7 @@ impl AdminApiConfig {
             .unwrap_or(AdminRole::Admin)
     }
 
-    /// 判定 key 是否为合法凭证（T605 多 key 支持）
+    /// 判定 key 是否为合法凭证（多 key 支持）
     ///
     /// 主 `api_key` 恒合法；`api_key_roles` 中登记的 key 亦合法。
     pub fn is_valid_api_key(&self, api_key: &str) -> bool {
@@ -414,7 +414,7 @@ mod tests {
 }
 
 // ========================================================================
-// T605：RBAC 角色矩阵
+// RBAC 角色矩阵
 // ========================================================================
 
 #[cfg(test)]

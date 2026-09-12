@@ -258,7 +258,7 @@ impl Limiter for ConcurrencyLimiter {
         }
     }
 
-    /// 非消费预检（T603）：读可用许可数，不获取
+    /// 非消费预检：读可用许可数，不获取
     async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
         let cost_u32 = cost as u32;
         if cost_u32 as u64 != cost {
@@ -270,7 +270,7 @@ impl Limiter for ConcurrencyLimiter {
         Ok(self.current_snapshot())
     }
 
-    /// 剩余额度查询（T603，非消费）
+    /// 剩余额度查询（非消费）
     async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError> {
         Ok(self.current_snapshot())
     }

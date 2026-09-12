@@ -155,7 +155,7 @@ impl Limiter for FixedWindowLimiter {
         }
     }
 
-    /// 非消费预检（T603）：读窗口计数，不递增
+    /// 非消费预检：读窗口计数，不递增
     async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
         let cost = validate_cost(cost)?;
         self.check_and_reset_window();
@@ -169,7 +169,7 @@ impl Limiter for FixedWindowLimiter {
         })
     }
 
-    /// 剩余额度查询（T603，非消费）
+    /// 剩余额度查询（非消费）
     async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError> {
         self.check_and_reset_window();
         let count = self.count.load(Ordering::Acquire);

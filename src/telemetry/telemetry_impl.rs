@@ -318,7 +318,7 @@ impl Tracer {
         }
     }
 
-    /// 创建携带 OTLP 导出句柄的追踪器（T606，`otlp` feature）
+    /// 创建携带 OTLP 导出句柄的追踪器（`otlp` feature）
     #[cfg(feature = "otlp")]
     pub fn with_otlp_sink(
         enabled: bool,
@@ -447,7 +447,7 @@ impl Span {
                 log::debug!("Span finished in {:?}", duration);
             }
 
-            // T606：OTLP 导出（非阻塞提交，观测数据不阻塞决策热路径）
+            // OTLP 导出（非阻塞提交，观测数据不阻塞决策热路径）
             #[cfg(feature = "otlp")]
             if let Some((name, sink)) = &self.otlp_export {
                 let end = crate::telemetry::otlp::unix_nano_now();
@@ -615,7 +615,7 @@ pub async fn init_telemetry(config: &TelemetryConfig) -> Result<(Metrics, Tracer
 
 /// 初始化Jaeger追踪器
 ///
-/// T606：`otlp` feature 下构建 OTLP/HTTP exporter（手工 HTTP 客户端 +
+/// `otlp` feature 下构建 OTLP/HTTP exporter（手工 HTTP 客户端 +
 /// 后台导出 worker，`Span::finish()` 自动提交）；未启用 `otlp` 时回退到
 /// 简化模式（仅本地 subscriber，不外出导出）。
 #[cfg(feature = "telemetry")]

@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! 舱壁隔离（T611，feature `bulkhead`）
+//! 舱壁隔离（feature `bulkhead`）
 //!
 //! 按资源组（下游服务/租户/规则组）划分独立并发池：单池饱和只影响自身
 //! （快速失败 [`BulkheadError::Full`]），不拖垮其他池——补齐弹性模式

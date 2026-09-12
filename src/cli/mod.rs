@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! `limiteron-cli` —— 规则文件配置 CLI（T612）。
+//! `limiteron-cli` —— 规则文件配置 CLI。
 //!
-//! 机器可读契约（与 inklog-cli T510 口径一致）：全子命令输出单对象 JSON
+//! 机器可读契约（与 inklog-cli 口径一致）：全子命令输出单对象 JSON
 //! + 稳定退出码 `0/1/2`（0 = 成功；1 = 成功但有告警；2 = 错误）。
 //!
 //! # 子命令
@@ -11,7 +11,7 @@
 //! | --- | --- | --- |
 //! | `validate <file>` | 解析 + 校验规则文件（YAML/TOML/JSON 按扩展名） | 0 合法 / 1 合法带告警 / 2 非法 |
 //! | `export <file>`   | 解析并输出规范化配置 JSON | 0 / 2 |
-//! | `apply <file> [--out <file>]` | 校验 + 产出 apply 计划（dry-run 语义；真实下发走 admin API `POST /api/v1/config`，见 T613） | 0 / 1 / 2 |
+//! | `apply <file> [--out <file>]` | 校验 + 产出 apply 计划（dry-run 语义；真实下发走 admin API `POST /api/v1/config`） | 0 / 1 / 2 |
 //! | `help` / `--help` | 用法说明 | 0 |
 //! | `--version` | 版本 JSON | 0 |
 //!
@@ -275,7 +275,7 @@ fn cmd_apply(rest: &[String]) -> CliInvocation {
         return CliInvocation::new(EXIT_ERROR, "apply", fields);
     }
 
-    // 2. dry-run 计划（真实原子换配置走 admin API `POST /api/v1/config`，T613）
+    // 2. dry-run 计划（真实原子换配置走 admin API `POST /api/v1/config`）
     fields.insert("dry_run".to_string(), serde_json::json!(true));
     fields.insert("valid".to_string(), serde_json::json!(true));
     fields.insert(
@@ -352,7 +352,7 @@ mod tests {
     }
 
     // ========================================================================
-    // T612：validate
+    // validate
     // ========================================================================
 
     #[test]
@@ -460,7 +460,7 @@ mod tests {
     }
 
     // ========================================================================
-    // T612：export
+    // export
     // ========================================================================
 
     #[test]
@@ -481,7 +481,7 @@ mod tests {
     }
 
     // ========================================================================
-    // T612：apply（dry-run）
+    // apply（dry-run）
     // ========================================================================
 
     #[test]
@@ -541,7 +541,7 @@ mod tests {
     }
 
     // ========================================================================
-    // T612：用法与退出码契约
+    // 用法与退出码契约
     // ========================================================================
 
     #[test]

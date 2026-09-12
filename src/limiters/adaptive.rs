@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! 自适应并发限流器（T610，feature `adaptive-limiting`）
+//! 自适应并发限流器（feature `adaptive-limiting`）
 //!
 //! AIMD（Additive Increase / Multiplicative Decrease）并发窗口：
 //! 以「调整窗口」内的成功/错误/慢调用率为信号动态升降并发上限，
@@ -245,7 +245,7 @@ impl Limiter for AdaptiveConcurrencyLimiter {
             ));
         }
 
-        // 熔断联动（T610）：打开即拒绝并计错误信号收紧窗口
+        // 熔断联动：打开即拒绝并计错误信号收紧窗口
         #[cfg(feature = "circuit-breaker")]
         if let Some(cb) = &self.circuit_breaker {
             if cb.is_open().await {

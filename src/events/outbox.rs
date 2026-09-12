@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X
 // SPDX-License-Identifier: MIT
-//! 事件 Outbox（T616）：封禁/配额事件 outbox 表化。
+//! 事件 Outbox：封禁/配额事件 outbox 表化。
 //!
 //! Transactional Outbox 模式的 MVP：
 //! - 业务路径（封禁/配额变更）把事件**同事务**写入 `limiteron_event_outbox`
@@ -9,7 +9,7 @@
 //!   ban-sync 总线）成功后 [`EventOutboxStore::mark_published`]；
 //! - 崩溃恢复：pending 行天然留在表中，重启后续投（at-least-once）。
 //!
-//! 与 dbnexus saga 持久化（T402）同一测试口径：sqlite 本地 DSN 全链路读写。
+//! 与 dbnexus saga 持久化同一测试口径：sqlite 本地 DSN 全链路读写。
 //!
 //! # Example
 //!
@@ -203,7 +203,7 @@ impl EventOutboxStore {
 mod tests {
     use super::*;
 
-    /// sqlite 本地 DSN（dbnexus saga 测试 T402 同款口径）
+    /// sqlite 本地 DSN（dbnexus saga 测试同款口径）
     fn temp_db_url(tag: &str) -> (String, std::path::PathBuf) {
         let path = std::env::temp_dir().join(format!(
             "limiteron_outbox_{}_{}.db",

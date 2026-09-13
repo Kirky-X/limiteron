@@ -122,7 +122,7 @@ cargo test --lib test_concurrency_limiter
 
 ## 📊 测试规模基线
 
-以 CI 口径（`--workspace --no-default-features --features full`）的全量运行结果为基线：**38 个测试目标 / 3298 passed / 0 failed / 42 ignored**（ignored 为 manual / 容器依赖门控与文档测试门控）。分层基线与 E2E 场景明细见 [测试场景固化](TEST_SCENARIOS.md)。
+CI 口径（`--workspace --no-default-features --features full`）全量运行的规模基线（目标数 / passed / failed / ignored 及 ignored 构成）以[测试场景固化](TEST_SCENARIOS.md#-测试金字塔基线)为准。
 
 > 📌 测试数量随版本演进，以最近一次 CI 全量运行输出为准。
 

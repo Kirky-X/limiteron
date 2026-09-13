@@ -39,8 +39,6 @@ One Governor entrypoint where multi-algorithm limiting and layered control decid
 - [📚 Documentation](#-documentation)
 - [💻 Examples](#-examples)
 - [🏗️ Architecture](#️-architecture)
-- [🎯 Core Decision Flow](#-core-decision-flow)
-- [🔗 Ecosystem & Integrations](#-ecosystem--integrations)
 - [🧪 Testing](#-testing)
 - [📊 Performance](#-performance)
 - [🔒 Security](#-security)
@@ -305,7 +303,7 @@ The full architecture diagram, core decision sequence, module responsibility tab
 
 ---
 
-## 🎯 Core Decision Flow
+### 🎯 Core Decision Flow
 
 The complete decision path of a single `Governor::check(context)` call (distilled from `src/governor.rs`): identifier extraction and rule matching (computed once) → L1 negative-cache lookup (fail-closed, deny/ban decisions only) → priority-ordered cascade across each rule's decision chain (any rule rejecting rejects the request; only unanimous approval passes) → rate-limit event emission and an `Allowed` / `Rejected` / `Banned` outcome.
 
@@ -313,7 +311,7 @@ The full decision sequence diagram and the itemized key semantics (including the
 
 ---
 
-## 🔗 Ecosystem & Integrations
+### 🔗 Ecosystem & Integrations
 
 Limiteron collaborates closely with its sibling crates in the workspace; each integration is feature-gated and excluded by default:
 

@@ -329,7 +329,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### 配置
 
-Limiteron 支持两种配置方式：**程序化构建**（`ConfigBuilder`）与 **TOML 文件加载**（`ConfigLoader`，支持环境变量覆盖，见 [API 参考](API_REFERENCE.md#配置加载)）。
+Limiteron 支持两种配置方式：**程序化构建**（`ConfigBuilder`）与 **TOML 文件加载**（`ConfigLoader`，支持环境变量覆盖，见 [API 参考](API_REFERENCE.md#️-配置加载)）。
 
 ```rust
 use limiteron::config::{ConfigBuilder, StorageType};
@@ -451,7 +451,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ### 程序化构建配置
 
-生产环境中规则通常由 TOML 文件加载（`ConfigLoader::load_from_file_with_env` 支持环境变量覆盖），动态场景下也可以程序化构建后经 `Governor::builder().with_config(...)` 注入，或通过 `POST /api/v1/config` 热更新（见 [API 参考](API_REFERENCE.md#admin-rest-api)）。
+生产环境中规则通常由 TOML 文件加载（`ConfigLoader::load_from_file_with_env` 支持环境变量覆盖），动态场景下也可以程序化构建后经 `Governor::builder().with_config(...)` 注入，或通过 `POST /api/v1/config` 热更新（见 [API 参考](API_REFERENCE.md#-admin-rest-api)）。
 
 <details>
 <summary><b>🎛️ 性能配置取舍</b></summary>
@@ -555,7 +555,7 @@ async fn handle_request(limiter: &limiteron::limiters::TokenBucketLimiter) {
 | `ValidationError` | 无效输入 | 修正输入 |
 | `ConfigError` | 配置错误 | 检查配置 |
 
-完整变体列表见 [API 参考](API_REFERENCE.md#错误处理)。
+完整变体列表见 [API 参考](API_REFERENCE.md#-错误处理)。
 
 </details>
 
@@ -751,7 +751,7 @@ curl -X DELETE "http://localhost:8080/api/v1/ban/192.168.1.1" \
   -H "Authorization: Bearer your-api-key"
 ```
 
-全部端点与状态码见 [API 参考](API_REFERENCE.md#admin-rest-api)。
+全部端点与状态码见 [API 参考](API_REFERENCE.md#-admin-rest-api)。
 
 ---
 

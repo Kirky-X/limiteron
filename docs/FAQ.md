@@ -286,18 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 <br>
 
-| 算法 | 类型 | 说明 |
-|------|------|------|
-| 令牌桶 | `TokenBucketLimiter` | 固定速率补充令牌，允许突发 |
-| 分片滑动窗口 | `ShardedSlidingWindowLimiter` | 高并发下的精确滑动窗口 |
-| 滑动窗口 | `SlidingWindowLimiter`（已弃用导出） | 旧版滑动窗口 |
-| 固定窗口 | `FixedWindowLimiter` | 固定时间窗口内限制请求数 |
-| 并发控制 | `ConcurrencyLimiter` | 限制同时处理的请求数 |
-| GCRA | `GcraLimiter`（`gcra` 特性） | 信元速率算法，平滑限流 |
-| HTB | `HierarchicalTokenBucket` | 分层令牌桶，父子带宽借用 |
-| AIMD 自适应 | `AdaptiveConcurrencyLimiter`（`adaptive-limiting` 特性） | 按延迟/错误率反馈调窗 |
-
-**另请参阅:** [算法详情](API_REFERENCE.md#-限流器)
+**令牌桶、滑动窗口（已弃用导出）与分片滑动窗口、固定窗口、并发控制、GCRA（`gcra` 特性）、HTB 分层令牌桶、AIMD 自适应并发（`adaptive-limiting` 特性）**。各算法的类型与适用场景对照见[用户指南](USER_GUIDE.md#1️-限流器)，构造签名与特性要求见[算法详情](API_REFERENCE.md#-限流器)。
 
 </details>
 
@@ -638,27 +627,7 @@ for i in 0..100 {
 
 <br>
 
-**检查清单:**
-
-- [ ] 是否在 release 模式运行?
-  ```bash
-  cargo run --release
-  ```
-
-- [ ] 是否启用了 L1 负缓存?
-  ```rust
-  let governor = Governor::builder()
-      .with_l1_cache_enabled(true)
-      .build()
-      .await?;
-  ```
-
-- [ ] 是否使用 Arc / LazyLock 共享实例?
-  ```rust
-  let limiter = Arc::new(TokenBucketLimiter::new(10, 1));
-  ```
-
-**更多帮助:** [README 性能](../README.md#-性能)
+**常见原因**：未在 release 模式运行、未启用 L1 负缓存、限流器实例未跨请求共享。对应优化命令与代码见[性能优化技巧](#-性能)；完整吞吐/延迟数据见 [README 性能](../README.md#-性能)。
 
 </details>
 
@@ -667,17 +636,7 @@ for i in 0..100 {
 
 <br>
 
-**解决方案:**
-
-```rust
-// 调低 L1 负缓存容量
-let governor = Governor::builder()
-    .with_l1_cache_config(L1CacheConfig::new(Duration::from_secs(60), 1000))
-    .build()
-    .await?;
-```
-
-限流器管理器自带 LRU 淘汰（上限 100,000 条），恶意 key 不会无限累积。
+**解决方案:** 调低 L1 负缓存容量即可降低内存占用；调优代码与各组件内存特征见[性能](#-性能)。
 
 </details>
 
@@ -776,17 +735,7 @@ bug 的清晰描述
 
 <br>
 
-**本项目基于 MIT 许可证发布**（自 v0.2.3 起，此前为 Apache-2.0，详见 [更新日志](CHANGELOG.md)）。
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](../LICENSE)
-
-**权限:**
-- ✅ 商业使用
-- ✅ 修改
-- ✅ 分发
-- ✅ 私有使用
-
-**唯一条件:** 保留许可证与版权声明（Copyright (c) 2026 Kirky.X）。
+**本项目基于 MIT + Commons Clause 许可证发布**，商业使用需单独授权。完整条款见 [LICENSE](../LICENSE)；MIT 基础许可自 v0.2.3 起沿用（此前为 Apache-2.0），变更记录见[更新日志](CHANGELOG.md)。
 
 </details>
 
@@ -795,17 +744,7 @@ bug 的清晰描述
 
 <br>
 
-**可以！** MIT 许可证允许商业使用。
-
-**你需要做的:**
-1. ✅ 包含许可证文本
-2. ✅ 包含版权声明
-3. ✅ 声明任何修改
-
-**你不需要做的:**
-- ❌ 共享你的源代码
-- ❌ 开源你的项目
-- ❌ 支付版权费
+**需单独授权。** 项目采用 MIT + Commons Clause 许可，商业使用需单独授权，条款详见 [LICENSE](../LICENSE)。
 
 </details>
 

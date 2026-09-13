@@ -14,11 +14,15 @@
 
 ---
 
-<div align="center">
+<div align="center" style="padding: 32px; margin: 24px 0">
 
-| 🚦 多维限流 | 🛡️ 纵深管控 | 🔌 可插拔底座 | 📈 生产可观测 |
-|:---:|:---:|:---:|:---:|
-| 令牌桶、滑动/固定窗口、并发控制、GCRA、HTB 分层令牌桶 | 封禁、配额、熔断、降级沿一条决策链协同执行 | 内存存储开箱即用，经 dbnexus 与 oxcache 接入持久化与分布式缓存 | Prometheus 指标、OTLP 追踪导出、HMAC 链式审计日志 |
+### 🚦 统一流量控制
+
+一个 Governor 入口，多维限流与纵深管控协同决策：
+
+<table style="width:100%; border-collapse: collapse">
+<tr><td align="center" width="25%" style="padding: 12px">🚦<br><b>多维限流</b><br><span style="color:#64748B">令牌桶、滑动/固定窗口、并发控制、GCRA、HTB 分层令牌桶</span></td><td align="center" width="25%" style="padding: 12px">🛡️<br><b>纵深管控</b><br><span style="color:#64748B">封禁、配额、熔断、降级沿一条决策链协同执行</span></td><td align="center" width="25%" style="padding: 12px">🔌<br><b>可插拔底座</b><br><span style="color:#64748B">内存存储开箱即用，经 dbnexus 与 oxcache 接入持久化与分布式缓存</span></td><td align="center" width="25%" style="padding: 12px">📈<br><b>生产可观测</b><br><span style="color:#64748B">Prometheus 指标、OTLP 追踪导出、HMAC 链式审计日志</span></td></tr>
+</table>
 
 </div>
 

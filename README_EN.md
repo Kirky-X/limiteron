@@ -14,11 +14,15 @@
 
 ---
 
-<div align="center">
+<div align="center" style="padding: 32px; margin: 24px 0">
 
-| 🚦 Multi-Algorithm Limiting | 🛡️ Layered Control | 🔌 Pluggable Foundation | 📈 Production Observability |
-|:---:|:---:|:---:|:---:|
-| Token bucket, sliding/fixed window, concurrency, GCRA, HTB hierarchical token bucket | Bans, quotas, circuit breaking, and fallback cooperate along one decision chain | In-memory storage out of the box; persistence and distributed cache via dbnexus and oxcache | Prometheus metrics, OTLP tracing export, HMAC hash-chained audit log |
+### 🚦 Unified Traffic Control
+
+One Governor entrypoint where multi-algorithm limiting and layered control decide together:
+
+<table style="width:100%; border-collapse: collapse">
+<tr><td align="center" width="25%" style="padding: 12px">🚦<br><b>Multi-Algorithm Limiting</b><br><span style="color:#64748B">token bucket, sliding/fixed window, concurrency, GCRA, HTB</span></td><td align="center" width="25%" style="padding: 12px">🛡️<br><b>Layered Control</b><br><span style="color:#64748B">bans, quotas, circuit breaking, fallback on one decision chain</span></td><td align="center" width="25%" style="padding: 12px">🔌<br><b>Pluggable Foundation</b><br><span style="color:#64748B">in-memory out of the box; persistence via dbnexus, cache via oxcache</span></td><td align="center" width="25%" style="padding: 12px">📈<br><b>Production Observability</b><br><span style="color:#64748B">Prometheus metrics, OTLP tracing export, HMAC audit chain</span></td></tr>
+</table>
 
 </div>
 
@@ -27,7 +31,7 @@
 ## 📋 Table of Contents
 
 <details open>
-<summary>📑 Table of Contents</summary>
+<summary>📑 目录</summary>
 
 - [✨ Features](#-features)
 - [🚀 Quick Start](#-quick-start)

@@ -56,7 +56,7 @@ pub async fn healthz() -> Json<serde_json::Value> {
 
 /// GET /readyz — 就绪探针
 ///
-/// 聚合 [`Governor::health_status()`] 的组件级状态：
+/// 聚合 [`Governor::health_status()`](crate::governor::Governor::health_status) 的组件级状态：
 /// - 全部健康 → 200 + `{"status":"ready", ...}`
 /// - 任一不健康 → 503 + 不健康组件明细
 pub async fn readyz(State(state): State<AppState>) -> axum::response::Response {
@@ -263,7 +263,7 @@ pub struct BatchCheckBody {
 ///
 /// 请求体 `{"requests": [{user_id, ip, path, method}, ...]}`，对 N 个
 /// key 各执行一次完整 Governor 决策，返回逐项结果。单条失败不中断
-/// 整批（逐项报告 error）。上限 [`BATCH_MAX_ITEMS`] 条，超出返回 400。
+/// 整批（逐项报告 error）。上限 `BATCH_MAX_ITEMS` 条，超出返回 400。
 pub async fn check_batch(
     State(state): State<AppState>,
     Json(body): Json<BatchCheckBody>,
@@ -362,7 +362,7 @@ fn token_prefetcher() -> &'static crate::limiters::BatchTokenPrefetcher {
 ///
 /// 请求体 `{"items": [{"key": "...", "tokens": N}, ...]}`，为 N 个 key
 /// 各一次性原子预留 tokens 个令牌（见 `BatchTokenPrefetcher`）。返回
-/// 逐项 `granted` 与汇总计数。上限 [`BATCH_MAX_ITEMS`] 条。
+/// 逐项 `granted` 与汇总计数。上限 `BATCH_MAX_ITEMS` 条。
 pub async fn prefetch_tokens(
     Json(body): Json<TokenPrefetchBody>,
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {

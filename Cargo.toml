@@ -16,7 +16,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.3.0-rc.3"
+version = "0.3.0-rc.4"
 edition = "2024"
 rust-version = "1.97.1"
 authors = ["Kirky.X"]
@@ -83,10 +83,10 @@ oxcache = { version = "0.5.0-rc.4", default-features = false, features = ["core"
 # 驱动由各 feature 显式请求（limiteron 的 `postgres` feature 会启用 dbnexus/postgres）。
 # 若在此写死 "postgres"，会强制 server-side 驱动，与下游（如 agentstem memory 的
 # dbnexus/sqlite）在同一次构建中合并，触发 dbnexus 的 embedded/server-side 互斥编译错误。
-dbnexus = { version = "0.6.0-rc.3", default-features = false, features = ["macros", "sql-parser", "permission"] }
+dbnexus = { version = "0.6.0-rc.4", default-features = false, features = ["macros", "sql-parser", "permission"] }
 
 # 宏
-limiteron-macros = { path = "macros", version = "0.3.0-rc.3" }
+limiteron-macros = { path = "macros", version = "0.3.0-rc.4" }
 
 # 监控
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -206,7 +206,7 @@ writeable = { version = "0.6", optional = true }
 # trait-kit integration (optional, feature-gated via `kit`).
 # trait-kit 0.4 is used via path dependency for workspace compatibility.
 [dependencies.trait-kit]
-version = "0.5.0-rc.3"
+version = "0.5.0-rc.4"
 features = ["async", "health", "lifecycle"]
 optional = true
 default-features = false
@@ -216,14 +216,14 @@ default-features = false
 # the `http`/`cli` features — limiteron only needs the core LoggerManager +
 # log/tracing bridge. Mirrors the trait-kit optional-dependency pattern.
 [dependencies.inklog]
-version = "0.3.0-rc.3"
+version = "0.3.0-rc.4"
 default-features = false
 optional = true
 
 # confers configuration integration (optional, feature-gated via `config-confers`).
 # Mirrors trait-kit three-tier feature pattern: confers → reload → encryption.
 [dependencies.confers]
-version = "0.6.0-rc.3"
+version = "0.6.0-rc.4"
 default-features = false
 optional = true
 
@@ -510,9 +510,3 @@ inherits = "release"
 # ============================================================================
 # 本地开发联调 patch（rc.3 发布前临时指向本地路径）
 # ============================================================================
-[patch.crates-io]
-trait-kit = { path = "../trait-kit" }
-oxcache = { path = "../oxcache" }
-dbnexus = { path = "../dbnexus" }
-inklog = { path = "../inklog" }
-confers = { path = "../confers" }

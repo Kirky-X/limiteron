@@ -176,7 +176,7 @@ impl AuditLogEntry {
     /// 计算本条目的链哈希
     ///
     /// 工作区统一模式：`chain_hash = HMAC-SHA256(key, prev_hash ‖ payload)`，
-    /// payload 为条目签名消息（与 [`Self::generate_signature`] 同源），实现
+    /// payload 为条目签名消息（与 `Self::generate_signature` 同源），实现
     /// 删除/重排/篡改任意中间记录均可被 [`Self::verify_chain`] 检出。
     pub fn chain_link(&self, signing_key: &str, prev_hash: &str) -> String {
         let mut mac = Hmac::<Sha256>::new_from_slice(signing_key.as_bytes())

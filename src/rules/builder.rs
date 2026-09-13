@@ -287,7 +287,7 @@ impl RuleBuilder {
     /// 参与运行时求值；未注册的仍编译为恒不匹配占位并告警。
     ///
     /// # 性能约束
-    /// 条件求值是同步路径，闭包内经 [`drive_lightweight`] 驱动异步
+    /// 条件求值是同步路径，闭包内经 `drive_lightweight` 驱动异步
     /// `matches`——自定义匹配器必须是轻量实现（头检查/阈值比较），
     /// 返回 `Pending` 的实现将按不匹配处理并记 error 日志。
     pub async fn build_rules_with_registry(

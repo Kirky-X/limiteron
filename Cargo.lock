@@ -733,7 +733,9 @@ dependencies = [
 
 [[package]]
 name = "confers"
-version = "0.6.0-rc.3"
+version = "0.6.0-rc.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e93a0924eabc16e4fd10766c890d0c661ac62d32243ce8d8197a105931dbfb8"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -757,7 +759,9 @@ dependencies = [
 
 [[package]]
 name = "confers-macros"
-version = "0.6.0-rc.3"
+version = "0.6.0-rc.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "246b658b18e09a056e9a69f5e8bd3be8f34ebe8efe2a13cd369c286e40f9367a"
 dependencies = [
  "darling 0.24.1",
  "proc-macro2",
@@ -1077,7 +1081,9 @@ dependencies = [
 
 [[package]]
 name = "dbnexus"
-version = "0.6.0-rc.3"
+version = "0.6.0-rc.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c401a79e18efbfe78d49c6e1739d18b61e96b3527fed73753443dbcfe46fcb9"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1107,7 +1113,9 @@ dependencies = [
 
 [[package]]
 name = "dbnexus-macros"
-version = "0.6.0-rc.3"
+version = "0.6.0-rc.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91821dfb82e45ff32682bfdb49f3082334278dd31a9313ef1974e002d03cf4da"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2283,7 +2291,9 @@ dependencies = [
 
 [[package]]
 name = "inklog"
-version = "0.3.0-rc.3"
+version = "0.3.0-rc.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de4b9a8ac2f3220e56f79315cd8a3bb318dbade1a8ff60cc72f02b724818b7f5"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2616,7 +2626,7 @@ dependencies = [
 
 [[package]]
 name = "limiteron"
-version = "0.3.0-rc.3"
+version = "0.3.0-rc.4"
 dependencies = [
  "ahash",
  "async-trait",
@@ -2674,7 +2684,7 @@ dependencies = [
 
 [[package]]
 name = "limiteron-examples"
-version = "0.3.0-rc.3"
+version = "0.3.0-rc.4"
 dependencies = [
  "ahash",
  "axum",
@@ -2692,7 +2702,7 @@ dependencies = [
 
 [[package]]
 name = "limiteron-macros"
-version = "0.3.0-rc.3"
+version = "0.3.0-rc.4"
 dependencies = [
  "limiteron",
  "proc-macro2",
@@ -3020,6 +3030,8 @@ dependencies = [
 [[package]]
 name = "oxcache"
 version = "0.5.0-rc.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d6c9870fdf44705199a23baf0ecfa891ba9b4b58fe56d556fb2afacf7e507f4"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4931,7 +4943,9 @@ dependencies = [
 
 [[package]]
 name = "trait-kit"
-version = "0.5.0-rc.3"
+version = "0.5.0-rc.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94e896c580ee8995766ef4bd58734ecb4bc88118ccb73cb67f38d6ef3c8ad739"
 
 [[package]]
 name = "try-lock"

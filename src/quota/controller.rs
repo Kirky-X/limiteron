@@ -557,7 +557,7 @@ impl QuotaController {
     /// 构造租户限定的配额用户键
     ///
     /// 存储键 = `t:{tenant_id}:{user_id}`，其中 tenant_id 经
-    /// [`crate::tenant::sanitize_tenant_id`] 转义 ':' 防前缀碰撞；
+    /// `crate::tenant::config::sanitize_tenant_id` 转义 ':' 防前缀碰撞；
     /// `user_id` 由调用方校验不含 ':'。
     #[cfg(feature = "multi-tenant")]
     pub fn tenant_user_key(tenant_id: &str, user_id: &str) -> String {

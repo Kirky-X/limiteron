@@ -518,7 +518,7 @@ cargo bench --features full
 
 ## 🔒 安全
 
-**漏洞报告**：请勿通过公开 issue 报告安全漏洞，请使用 GitHub [Security Advisories](https://github.com/Kirky-X/limiteron/security/advisories/new) 私密披露通道（"Report a vulnerability"）。维护者承诺 48 小时内确认、7 天内给出初步评估，采用协调披露。完整流程见 [SECURITY.md](SECURITY.md) 与[安全文档](docs/SECURITY.md)。
+**漏洞报告**：请勿通过公开 issue 报告安全漏洞，请使用 GitHub [Security Advisories](https://github.com/Kirky-X/limiteron/security/advisories/new) 私密披露通道（"Report a vulnerability"）。维护者承诺 48 小时内确认、7 天内给出初步评估，采用协调披露。完整流程见 [SECURITY.md](docs/SECURITY.md)。
 
 **安全设计要点**（均可在源码与[安全文档](docs/SECURITY.md)中对应）：
 

@@ -518,7 +518,7 @@ cargo bench --features full
 
 ## 🔒 Security
 
-**Reporting a vulnerability**: please do not report security vulnerabilities through public issues. Use the GitHub [Security Advisories](https://github.com/Kirky-X/limiteron/security/advisories/new) private disclosure channel ("Report a vulnerability"). The maintainer commits to acknowledging reports within 48 hours and providing an initial assessment within 7 days, following coordinated disclosure. See [SECURITY.md](SECURITY.md) and the [Security document](docs/SECURITY.md) for the full process.
+**Reporting a vulnerability**: please do not report security vulnerabilities through public issues. Use the GitHub [Security Advisories](https://github.com/Kirky-X/limiteron/security/advisories/new) private disclosure channel ("Report a vulnerability"). The maintainer commits to acknowledging reports within 48 hours and providing an initial assessment within 7 days, following coordinated disclosure. See [SECURITY.md](docs/SECURITY.md) for the full process.
 
 **Security design highlights** (each traceable in the source and the [Security document](docs/SECURITY.md)):
 

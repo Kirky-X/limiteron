@@ -190,11 +190,7 @@ Lua 脚本减少网络往返，Redis 存储的原子操作通过预编译的 Lua
 
 ## 🔌 扩展能力
 
-Limiteron 提供了丰富的扩展点，支持用户根据业务需求进行定制。自定义限流器通过实现 Limiter trait 接口添加新的限流算法，决策链与中间件可以无差别使用。自定义匹配器通过实现 CustomMatcher trait 接口添加新的匹配逻辑，支持注册表管理。自定义存储后端通过实现 Storage、QuotaStorage、BanStorage 三个 trait 接口添加新的存储实现。
-
-过程宏支持通过 `#[flow_control]` 属性宏简化限流配置。宏在编译时解析配置参数（rate / quota / concurrency / on_exceed / key_prefix 等），生成优化的代码，减少运行时开销。宏的扩展能力通过独立的 proc-macro crate（`macros/`）实现，支持更复杂的代码生成需求。配置热更新支持运行时修改限流配置而无需重启服务：`POST /api/v1/config` 原子换配置并同步重建规则匹配器与决策链，`config-watcher` 特性监听配置文件变化自动触发重新加载。
-
-特征标志体系支持功能模块的按需编译，用户可以根据实际需求选择启用 ban-manager、quota-control、circuit-breaker、fallback 等功能特性。这种设计使得部署包可以根据实际使用场景进行裁剪，减少不必要的依赖和编译时间。
+Limiteron 的扩展点覆盖自定义限流算法（`Limiter` trait）、自定义匹配器（`CustomMatcher`）、自定义存储后端（`Storage` / `QuotaStorage` / `BanStorage`）、`#[flow_control]` 过程宏参数、配置热更新（`POST /api/v1/config` + `config-watcher`）与分布式限流（`DistributedLimiter`）等，各扩展点的机制与注入方式以[架构文档的扩展机制](ARCHITECTURE.md#-扩展机制)为准。特征标志体系支持功能模块的按需编译，部署包可根据实际使用场景裁剪依赖与编译时间。
 
 ## 📦 配置与依赖管理
 

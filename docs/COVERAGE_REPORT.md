@@ -148,8 +148,4 @@ cargo tarpaulin --out Html --features minimal
 cargo tarpaulin --out Json --features minimal
 ```
 
-当前口径请使用 cargo-llvm-cov（与 CI 门禁一致）：
-
-```bash
-cargo llvm-cov --workspace --no-default-features --features full --lib --fail-under-lines 80 --lcov --output-path lcov.info
-```
+当前口径请使用 cargo-llvm-cov（与 CI/pre-push 门禁一致，完整命令见本报告开头的数据口径说明与 [测试指南](TESTING.md#-测试覆盖率)；生成 lcov 文件时追加 `--lcov --output-path lcov.info`）。

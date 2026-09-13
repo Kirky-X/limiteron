@@ -299,106 +299,17 @@ cargo run -p limiteron-examples --features "ban-manager,admin-api" --bin ban_htt
 
 ## 🏗️ 架构
 
-Limiteron 采用分层架构：接入层（Tower 中间件、Admin API）将流量交给 **Governor** 主控制器；Governor 经 **matchers** 提取标识符并匹配规则，再沿规则各自的 **decision_chain** 决策链级联执行，链上节点为 **limiters** 中的限流算法实例；封禁、配额、熔断、降级作为领域组件参与决策；状态经 **storage** 抽象落地，默认内存实现，生产可切换 **adapters** 提供的 dbnexus（PostgreSQL / SQLite / MySQL）持久化；**telemetry** 与 **events** 提供指标、追踪与事件外发。
+Limiteron 采用分层架构：接入层（Tower 中间件、Admin API）将流量交给 **Governor** 主控制器，经 matchers 提取标识符并匹配规则后，沿规则各自的 decision_chain 决策链级联执行 limiters 限流算法；封禁、配额、熔断、降级作为领域组件参与决策；状态经 storage 抽象落地（默认内存，生产可切换 dbnexus 的 PostgreSQL / SQLite / MySQL 持久化）。
 
-```mermaid
-flowchart TD
-    MW["middleware · Tower 中间件"] --> GV["governor · 主控制器"]
-    ADM["admin · 管理 REST API"] --> GV
-    GV --> MT["matchers · 标识符提取与规则匹配"]
-    GV --> DC["decision_chain · 决策链"]
-    GV --> L1["l1_cache · 负缓存"]
-    GV --> CB["circuit · 熔断器"]
-    GV --> FB["fallback · 降级策略"]
-    DC --> LM["limiters · 限流算法"]
-    GV --> BN["ban · 封禁管理"]
-    BN --> ST["storage · 存储抽象"]
-    QU["quota · 配额控制"] --> ST
-    ST --> AD["adapters · dbnexus 适配器"]
-    GV --> TE["telemetry · 指标与追踪"]
-    GV --> EV["events · 事件系统"]
-```
-
-| 模块 | 路径 | 职责 |
-|------|------|------|
-| Governor | `src/governor.rs` | 主控制器：标识符提取、规则匹配、级联决策、统计与自省 |
-| Limiters | `src/limiters/` | 令牌桶、滑动/分片滑动/固定窗口、并发、GCRA、HTB、AIMD 自适应、配额限流器 |
-| Matchers | `src/matchers/` | 标识符提取器、规则匹配引擎、自定义匹配器注册表 |
-| DecisionChain | `src/decision_chain/` | 按优先级级联的责任链与链级统计 |
-| Ban | `src/ban/` | 封禁类型、YAML 文件加载与热重载 |
-| Quota | `src/quota/` | 配额控制器与周期窗口 |
-| Circuit | `src/circuit/` | 熔断器 |
-| Storage | `src/storage/` | `Storage` / `BanStorage` / `QuotaStorage` trait、内存实现、并行封禁检查器 |
-| Adapters | `src/adapters/` | dbnexus 存储适配器与 `StorageFactory`（DSN 创建） |
-| Cache | `src/cache/` | oxcache 统一缓存服务 |
-| Events | `src/events/` | 事件发射/分发、Outbox、Webhook 签名、封禁同步 |
-| Middleware | `src/middleware/` | Tower Layer / Service、限流响应头 |
-| Admin | `src/admin/` | 管理 REST API 服务器、RBAC、K8s 探针 |
-| Telemetry | `src/telemetry/` | Prometheus 指标、OTLP 导出 |
-
-<details>
-<summary><b>💾 存储后端</b></summary>
-
-<br>
-
-| 后端 | 模块 | 特性 | 说明 |
-|------|------|------|------|
-| MemoryStorage | `src/storage/` | 始终可用 | 内存存储，适合单机开发与测试 |
-| DBNexus 适配器 | `src/adapters/` | `postgres` / `sqlite` / `mysql` | 经 dbnexus 持久化，`StorageFactory` 从 DSN 创建 |
-
-> **说明**：`RedisStorage` 与 `redis-storage` 特性已在 v0.2.1 移除，缓存统一经 oxcache 管理（启用 `cache-storage` 即使用 Redis 缓存后端）。
-
-</details>
-
-深入设计见[架构文档](docs/ARCHITECTURE.md)。
+整体架构图、核心决策时序、模块职责表、存储后端清单与扩展机制见[架构文档](docs/ARCHITECTURE.md)。
 
 ---
 
 ## 🎯 核心决策流程
 
-一次 `Governor::check(context)` 的完整决策路径（提炼自 `src/governor.rs`）：
+一次 `Governor::check(context)` 的完整决策路径（提炼自 `src/governor.rs`）：标识符提取与规则匹配（只计算一次）→ L1 负缓存查询（fail-closed，仅缓存拒绝/封禁决策）→ 按优先级级联执行各规则决策链（任一规则拒绝即拒绝，全部允许才放行）→ 发射限流事件并返回 `Allowed` / `Rejected` / `Banned`。
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant C as 调用方
-    participant G as Governor
-    participant M as matchers
-    participant L as L1 负缓存
-    participant D as decision_chain
-    participant R as limiters
-    participant E as events
-
-    C->>G: check 请求上下文
-    G->>M: 提取标识符并匹配规则
-    M-->>G: 标识符与命中规则
-    G->>L: 查询缓存键
-    alt 命中拒绝或封禁决策
-        L-->>G: 缓存决策
-        G-->>C: 直接返回 不再消耗令牌
-    else 未命中或允许决策
-        loop 每条命中规则 按优先级级联
-            G->>D: 执行规则决策链
-            D->>R: 消费令牌或配额
-            R-->>D: 节点决策
-            D-->>G: 链决策
-        end
-        alt 任一规则拒绝或封禁
-            G->>L: 写入负缓存 仅缓存非允许决策
-            G->>E: 发射限流事件
-            G-->>C: Rejected 或 Banned
-        else 全部规则允许
-            G-->>C: Allowed
-        end
-    end
-```
-
-关键语义（均可在源码中对应）：
-
-- **规则匹配只计算一次**，命中规则贯穿整个检查流程
-- **负缓存 fail-closed**：仅拒绝/封禁决策入 L1 缓存，"允许"决策永不入缓存，任何请求都必须真实执行限流检查
-- **级联执行**：任一规则拒绝即拒绝，全部允许才放行
-- 启用 `parallel-checker` 时，封禁检查先于缓存读取执行，被封禁标识符无法借缓存绕过
+完整决策时序图与逐条关键语义（含 `parallel-checker` 下封禁检查先于缓存读取的语义）见[架构文档](docs/ARCHITECTURE.md#-核心决策流程)。
 
 ---
 
@@ -420,15 +331,7 @@ Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式
 
 ## 🧪 测试
 
-**测试策略矩阵**
-
-| 层级 | 承载 | 说明 |
-|------|------|------|
-| 单元测试 | `src/**` 内联 `#[cfg(test)]` | 覆盖 governor、limiters、ban、quota、circuit、matchers 等模块 |
-| 集成/端到端 | `tests/` 顶层目标与子目录 | `unified_tests`、`integration_tests`、`e2e_tests`、`common_tests`、`security_tests`、`admin_security_tests`、`chaos_tests`、`e2e_advanced`、`probes_e2e`、`otlp_export_tests` 等 |
-| 属性测试 | `tests/property_tests/` | proptest：并发、固定窗口、滑动窗口、令牌桶 |
-| 文档测试 | 文档注释代码块 | 随 `cargo test` 编译执行 |
-| 基准测试 | `benches/` | criterion：throughput / latency / memory / regression |
+测试策略矩阵（单元 / 集成与端到端 / 属性 / 文档 / 基准五层）与运行命令（与 [CI](.github/workflows/ci.yml) 一致，含覆盖率门禁）见[测试指南](docs/TESTING.md)，分层基线与 E2E 场景定义见[测试场景固化](docs/TEST_SCENARIOS.md)。
 
 **测试规模**（按 `#[test]` / `#[tokio::test]` 属性 grep 统计，截至 v0.3.0-rc.3）：
 
@@ -437,26 +340,6 @@ Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式
 | 库内测试函数（`src/`） | 2,160（#[test] 1,410 + #[tokio::test] 750） |
 | 外部测试函数（`tests/`） | 599（#[test] 157 + #[tokio::test] 442） |
 | 属性测试组（proptest） | 4 |
-
-**运行命令**（与 [CI](.github/workflows/ci.yml) 一致）：
-
-```bash
-# CI 全量测试口径
-cargo test --workspace --no-default-features --features full
-
-# 库单元测试
-cargo test --features full --lib
-
-# 统一集成测试（按 feature 显式启用）
-cargo test --test unified_tests --features "ban-manager,quota-control,circuit-breaker"
-
-# 覆盖率门禁（CI 与 lefthook pre-push 均启用，行覆盖率 ≥ 80%）
-cargo llvm-cov --workspace --no-default-features --features full --lib --fail-under-lines 80
-```
-
-> 📌 `postgres` / `sqlite` / `mysql` 互斥，`--all-features` 会触发 dbnexus 编译错误，请始终使用显式特性组合。
-
-详细测试说明见[测试指南](docs/TESTING.md)与[测试场景固化](docs/TEST_SCENARIOS.md)。
 
 ---
 
@@ -544,7 +427,7 @@ cargo bench --features full
 </tr>
 <tr>
 <td width="12%" align="center"><b>✅ v0.3.0-rc.3 已交付</b></td>
-<td>MySQL 存储、HTB 分层令牌桶、舱壁隔离、AIMD 自适应并发限流、Redis 分布式限流器（跨实例 Lua 协调）、多租户贯穿 Governor、K8s 探针端点、Admin RBAC、CIDR 网段封禁、OTLP 追踪导出、<code>limiteron-cli</code>、Webhook 签名、事件 Outbox、封禁跨实例同步（详见<a href="docs/CHANGELOG.md">更新日志</a>）</td>
+<td>多租户贯穿 Governor、CIDR 网段封禁、Admin RBAC、OTLP 追踪导出、MySQL 存储、分布式限流器、<code>limiteron-cli</code> 等新能力（详见<a href="docs/CHANGELOG.md">更新日志</a>）</td>
 </tr>
 <tr>
 <td width="12%" align="center"><b>🚧 进行中</b></td>
@@ -600,19 +483,7 @@ cargo bench --features full
 
 <br>
 
-- **工具链**：Rust 1.97.1（[rust-toolchain.toml](rust-toolchain.toml) 统一锁定）
-- **提交信息**：遵循 Conventional Commits（`feat` / `fix` / `refactor` / `docs` / `test` / `chore` 等）
-- **lefthook 钩子**（`lefthook install` 启用）：
-  - pre-commit：`cargo fmt --all -- --check`、`cargo clippy --all-targets --no-default-features --features full -- -D warnings`、`cargo deny check`、私钥扫描
-  - commit-msg：Conventional Commits 格式校验
-  - pre-push：`cargo audit`、行覆盖率 ≥ 80% 门禁
-
-```bash
-git clone https://github.com/yourusername/limiteron.git
-cd limiteron
-lefthook install
-cargo test --workspace --no-default-features --features full
-```
+Rust 1.97.1（[rust-toolchain.toml](rust-toolchain.toml) 统一锁定）；lefthook / pre-commit 钩子覆盖 fmt、clippy、供应链检查、私钥扫描与覆盖率门禁。环境搭建、钩子明细与提交规范全文见[贡献指南](docs/CONTRIBUTING.md)。
 
 </details>
 

@@ -441,19 +441,7 @@ async fn api_handler() -> Result<String, limiteron::error::LimiteronError> {
 
 <br>
 
-**基准测试结果**（2026-01-19 实测，详见 [README 性能](../README.md#-性能)）：
-
-| 操作 | 吞吐量 | 延迟 (P50) | 延迟 (P99) |
-|------|--------|-----------|-----------|
-| 令牌桶检查 | 12M+ ops/s | < 100ns | < 1µs |
-| 固定窗口检查 | 20M+ ops/s | < 100ns | < 500ns |
-| 并发检查 | 12M+ ops/s | < 100ns | < 1µs |
-
-**自己运行基准测试:**
-
-```bash
-cargo bench --features full
-```
+**令牌桶检查 12M+ ops/s（P99 < 1µs）、固定窗口检查 20M+ ops/s、并发检查 12M+ ops/s**（2026-01-19 实测；完整吞吐/延迟分位表见 [README 性能](../README.md#-性能)）。可用 `cargo bench --features full` 自行复现。
 
 </details>
 
@@ -538,18 +526,7 @@ let governor = Governor::builder()
 
 <br>
 
-**安全设计贯穿始终。** 全部安全机制均可在源码与[安全文档](SECURITY.md)中对应：
-
-| 防线 | 机制 |
-|------|------|
-| 输入防线 | 标识符 key 消毒（ASCII 白名单 + 128 字符截断）、IP / 用户 ID / MAC 格式校验 |
-| 算法边界 | 令牌桶饱和运算封顶、配额窗口时钟回退防护 |
-| Admin 自保护 | 管理端点自身限流、分桶内存上限、多 key 令牌认证与 RBAC |
-| 数据保护 | secrecy 保护敏感数据、日志脱敏、审计事件 HMAC-SHA256 链式签名 |
-| 传输防线 | 可信代理 X-Forwarded-For 提取、Webhook 外发签名与防重放、SSRF URL 校验 |
-| 供应链 | rustls-webpki 最低版本锁（CVE-2025-48369）、cargo-deny / cargo-audit / CodeQL |
-
-**更多详情:** [安全文档](SECURITY.md)
+**安全设计贯穿始终。** 输入防线、算法边界、Admin 自保护、数据保护、传输防线与供应链六类机制均可在源码与[安全文档](SECURITY.md#️-安全设计概览)中对应，逐项机制说明见该文档的安全设计概览。
 
 </details>
 
@@ -558,18 +535,9 @@ let governor = Governor::builder()
 
 <br>
 
-**请负责任地报告安全问题:**
+**请负责任地报告安全问题：** 不要创建公开 issue 披露漏洞细节，优先使用 GitHub 私密漏洞报告（仓库页 → Security → Report a vulnerability）。维护者承诺 48 小时内确认、7 天内给出初步评估，采用协调披露。
 
-1. **不要**创建公开 issue 披露漏洞细节
-2. **优先使用 GitHub 私密漏洞报告**：仓库页 → Security → Report a vulnerability；若不可用，可在 Issues 中报告但**不要**包含可直接利用的细节、PoC 载荷或影响线上环境的信息
-3. **包括:** 受影响版本、feature 组合、复现步骤、影响评估
-
-**响应时间线**（与 [安全文档](SECURITY.md) 一致）:
-
-- 📧 确认: 48 小时内
-- 🔍 初步评估: 7 天内
-- 🔧 修复: 先在私有分支进行，随下一个版本发布
-- 📢 披露: 协调披露，修复发布后在更新日志"安全"分类记录
+报告内容要求（受影响版本、feature 组合、复现步骤、影响评估）与完整流程见[安全文档](SECURITY.md#-漏洞报告流程)。
 
 </details>
 

@@ -102,7 +102,7 @@ cargo test --features standard
 | 层级 | 承载位置 | 说明 |
 |------|---------|------|
 | 单元测试 | `src/**` 内联 `#[cfg(test)]` | governor、limiters、ban、quota、circuit、fallback、matchers 等模块自测 |
-| 集成测试 | `tests/` 顶层目标与子目录模块 | `unified_tests`、`integration_tests`、`e2e_tests`、`common_tests`、`security_tests`、`admin_security_tests`、`chaos_tests`、`e2e_advanced` 等 |
+| 集成测试 | `tests/` 顶层目标与子目录模块 | `unified_tests`、`integration_tests`、`e2e_tests`、`common_tests`、`security_tests`、`admin_security_tests`、`chaos_tests`、`e2e_advanced`、`probes_e2e`、`otlp_export_tests` 等 |
 | 属性测试 | `tests/property_tests/` | proptest：并发、固定窗口、滑动窗口、令牌桶 |
 | 文档测试 | 文档注释代码块 | 随 `cargo test` 编译执行 |
 | 基准测试 | `benches/` | criterion：throughput / latency / memory / regression |

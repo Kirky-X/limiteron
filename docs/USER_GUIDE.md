@@ -486,23 +486,7 @@ let governor = Governor::builder()
 
 ### 性能基准
 
-> **测试环境**：Linux WSL2，Release 优化模式；**测试时间**：2026-01-19。
-
-#### 吞吐量测试
-
-| 限流器类型 | 吞吐量 | 目标 | 达标率 |
-|-----------|--------|------|--------|
-| TokenBucket | **12M+ ops/s** | 500K ops/s | ✅ 24x |
-| FixedWindow | **20M+ ops/s** | 300K ops/s | ✅ 66x |
-| ConcurrencyLimiter | **12M+ ops/s** | 200K ops/s | ✅ 60x |
-
-#### 延迟测试
-
-| 指标 | TokenBucket | FixedWindow |
-|------|-------------|-------------|
-| P50 延迟 | < 100ns | < 100ns |
-| P95 延迟 | < 200ns | < 150ns |
-| P99 延迟 | < 1µs | < 500ns |
+吞吐量与延迟基准数字（TokenBucket 12M+ ops/s / P99 < 1µs、FixedWindow 20M+ ops/s 等，2026-01-19 实测）见 [README 性能](../README.md#-性能)。测试环境：Linux WSL2，Release 优化模式。
 
 #### 并发测试
 
@@ -523,11 +507,6 @@ let governor = Governor::builder()
   ConcurrencyLimiter - 通过 (51ms)
   MemoryStorage      - 通过 (8µs)
   CircuitBreaker     - 通过 (1.3s)
-
-性能测试结果:
-  TokenBucket        - 12,088,759 ops/s (目标: 500,000)
-  FixedWindow        - 19,920,188 ops/s (目标: 300,000)
-  ConcurrencyLimiter - 11,891,237 ops/s (目标: 200,000)
 
 并发测试结果:
   串行执行           - 34,540,883 ops/s

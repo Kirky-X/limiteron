@@ -299,106 +299,17 @@ cargo run -p limiteron-examples --features "ban-manager,admin-api" --bin ban_htt
 
 ## 🏗️ Architecture
 
-Limiteron uses a layered architecture: the access layer (Tower middleware, Admin API) hands traffic to the **Governor** main controller; Governor extracts identifiers and matches rules through **matchers**, then cascades along each rule's **decision_chain**, whose nodes are limiter algorithm instances from **limiters**; bans, quotas, circuit breaking, and fallback participate in decisions as domain components; state is persisted through the **storage** abstraction with a default in-memory implementation, switchable in production to the dbnexus adapters (PostgreSQL / SQLite / MySQL) in **adapters**; **telemetry** and **events** provide metrics, tracing, and outbound events.
+Limiteron uses a layered architecture: the access layer (Tower middleware, Admin API) hands traffic to the **Governor** main controller, which extracts identifiers and matches rules through **matchers**, then cascades along each rule's **decision_chain** of limiter algorithm instances; bans, quotas, circuit breaking, and fallback participate in decisions as domain components; state lands through the **storage** abstraction (in-memory by default, switchable in production to dbnexus persistence for PostgreSQL / SQLite / MySQL).
 
-```mermaid
-flowchart TD
-    MW["middleware · Tower Middleware"] --> GV["governor · Main Controller"]
-    ADM["admin · Admin REST API"] --> GV
-    GV --> MT["matchers · Identifier Extraction and Rule Matching"]
-    GV --> DC["decision_chain · Decision Chain"]
-    GV --> L1["l1_cache · Negative Cache"]
-    GV --> CB["circuit · Circuit Breaker"]
-    GV --> FB["fallback · Fallback Strategies"]
-    DC --> LM["limiters · Rate Limiting Algorithms"]
-    GV --> BN["ban · Ban Management"]
-    BN --> ST["storage · Storage Abstraction"]
-    QU["quota · Quota Control"] --> ST
-    ST --> AD["adapters · dbnexus Adapters"]
-    GV --> TE["telemetry · Metrics and Tracing"]
-    GV --> EV["events · Event System"]
-```
-
-| Module | Path | Responsibility |
-|--------|------|----------------|
-| Governor | `src/governor.rs` | Main controller: identifier extraction, rule matching, cascaded decisions, statistics, introspection |
-| Limiters | `src/limiters/` | Token bucket, sliding/sharded-sliding/fixed window, concurrency, GCRA, HTB, AIMD adaptive, quota limiter |
-| Matchers | `src/matchers/` | Identifier extractors, rule matching engine, custom matcher registry |
-| DecisionChain | `src/decision_chain/` | Priority-ordered responsibility chain with chain-level statistics |
-| Ban | `src/ban/` | Ban types, YAML file loading, hot reload |
-| Quota | `src/quota/` | Quota controller and periodic windows |
-| Circuit | `src/circuit/` | Circuit breaker |
-| Storage | `src/storage/` | `Storage` / `BanStorage` / `QuotaStorage` traits, in-memory implementation, parallel ban checker |
-| Adapters | `src/adapters/` | dbnexus storage adapters and `StorageFactory` (DSN-based creation) |
-| Cache | `src/cache/` | Unified cache service via oxcache |
-| Events | `src/events/` | Event emission/dispatch, Outbox, webhook signatures, ban sync |
-| Middleware | `src/middleware/` | Tower Layer / Service, rate limit response headers |
-| Admin | `src/admin/` | Admin REST API server, RBAC, K8s probes |
-| Telemetry | `src/telemetry/` | Prometheus metrics, OTLP export |
-
-<details>
-<summary><b>💾 Storage Backends</b></summary>
-
-<br>
-
-| Backend | Module | Feature | Description |
-|---------|--------|---------|-------------|
-| MemoryStorage | `src/storage/` | always available | In-memory storage for single-instance development and testing |
-| DBNexus adapters | `src/adapters/` | `postgres` / `sqlite` / `mysql` | Persistence via dbnexus, created from a DSN through `StorageFactory` |
-
-> **Note:** `RedisStorage` and the `redis-storage` feature were removed in v0.2.1; caching is now unified through oxcache (enable `cache-storage` to use the Redis cache backend).
-
-</details>
-
-See the [Architecture document](docs/ARCHITECTURE.md) for an in-depth design overview.
+The full architecture diagram, core decision sequence, module responsibility table, storage backend list, and extension mechanisms live in the [Architecture document](docs/ARCHITECTURE.md).
 
 ---
 
 ## 🎯 Core Decision Flow
 
-The complete decision path of a single `Governor::check(context)` call (distilled from `src/governor.rs`):
+The complete decision path of a single `Governor::check(context)` call (distilled from `src/governor.rs`): identifier extraction and rule matching (computed once) → L1 negative-cache lookup (fail-closed, deny/ban decisions only) → priority-ordered cascade across each rule's decision chain (any rule rejecting rejects the request; only unanimous approval passes) → rate-limit event emission and an `Allowed` / `Rejected` / `Banned` outcome.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant C as Caller
-    participant G as Governor
-    participant M as matchers
-    participant L as L1 Negative Cache
-    participant D as decision_chain
-    participant R as limiters
-    participant E as events
-
-    C->>G: check request context
-    G->>M: extract identifier and match rules
-    M-->>G: identifier and matched rules
-    G->>L: look up cache key
-    alt cached deny or ban decision
-        L-->>G: cached decision
-        G-->>C: return early without consuming tokens
-    else cache miss or allow decision
-        loop each matched rule in priority order
-            G->>D: run rule decision chain
-            D->>R: consume tokens or quota
-            R-->>D: node decision
-            D-->>G: chain decision
-        end
-        alt any rule denies or bans
-            G->>L: write negative cache non-allow decisions only
-            G->>E: emit rate limit event
-            G-->>C: Rejected or Banned
-        else all rules allow
-            G-->>C: Allowed
-        end
-    end
-```
-
-Key semantics (each traceable in the source):
-
-- **Rule matching is computed once**, and the matched rules flow through the entire check
-- **Negative caching is fail-closed**: only deny/ban decisions enter the L1 cache; "allow" decisions are never cached, so every request truly executes its rate limit checks
-- **Cascade execution**: any rule rejecting rejects the request; only unanimous approval passes
-- With `parallel-checker` enabled, the ban check runs before the cache read, so banned identifiers cannot bypass bans via the cache
+The full decision sequence diagram and the itemized key semantics (including the `parallel-checker` ordering where the ban check runs before the cache read) live in the [Architecture document](docs/ARCHITECTURE.md#-核心决策流程).
 
 ---
 
@@ -420,15 +331,7 @@ Additionally, the `i18n` feature integrates [ICU4X](https://github.com/unicode-o
 
 ## 🧪 Testing
 
-**Testing strategy matrix**
-
-| Layer | Location | Description |
-|-------|----------|-------------|
-| Unit tests | `#[cfg(test)]` inline in `src/**` | Covers governor, limiters, ban, quota, circuit, matchers, and more |
-| Integration/E2E | `tests/` top-level targets and subdirectories | `unified_tests`, `integration_tests`, `e2e_tests`, `common_tests`, `security_tests`, `admin_security_tests`, `chaos_tests`, `e2e_advanced`, `probes_e2e`, `otlp_export_tests`, and more |
-| Property tests | `tests/property_tests/` | proptest: concurrency, fixed window, sliding window, token bucket |
-| Doc tests | Doc-comment code blocks | Compiled and executed with `cargo test` |
-| Benchmarks | `benches/` | criterion: throughput / latency / memory / regression |
+The testing strategy matrix (unit / integration & E2E / property / doc / benchmark layers) and run commands (identical to [CI](.github/workflows/ci.yml), including the coverage gate) live in the [Testing Guide](docs/TESTING.md); the layer baselines and E2E scenario definitions live in [Test Scenarios](docs/TEST_SCENARIOS.md).
 
 **Test scale** (grep count of `#[test]` / `#[tokio::test]` attributes, as of v0.3.0-rc.3):
 
@@ -437,26 +340,6 @@ Additionally, the `i18n` feature integrates [ICU4X](https://github.com/unicode-o
 | In-library test functions (`src/`) | 2,160 (#[test] 1,410 + #[tokio::test] 750) |
 | External test functions (`tests/`) | 599 (#[test] 157 + #[tokio::test] 442) |
 | Property test groups (proptest) | 4 |
-
-**Commands** (identical to [CI](.github/workflows/ci.yml)):
-
-```bash
-# Full CI test command
-cargo test --workspace --no-default-features --features full
-
-# Library unit tests
-cargo test --features full --lib
-
-# Unified integration tests (enable features explicitly)
-cargo test --test unified_tests --features "ban-manager,quota-control,circuit-breaker"
-
-# Coverage gate (enforced in CI and the lefthook pre-push hook, >= 80% lines)
-cargo llvm-cov --workspace --no-default-features --features full --lib --fail-under-lines 80
-```
-
-> 📌 `postgres` / `sqlite` / `mysql` are mutually exclusive; `--all-features` triggers a dbnexus compile error, so always use explicit feature combinations.
-
-See the [Testing Guide](docs/TESTING.md) and [Test Scenarios](docs/TEST_SCENARIOS.md) for details.
 
 ---
 
@@ -544,7 +427,7 @@ cargo bench --features full
 </tr>
 <tr>
 <td width="12%" align="center"><b>✅ Shipped in v0.3.0-rc.3</b></td>
-<td>MySQL storage, HTB hierarchical token bucket, bulkhead isolation, AIMD adaptive concurrency limiting, Redis distributed limiter (cross-instance Lua coordination), multi-tenancy through Governor, K8s probe endpoints, Admin RBAC, CIDR range bans, OTLP tracing export, <code>limiteron-cli</code>, webhook signatures, event Outbox, cross-instance ban sync (see the <a href="docs/CHANGELOG.md">changelog</a>)</td>
+<td>Multi-tenancy through Governor, CIDR range bans, Admin RBAC, OTLP tracing export, MySQL storage, distributed limiting, <code>limiteron-cli</code>, and more (see the <a href="docs/CHANGELOG.md">changelog</a>)</td>
 </tr>
 <tr>
 <td width="12%" align="center"><b>🚧 In Progress</b></td>
@@ -600,19 +483,7 @@ Want to contribute?<br>
 
 <br>
 
-- **Toolchain**: Rust 1.97.1 (pinned in [rust-toolchain.toml](rust-toolchain.toml))
-- **Commit messages**: follow Conventional Commits (`feat` / `fix` / `refactor` / `docs` / `test` / `chore`, etc.)
-- **lefthook hooks** (enable via `lefthook install`):
-  - pre-commit: `cargo fmt --all -- --check`, `cargo clippy --all-targets --no-default-features --features full -- -D warnings`, `cargo deny check`, private key scanning
-  - commit-msg: Conventional Commits format check
-  - pre-push: `cargo audit`, line coverage >= 80% gate
-
-```bash
-git clone https://github.com/yourusername/limiteron.git
-cd limiteron
-lefthook install
-cargo test --workspace --no-default-features --features full
-```
+Rust 1.97.1 (pinned in [rust-toolchain.toml](rust-toolchain.toml)); lefthook / pre-commit hooks cover fmt, clippy, supply-chain checks, secret scanning, and the coverage gate. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for environment setup, hook details, and commit conventions.
 
 </details>
 

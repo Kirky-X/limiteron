@@ -1,6 +1,6 @@
 # 🔒 Limiteron 安全文档
 
-本文档描述 Limiteron 的版本支持策略、漏洞报告流程、安全设计与使用安全最佳实践。安全设计与机制均来自项目实际实现（详见 [架构文档](ARCHITECTURE.md) 与源码），各版本的安全修复记录见根目录 [更新日志](CHANGELOG.md) 的"安全"分类。
+本文档描述 Limiteron 的版本支持策略、漏洞报告流程、安全设计与使用安全最佳实践。安全设计与机制均来自项目实际实现（详见 [架构文档](ARCHITECTURE.md) 与源码），各版本的安全修复记录见 [更新日志](CHANGELOG.md) 的"安全"分类。
 
 ## 📋 目录
 
@@ -50,7 +50,7 @@
 ### 限流算法的边界处理
 
 - **令牌桶**（`src/limiters/token_bucket.rs`）：时间差与令牌补充均使用 `saturating_sub` / `saturating_add`，并用 `.min(capacity)` 封顶，杜绝整数溢出/下溢导致的额度计算错误。
-- **配额窗口**（`src/quota/`）：内置时钟回退防护——NTP 校时或容器时钟漂移导致 `now < window_start` 时按窗口起点处理，防止窗口重置逻辑被回退时间击穿。
+- **配额窗口**（`src/quota/`）：内置时钟回退防护，NTP 校时或容器时钟漂移导致 `now < window_start` 时按窗口起点处理，防止窗口重置逻辑被回退时间击穿。
 - **时钟抽象**（`src/clock.rs`）：`Clock` trait 统一时间来源，支持 `test-clock` 特性下的 `MockClock` 注入，便于对时间相关安全逻辑做确定性测试。
 
 ### 输入校验与注入防护

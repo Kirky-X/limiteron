@@ -5,11 +5,36 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## 📋 目录
+
+<details open>
+<summary>📑 目录</summary>
+
+- [Unreleased](#unreleased)
+- [0.3.0-rc.3](#030-rc3---2026-09-10)
+- [0.3.0-rc.2](#030-rc2---2026-09-03)
+- [0.2.10](#0210---2026-07-22)
+- [0.2.9](#029---2026-07-18)
+- [0.2.8](#028---2026-07-17)
+- [0.2.7](#027---2026-07-15)
+- [0.2.6](#026---2026-07-13)
+- [0.2.5](#025---2026-07-13)
+- [0.2.4](#024---2026-07-12)
+- [0.2.3](#023---2026-07-11)
+- [0.2.1](#021---2026-07-06)
+- [0.2.0](#020---2026-07-04)
+- [0.1.1](#011---2026-01-20)
+- [0.1.0](#010---2026-01-18)
+
+</details>
+
+---
+
 ## [Unreleased]
 
 ## [0.3.0-rc.3] - 2026-09-10
 
-### 新增（workspace-rc4-completion Phase 6 累计）
+### 新增
 
 - **K8s 探针与指标端点**：admin API `/healthz` `/readyz` `/metrics`（bypass 认证，T601）
 - **多租户贯穿 Governor**：tenant+key 复合决策键，存储/配额/封禁按租户隔离（T602）
@@ -31,7 +56,7 @@
 - **封禁跨实例同步**：`ban-sync` feature 经 oxcache Pub/Sub 协议层广播封禁变更（自消息豁免，mock 单测，T616）
 - **下层端口实现与 kit 对齐**：inklog `SinkRateLimit` 真实实现（按 target 分桶 + ERROR 直通 + 失败归还）；dbnexus `QueryThrottle` 端口语义文档化 + `LimiteronQueryThrottle` 实现；`LimiteronModule` 补 trait-kit `AsyncHealthCheck`/`AsyncLifecycle` 端口并依赖 `OxcacheModule` 注入缓存（dbnexus T413 范式；T617）
 
-### 变更（workspace-rc4-completion Phase 6 累计）
+### 变更
 
 - `kit` feature 扩展：`dep:trait-kit` + `dep:futures` + `oxcache/kit`；trait-kit 依赖补 `health`/`lifecycle` features（T617）
 - `integrations` 模块改为恒编译（子模块保持各自 feature 门控；`query_throttle` 无外部依赖）（T617）
@@ -83,18 +108,18 @@
 
 ## [0.2.9] - 2026-07-18
 
-### 新增（macros-version-sync）
+### 新增
 
 - `limiteron-macros` 版本同步：0.2.7 → 0.2.9（与 workspace 主 crate 版本一致，便于发布）
 
-### 新增（patch-macro-extensions）
+### 新增
 
 - **[T006]** `#[flow_control]` 宏 `on_exceed` 参数实现：`reject`（默认）超限返回错误，`log_only` 超限继续执行，`throttle` 生成 `compile_error!`（`LimiteronError::Throttled` 变体不存在）。parse 阶段拒绝未知 `on_exceed` 值（Rule 12）
 - **[T007]** `#[flow_control]` 宏新增 `key_prefix = "namespace"` 参数，用于多模块同名函数的 key 隔离
 - **[T008]** `#[flow_control]` 宏新增 `tracing = false` / `metrics = false` 参数，可独立禁用 span 和 metrics 记录
 - `LimiterManager` 全局单例（`GLOBAL_LIMITER_MANAGER`）：按 key 缓存 rate/quota/concurrency 限流器，供 `#[flow_control]` 宏生成的代码使用
 
-### 修复（patch-macro-extensions）
+### 修复
 
 - 宏生成代码 bug 1：`rate="100/m"` 的 unit 信息丢失（hardcoded unit_secs=1 导致被当作 100/s 处理）
 - 宏生成代码 bug 2：`quota_check` 使用 `allow(1)` 不消费配额（改为 `check(&key)` 调用 `check_and_consume`）
@@ -108,7 +133,7 @@
 - **二次收敛 bug 修复**：原占位 `mod.rs` 未声明 `pub mod integration;`，导致 `fallback`/`telemetry` 目录下的真实集成测试从未被编译运行（Rule 12 违规：死代码隐藏失败）。修复 `fallback/mod.rs` 和 `telemetry/mod.rs` 为正确声明
 - **二次收敛**：修复 `tests/modules/fallback/integration.rs` 中 `ComponentType::Storage`（不存在）→ `ComponentType::Redis` + 修复 `test_fallback_config_builder` 错误断言（`Default::default()` 设置 `enabled=true`，原断言 `!config.enabled` 错误）
 
-### 新增（audit-macro-followup）
+### 新增
 
 - **[T001]** `#[flow_control]` 宏抽 `build_exceed_handler` 辅助函数，合并 3 个重复的 exceed handler match 表达式（架构-H2 DRY）
 - **[T002]** `#[flow_control]` 宏新增 `sanitize_key_component` 辅助函数（ASCII alphanumeric + `_` `-` `.` + take 128），防御性过滤 `key_prefix` 和 `fname` 中的特殊字符（安全-M1，防止 key 注入和 Unicode 同形字符攻击）
@@ -121,7 +146,7 @@
 - **[T012]** `LimiterManager::clear()` 改为 `#[cfg(test)] pub fn clear_for_test()`，仅测试可用（安全-L1）
 - 新增 13 个单元测试（3 个并发一致性 + 3 个 LRU 淘汰 + 4 个 redact_key + 2 个 QuotaLimiter 边界 + 1 个 sanitize 边界）
 
-### 修复（audit-macro-followup）
+### 修复
 
 - **[CRITICAL H-002]** `LimiterManager::get_*_limiter` 慢路径 TOCTOU 限流绕过：并发场景下返回本地 `Arc::new(...)` 而非 DashMap 中的，导致限流被绕过。改用 `entry().or_insert_with(|| Arc::new(...)).clone()` 模式（tiangang 安全审查）
 - **[HIGH H-001]** `LimiterManager::get_*_limiter` panic 消息中泄露 key 原文：新增 `redact_key` 函数脱敏（短 key 仅暴露字符数，长 key 暴露前 8 字符 + 总长度），用 `chars().take(8).collect()` 避免 UTF-8 边界切片 panic（tiangang 安全审查）
@@ -227,7 +252,7 @@
 - 对齐 inklog 集成与 sdforge 模式
 - 修复 edition 2024 unsafe env 调用
 
-### 变更（Phase 6 前置）
+### 变更
 
 - Rust edition 从 2021 升级到 2024
 - 设置 rust-version 为 1.85
@@ -469,7 +494,9 @@ let ban_manager = BanManager::new().await.unwrap();
 - 监控支持 Prometheus 指标与 OpenTelemetry 追踪
 - 并行封禁检查以提升性能
 
-[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.2.10...HEAD
+[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.3...HEAD
+[0.3.0-rc.3]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.2...v0.3.0-rc.3
+[0.3.0-rc.2]: https://github.com/Kirky-X/limiteron/compare/v0.2.10...v0.3.0-rc.2
 [0.2.10]: https://github.com/Kirky-X/limiteron/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/Kirky-X/limiteron/compare/v0.2.8...v0.2.9
 [0.2.8]: https://github.com/Kirky-X/limiteron/compare/v0.2.7...v0.2.8

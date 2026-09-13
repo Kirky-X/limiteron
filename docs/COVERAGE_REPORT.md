@@ -1,15 +1,24 @@
-# 📈 Limiteron 覆盖率报告
+# 📊 Limiteron 覆盖率报告
 
-> ⚠️ **历史基线数据**：本报告为 v0.1.0 时期的历史基线（生成于 2026-03-20），数据已过时，仅供追溯参考，**待 CI 覆盖率重新生成后更新**。v0.2.0 已重组模块结构，当前测试计数请以 README.md 为准。
+> ## 📊 数据口径说明
+>
+> **本报告为历史快照，数据已过时，请勿作为当前质量依据。**
+>
+> - 本报告基于 **v0.1.0 时期**（生成于 2026-03-20）的 cargo-tarpaulin 统计，覆盖率口径为 **53.56%**。此后 v0.2.x 重组了模块结构、测试规模扩大数倍，这些数字已无法反映现状。
+> - **当前覆盖率门禁为 cargo-llvm-cov 行覆盖率 ≥ 80%**，口径与命令以 [CI 配置](../.github/workflows/ci.yml) 为准：
+>   `cargo llvm-cov --workspace --no-default-features --features full --lib --fail-under-lines 80`
+> - 当前测试规模基线见 [测试场景固化](TEST_SCENARIOS.md) 与 [测试指南](TESTING.md)。
+>
+> 以下内容仅作历史追溯参考，本文档不提供也不应引用任何"当前覆盖率"数字。
 
 生成日期: 2026-03-20
 
-对应版本: v0.1.0（历史基线数据，待 CI 覆盖率重新生成后更新）
+对应版本: v0.1.0（历史基线）
 
 ## 📋 目录
 
 <details open>
-<summary>点击展开</summary>
+<summary>📑 目录</summary>
 
 - [总体覆盖率](#总体覆盖率)
 - [模块覆盖率详情](#模块覆盖率详情)
@@ -41,9 +50,7 @@
 | dbnexus_entities/ban_record.rs | 100% | 2/2 |
 | dbnexus_entities/quota_record.rs | 100% | 2/2 |
 | dbnexus_entities/rate_limit.rs | 100% | 2/2 |
-| decision_chain.rs | 79% | 123/155 |
 | limiters.rs | 87% | 211/242 |
-| config.rs | 79% | 235/298 |
 | l1_cache.rs | 85% | 138/163 |
 
 ### 中等覆盖率模块 (50-80%)
@@ -51,31 +58,33 @@
 | 模块 | 覆盖率 | 覆盖/总数 |
 |------|--------|----------|
 | authorization.rs | 89% | 24/27 |
-| error_abstraction.rs | 41% | 62/151 |
 | matchers/custom.rs | 57% | 132/231 |
 | matchers/mod.rs | 52% | 270/523 |
-| adapters/storage_factory.rs | 38% | 26/68 |
 | governor.rs | 68% | 137/202 |
 | factory/mod.rs | 60% | 36/60 |
-| log_redaction.rs | 32% | 35/108 |
+| decision_chain.rs | 79% | 123/155 |
+| config.rs | 79% | 235/298 |
+| rule_builder.rs | 64% | 49/77 |
+| storage_trait.rs | 53% | 18/34 |
+| error.rs | 54% | 7/13 |
 
 ### 低覆盖率模块 (<50%)
 
 | 模块 | 覆盖率 | 覆盖/总数 |
 |------|--------|----------|
 | adapters/dbnexus_ban_storage.rs | 0% | 0/160 |
-| adapters/dbnexus_quota_storage.rs | 0% | 96 |
+| adapters/dbnexus_quota_storage.rs | 0% | 0/96 |
 | adapters/dbnexus_storage.rs | 0% | 0/55 |
+| adapters/storage_factory.rs | 38% | 26/68 |
 | circuit_breaker.rs | 0% | 0/32 |
 | config_loader.rs | 7% | 9/127 |
 | dbnexus_entities/mod.rs | 0% | 0/7 |
-| error.rs | 54% | 7/13 |
+| error_abstraction.rs | 41% | 62/151 |
 | fallback.rs | 0% | 0/35 |
 | limiter_manager.rs | 33% | 11/33 |
+| log_redaction.rs | 32% | 35/108 |
 | matchers/geo.rs | 0% | 0/54 |
 | oxcache_lua.rs | 0% | 0/2 |
-| rule_builder.rs | 64% | 49/77 |
-| storage_trait.rs | 53% | 18/34 |
 | telemetry.rs | 0% | 0/7 |
 
 ## 测试统计
@@ -88,6 +97,8 @@
 | **总计** | **570** | **✅ 全部通过** |
 
 ## 改进建议
+
+> 📌 以下建议为 v0.1.0 时期记录，仅作历史参考；其中的多数缺口（熔断器、降级、配置加载等）已在后续版本补齐测试。当前缺口请以最新 llvm-cov 报告为准。
 
 ### 需要补充测试的模块
 
@@ -104,7 +115,7 @@
    - 添加环境变量覆盖测试
 
 4. **adapters/*.rs** (0-38%)
-   - 添加 DBNexus 存储适配器测试（需要数据库）
+   - 添加 dbnexus 存储适配器测试（需要数据库）
    - 添加工厂创建测试
 
 ### 特性相关模块
@@ -118,33 +129,27 @@
 - `geo-matching`: matchers/geo.rs
 - `quota-control`: quota_controller.rs
 
-运行命令:
-```bash
-# 启用所有特性
-cargo tarpaulin --all-features
-
-# 启用特定特性
-cargo tarpaulin --features "ban-manager,quota-control,circuit-breaker"
-```
-
 ## 覆盖率趋势
 
 | 日期 | 覆盖率 | 变化 |
 |------|--------|------|
 | 2026-03-19 (基线) | 17.8% | - |
-| 2026-03-20 (当前) | 53.56% | +35.76% |
+| 2026-03-20 (当时) | 53.56% | +35.76% |
 
 ## 报告生成
 
+历史报告由 cargo-tarpaulin 生成：
+
 ```bash
-# 生成 HTML 报告
+# 生成 HTML 报告（注意：postgres/sqlite/mysql 互斥，不可 --all-features）
 cargo tarpaulin --out Html --features minimal
 
 # 生成 JSON 报告
 cargo tarpaulin --out Json --features minimal
-
-# 生成所有格式报告
-cargo tarpaulin --out Html --out Json --out Xml --features minimal
 ```
 
-报告位置: `tarpaulin-report.html`
+当前口径请使用 cargo-llvm-cov（与 CI 门禁一致）：
+
+```bash
+cargo llvm-cov --workspace --no-default-features --features full --lib --fail-under-lines 80 --lcov --output-path lcov.info
+```

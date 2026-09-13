@@ -1,6 +1,6 @@
 # 📘 Limiteron API 参考
 
-本文档完整描述 Limiteron 的全部公开 API，包括限流器、封禁管理、配额控制、熔断器、Governor、匹配器、存储后端、Admin REST API、配置加载与错误类型。使用方法与场景示例请见 [用户指南](USER_GUIDE.md)。
+本文档完整描述 Limiteron 的公开 API，包括限流器、封禁管理、配额控制、熔断器、Governor、匹配器、存储后端、Admin REST API、配置加载与错误类型。所有签名与 `src/` 源码一致（版本 0.3.0-rc.3）。使用方法与场景示例请见 [用户指南](USER_GUIDE.md)。
 
 [🏠 首页](../README.md) • [📖 用户指南](USER_GUIDE.md) • [❓ 常见问题](FAQ.md)
 
@@ -9,181 +9,113 @@
 ## 📋 目录
 
 <details open>
-<summary>点击展开</summary>
+<summary>📑 目录</summary>
 
-- [概述](#概述)
-- [核心 API](#核心-api)
-  - [限流器](#限流器)
-  - [封禁管理](#封禁管理)
-  - [配额控制](#配额控制)
-  - [熔断器](#熔断器)
-  - [Governor](#governor)
-- [匹配器](#匹配器)
-- [存储后端](#存储后端)
-  - [MemoryStorage](#memorystorage)
-- [文件封禁加载](#文件封禁加载)
+- [🧭 概述](#-概述)
+- [🚦 限流器](#-限流器)
+  - [Limiter trait](#limiter-trait)
+  - [TokenBucketLimiter](#tokenbucketlimiter)
+  - [GcraLimiter](#gcralimiter)
+  - [其他限流算法](#其他限流算法)
+  - [已弃用导出](#已弃用导出)
+- [🚪 封禁管理](#-封禁管理)
+  - [BanManager](#banmanager)
+  - [BanTarget 与 BanSource](#bantarget-与-bansource)
   - [BanFileLoader](#banfileloader)
-- [Admin REST API](#admin-rest-api)
+- [📊 配额控制](#-配额控制)
+- [🔌 熔断器](#-熔断器)
+- [🎛️ Governor](#️-governor)
+- [🔍 匹配器](#-匹配器)
+- [💾 存储后端](#-存储后端)
+  - [MemoryStorage](#memorystorage)
+  - [StorageFactory](#storagefactory)
+- [🌐 Admin REST API](#-admin-rest-api)
   - [POST /api/v1/ban](#post-apiv1ban)
   - [DELETE /api/v1/ban/{target}](#delete-apiv1bantarget)
-- [配置加载](#配置加载)
-  - [ConfigLoader](#configloaderload_from_file_with_env)
-- [错误处理](#错误处理)
-- [类型定义](#类型定义)
-- [示例](#示例)
+- [⚙️ 配置加载](#️-配置加载)
+- [🚨 错误处理](#-错误处理)
+- [📐 类型定义](#-类型定义)
+- [💡 使用示例](#-使用示例)
 
 </details>
 
 ---
 
-## 概述
+## 🧭 概述
 
-<div align="center">
+| 设计原则 | 说明 |
+|---------|------|
+| 简单 | 核心类型收敛在少数模块，`prelude` 一行导入常用类型 |
+| 安全 | 类型安全，默认特性为空、零外部存储依赖 |
+| 可组合 | `Limiter` trait 统一算法接口，决策链按优先级级联 |
+| 文档完善 | 全部公开 API 带文档注释，docs.rs 在线可查 |
 
-### 🎯 API 设计原则
-
-</div>
-
-<table>
-<tr>
-<td width="25%" align="center">
-<b>简单</b><br>
-直观易用
-</td>
-<td width="25%" align="center">
-<b>安全</b><br>
-类型安全，默认安全
-</td>
-<td width="25%" align="center">
-<b>可组合</b><br>
-轻松构建复杂工作流
-</td>
-<td width="25%" align="center">
-<b>文档完善</b><br>
-全面的文档
-</td>
-</tr>
-</table>
+带特性门控的 API 在对应小节标注所需 feature。`default = []` 时仅核心限流可用。
 
 ---
 
-## 核心 API
+## 🚦 限流器
 
-### 限流器
+限流器模块位于 `limiteron::limiters`，全部实现统一的 `Limiter` trait。
 
-<div align="center">
-
-#### 🚀 限流器接口
-
-</div>
-
----
-
-#### `TokenBucketLimiter`
-
-令牌桶限流器。
-
-<table>
-<tr>
-<td width="30%"><b>类型</b></td>
-<td width="70%">
+### Limiter trait
 
 ```rust
-pub struct TokenBucketLimiter {
-    capacity: u64,
-    refill_rate: u64,
-    // 内部字段
+#[async_trait]
+pub trait Limiter: Send + Sync {
+    /// 消费指定成本，返回是否允许
+    async fn allow(&self, cost: u64) -> Result<bool, LimiteronError>;
+
+    /// 非消费预检：返回标准限流头数据，绝不修改限流器状态
+    async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError>;
+
+    /// 非消费查询剩余额度
+    async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError>;
+
+    /// 检查是否允许（接受 key 参数，供宏生成代码使用）
+    async fn check(&self, key: &str) -> Result<(), LimiteronError>;
 }
 ```
 
-</td>
-</tr>
-</table>
+`peek` / `remaining` 返回的 `RateLimitSnapshot` 对应 IETF `RateLimit-*` 头数据：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `limit` | `u64` | 窗口/桶容量上限（`RateLimit-Limit`） |
+| `remaining` | `u64` | 当前剩余额度（`RateLimit-Remaining`） |
+| `reset_secs` | `u64` | 距额度重置的秒数（`RateLimit-Reset`） |
 
 ---
 
+### TokenBucketLimiter
+
+令牌桶限流器。
+
 #### `TokenBucketLimiter::new()`
-
-创建新的令牌桶限流器。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
 
 ```rust
 pub fn new(capacity: u64, refill_rate: u64) -> Self
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `capacity` | `u64` | 桶容量（最大令牌数） |
+| `refill_rate` | `u64` | 每秒补充的令牌数 |
 
-- `capacity: u64` - 桶容量（最大令牌数）
-- `refill_rate: u64` - 每秒补充的令牌数
+#### `TokenBucketLimiter::allow()`
 
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Self</code> - 新的限流器实例</td>
-</tr>
-</table>
+```rust
+pub async fn allow(&self, cost: u64) -> Result<bool, LimiteronError>
+```
 
-**示例:**
+返回 `Ok(true)` 允许、`Ok(false)` 被限流；成本为 0 或超过 `MAX_COST` 时返回 `ConfigError`。
+
+**示例：**
 
 ```rust
 use limiteron::limiters::TokenBucketLimiter;
 
 let limiter = TokenBucketLimiter::new(10, 1); // 10 个令牌，每秒补充 1 个
-```
-
----
-
-#### `TokenBucketLimiter::allow()`
-
-检查是否允许通过指定成本。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub async fn allow(&self, cost: u64) -> Result<bool, LimiteronError>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `cost: u64` - 请求成本（通常为1）
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Result&lt;bool, LimiteronError&gt;</code> - Ok(true) 表示允许，Ok(false) 表示被限流</td>
-</tr>
-<tr>
-<td><b>错误</b></td>
-<td>
-
-- `LimiteronError::LimitError` - 限流错误
-- `LimiteronError::ValidationError` - 成本验证错误
-
-</td>
-</tr>
-</table>
-
-**示例:**
-
-```rust
-let limiter = TokenBucketLimiter::new(10, 1);
 
 match limiter.allow(1).await {
     Ok(true) => println!("✅ 请求允许"),
@@ -194,292 +126,114 @@ match limiter.allow(1).await {
 
 ---
 
-#### `GcraLimiter`
+### GcraLimiter
 
-GCRA（Generic Cell Rate Algorithm）限流器。需要启用 `gcra` feature。
-
-<table>
-<tr>
-<td width="30%"><b>类型</b></td>
-<td width="70%">
-
-```rust
-pub struct GcraLimiter {
-    // 内部字段
-}
-```
-
-</td>
-</tr>
-</table>
-
----
+GCRA（Generic Cell Rate Algorithm）限流器，需要启用 `gcra` 特性。位于 `limiteron::limiters::GcraLimiter`。
 
 #### `GcraLimiter::new()`
-
-按容量与补充间隔创建新的 GCRA 限流器。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
 
 ```rust
 pub fn new(capacity: u64, refill_interval_us: u64) -> Self
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `capacity: u64` - 桶容量（最大令牌数）
-- `refill_interval_us: u64` - 每个令牌的补充间隔（微秒）
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Self</code> - 新的 GCRA 限流器</td>
-</tr>
-</table>
-
-**示例:**
-
-```rust
-use limiteron::GcraLimiter;
-
-// 容量 10，每 1_000_000 微秒（1 秒）补充 1 个令牌
-let limiter = GcraLimiter::new(10, 1_000_000);
-```
-
----
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `capacity` | `u64` | 桶容量（最大令牌数） |
+| `refill_interval_us` | `u64` | 每个令牌的补充间隔（微秒） |
 
 #### `GcraLimiter::with_rate()`
-
-按容量与每秒请求数创建新的 GCRA 限流器。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
 
 ```rust
 pub fn with_rate(capacity: u64, requests_per_second: u64) -> Self
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `capacity: u64` - 桶容量（最大令牌数）
-- `requests_per_second: u64` - 每秒允许的请求数
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Self</code> - 新的 GCRA 限流器</td>
-</tr>
-</table>
-
-**示例:**
-
-```rust
-use limiteron::GcraLimiter;
-
-// 容量 10，每秒 100 个请求
-let limiter = GcraLimiter::with_rate(10, 100);
-```
-
----
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `capacity` | `u64` | 桶容量（最大令牌数） |
+| `requests_per_second` | `u64` | 每秒允许的请求数 |
 
 #### `GcraLimiter::check()`
-
-检查是否允许通过指定成本，返回详细检查结果。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
 
 ```rust
 pub fn check(&self, cost: u64) -> GcraCheckResult
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
+返回详细的同步检查结果：
 
-- `cost: u64` - 请求成本
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `allowed` | `bool` | 是否允许 |
+| `remaining` | `u64` | 剩余额度 |
+| `retry_after_us` | `u64` | 被拒绝时建议等待的微秒数 |
 
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>GcraCheckResult</code> - 检查结果，包含是否允许及等待时长等信息</td>
-</tr>
-</tr>
-</table>
-
-**示例:**
+**示例：**
 
 ```rust
-use limiteron::GcraLimiter;
+use limiteron::limiters::GcraLimiter;
 
+// 容量 10，每秒 100 个请求
 let limiter = GcraLimiter::with_rate(10, 100);
 let result = limiter.check(1);
 if result.allowed {
     println!("✅ 允许，剩余: {}", result.remaining);
 } else {
-    println!("❌ 拒绝，需等待: {:?}", result.retry_after);
+    println!("❌ 拒绝，需等待 {} 微秒", result.retry_after_us);
 }
 ```
 
----
-
-#### `GcraLimiter::allow()`
-
-检查是否允许通过指定成本。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub async fn allow(&self, cost: u64) -> Result<bool, LimiteronError>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `cost: u64` - 请求成本（通常为 1）
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Result&lt;bool, LimiteronError&gt;</code> - Ok(true) 表示允许，Ok(false) 表示被限流</td>
-</tr>
-</table>
-
-**示例:**
-
-```rust
-use limiteron::GcraLimiter;
-
-let limiter = GcraLimiter::with_rate(10, 100);
-match limiter.allow(1).await {
-    Ok(true) => println!("✅ 请求允许"),
-    Ok(false) => println!("❌ 请求被限流"),
-    Err(e) => println!("❌ 错误: {:?}", e),
-}
-```
+`GcraLimiter` 同样实现了 `Limiter` trait，可通过 `allow(cost).await` 异步消费。
 
 ---
 
-#### ⚠️ 已弃用：`SlidingWindowLimiter`
+### 其他限流算法
 
-> **v0.2.1 起**，`SlidingWindowLimiter` 不再通过 `limiteron::` 顶层导出。推荐使用 [`ShardedSlidingWindowLimiter`](#)（`limiteron::limiters::ShardedSlidingWindowLimiter`）替代，提供更好的并发性能。
+| 类型 | 构造 | 所需特性 | 说明 |
+|------|------|---------|------|
+| `FixedWindowLimiter` | `new(window_size: Duration, max_requests: u64)` | 无 | 固定窗口计数 |
+| `ShardedSlidingWindowLimiter` | `new(window_size: Duration, max_requests: u64)` | 无 | 分片滑动窗口，高并发友好 |
+| `ConcurrencyLimiter` | `new(max_concurrent: u64)` | 无 | 并发许可控制 |
+| `HierarchicalTokenBucket` | `new(root_capacity: u64, root_refill_rate: u64)` | 无 | HTB 分层令牌桶，`allow(class_path: &[&str], cost)` 按分类路径消费 |
+| `AdaptiveConcurrencyLimiter` | `new(config: AdaptiveConcurrencyConfig)` | `adaptive-limiting` | AIMD 自适应并发，按延迟/错误率反馈调窗 |
+| `QuotaLimiter` | 见 `limiters::quota_limiter` | `quota-control` | 配额型限流器，供宏与 `LimiterManager` 使用 |
+
+### 已弃用导出
+
+> 自 **v0.2.1** 起，`SlidingWindowLimiter` 不再通过 `limiteron::limiters` 平铺导出。推荐使用 `limiteron::limiters::ShardedSlidingWindowLimiter` 替代，提供更好的并发性能。
 >
 > 仍可通过全路径 `limiteron::limiters::sliding_window::SlidingWindowLimiter` 访问（模块标注 `#[allow(deprecated)]`），但不推荐新代码使用。
 
 ---
 
-### 封禁管理
+## 🚪 封禁管理
 
-<div align="center">
+需要启用 `ban-manager` 特性。模块位于 `limiteron::ban`。
 
-#### 🔐 封禁管理器
+### BanManager
 
-</div>
+封禁管理器，提供封禁 CRUD、指数退避时长计算与自动解封任务。
 
----
-
-#### `BanManager`
-
-封禁管理器，用于管理 IP 和用户封禁。
-
-<table>
-<tr>
-<td width="30%"><b>类型</b></td>
-<td width="70%">
+#### `BanManager::new()` / `BanManager::builder()`
 
 ```rust
-pub struct BanManager {
-    // 内部字段
-}
+pub async fn new() -> Result<Self, LimiteronError>       // 默认内存存储
+pub fn builder() -> BanManagerBuilder                     // 链式配置后调用 build().await
 ```
 
-</td>
-</tr>
-</table>
-
----
-
 #### `BanManager::with_dependencies()`
-
-使用依赖注入创建新的封禁管理器。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
 
 ```rust
 pub async fn with_dependencies(
     storage: Arc<dyn BanStorage>,
-    config: BanManagerConfig
+    config: BanManagerConfig,
 ) -> Result<Self, LimiteronError>
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `storage: Arc<dyn BanStorage>` - 封禁存储后端
-- `config: BanManagerConfig` - 封禁管理器配置
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Result&lt;BanManager, LimiteronError&gt;</code></td>
-</tr>
-</table>
-
-**示例:**
-
-```rust
-use limiteron::ban::{BanManager, BanManagerConfig};
-use limiteron::storage::BanStorage;
-use std::sync::Arc;
-
-let storage: Arc<dyn BanStorage> = Arc::new(my_storage);
-let ban_manager = BanManager::with_dependencies(storage, BanManagerConfig::default()).await?;
-```
-
----
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `storage` | `Arc<dyn BanStorage>` | 封禁存储后端 |
+| `config` | `BanManagerConfig` | 封禁管理器配置（退避参数、自动解封开关等） |
 
 #### `BanManager::create_ban()`
-
-创建封禁记录。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
 
 ```rust
 pub async fn create_ban(
@@ -492,153 +246,139 @@ pub async fn create_ban(
 ) -> Result<BanDetail, LimiteronError>
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `target: BanTarget` - 封禁目标（`Ip` / `UserId` / `Mac` / `Geo { country_code }`）
-- `reason: String` - 封禁原因
-- `source: BanSource` - 封禁来源（`BanSource::Auto` 或 `BanSource::Manual { operator }`）
-- `metadata: serde_json::Value` - 附加元数据
-- `duration: Option<StdDuration>` - 封禁时长，None表示使用指数退避算法自动计算
-
-> **`BanTarget` 变体**（v0.2.1 新增 `Geo`）：`Ip(String)` / `UserId(String)` / `Mac(String)` / `Geo { country_code: String }`。`country_code` 必须是大写 2 字母 ISO 3166-1 alpha-2 格式。
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Result&lt;BanDetail, LimiteronError&gt;</code> - 封禁详情</td>
-</tr>
-</table>
-
-**示例:**
-
-```rust
-use limiteron::ban::{BanTarget, BanSource};
-use std::time::Duration;
-
-// IP 封禁
-let target = BanTarget::Ip("192.168.1.100".to_string());
-let ban_detail = ban_manager.create_ban(
-    target,
-    "恶意请求".to_string(),
-    BanSource::Manual { operator: "admin".to_string() },
-    serde_json::json!({}),
-    Some(Duration::from_secs(3600)),
-).await?;
-
-// Geo 地区封禁（v0.2.1+，country_code 必须大写 2 字母）
-let geo_target = BanTarget::Geo { country_code: "CN".to_string() };
-ban_manager.create_ban(
-    geo_target,
-    "地区封禁".to_string(),
-    BanSource::Manual { operator: "admin".to_string() },
-    serde_json::json!({}),
-    None, // 使用退避算法自动计算时长
-).await?;
-```
-
----
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `target` | `BanTarget` | 封禁目标 |
+| `reason` | `String` | 封禁原因 |
+| `source` | `BanSource` | `BanSource::Auto` 或 `BanSource::Manual { operator }` |
+| `metadata` | `serde_json::Value` | 附加元数据 |
+| `duration` | `Option<StdDuration>` | 封禁时长；`None` 表示使用指数退避算法自动计算 |
 
 #### `BanManager::is_banned()`
-
-检查目标是否被封禁。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
 
 ```rust
 pub async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, LimiteronError>
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
+返回 `Some(BanRecord)` 表示被封禁。`BanRecord` 包含 `target`、`ban_times`、`duration`、`banned_at`、`expires_at`、`is_manual`、`reason` 等字段。
 
-- `target: &BanTarget` - 要检查的目标
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Result&lt;Option&lt;BanRecord&gt;, LimiteronError&gt;</code> - Some表示被封禁，None表示未封禁</td>
-</tr>
-</table>
-
-**示例:**
+**示例：**
 
 ```rust
 use limiteron::ban::BanTarget;
+use std::time::Duration;
 
-let user_target = BanTarget::UserId("user123".to_string());
-if let Some(ban_record) = ban_manager.is_banned(&user_target).await? {
-    println!("User is banned: {:?}", ban_record);
-    println!("Reason: {}", ban_record.reason);
-    println!("Expires at: {}", ban_record.expires_at);
-    return Err("User is banned".into());
+let target = BanTarget::Ip("192.168.1.100".to_string());
+
+// 创建封禁
+ban_manager.create_ban(
+    target.clone(),
+    "恶意请求".to_string(),
+    limiteron::ban::BanSource::Manual { operator: "admin".to_string() },
+    serde_json::json!({}),
+    Some(Duration::from_secs(3600)),
+).await?;
+
+// 查询封禁
+if let Some(record) = ban_manager.is_banned(&target).await? {
+    println!("已被封禁: {}，到期: {}", record.reason, record.expires_at);
 }
 ```
 
----
+**其余方法一览：**
 
-### 配额控制
+| 方法 | 说明 |
+|------|------|
+| `read_ban(&target)` | 读取封禁详情（`BanDetail`） |
+| `update_ban(...)` | 更新封禁记录 |
+| `delete_ban(&target, unbanned_by: String)` | 解封（返回是否成功） |
+| `list_bans(filter: BanFilter)` | 分页/过滤查询封禁列表 |
+| `calculate_ban_duration(ban_times)` | 按退避算法计算封禁时长 |
+| `get_config()` / `update_config()` | 读取与更新运行时配置 |
+| `stop_auto_unban_task()` | 停止自动解封后台任务 |
 
-<div align="center">
-
-#### 📊 配额控制器
-
-</div>
-
----
-
-#### `QuotaController`
-
-配额控制器，用于管理配额分配和消费。
-
-<table>
-<tr>
-<td width="30%"><b>类型</b></td>
-<td width="70%">
+### BanTarget 与 BanSource
 
 ```rust
-pub struct QuotaController {
-    // 内部字段
+#[serde(tag = "type", content = "value")]
+pub enum BanTarget {
+    Ip(String),
+    UserId(String),
+    Mac(String),
+    Geo { country_code: String }, // 大写 2 字母 ISO 3166-1 alpha-2
+    Cidr(String),                 // IPv4/IPv6 网段，如 "10.0.0.0/8"
+}
+
+pub enum BanSource {
+    Auto,
+    Manual { operator: String },
 }
 ```
 
-</td>
-</tr>
-</table>
+serde 序列化格式：
+
+| 变体 | type 字段 | value 格式 |
+|------|----------|-----------|
+| `Ip(String)` | `"ip"` | IP 字符串 |
+| `UserId(String)` | `"user"` | 用户 ID |
+| `Mac(String)` | `"mac"` | MAC 地址 |
+| `Geo { country_code }` | `"geo"` | `{"country_code":"CN"}` |
+| `Cidr(String)` | `"cidr"` | 网段字符串 |
+
+> **查询语义**：查询目标为 `Ip` 且精确未命中时，按最长前缀匹配网段封禁记录（`BanTarget::contains_ip` / `prefix_len`）。
+
+### BanFileLoader
+
+从 YAML 文件批量加载封禁规则到 `BanManager`，可选支持文件变更热重载。需要 `ban-manager` 特性；热重载需要额外启用 `config-watcher` 特性。
+
+```rust
+pub struct BanFileLoader {
+    path: PathBuf,
+    // config-watcher 特性下另有监听任务句柄
+}
+```
+
+**YAML 文件格式：**
+
+```yaml
+bans:
+  - target:
+      type: ip              # ip | user | mac | geo | cidr
+      value: "192.168.1.1"  # geo 时为 {country_code: "CN"}
+    reason: "恶意请求"
+    duration_secs: 3600     # 可选，null/省略 = 使用退避算法
+```
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `new` | `pub fn new(path: impl Into<PathBuf>) -> Self` | 创建加载器 |
+| `load_once` | `pub async fn load_once(&self, manager: &BanManager) -> Result<LoadResult, LimiteronError>` | 一次性加载；单条失败不中断整体，失败详情在 `LoadResult.errors`；文件读取/解析失败才返回 `Err` |
+| `start_watching` | `pub async fn start_watching(&self, manager: BanManager) -> Result<(), LimiteronError>` | 启动热重载（500ms debounce 防止 DoS），需 `config-watcher` |
+| `stop_watching` | `pub async fn stop_watching(&self)` | 停止监听；`Drop` 时自动调用 |
+
+```rust
+pub struct LoadResult {
+    pub success_count: usize,
+    pub failure_count: usize,
+    pub errors: Vec<BanLoadError>, // 每项含 target_desc 与 error
+}
+```
+
+> **安全**：内置 YAML 炸弹防护，文件大小上限 2MB，超限返回 `ConfigError`。
 
 ---
 
+## 📊 配额控制
+
+需要启用 `quota-control` 特性。模块位于 `limiteron::quota`。
+
+### QuotaController
+
 #### `QuotaController::builder()`
-
-创建 QuotaControllerBuilder 用于链式配置。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
 
 ```rust
 pub fn builder() -> QuotaControllerBuilder
 ```
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>QuotaControllerBuilder</code> - 用于链式配置的构建器</td>
-</tr>
-</table>
 
 `QuotaControllerBuilder` 提供以下方法：
 
@@ -646,88 +386,17 @@ pub fn builder() -> QuotaControllerBuilder
 |------|------|
 | `with_storage(storage: Arc<dyn QuotaStorage>)` | 设置配额存储后端 |
 | `with_config(config: QuotaConfig)` | 设置配额配置 |
-| `build()` | 构建并返回 `QuotaController` |
-
-**示例:**
-
-```rust
-use limiteron::quota::{QuotaController, QuotaConfig};
-use limiteron::storage::QuotaStorage;
-use std::sync::Arc;
-
-let config = QuotaConfig {
-    limit: 10000,
-    window_secs: 60,
-    ..Default::default()
-};
-
-let quota = QuotaController::builder()
-    .with_storage(storage)
-    .with_config(config)
-    .build();
-```
-
----
+| `build()` | 构建并返回 `Result<QuotaController, LimiteronError>` |
 
 #### `QuotaController::with_dependencies()`
 
-使用完整依赖注入创建新的配额控制器。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
 ```rust
-pub fn with_dependencies(
-    storage: Arc<dyn QuotaStorage>,
-    config: QuotaConfig,
-) -> Self
+pub fn with_dependencies(storage: Arc<dyn QuotaStorage>, config: QuotaConfig) -> Self
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `storage: Arc<dyn QuotaStorage>` - 配额存储后端
-- `config: QuotaConfig` - 配额配置
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Self</code> - 新的配额控制器</td>
-</tr>
-</table>
-
-**示例:**
-
-```rust
-use limiteron::quota::{QuotaController, QuotaConfig};
-use std::sync::Arc;
-
-let config = QuotaConfig {
-    limit: 10000,
-    window_secs: 60,
-    ..Default::default()
-};
-let quota = QuotaController::with_dependencies(storage, config);
-```
-
-> **注意**: 不存在 `new(limit, window_secs)` 方法，也不存在 `with_config()` 直接方法（`with_config()` 是 builder 的方法）。
-
----
+> **注意**：不存在 `new(limit, window_size)` 参数化构造；`QuotaController::new()` 为零参数默认构造（默认内存存储与默认配置）。
 
 #### `QuotaController::consume()`
-
-消费配额。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
 
 ```rust
 pub async fn consume(
@@ -735,173 +404,143 @@ pub async fn consume(
     user_id: &str,
     resource: &str,
     cost: u64,
-) -> Result<(), LimiteronError>
+) -> Result<ConsumeResult, LimiteronError>
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
+返回的 `ConsumeResult`：
 
-- `user_id: &str` - 用户标识
-- `resource: &str` - 资源名称
-- `cost: u64` - 消费成本
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `allowed` | `bool` | 是否允许继续消费 |
+| `remaining` | `u64` | 剩余配额 |
+| `alert_triggered` | `bool` | 是否触发告警（基于使用率阈值） |
+| `usage_percent` | `f64` | 当前使用率百分比（0-100） |
 
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Result&lt;(), LimiteronError&gt;</code> - Ok(()) 表示消费成功，Err 表示超出配额或存储错误</td>
-</tr>
-</table>
+> **注意**：`user_id` / `resource` 不得包含 `:`（存储 key 以 `{user_id}:{resource}` 拼接，含 `:` 会触发防碰撞 `ValidationError`）。
 
-**示例:**
+#### `QuotaConfig`
 
 ```rust
-quota.consume("user123", "api_call", 1).await?;
-```
-
----
-
-### 熔断器
-
-<div align="center">
-
-#### 🔌 熔断器
-
-</div>
-
----
-
-#### `CircuitBreaker`
-
-熔断器，用于在系统故障时自动熔断。
-
-<table>
-<tr>
-<td width="30%"><b>类型</b></td>
-<td width="70%">
-
-```rust
-pub struct CircuitBreaker {
-    failure_threshold: u32,
-    timeout_secs: u64,
-    // 内部字段
+pub struct QuotaConfig {
+    pub quota_type: QuotaType,          // 配额类型（默认 Count）
+    pub limit: u64,                     // 配额上限
+    pub window_size: u64,               // 窗口大小（秒）
+    pub allow_overdraft: bool,          // 是否允许透支
+    pub overdraft_limit_percent: u8,    // 透支上限（配额的百分比 0-100）
+    pub alert_config: AlertConfig,      // 告警配置
 }
 ```
 
-</td>
-</tr>
-</table>
+**示例：**
+
+```rust
+use limiteron::quota::{QuotaConfig, QuotaController};
+
+let config = QuotaConfig {
+    limit: 10000,
+    window_size: 60,
+    ..Default::default()
+};
+let quota = QuotaController::builder().with_config(config).build()?;
+
+let result = quota.consume("user123", "api_call", 1).await?;
+println!("剩余 {}，使用率 {:.1}%", result.remaining, result.usage_percent);
+```
 
 ---
 
-#### `CircuitBreaker::new()`
+## 🔌 熔断器
 
-创建新的熔断器。提供两种构造形式：无参数默认构造，或传入 `CircuitBreakerConfig` 进行自定义配置。
+需要启用 `circuit-breaker` 特性。模块位于 `limiteron::circuit`。
 
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
+### CircuitBreaker
 
 ```rust
-pub fn new() -> Self
 pub fn new(config: CircuitBreakerConfig) -> Self
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
+`CircuitBreaker` 同时实现 `Default`（默认配置）。
 
-- `config: CircuitBreakerConfig` - 熔断器配置（可选，无参数时使用默认配置）
+> **注意**：不存在 `new(failure_threshold, timeout_secs)` 参数化签名，也不存在 `with_config()` 方法。自定义配置请构造 `CircuitBreakerConfig` 后传入 `new()`，或使用 `CircuitBreaker::builder()`。
 
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Self</code> - 新的熔断器</td>
-</tr>
-</table>
+#### `CircuitBreakerConfig`
 
-**示例:**
+```rust
+pub struct CircuitBreakerConfig {
+    pub failure_threshold: u64,          // 失败阈值（默认 5）
+    pub success_threshold: u64,          // 半开状态恢复所需成功数（默认 3）
+    pub timeout: Duration,               // 打开状态等待时长（默认 30 秒）
+    pub half_open_max_calls: u64,        // 半开状态最大探测调用数（默认 3）
+    pub slow_call_duration_threshold: Duration, // 慢调用时长阈值（默认 500ms）
+    pub slow_call_rate_threshold: f64,   // 慢调用率阈值（默认 0.5）
+    pub error_classifier: Arc<dyn ErrorClassifier>, // 错误分类器
+}
+```
+
+**常用方法：**
+
+| 方法 | 说明 |
+|------|------|
+| `execute(op).await` | 执行操作，自动处理熔断逻辑 |
+| `get_state().await` | 查询当前状态（`CircuitState`：Closed / Open / HalfOpen） |
+| `config()` | 读取生效配置 |
+
+**示例：**
 
 ```rust
 use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig};
 
-// 使用默认配置
-let breaker = CircuitBreaker::new();
-
-// 或使用自定义配置
+// 默认配置
 let breaker = CircuitBreaker::new(CircuitBreakerConfig::default());
+// 等价于 CircuitBreaker::default()
+
+let state = breaker.get_state().await;
+println!("当前状态: {:?}", state);
 ```
 
-> **注意**: 不存在 `new(failure_threshold, timeout_secs)` 签名，也不存在 `with_config()` 方法。如需自定义配置，请在 `new()` 中传入 `CircuitBreakerConfig`。
-
 ---
 
-### Governor
+## 🎛️ Governor
 
-<div align="center">
+主控制器，提供端到端的流量控制：标识符提取、规则匹配、决策链级联执行、负缓存与统计。模块位于 `limiteron::governor`。
 
-#### 🎛️ 主控制器
-
-</div>
-
----
-
-#### `Governor`
-
-主控制器，提供端到端的流量控制。
-
-<table>
-<tr>
-<td width="30%"><b>类型</b></td>
-<td width="70%">
+### 构造方式
 
 ```rust
-pub struct Governor {
-    config: Arc<RwLock<FlowControlConfig>>,
-    // 内部字段
-}
-```
+// 零参数构造：默认内存存储，开箱即用
+pub async fn new() -> Result<Self, LimiteronError>
 
-</td>
-</tr>
-</table>
+// 完整参数构造（按特性追加 metrics/tracer 参数）
+pub async fn with_storage(
+    config: FlowControlConfig,
+    storage: Arc<dyn Storage>,
+    ban_storage: Arc<dyn BanStorage>,
+    #[cfg(feature = "monitoring")] metrics: Option<Arc<Metrics>>,
+    #[cfg(feature = "telemetry")] tracer: Option<Arc<Tracer>>,
+) -> Result<Self, LimiteronError>
 
----
-
-#### `Governor::builder()`
-
-创建 GovernorBuilder 用于链式配置。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
+// builder 模式（推荐）
 pub fn builder() -> GovernorBuilder
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>GovernorBuilder</code> - 用于链式配置的构建器</td>
-</tr>
-</table>
+`GovernorBuilder` 链式方法：
 
-**示例:**
+| 方法 | 说明 |
+|------|------|
+| `with_config(config: FlowControlConfig)` | 注入配置 |
+| `with_storage(storage: Arc<dyn Storage>)` | 注入存储后端 |
+| `with_ban_storage(ban_storage: Arc<dyn BanStorage>)` | 注入封禁存储 |
+| `with_metrics(metrics: Arc<Metrics>)` | 注入指标收集器（`monitoring` 特性） |
+| `with_tracer(tracer: Arc<Tracer>)` | 注入追踪器（`telemetry` 特性） |
+| `with_l1_cache_enabled(enabled: bool)` | 开关 L1 负缓存 |
+| `with_l1_cache_config(config: L1CacheConfig)` | 自定义 L1 负缓存（TTL 与容量） |
+| `build().await` | 构建 Governor |
+
+**示例：**
 
 ```rust
 use limiteron::Governor;
 use limiteron::adapters::StorageFactory;
-use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -919,252 +558,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
----
-
-#### `Governor::new()`
-
-创建新的 Governor（推荐使用 `builder()` 方法）。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub async fn new(
-    config: FlowControlConfig,
-    storage: Arc<dyn Storage>,
-    ban_storage: Arc<dyn BanStorage>,
-    #[cfg(feature = "monitoring")] metrics: Option<Arc<Metrics>>,
-    #[cfg(feature = "telemetry")] tracer: Option<Arc<Tracer>>,
-) -> Result<Self, LimiteronError>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `config: FlowControlConfig` - 流量控制配置
-- `storage: Arc<dyn Storage>` - 存储后端
-- `ban_storage: Arc<dyn BanStorage>` - 封禁存储后端
-- `metrics: Option<Arc<Metrics>>` - 指标收集器（需要 `monitoring` 特性）
-- `tracer: Option<Arc<Tracer>>` - 追踪器（需要 `telemetry` 特性）
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Result&lt;Governor, LimiteronError&gt;</code></td>
-</tr>
-</table>
-
-**示例:**
-
-```rust
-use limiteron::{Governor, FlowControlConfig};
-use limiteron::adapters::StorageFactory;
-use limiteron::storage::{Storage, BanStorage};
-use std::sync::Arc;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
-    factory.initialize(None).await?;
-    let storage = factory.create_storage().await?;
-    let ban_storage = factory.create_ban_storage().await?;
-
-    let governor = Governor::new(
-        FlowControlConfig::default(),
-        storage,
-        ban_storage,
-        None,  // metrics
-        None,  // tracer
-    ).await?;
-    Ok(())
-}
-```
-
----
-
-#### `Governor::check()`
-
-检查请求是否允许通过。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
+### `Governor::check()`
 
 ```rust
 pub async fn check(&self, context: &RequestContext) -> Result<Decision, LimiteronError>
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `context` | `&RequestContext` | 请求上下文（位于 `limiteron::matchers`） |
 
-- `context: &RequestContext` - 请求上下文（位于 `limiteron::matchers` 模块）
+返回 `Decision`：`Allowed(RateLimitMetadata)` / `Rejected(RejectionMetadata)` / `Banned(BanInfo)`。
 
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Result&lt;Decision, LimiteronError&gt;</code> - 决策结果</td>
-</tr>
-</table>
+### 生命周期与健康检测
 
-**示例:**
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `shutdown` | `pub async fn shutdown(&self) -> Result<(), LimiteronError>` | 触发优雅关闭，停止后台任务（配额分配、封禁清理等） |
+| `shutdown_token` | `pub fn shutdown_token(&self) -> &tokio_util::sync::CancellationToken` | 获取关闭令牌引用，供异步任务监听关闭信号 |
+| `is_shutdown` | `pub fn is_shutdown(&self) -> bool` | 是否已关闭 |
+| `health_check` | `pub async fn health_check(&self) -> Result<(), LimiteronError>` | 执行真实健康检测（存储、封禁存储等依赖） |
+| `health_status` | `pub async fn health_status(&self) -> HealthStatus` | 读取最近一次健康检测的状态快照 |
 
 ```rust
-use limiteron::matchers::RequestContext;
-
-let context = RequestContext::builder()
-    .identifier("user123")
-    .path("/api/v1/users")
-    .method("GET")
-    .build();
-
-let decision = governor.check(&context).await?;
-match decision {
-    Decision::Allowed(_) => println!("请求允许"),
-    Decision::Rejected(reason) => println!("请求拒绝: {}", reason),
-    Decision::Banned(info) => println!("请求被封禁: {}", info.reason()),
+pub struct HealthStatus {
+    pub storage_healthy: bool,
+    pub ban_storage_healthy: bool,
+    pub cache_healthy: bool,        // L1 缓存
+    pub background_tasks_alive: bool,
 }
 ```
 
----
-
-#### `Governor::shutdown()`
-
-触发优雅关闭，停止 Governor 的所有后台任务（如配额分配、封禁清理等）。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub async fn shutdown(&self) -> Result<(), LimiteronError>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Result&lt;(), LimiteronError&gt;</code> - 关闭结果</td>
-</tr>
-</table>
-
-**示例:**
-
-```rust
-// 优雅关闭 Governor
-governor.shutdown().await?;
-```
-
----
-
-#### `Governor::shutdown_token()`
-
-获取关闭令牌的引用，可用于在异步任务中监听关闭信号。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub fn shutdown_token(&self) -> &tokio_util::sync::CancellationToken
-```
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>&tokio_util::sync::CancellationToken</code> - 关闭令牌的引用</td>
-</tr>
-</table>
-
-**示例:**
+**示例：**
 
 ```rust
 use tokio_util::sync::CancellationToken;
 
 // shutdown_token() 返回引用，需 clone 后再 move 到异步任务
 let token = governor.shutdown_token().clone();
-
 tokio::spawn(async move {
     token.cancelled().await;
-    println!("Governor 正在关闭...");
+    println!("Governor 正在关闭");
 });
-```
 
----
-
-#### `Governor::is_shutdown()`
-
-检查 Governor 是否已关闭。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub fn is_shutdown(&self) -> bool
-```
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>bool</code> - true 表示已关闭</td>
-</tr>
-</table>
-
-**示例:**
-
-```rust
-if governor.is_shutdown() {
-    println!("Governor 已关闭");
-}
-```
-
----
-
-#### `Governor::health_check()`
-
-执行真实的健康检测，检查存储、封禁存储等关键依赖的可用性。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub async fn health_check(&self) -> Result<(), LimiteronError>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Result&lt;(), LimiteronError&gt;</code> - Ok(()) 表示所有依赖健康，Err 表示检测失败</td>
-</tr>
-</table>
-
-**示例:**
-
-```rust
-// 执行健康检测，失败时返回错误
+// 健康检测
 governor.health_check().await?;
-println!("✅ 所有依赖健康");
-
-// 如需获取详细状态字段，使用 health_status()
 let status = governor.health_status().await;
 if !status.storage_healthy {
     println!("⚠️ 存储不可用");
@@ -1173,62 +611,11 @@ if !status.storage_healthy {
 
 ---
 
-#### `Governor::health_status()`
+## 🔍 匹配器
 
-获取最近一次健康检测的状态（不触发新的检测）。
+模块位于 `limiteron::matchers`，负责标识符提取与规则匹配。
 
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub async fn health_status(&self) -> HealthStatus
-```
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>HealthStatus</code> - 最近一次的健康状态</td>
-</tr>
-</table>
-
----
-
-#### `HealthStatus`
-
-健康状态结构体。
-
-```rust
-pub struct HealthStatus {
-    pub storage_healthy: bool,
-    pub ban_storage_healthy: bool,
-    pub cache_healthy: bool,
-    pub background_tasks_alive: bool,
-}
-```
-
----
-
-## 匹配器
-
-<div align="center">
-
-#### 🔍 标识符提取器
-
-</div>
-
----
-
-#### `Identifier`
-
-标识符类型。
-
-<table>
-<tr>
-<td width="30%"><b>定义</b></td>
-<td width="70%">
+### Identifier
 
 ```rust
 pub enum Identifier {
@@ -1240,65 +627,49 @@ pub enum Identifier {
 }
 ```
 
-</td>
-</tr>
-</table>
+### RequestContext
 
----
-
-#### `IpExtractor`
-
-IP 地址提取器。
-
-<table>
-<tr>
-<td width="30%"><b>类型</b></td>
-<td width="70%">
+请求上下文，字段公开可直接构造，也可经链式方法构建：
 
 ```rust
-pub struct IpExtractor {
-    header_names: Vec<String>,
-    validate: bool,
+pub struct RequestContext {
+    pub user_id: Option<String>,
+    pub ip: Option<String>,
+    pub mac: Option<String>,
+    pub device_id: Option<String>,
+    pub api_key: Option<String>,
+    pub headers: HashMap<String, String>,
+    pub path: String,
+    pub method: String,
+    pub client_ip: Option<String>,
+    pub query_params: HashMap<String, String>,
+}
+
+impl RequestContext {
+    pub fn new() -> Self;
+    pub fn with_header(mut self, key: &str, value: &str) -> Self;
+    pub fn with_client_ip(mut self, ip: &str) -> Self;
+    pub fn with_query_param(mut self, key: &str, value: &str) -> Self;
+    pub fn with_path(mut self, path: &str) -> Self;
+    pub fn with_method(mut self, method: &str) -> Self;
+    pub fn get_header(&self, key: &str) -> Option<&String>;
 }
 ```
 
-</td>
-</tr>
-</table>
+### 提取器
 
----
+内置标识符提取器统一实现 `IdentifierExtractor` trait：
 
-#### `IpExtractor::new()`
+| 提取器 | 构造 | 说明 |
+|--------|------|------|
+| `UserIdExtractor` | `new(header_name, query_param_name, default_user_id)` / `from_header(name)` / `builder()` | 从 HTTP 头或查询参数提取用户 ID |
+| `IpExtractor` | `new(header_names: Vec<String>, validate: bool)` / `builder()` | 按优先级从 HTTP 头列表提取 IP，可校验格式并配置可信代理 |
+| `MacExtractor` | `new(...)` / `builder()` | MAC 地址提取 |
+| `ApiKeyExtractor` | `from_header(name)` 等 | API Key 提取 |
+| `DeviceIdExtractor` | `new(...)` / `builder()` | 设备 ID 提取 |
+| `CompositeExtractor` | `new(extractors, fallback_to_default)` / `builder()` | 组合多个提取器，依序尝试 |
 
-创建新的 IP 提取器。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub fn new(header_names: Vec<String>, validate: bool) -> Self
-```
-
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `header_names: Vec<String>` - HTTP 头名称列表（按优先级顺序）
-- `validate: bool` - 是否验证 IP 格式
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Self</code> - 新的 IP 提取器</td>
-</tr>
-</table>
-
-**示例:**
+**示例：**
 
 ```rust
 use limiteron::matchers::IpExtractor;
@@ -1317,92 +688,50 @@ let extractor = IpExtractor::builder()
     .build();
 ```
 
----
+### 规则匹配
 
-## 存储后端
-
-<div align="center">
-
-#### 💾 存储后端实现
-
-</div>
-
----
-
-#### `MemoryStorage`
-
-内存存储后端，实现 `Storage`/`BanStorage`/`QuotaStorage` trait，适用于单实例开发、测试和快速原型。始终可用（无需 feature flag）。
-
-<table>
-<tr>
-<td width="30%"><b>类型</b></td>
-<td width="70%">
-
-```rust
-pub struct MemoryStorage {
-    // 内部字段（HashMap + RwLock）
-}
-```
-
-</td>
-</tr>
-</table>
-
-> **注意**: v0.2.1 移除了 `RedisStorage` 与 `redis-storage` feature。所有缓存通过 oxcache 统一管理（启用 `cache-storage` feature 可接入 Redis 缓存后端）。`StorageCreate`/`BanStorageCreate` trait 也已移除，改用 `MemoryStorage::create_storage()` 固有方法。
+| 类型 | 说明 |
+|------|------|
+| `RuleMatcher` | 规则匹配引擎（`new(rules: Vec<Rule>)`） |
+| `Matcher` | 内置匹配条件（User / Ip 等，见 `limiteron::config::Matcher`） |
+| `CustomMatcher` / `CustomMatcherRegistry` | 自定义匹配器 trait 与注册表 |
+| `HeaderMatcher` / `TimeWindowMatcher` | 内置 Header 与时间窗匹配器 |
+| `GeoMatcher`（`geo-matching`） | 地理位置条件匹配 |
+| `DeviceMatcher`（`device-matching`） | User-Agent 解析与设备识别 |
 
 ---
 
-#### `MemoryStorage::new()`
+## 💾 存储后端
 
-创建新的 MemoryStorage 实例。
+模块位于 `limiteron::storage` 与 `limiteron::adapters`。
 
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
+### 核心 Trait
+
+| Trait | 职责 |
+|-------|------|
+| `Storage` | 限流数据存储（令牌桶、计数器等 KV 操作） |
+| `BanStorage` | 封禁记录存储 |
+| `QuotaStorage` | 配额数据存储 |
+
+三者均以 `Arc<dyn Trait>` 形式注入 Governor 与各组件。
+
+### MemoryStorage
+
+内存存储实现，同时实现 `Storage` / `BanStorage` / `QuotaStorage`。始终可用（无需特性门控），适用于单实例开发、测试与快速原型。
 
 ```rust
 pub fn new() -> Self
+pub fn create_storage() -> Arc<dyn Storage>   // 便捷构造（替代已移除的 StorageCreate trait）
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Self</code> - 新的内存存储实例</td>
-</tr>
-</table>
+> **注意**：v0.2.1 移除了 `RedisStorage` 与 `redis-storage` 特性，缓存统一经 oxcache 管理（启用 `cache-storage` 特性接入 Redis 缓存后端）。
 
----
-
-#### `MemoryStorage::create_storage()`
-
-创建 `Arc<dyn Storage>` 的便捷方法（替代已移除的 `StorageCreate` trait）。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub fn create_storage() -> Arc<dyn Storage>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Arc&lt;dyn Storage&gt;</code> - 装箱好的存储 trait 对象</td>
-</tr>
-</table>
-
-**示例:**
+**示例：**
 
 ```rust
 use limiteron::storage::MemoryStorage;
 use limiteron::Governor;
 
-// 便捷构造
 let storage = MemoryStorage::create_storage();
 let governor = Governor::builder()
     .with_storage(storage)
@@ -1410,240 +739,59 @@ let governor = Governor::builder()
     .await?;
 ```
 
----
+### StorageFactory
 
-#### Trait 实现
-
-`MemoryStorage` 实现以下 trait，可作为 Governor 和各组件的存储后端：
-
-| Trait | 说明 |
-|-------|------|
-| `Storage` | 限流数据存储（令牌桶、计数器等） |
-| `BanStorage` | 封禁记录存储 |
-| `QuotaStorage` | 配额数据存储 |
-
----
-
-## 文件封禁加载
-
-<div align="center">
-
-#### 📄 BanFileLoader
-
-</div>
-
----
-
-#### `BanFileLoader`
-
-从 YAML 文件批量加载封禁规则到 `BanManager`，可选支持文件变更热重载。需要启用 `ban-manager` feature；热重载需要额外启用 `config-watcher` feature。
-
-<table>
-<tr>
-<td width="30%"><b>类型</b></td>
-<td width="70%">
+经 dbnexus 创建持久化存储后端的工厂，需要 `postgres` / `sqlite` / `mysql` 之一（三者互斥）。
 
 ```rust
-pub struct BanFileLoader {
-    path: PathBuf,
-    #[cfg(feature = "config-watcher")]
-    watch_handle: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
+pub struct StorageFactory { /* ... */ }
+
+impl StorageFactory {
+    pub fn from_dsn(dsn: impl Into<String>) -> Self;
+    pub async fn initialize(&mut self, config: Option<StorageFactoryConfig>) -> Result<(), StorageError>;
+    pub async fn create_storage(&self) -> Result<Arc<dyn Storage>, StorageError>;
+    pub async fn create_ban_storage(&self) -> Result<Arc<dyn BanStorage>, StorageError>;
+    pub async fn create_quota_storage(&self) -> Result<Arc<dyn QuotaStorage>, StorageError>;
 }
 ```
 
-</td>
-</tr>
-</table>
+**示例：**
 
-**YAML 文件格式：**
+```rust
+use limiteron::adapters::StorageFactory;
 
-```yaml
-bans:
-  - target:
-      type: ip              # ip | user | mac | geo
-      value: "192.168.1.1"  # geo 时为 {country_code: "CN"}
-    reason: "恶意请求"
-    duration_secs: 3600     # 可选，null/省略 = 使用退避算法
+let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
+factory.initialize(None).await?;
+let storage = factory.create_storage().await?;
 ```
 
 ---
 
-#### `BanFileLoader::new()`
+## 🌐 Admin REST API
 
-创建新的文件加载器。
+启用 `admin-api` 特性后，Limiteron 提供 REST 端点管理封禁、配额与状态。除探针端点外，全部要求 `Authorization: Bearer <api_key>` 头部认证（恒定时间比较防止时序攻击；多 key 部署可配置 `api_key_operators` 映射与 admin/viewer 角色矩阵）。
 
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
+**端点总览：**
 
-```rust
-pub fn new(path: impl Into<PathBuf>) -> Self
-```
+| 方法与路径 | 说明 | 认证 |
+|-----------|------|------|
+| `GET /healthz` / `GET /readyz` | K8s 探针端点 | 免认证 |
+| `GET /metrics` | Prometheus 指标 | 免认证 |
+| `GET /api/v1/status` | 运行状态 | Bearer |
+| `GET /api/v1/status/circuit-breaker` | 熔断器状态 | Bearer |
+| `GET /api/v1/introspect` | 规则/决策链/配额/封禁/熔断自省 JSON | Bearer |
+| `POST /api/v1/ban` | 创建封禁（需 `ban-manager`） | Bearer |
+| `DELETE /api/v1/ban/{target}` | 解除封禁（需 `ban-manager`） | Bearer |
+| `PUT /api/v1/quota/{tenant_id}` | 更新租户配额 | Bearer |
+| `POST /api/v1/config` | 原子热更新配置 | Bearer |
+| `POST /api/v1/check/batch` | 批量决策检查 | Bearer |
+| `POST /api/v1/tokens/prefetch` | 批量令牌预取（`BatchTokenPrefetcher`） | Bearer |
 
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
+> 管理端点自带按路径、按客户端分桶的限流自保护（分桶内存上限 `RATE_BUCKET_MAX_ENTRIES=10000`）。
 
-- `path: impl Into<PathBuf>` - YAML 文件路径
+### POST /api/v1/ban
 
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Self</code> - 新的加载器实例</td>
-</tr>
-</table>
-
----
-
-#### `BanFileLoader::load_once()`
-
-一次性加载文件中的所有封禁规则到 BanManager。单条加载失败不会中断整体加载，失败详情记录在 `LoadResult.errors` 中。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub async fn load_once(&self, manager: &BanManager) -> Result<LoadResult, LimiteronError>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `manager: &BanManager` - 目标封禁管理器
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td>
-<code>Result&lt;LoadResult, LimiteronError&gt;</code><br>
-<code>Ok</code> = 加载完成（可能含部分失败）；<code>Err</code> = 文件读取或 YAML 解析失败
-</td>
-</tr>
-<tr>
-<td><b>安全</b></td>
-<td>内置 YAML 炸弹防护：文件大小上限 2MB，超限返回 <code>ConfigError</code></td>
-</tr>
-</table>
-
-**`LoadResult` 结构：**
-
-```rust
-pub struct LoadResult {
-    pub success_count: usize,
-    pub failure_count: usize,
-    pub errors: Vec<BanLoadError>,
-}
-```
-
-**示例:**
-
-```rust
-use limiteron::ban::{BanFileLoader, BanManager};
-
-let ban_manager = BanManager::new().await?;
-let loader = BanFileLoader::new("config/bans.yaml");
-let result = loader.load_once(&ban_manager).await?;
-println!("成功 {} 条，失败 {} 条", result.success_count, result.failure_count);
-```
-
----
-
-#### `BanFileLoader::start_watching()`
-
-启动文件变更热重载，文件修改后自动重新加载（500ms debounce 防止 DoS）。需要 `config-watcher` feature。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub async fn start_watching(&self, manager: BanManager) -> Result<(), LimiteronError>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `manager: BanManager` - 目标封禁管理器（clone 传入，热重载时调用）
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Result&lt;(), LimiteronError&gt;</code> - 启动结果</td>
-</tr>
-<tr>
-<td><b>特性</b></td>
-<td><code>config-watcher</code></td>
-</tr>
-</table>
-
----
-
-#### `BanFileLoader::stop_watching()`
-
-停止文件监听。`BanFileLoader` 的 `Drop` impl 也会自动调用此方法，防止任务泄漏。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub async fn stop_watching(&self)
-```
-
-</td>
-</tr>
-</table>
-
-**完整示例:**
-
-```rust
-use limiteron::ban::{BanFileLoader, BanManager};
-
-let ban_manager = BanManager::new().await?;
-let loader = BanFileLoader::new("config/bans.yaml");
-
-// 首次加载
-let result = loader.load_once(&ban_manager).await?;
-
-// 启动热重载（需要 config-watcher feature）
-loader.start_watching(ban_manager.clone()).await?;
-
-// loader drop 时自动停止监听
-```
-
----
-
-## Admin REST API
-
-<div align="center">
-
-#### 🌐 HTTP 管理端点
-
-</div>
-
-启用 `admin-api` feature 后，Limiteron 提供 REST 端点管理封禁、配额和状态。所有端点要求 `Authorization: Bearer <api_key>` 头部认证（使用恒定时间比较防止时序攻击）。
-
----
-
-#### `POST /api/v1/ban`
-
-创建封禁记录。支持 `ip`/`user`/`mac`/`geo` 四种 target 类型。需要 `ban-manager` feature。
+创建封禁记录。支持 `ip` / `user` / `mac` / `geo` / `cidr` 五种 target 类型。需要 `ban-manager` 特性。
 
 **请求体：**
 
@@ -1655,15 +803,6 @@ pub struct CreateBanRequest {
     pub duration_secs: Option<u64>,  // None = 退避算法自动计算
 }
 ```
-
-**BanTarget serde 格式：**
-
-| 类型 | type 字段 | value 格式 |
-|------|----------|-----------|
-| `Ip(String)` | `"ip"` | IP 字符串 |
-| `UserId(String)` | `"user"` | 用户 ID |
-| `Mac(String)` | `"mac"` | MAC 地址 |
-| `Geo { country_code }` | `"geo"` | `{"country_code":"CN"}`（大写 2 字母 ISO 3166-1 alpha-2） |
 
 **响应状态码：**
 
@@ -1677,7 +816,7 @@ pub struct CreateBanRequest {
 | `503 Service Unavailable` | 未配置 ban_manager |
 | `500 Internal Server Error` | 其他内部错误 |
 
-**示例:**
+**示例：**
 
 ```bash
 # IP 封禁
@@ -1708,21 +847,15 @@ curl -X POST http://localhost:8080/api/v1/ban \
 }
 ```
 
----
+### DELETE /api/v1/ban/{target}
 
-#### `DELETE /api/v1/ban/{target}`
-
-解除封禁。通过 `?type=` query 参数显式指定目标类型，未提供时按 IP 优先自动推断（合法 IP → `Ip`，否则 → `UserId`）。需要 `ban-manager` feature。
-
-**路径参数：**
-
-- `target` - 封禁目标标识（IP/用户 ID/MAC/国家代码）
+解除封禁。通过 `?type=` query 参数显式指定目标类型，未提供时自动推断（合法 IP → `ip`，否则 → `user`）。需要 `ban-manager` 特性。
 
 **Query 参数：**
 
 | 参数 | 值 | 说明 |
 |------|-----|------|
-| `type` | `ip` / `user` / `mac` / `geo` | 显式指定目标类型。未提供时自动推断（IP 优先，回退 UserId） |
+| `type` | `ip` / `user` / `mac` / `geo` / `cidr` | 显式指定目标类型，未提供时自动推断 |
 
 **请求体（可选）：**
 
@@ -1744,7 +877,7 @@ pub struct UnbanRequest {
 | `503 Service Unavailable` | 未配置 ban_manager |
 | `500 Internal Server Error` | 其他内部错误 |
 
-**示例:**
+**示例：**
 
 ```bash
 # 解封 Geo 目标（必须显式指定 type=geo）
@@ -1764,93 +897,33 @@ curl -X DELETE "http://localhost:8080/api/v1/ban/00:1a:2b:3c:4d:5e?type=mac" \
 
 ---
 
-## 配置加载
+## ⚙️ 配置加载
 
-<div align="center">
+模块位于 `limiteron::config`。
 
-#### ⚙️ ConfigLoader
+### `ConfigLoader::load_from_file()`
 
-</div>
-
----
-
-#### `ConfigLoader::load_from_file()`
+```rust
+pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<FlowControlConfig, LimiteronError>
+```
 
 从 TOML 配置文件加载配置。
 
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
+### `ConfigLoader::load_from_file_with_env()`
 
 ```rust
-pub fn load_from_file(path: &str) -> Result<FlowControlConfig, LimiteronError>
+pub fn load_from_file_with_env<P: AsRef<Path>>(path: P) -> Result<FlowControlConfig, LimiteronError>
 ```
 
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `path: &str` - 配置文件路径
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Result&lt;FlowControlConfig, LimiteronError&gt;</code></td>
-</tr>
-</table>
-
-**示例:**
-
-```rust
-use limiteron::ConfigLoader;
-
-let config = ConfigLoader::load_from_file("config.toml")?;
-```
-
----
-
-#### `ConfigLoader::load_from_file_with_env()`
-
-从 TOML 配置文件加载配置，并支持环境变量覆盖。环境变量前缀为 `LIMITERON_`，支持覆盖全局配置项。
-
-<table>
-<tr>
-<td width="30%"><b>签名</b></td>
-<td width="70%">
-
-```rust
-pub fn load_from_file_with_env(path: &str) -> Result<FlowControlConfig, LimiteronError>
-```
-
-</td>
-</tr>
-<tr>
-<td><b>参数</b></td>
-<td>
-
-- `path: &str` - 配置文件路径
-
-</td>
-</tr>
-<tr>
-<td><b>返回</b></td>
-<td><code>Result&lt;FlowControlConfig, LimiteronError&gt;</code></td>
-</tr>
-</table>
-
-**支持的环境变量：**
+从 TOML 配置文件加载配置，并支持环境变量覆盖（前缀 `LIMITERON_`）。
 
 | 环境变量 | 覆盖配置项 | 说明 |
 |---------|-----------|------|
 | `LIMITERON_GLOBAL_STORAGE` | `global.storage` | 存储类型：`memory` / `postgres` |
-| `LIMITERON_GLOBAL_CACHE` | `global.cache` | 缓存类型：`memory` / `redis`（通过 oxcache） |
+| `LIMITERON_GLOBAL_CACHE` | `global.cache` | 缓存类型：`memory` / `redis`（经 oxcache） |
 | `LIMITERON_GLOBAL_METRICS` | `global.metrics` | 指标类型：`prometheus` / `none` |
 
-**示例:**
+**示例：**
 
 ```rust
 use limiteron::ConfigLoader;
@@ -1858,20 +931,17 @@ use limiteron::ConfigLoader;
 // 先设置环境变量覆盖
 std::env::set_var("LIMITERON_GLOBAL_STORAGE", "postgres");
 
-// 加载配置（环境变量会覆盖配置文件中的值）
+// 加载配置（环境变量覆盖配置文件中的同名项）
 let config = ConfigLoader::load_from_file_with_env("config.toml")?;
-// config.global.storage 现在为 "postgres"
 ```
+
+### 程序化构建
+
+`limiteron::config::ConfigBuilder` 提供程序化构建（`with_storage(StorageType)` / `with_cache(CacheBackend)` / `with_metrics(MetricsBackend)` / `with_trusted_proxies(TrustedProxyConfig)` / `with_rule(closure)` / `build()`）。注意 `build()` 要求至少一条规则，且每条规则必须包含至少一个匹配器与一个限流器，校验失败返回 `Err(String)`。规则构建器 `RuleBuilder` 提供 `id` / `name` / `priority` / `user_matcher` / `ip_matcher` / `token_bucket` / `fixed_window` / `sliding_window` / `concurrency_limit` 等方法。
 
 ---
 
-## 错误处理
-
-<div align="center">
-
-#### 🚨 错误类型和处理
-
-</div>
+## 🚨 错误处理
 
 ### `LimiteronError` 枚举
 
@@ -1884,33 +954,31 @@ pub enum LimiteronError {
     CircuitBreakerError(String),
     FallbackError(String),
     AuditLogError(String),
+    AuthorizationError(String),
     IoError(#[from] std::io::Error),
     SerdeError(#[from] serde_json::Error),
-    YamlError(#[from] serde_yaml::Error),
+    YamlError(#[from] serde_yaml_ng::Error),
     RateLimitExceeded(String),
     QuotaExceeded(String),
     ConcurrencyLimitExceeded(String),
+    Throttled(String),           // 宏 throttle 排队超时
     ValidationError(String),
     LockError(String),
+    TimeError(String),
+    DependencyError(String),
     Other(String),
 }
 ```
 
+类型别名 `pub type LimiteronResult<T> = std::result::Result<T, LimiteronError>;`
+
 ### 错误处理模式
 
-<table>
-<tr>
-<td width="50%">
-
-**模式匹配**
 ```rust
+// 模式匹配：区分限流、封禁与其他错误
 match limiter.allow(1).await {
-    Ok(true) => {
-        println!("✅ 请求允许");
-    }
-    Ok(false) => {
-        println!("❌ 请求被限流");
-    }
+    Ok(true) => println!("✅ 请求允许"),
+    Ok(false) => println!("❌ 请求被限流"),
     Err(LimiteronError::LimitError(msg)) => {
         eprintln!("❌ 限流错误: {}", msg);
     }
@@ -1923,100 +991,78 @@ match limiter.allow(1).await {
 }
 ```
 
-</td>
-<td width="50%">
-
-**? 操作符**
 ```rust
+// ? 操作符：向上传播
 async fn process_request() -> Result<(), LimiteronError> {
     let limiter = TokenBucketLimiter::new(10, 1);
     limiter.allow(1).await?;
-
     Ok(())
 }
 ```
 
-</td>
-</tr>
-</table>
-
 ---
 
-## 类型定义
+## 📐 类型定义
 
-### 常用类型
+### Decision
 
-<table>
-<tr>
-<td width="50%">
+决策结果，位于 `limiteron::error`：
 
-**决策类型**
 ```rust
 pub enum Decision {
-    Allowed,
-    Denied(String),
+    Allowed(RateLimitMetadata),
+    Rejected(RejectionMetadata),
+    Banned(BanInfo),
 }
 ```
 
-**标识符类型**
-```rust
-pub enum Identifier {
-    UserId(String),
-    Ip(String),
-    Mac(String),
-    ApiKey(String),
-    DeviceId(String),
-}
-```
+| 携带类型 | 字段 | 说明 |
+|---------|------|------|
+| `RateLimitMetadata` | `limit` / `remaining` / `reset_at` / `retry_after: Option<u64>` / `policy` | 允许决策的限流元数据 |
+| `RejectionMetadata` | `reason` / `retry_after` / `limit` / `reset_at` | 拒绝决策的详细信息 |
+| `BanInfo` | `reason()` / `banned_until()` / `ban_times()` | 封禁信息（经访问器读取） |
 
-</td>
-<td width="50%">
+### FlowControlConfig
 
-**结果类型**
 ```rust
-pub type Result<T> =
-    std::result::Result<T, LimiteronError>;
-```
-
-**配置类型**
-```rust
-/// 流量控制配置
 pub struct FlowControlConfig {
     pub version: String,
     pub global: GlobalConfig,
     pub rules: Vec<Rule>,
 }
 
-/// 全局配置
 pub struct GlobalConfig {
-    pub storage: StorageType,        // 存储后端类型
-    pub cache: CacheBackend,        // 缓存后端类型
-    pub metrics: MetricsBackend,     // 指标后端类型
+    pub storage: StorageType,                 // Memory / PostgreSQL / Redis
+    pub cache: CacheBackend,                  // Memory / Redis / None
+    pub metrics: MetricsBackend,              // Prometheus / Statsd / None
     pub trusted_proxies: TrustedProxyConfig,  // 可信代理配置
 }
 
-/// 可信代理配置（用于安全提取客户端 IP）
 pub struct TrustedProxyConfig {
-    pub enabled: bool,              // 是否启用可信代理模式
-    pub proxies: Vec<String>,        // 可信代理 IP 列表（支持 CIDR）
+    pub enabled: bool,          // 是否启用可信代理模式
+    pub proxies: Vec<String>,   // 可信代理 IP 列表（支持 CIDR）
+    // 另有 X-Forwarded-For 最大跳数限制（默认 10）
 }
 ```
 
-</td>
-</tr>
-</table>
+### 其他常用类型
+
+| 类型 | 说明 |
+|------|------|
+| `LimiteronResult<T>` | `Result<T, LimiteronError>` 别名 |
+| `RateLimitSnapshot` | `peek` / `remaining` 返回的标准限流头数据 |
+| `ConsumeResult` | 配额消费结果（allowed / remaining / alert_triggered / usage_percent） |
+| `LoadResult` | BanFileLoader 加载结果 |
+| `CircuitState` | 熔断器状态：Closed / Open / HalfOpen |
+| `ChainStats` | 决策链统计（总检查数、节点允许/拒绝数） |
+| `HealthStatus` | Governor 健康状态快照 |
+| `Identifier` | 标识符枚举（UserId / Ip / Mac / ApiKey / DeviceId） |
 
 ---
 
-## 示例
+## 💡 使用示例
 
-<div align="center">
-
-### 💡 常见使用模式
-
-</div>
-
-### 示例 1: 基础限流
+### 示例 1：基础限流
 
 ```rust
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
@@ -2032,17 +1078,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(e) => println!("请求 {} 错误: {:?}", i, e),
         }
     }
-
     Ok(())
 }
 ```
 
-### 示例 2: 封禁管理
+### 示例 2：封禁管理
 
 ```rust
-use limiteron::ban::{BanManager, BanManagerConfig, BanTarget, BanSource};
 use limiteron::adapters::StorageFactory;
-use std::sync::Arc;
+use limiteron::ban::{BanManager, BanManagerConfig, BanSource, BanTarget};
 use std::time::Duration;
 
 #[tokio::main]
@@ -2052,7 +1096,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ban_storage = factory.create_ban_storage().await?;
     let ban_manager = BanManager::with_dependencies(ban_storage, BanManagerConfig::default()).await?;
 
-    // 封禁 IP
     let ip_target = BanTarget::Ip("192.168.1.100".to_string());
     ban_manager.create_ban(
         ip_target.clone(),
@@ -2062,23 +1105,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Duration::from_secs(3600)),
     ).await?;
 
-    // 检查是否被封禁
-    if let Some(ban_detail) = ban_manager.is_banned(&ip_target).await? {
-        println!("❌ IP 已被封禁: {}", ban_detail.reason);
-        println!("到期时间: {}", ban_detail.expires_at);
+    if let Some(record) = ban_manager.is_banned(&ip_target).await? {
+        println!("❌ IP 已被封禁: {}", record.reason);
+        println!("到期时间: {}", record.expires_at);
     }
-
     Ok(())
 }
 ```
 
-### 示例 3: 使用 Governor
+### 示例 3：Governor 决策
 
 ```rust
-use limiteron::{Governor, FlowControlConfig, Decision};
-use limiteron::matchers::RequestContext;
 use limiteron::adapters::StorageFactory;
-use std::sync::Arc;
+use limiteron::error::Decision;
+use limiteron::matchers::RequestContext;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -2087,44 +1127,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let storage = factory.create_storage().await?;
     let ban_storage = factory.create_ban_storage().await?;
 
-    let governor = Governor::builder()
+    let governor = limiteron::Governor::builder()
         .with_storage(storage)
         .with_ban_storage(ban_storage)
         .build()
         .await?;
 
-    let context = RequestContext::builder()
-        .identifier("user123")
-        .path("/api/v1/users")
-        .method("GET")
-        .build();
+    let context = RequestContext::new()
+        .with_header("X-User-Id", "user123")
+        .with_path("/api/v1/users")
+        .with_method("GET");
 
     let decision = governor.check(&context).await?;
     match decision {
-        Decision::Allowed(_) => {
-            println!("✅ 请求允许");
-            // 处理请求
-        }
-        Decision::Rejected(reason) => {
-            println!("❌ 请求被拒绝: {}", reason);
-        }
-        Decision::Banned(info) => {
-            println!("❌ 请求被封禁: {}", info.reason());
-        }
+        Decision::Allowed(meta) => println!("✅ 请求允许，剩余 {}", meta.remaining),
+        Decision::Rejected(meta) => println!("❌ 请求被拒绝: {}", meta.reason),
+        Decision::Banned(info) => println!("❌ 请求被封禁: {}", info.reason()),
     }
-
     Ok(())
 }
 ```
 
-### 示例 4: 使用宏
+### 示例 4：声明式宏
 
 ```rust
 use limiteron::flow_control;
 
 #[flow_control(rate = "100/s", quota = "10000/m", concurrency = 50)]
 async fn api_handler(user_id: &str) -> Result<String, limiteron::error::LimiteronError> {
-    // API 业务逻辑
     Ok(format!("处理用户 {} 的请求", user_id))
 }
 
@@ -2136,14 +1166,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+更多可运行示例见 [examples/](../examples/)（21 个示例覆盖全部核心能力）。
+
 ---
 
-<div align="center">
-
-**[📖 用户指南](USER_GUIDE.md)** • **[❓ 常见问题](FAQ.md)** • **[🏠 首页](../README.md)**
-
-由文档团队制作
-
-[⬆ 返回顶部](#-limiteron-api-参考)
-
-</div>
+[🏠 返回首页](../README.md) • [📖 用户指南](USER_GUIDE.md) • [❓ 常见问题](FAQ.md)

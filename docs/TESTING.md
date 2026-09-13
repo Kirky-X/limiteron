@@ -1,255 +1,164 @@
 # 🧪 Limiteron 测试指南
 
-本文档说明如何运行 Limiteron 项目的测试，包括按 feature 运行测试的详细说明。测试策略与覆盖率数据另见 [覆盖率报告](COVERAGE_REPORT.md)。
+本文档说明如何运行 Limiteron 项目的测试，包括按 feature 运行测试的详细说明。测试金字塔基线与 E2E 场景定义另见 [测试场景固化](TEST_SCENARIOS.md)，历史覆盖率数据见 [覆盖率报告](COVERAGE_REPORT.md)。
 
 ## 📋 目录
 
 <details open>
-<summary>点击展开</summary>
+<summary>📑 目录</summary>
 
-- [快速开始](#快速开始)
-- [按 Feature 运行测试](#按-feature-运行测试)
-- [集成测试](#集成测试)
-- [单元测试](#单元测试)
-- [测试覆盖率](#测试覆盖率)
-- [测试最佳实践](#测试最佳实践)
-- [CI/CD 集成](#cicd-集成)
-- [故障排查](#故障排查)
-- [更多信息](#更多信息)
+- [🚀 快速开始](#-快速开始)
+- [🎨 按 Feature 运行测试](#-按-feature-运行测试)
+- [🧱 测试布局](#-测试布局)
+- [📊 测试规模基线](#-测试规模基线)
+- [📈 测试覆盖率](#-测试覆盖率)
+- [✅ 测试最佳实践](#-测试最佳实践)
+- [🤖 CI 集成](#-ci-集成)
+- [🔧 故障排查](#-故障排查)
+- [📚 更多信息](#-更多信息)
 
 </details>
 
-## 快速开始
+## 🚀 快速开始
 
 ### 常用测试命令
 
 ```bash
-# 运行库单元测试（full 特性）
+# CI 全量测试口径（与 .github/workflows/ci.yml 一致）
+cargo test --workspace --no-default-features --features full
+
+# 库单元测试（full 特性）
 cargo test --features full --lib
 
-# 运行统一集成测试（按 feature 显式启用）
+# 统一集成测试（按 feature 显式启用）
 cargo test --test unified_tests --features "ban-manager,quota-control,circuit-breaker"
 
-# 运行基准测试
-cargo bench
+# 基准测试
+cargo bench --features full
 ```
 
-> 📌 `postgres` 与 `sqlite` 互斥，`--all-features` 会触发 DBNexus 编译错误，请始终使用显式特性组合。
+> 📌 `postgres` / `sqlite` / `mysql` 存储驱动互斥，`--all-features` 会触发 dbnexus 编译错误，请始终使用显式特性组合。
 
-## 按 Feature 运行测试
+## 🎨 按 Feature 运行测试
 
 Limiteron 使用 feature flags 来模块化功能。以下是各 feature 的测试运行方式：
 
 ### 核心 Features
 
-#### 1. 基础功能 (default)
-
 ```bash
-# 运行默认功能测试
-cargo test
-```
+# 默认特性（default = []，核心限流）
+cargo test --no-default-features
 
-#### 2. Ban Manager (封禁管理)
-
-```bash
-# 运行 ban-manager feature 测试
+# 封禁管理
 cargo test --features ban-manager
-
-# 运行 ban-manager 集成测试
 cargo test --test unified_tests --features ban-manager test_list_bans
 
-# 运行特定测试
-cargo test --features ban-manager test_ban
-```
-
-#### 3. Quota Control (配额控制)
-
-```bash
-# 运行 quota-control feature 测试
+# 配额控制
 cargo test --features quota-control
-
-# 运行配额集成测试
 cargo test --test unified_tests --features quota-control test_quota
 
-# 运行特定配额测试
-cargo test --features quota-control test_consume
-```
-
-#### 4. Circuit Breaker (熔断器)
-
-```bash
-# 运行 circuit-breaker feature 测试
+# 熔断器
 cargo test --features circuit-breaker
-
-# 运行熔断器集成测试
 cargo test --test unified_tests --features circuit-breaker test_circuit_breaker
-
-# 运行特定熔断器测试
-cargo test --features circuit-breaker test_circuit
 ```
 
 ### 组合 Features
 
 ```bash
-# 运行多个 features 的测试
+# 组合多个 features
 cargo test --features "ban-manager,quota-control,circuit-breaker"
 
-# 运行完整功能集（full 含 postgres，不含 sqlite，可安全编译）
+# 完整功能集（full 含 postgres，不含 sqlite/mysql，可安全编译）
 cargo test --features full
 
-# 运行标准功能集
+# 标准功能集（sqlite 预设）
 cargo test --features standard
 ```
 
-### 可选 Features 列表
+### 常用 Features 列表
 
 | Feature | 描述 | 测试命令 |
 |---------|------|----------|
 | `ban-manager` | 封禁管理功能 | `cargo test --features ban-manager` |
 | `quota-control` | 配额控制功能 | `cargo test --features quota-control` |
 | `circuit-breaker` | 熔断器功能 | `cargo test --features circuit-breaker` |
-| `monitoring` | 监控指标功能 | `cargo test --features monitoring` |
-| `telemetry` | 遥测功能 | `cargo test --features telemetry` |
+| `monitoring` | Prometheus 指标 | `cargo test --features monitoring` |
+| `telemetry` | 追踪遥测 | `cargo test --features telemetry` |
 | `postgres` | PostgreSQL 存储 | `cargo test --features postgres` |
+| `sqlite` | SQLite 存储 | `cargo test --features sqlite` |
 | `cache-storage` | Redis 缓存后端（经 oxcache） | `cargo test --features cache-storage` |
-| `distributed` | 分布式部署 | `cargo test --features distributed` |
+| `distributed` | 分布式限流 | `cargo test --features distributed` |
 | `gcra` | GCRA 限流算法 | `cargo test --features gcra` |
 | `parallel-checker` | 并行封禁检查 | `cargo test --features parallel-checker` |
 | `audit-log` | 审计日志 | `cargo test --features audit-log` |
 | `fallback` | 降级策略 | `cargo test --features fallback` |
-| `validation` | 配置验证 | `cargo test --features validation` |
-| `full` | 所有功能 | `cargo test --features full` |
+| `validation` | 输入校验 | `cargo test --features validation` |
+| `full` | 完整功能预设 | `cargo test --features full` |
 
-## 集成测试
+## 🧱 测试布局
 
-### Unified Tests (推荐)
+测试按层级组织（详细的层级基线与场景定义见 [测试场景固化](TEST_SCENARIOS.md)）：
 
-`unified_tests` 是新的统一测试入口，包含所有模块的集成测试：
-
-```bash
-# 运行所有统一集成测试
-cargo test --test unified_tests --features "ban-manager,quota-control,circuit-breaker"
-
-# 运行特定模块的集成测试
-cargo test --test unified_tests --features ban-manager test_list_bans_pagination
-cargo test --test unified_tests --features quota-control test_quota_persists_state
-cargo test --test unified_tests --features circuit-breaker test_circuit_breaker_recovers_after_timeout
-```
-
-### 传统测试入口
+| 层级 | 承载位置 | 说明 |
+|------|---------|------|
+| 单元测试 | `src/**` 内联 `#[cfg(test)]` | governor、limiters、ban、quota、circuit、fallback、matchers 等模块自测 |
+| 集成测试 | `tests/` 顶层目标与子目录模块 | `unified_tests`、`integration_tests`、`e2e_tests`、`common_tests`、`security_tests`、`admin_security_tests`、`chaos_tests`、`e2e_advanced` 等 |
+| 属性测试 | `tests/property_tests/` | proptest：并发、固定窗口、滑动窗口、令牌桶 |
+| 文档测试 | 文档注释代码块 | 随 `cargo test` 编译执行 |
+| 基准测试 | `benches/` | criterion：throughput / latency / memory / regression |
 
 ```bash
-# Common 测试
+# 运行传统测试入口
 cargo test --test common_tests
-
-# 集成测试
 cargo test --test integration_tests
-
-# E2E 测试
 cargo test --test e2e_tests
-```
 
-## 单元测试
-
-### 运行库内单元测试
-
-```bash
-# 运行所有库内单元测试
-cargo test --lib
-
-# 运行特定模块的单元测试
+# 运行库内特定模块的单元测试
 cargo test --lib test_token_bucket
 cargo test --lib test_sliding_window
 cargo test --lib test_fixed_window
 cargo test --lib test_concurrency_limiter
 ```
 
-### 按模块运行测试
+## 📊 测试规模基线
+
+以 CI 口径（`--workspace --no-default-features --features full`）的全量运行结果为基线：**38 个测试目标 / 3298 passed / 0 failed / 42 ignored**（ignored 为 manual / 容器依赖门控与文档测试门控）。分层基线与 E2E 场景明细见 [测试场景固化](TEST_SCENARIOS.md)。
+
+> 📌 测试数量随版本演进，以最近一次 CI 全量运行输出为准。
+
+## 📈 测试覆盖率
+
+### 覆盖率门禁
+
+CI 与 pre-push 钩子均启用 **cargo-llvm-cov 行覆盖率 ≥ 80%** 门禁（以 [CI 配置](../.github/workflows/ci.yml) 为准）：
 
 ```bash
-# Ban Manager 测试
-cargo test --lib limiteron::ban_manager
+# 与 CI 完全一致的口径
+cargo llvm-cov --workspace --no-default-features --features full --lib --fail-under-lines 80
 
-# Quota Controller 测试
-cargo test --lib limiteron::quota_controller
-
-# Circuit Breaker 测试
-cargo test --lib limiteron::circuit_breaker
-
-# Governor 测试
-cargo test --lib limiteron::governor
+# 生成 HTML 报告
+cargo llvm-cov --workspace --no-default-features --features full --lib --html
+# 报告输出到 target/llvm-cov/html/
 ```
 
-## 测试覆盖率
+> 历史上曾使用 cargo-tarpaulin 生成覆盖率（v0.1.0 时期基线，见 [覆盖率报告](COVERAGE_REPORT.md)）。使用 tarpaulin 时同样需要注意 `postgres` 与 `sqlite` 互斥，不可使用 `--all-features`。
 
-### 当前测试状态
-
-项目当前测试状态: **1209 个测试全部通过 ✅**
-
-| 测试类型 | 测试数量 | 状态 |
-|---------|---------|------|
-| 单元测试 | 523 | ✅ 通过 |
-| 集成测试 (unified_tests) | 192 | ✅ 通过 |
-| 集成测试 (integration_tests) | 247 | ✅ 通过 |
-| 安全测试 | 82 | ✅ 通过 |
-| E2E 测试 | 165 | ✅ 通过 |
-
-详细报告请查看: [COVERAGE_REPORT.md](./COVERAGE_REPORT.md)
-
-### 使用 cargo-tarpaulin (任务 5.1)
-
-```bash
-# 安装 cargo-tarpaulin
-cargo install cargo-tarpaulin
-
-# 生成覆盖率报告（显式指定特性组合；postgres 与 sqlite 互斥，不可使用 --all-features）
-cargo tarpaulin --features "ban-manager,quota-control,circuit-breaker" --out Html
-cargo tarpaulin --features full --out Html
-
-# 生成特定 feature 的覆盖率报告
-cargo tarpaulin --features ban-manager --out Html
-cargo tarpaulin --features quota-control --out Html
-cargo tarpaulin --features circuit-breaker --out Html
-
-# 生成终端输出与 JSON 报告
-cargo tarpaulin --out Stdout --features full
-cargo tarpaulin --out Json --features minimal
-
-# 设置最低覆盖率阈值
-cargo tarpaulin --features full --threshold 70
-
-# 查看 HTML 报告
-open tarpaulin-report.html
-```
-
-### 覆盖率目标
-
-- 核心模块：> 70% 覆盖率
-- 关键路径：> 80% 覆盖率
-- 工具函数：> 60% 覆盖率
-
-| 阶段 | 目标覆盖率 | 状态 |
-|------|-----------|------|
-| P0 | 所有测试通过 | ✅ 已达成 (1209 tests) |
-| P1 | 代码覆盖率 60% | 🔄 进行中 |
-| P2 | 代码覆盖率 75% | 📋 计划中 |
-
-## 测试最佳实践
+## ✅ 测试最佳实践
 
 ### 1. 运行测试前的准备
 
 ```bash
 # 确保代码格式正确
-cargo fmt --check
+cargo fmt --all -- --check
 
-# 运行 clippy 检查
-cargo clippy --no-default-features --features full
+# 运行 clippy 检查（与 CI 同口径）
+cargo clippy --all-targets --no-default-features --features full -- -D warnings
 
 # 运行编译检查
 cargo check --no-default-features --features full
 ```
 
-### 2. 并行运行测试
+### 2. 并行与输出控制
 
 ```bash
 # 使用多线程加速测试
@@ -266,79 +175,64 @@ cargo test --features full -- --show-output
 cargo test --features ban-manager test_list_bans_pagination -- --nocapture
 
 # 显示测试的打印输出
-cargo test --features quota-control test_quota_persists_state -- --exact --nocapture
+cargo test --test unified_tests --features quota-control test_quota_persists_state -- --exact --nocapture
 
 # 运行测试并启用日志
 RUST_LOG=debug cargo test --features circuit-breaker -- --nocapture
 ```
 
-### 4. 只运行更改的测试
+### 4. 控制运行范围
 
 ```bash
-# 只运行未通过的测试
-cargo test --features full -- --ignored
-
 # 运行特定包的测试
 cargo test -p limiteron --features full
+
+# 按名称过滤
+cargo test --features full -- quota
 ```
 
-## CI/CD 集成
+## 🤖 CI 集成
 
-### GitHub Actions 示例
+CI 质量门禁定义在 [ci.yml](../.github/workflows/ci.yml)，包含以下任务：
 
-```yaml
-name: Tests
+| 任务 | 命令口径 |
+|------|---------|
+| Format | `cargo fmt --all -- --check` |
+| Clippy | `cargo clippy --workspace --all-targets --no-default-features --features full -- -D warnings` |
+| Check | `cargo check --workspace --no-default-features --features full` 与 `--no-default-features` 双口径 |
+| Test | `cargo test --workspace --no-default-features --features full` |
+| Build | ubuntu / macos / windows 三平台矩阵，full 与 no-default 双口径 |
+| Documentation | `cargo doc --workspace --no-deps --no-default-features --features full` |
+| Security | `cargo deny check` 与 `cargo audit` |
+| Coverage | `cargo llvm-cov ... --fail-under-lines 80` |
 
-on: [push, pull_request]
+## 🔧 故障排查
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        feature:
-          - ban-manager
-          - quota-control
-          - circuit-breaker
-          - "ban-manager,quota-control,circuit-breaker"
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - name: Run tests
-        run: cargo test --features ${{ matrix.feature }}
-```
-
-## 故障排查
-
-### 常见问题
-
-#### 1. Feature 冲突
+### 1. Feature 冲突
 
 ```bash
-# 错误：feature 冲突
-# 解决：使用 --no-default-flags
-cargo test --no-default-features --features "ban-manager,quota-control"
+# postgres/sqlite/mysql 互斥导致编译失败时，显式指定单驱动组合
+cargo test --no-default-features --features "ban-manager,quota-control,sqlite"
 ```
 
-#### 2. 测试超时
+### 2. 测试超时
 
 ```bash
-# 增加测试超时时间
+# 串行运行排查时序问题
 cargo test --test unified_tests -- --test-threads=1
 ```
 
-#### 3. 内存不足
+### 3. 内存不足
 
 ```bash
 # 减少并行测试线程
 cargo test --features full -- --test-threads=1
 ```
 
-## 更多信息
+## 📚 更多信息
 
+- [测试场景固化](TEST_SCENARIOS.md)：测试金字塔基线与 E2E 场景定义
+- [覆盖率报告](COVERAGE_REPORT.md)：历史覆盖率基线与数据口径说明
 - [API 参考文档](API_REFERENCE.md)
 - [用户指南](USER_GUIDE.md)
-- [架构分析](ARCHITECTURE_ANALYSIS.md)
 - [常见问题](FAQ.md)

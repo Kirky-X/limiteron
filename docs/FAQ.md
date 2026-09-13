@@ -1,36 +1,30 @@
 # ❓ Limiteron 常见问题
 
-本文档按主题汇总 Limiteron 的常见问题与解答，覆盖通用问题、安装设置、使用功能、性能、安全与故障排除。系统性教程请见 [用户指南](USER_GUIDE.md)。
+本文档按主题汇总 Limiteron 的常见问题与解答，覆盖通用问题、安装设置、使用功能、性能、安全与故障排除。系统性教程请见 [用户指南](USER_GUIDE.md)，API 细节请见 [API 参考](API_REFERENCE.md)。
 
-[🏠 首页](../README.md) • [📖 用户指南](USER_GUIDE.md) • [📚 API 参考](API_REFERENCE.md)
+[🏠 首页](../README.md) • [📖 用户指南](USER_GUIDE.md) • [📘 API 参考](API_REFERENCE.md)
 
 ---
 
 ## 📋 目录
 
 <details open>
-<summary>点击展开</summary>
+<summary>📑 目录</summary>
 
-- [一般问题](#一般问题)
-- [安装和设置](#安装和设置)
-- [使用和功能](#使用和功能)
-- [性能](#性能)
-- [安全](#安全)
-- [故障排除](#故障排除)
-- [贡献](#贡献)
-- [许可证](#许可证)
+- [🤔 一般问题](#-一般问题)
+- [📦 安装和设置](#-安装和设置)
+- [💡 使用和功能](#-使用和功能)
+- [⚡ 性能](#-性能)
+- [🔒 安全](#-安全)
+- [🔧 故障排除](#-故障排除)
+- [🤝 贡献](#-贡献)
+- [📄 许可证](#-许可证)
 
 </details>
 
 ---
 
-## 一般问题
-
-<div align="center">
-
-### 🤔 关于项目
-
-</div>
+## 🤔 一般问题
 
 <details>
 <summary><b>❓ 什么是 Limiteron?</b></summary>
@@ -39,60 +33,36 @@
 
 **Limiteron** 是一个 Rust 统一流量控制框架，提供：
 
-- ✅ 多种限流算法（令牌桶、固定窗口、滑动窗口、并发控制）
-- ✅ 封禁管理（IP 封禁、自动封禁、封禁优先级）
-- ✅ 配额管理（配额分配、配额告警、配额透支）
-- ✅ 熔断器（自动熔断、状态恢复、降级策略）
+- 多种限流算法（令牌桶、滑动/分片滑动/固定窗口、并发控制、GCRA、HTB 分层令牌桶、AIMD 自适应）
+- 封禁管理（IP / 用户 / MAC / Geo / CIDR 封禁、自动封禁、封禁优先级、YAML 批量加载）
+- 配额管理（周期配额、配额告警、配额透支）
+- 熔断与降级（自动熔断、状态恢复、降级策略）
 
-它为需要保护 API 服务免受滥用和 DDoS 攻击的开发者设计。
+它为需要保护 API 服务免受滥用和突发流量冲击的开发者设计。
 
 **了解更多:** [用户指南](USER_GUIDE.md)
 
 </details>
 
 <details>
-<summary><b>❓ 为什么选择 Limiteron 而不是其他方案?</b></summary>
+<summary><b>❓ Limiteron 的核心能力有哪些?</b></summary>
 
 <br>
 
-<table>
-<tr>
-<th>特性</th>
-<th>Limiteron</th>
-<th>governor</th>
-<th>bucket4j</th>
-</tr>
-<tr>
-<td>性能</td>
-<td>⚡⚡⚡</td>
-<td>⚡⚡</td>
-<td>⚡</td>
-</tr>
-<tr>
-<td>易用性</td>
-<td>✅ 简单</td>
-<td>✅ 简单</td>
-<td>⚠️ 复杂</td>
-</tr>
-<tr>
-<td>文档</td>
-<td>📚 完善</td>
-<td>📚 良好</td>
-<td>📄 基础</td>
-</tr>
-<tr>
-<td>功能</td>
-<td>🌟 全面</td>
-<td>🌟 限流</td>
-<td>🌟 限流</td>
-</tr>
-</table>
+| 能力 | 说明 |
+|------|------|
+| 多维限流 | 令牌桶、滑动/分片滑动/固定窗口、并发控制、GCRA、HTB、AIMD 自适应 |
+| 纵深管控 | 封禁、配额、熔断、降级沿一条决策链协同执行 |
+| 可插拔底座 | 内存存储开箱即用，经 dbnexus 与 oxcache 接入持久化与分布式缓存 |
+| 生产可观测 | Prometheus 指标、OTLP 追踪导出、HMAC 链式审计日志、K8s 探针端点 |
+| 声明式接入 | `#[flow_control]` 过程宏、Tower 中间件、Admin REST API、`limiteron-cli` |
 
-**关键优势:**
-- 🚀 更好的性能（延迟 < 200μs P99）
-- 💡 更简单的 API 设计（宏支持）
-- 📖 完善的文档和示例
-- 🌟 全面的功能（限流、封禁、配额、熔断）
+**关键优势：**
+
+- 🚀 高性能（令牌桶吞吐 12M+ ops/s，P99 延迟 < 1µs，见[性能](#-性能)）
+- 💡 简洁的 API 设计与声明式宏支持
+- 📖 完善的文档与 21 个可运行示例
+- 🌟 全面的功能（限流、封禁、配额、熔断、降级）
 
 </details>
 
@@ -101,33 +71,14 @@
 
 <br>
 
-**当前状态:** ✅ **是的，可以用于生产环境！**
+**可以。** 当前 0.3.0-rc.x 发布线已在真实项目中验证核心能力：
 
-<table>
-<tr>
-<td width="50%">
+- ✅ 核心限流与存储抽象稳定，默认构建零外部存储依赖
+- ✅ 3298 个测试的分层测试体系与 llvm-cov ≥80% 行覆盖门禁（见[测试指南](TESTING.md)）
+- ✅ CI 覆盖 fmt / clippy / 三平台构建 / cargo-deny / cargo-audit / CodeQL
+- ✅ 性能数据可经仓库自带 criterion 基准复现（`cargo bench --features full`）
 
-**已就绪:**
-- ✅ 核心功能稳定
-- ✅ 全面的测试
-- ✅ 安全审计
-- ✅ 性能优化
-- ✅ 文档完善
-
-</td>
-<td width="50%">
-
-**成熟度指标:**
-- 👥 活跃的开发
-- 📝 完整的文档
-- 🔄 定期更新
-- ✨ 多种限流算法
-
-</td>
-</tr>
-</table>
-
-> **注意:** 升级版本前请查看提交历史。
+> **注意:** 升级版本前请查看[更新日志](CHANGELOG.md)，破坏性变更均有标注。
 
 </details>
 
@@ -136,42 +87,11 @@
 
 <br>
 
-<table>
-<tr>
-<th>平台</th>
-<th>架构</th>
-<th>状态</th>
-<th>说明</th>
-</tr>
-<tr>
-<td rowspan="2"><b>Linux</b></td>
-<td>x86_64</td>
-<td>✅ 完全支持</td>
-<td>主要平台</td>
-</tr>
-<tr>
-<td>ARM64</td>
-<td>✅ 完全支持</td>
-<td>在 ARM 服务器上测试</td>
-</tr>
-<tr>
-<td rowspan="2"><b>macOS</b></td>
-<td>x86_64</td>
-<td>✅ 完全支持</td>
-<td>Intel Mac</td>
-</tr>
-<tr>
-<td>ARM64</td>
-<td>✅ 完全支持</td>
-<td>Apple Silicon (M1/M2)</td>
-</tr>
-<tr>
-<td><b>Windows</b></td>
-<td>x86_64</td>
-<td>✅ 完全支持</td>
-<td>Windows 10+</td>
-</tr>
-</table>
+| 平台 | 架构 | 状态 | 说明 |
+|------|------|------|------|
+| Linux | x86_64 / ARM64 | ✅ 支持 | CI 三平台矩阵覆盖 |
+| macOS | x86_64 / ARM64 | ✅ 支持 | Apple Silicon 覆盖 |
+| Windows | x86_64 | ✅ 支持 | CI windows runner 覆盖 |
 
 </details>
 
@@ -180,43 +100,13 @@
 
 <br>
 
-<table>
-<tr>
-<td width="50%" align="center">
-
-**🦀 Rust**
-
-✅ **原生支持**
-
-完整的 API 访问
-
-</td>
-<td width="50%" align="center">
-
-**🌐 其他语言**
-
-📋 **计划中**
-
-通过 FFI
-
-</td>
-</tr>
-</table>
-
-**文档:**
-- [Rust API](https://docs.rs/limiteron)
+**Rust** 原生支持，完整 API 访问，docs.rs 在线文档见 [docs.rs/limiteron](https://docs.rs/limiteron)。其他语言经 FFI 接入属于远期设想，当前没有官方绑定。
 
 </details>
 
 ---
 
-## 安装和设置
-
-<div align="center">
-
-### 🚀 快速开始
-
-</div>
+## 📦 安装和设置
 
 <details>
 <summary><b>❓ 如何安装 Limiteron?</b></summary>
@@ -227,7 +117,7 @@
 
 ```toml
 [dependencies]
-limiteron = { version = "0.3.0-rc.2", features = ["macros"] }
+limiteron = { version = "0.3.0-rc.3", features = ["macros"] }
 ```
 
 或使用 cargo:
@@ -239,7 +129,7 @@ cargo add limiteron --features macros
 **从源码安装:**
 
 ```bash
-git clone https://github.com/kirkyx/limiteron
+git clone https://github.com/Kirky-X/limiteron
 cd limiteron
 cargo build --release
 ```
@@ -266,40 +156,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 <br>
 
-**最低要求:**
-
-<table>
-<tr>
-<th>组件</th>
-<th>要求</th>
-<th>推荐</th>
-</tr>
-<tr>
-<td>Rust 版本</td>
-<td>1.85+</td>
-<td>最新稳定版</td>
-</tr>
-<tr>
-<td>内存</td>
-<td>512 MB</td>
-<td>2 GB+</td>
-</tr>
-<tr>
-<td>磁盘空间</td>
-<td>50 MB</td>
-<td>100 MB</td>
-</tr>
-<tr>
-<td>CPU</td>
-<td>1 核心</td>
-<td>4+ 核心</td>
-</tr>
-</table>
+| 组件 | 要求 | 推荐 |
+|------|------|------|
+| Rust 版本 | 1.97.1+（[rust-toolchain.toml](../rust-toolchain.toml) 锁定） | 最新稳定版 |
+| 内存 | 512 MB | 2 GB+ |
+| 磁盘空间 | 50 MB | 100 MB |
+| CPU | 1 核心 | 4+ 核心 |
 
 **可选:**
-- 🔧 PostgreSQL（用于持久化存储）
-- 🔧 Redis（用于缓存和分布式限流）
-- 🐳 Docker（用于容器化部署）
+
+- PostgreSQL / MySQL / SQLite（经 dbnexus 持久化存储）
+- Redis（经 oxcache 缓存与分布式限流）
+- Docker（容器化部署）
 
 </details>
 
@@ -324,17 +192,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 3. **检查 Rust 版本:**
    ```bash
    rustc --version
-   # 应该是 1.85.0 或更高
+   # 应该是 1.97.1 或更高
    ```
 
-4. **验证依赖:**
-   ```bash
-   cargo tree
-   ```
+4. **检查 feature 组合：** `postgres` / `sqlite` / `mysql` 三种存储驱动互斥，`--all-features` 会触发 dbnexus 编译错误，请使用显式特性组合。
 
 **还有问题?**
-- 📝 查看 [故障排除](#故障排除)
-- 🐛 [创建 issue](../../issues) 并附上错误详情
+- 📝 查看 [故障排除](#-故障排除)
+- 🐛 [创建 issue](https://github.com/Kirky-X/limiteron/issues) 并附上错误详情
 
 </details>
 
@@ -346,7 +211,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 **可以！** 这是一个示例 Dockerfile:
 
 ```dockerfile
-FROM rust:1.85-slim as builder
+FROM rust:1.97-slim AS builder
 
 WORKDIR /app
 COPY . .
@@ -361,7 +226,6 @@ CMD ["limiteron"]
 **Docker Compose:**
 
 ```yaml
-version: '3.8'
 services:
   app:
     build: .
@@ -381,13 +245,7 @@ docker-compose up -d
 
 ---
 
-## 使用和功能
-
-<div align="center">
-
-### 💡 使用 API
-
-</div>
+## 💡 使用和功能
 
 <details>
 <summary><b>❓ 如何开始基础使用?</b></summary>
@@ -397,7 +255,7 @@ docker-compose up -d
 **5 分钟快速开始:**
 
 ```rust
-use limiteron::limiters::TokenBucketLimiter;
+use limiteron::limiters::{Limiter, TokenBucketLimiter};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -413,7 +271,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("✅ 成功！");
     Ok(())
 }
 ```
@@ -429,29 +286,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 <br>
 
-<div align="center">
+| 算法 | 类型 | 说明 |
+|------|------|------|
+| 令牌桶 | `TokenBucketLimiter` | 固定速率补充令牌，允许突发 |
+| 分片滑动窗口 | `ShardedSlidingWindowLimiter` | 高并发下的精确滑动窗口 |
+| 滑动窗口 | `SlidingWindowLimiter`（已弃用导出） | 旧版滑动窗口 |
+| 固定窗口 | `FixedWindowLimiter` | 固定时间窗口内限制请求数 |
+| 并发控制 | `ConcurrencyLimiter` | 限制同时处理的请求数 |
+| GCRA | `GcraLimiter`（`gcra` 特性） | 信元速率算法，平滑限流 |
+| HTB | `HierarchicalTokenBucket` | 分层令牌桶，父子带宽借用 |
+| AIMD 自适应 | `AdaptiveConcurrencyLimiter`（`adaptive-limiting` 特性） | 按延迟/错误率反馈调窗 |
 
-### 🔐 支持的限流算法
-
-</div>
-
-**令牌桶:**
-- ✅ 令牌桶限流器 (TokenBucketLimiter)
-- ✅ 固定速率补充令牌
-
-**固定窗口:**
-- ✅ 固定窗口限流器 (FixedWindowLimiter)
-- ✅ 在固定时间窗口内限制请求数
-
-**滑动窗口:**
-- ✅ 滑动窗口限流器 (SlidingWindowLimiter)
-- ✅ 使用滑动时间窗口提供更精确的限流
-
-**并发控制:**
-- ✅ 并发限流器 (ConcurrencyLimiter)
-- ✅ 限制同时处理的请求数
-
-**另请参阅:** [算法详情](API_REFERENCE.md#限流器)
+**另请参阅:** [算法详情](API_REFERENCE.md#-限流器)
 
 </details>
 
@@ -465,6 +311,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```rust
 use limiteron::Governor;
 use limiteron::adapters::StorageFactory;
+use limiteron::matchers::RequestContext;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -481,16 +328,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await?;
 
-    // 决策链会依次检查所有限流器
-    let context = limiteron::matchers::RequestContext::builder()
-        .identifier("user123")
-        .path("/api/v1/users")
-        .method("GET")
-        .build();
+    // 决策链会按优先级依次检查所有限流器
+    let context = RequestContext::new()
+        .with_header("X-User-Id", "user123")
+        .with_path("/api/v1/users")
+        .with_method("GET");
 
     let decision = governor.check(&context).await?;
-    if decision.is_allowed() {
-        // 处理请求
+    match decision {
+        limiteron::error::Decision::Allowed(_) => { /* 处理请求 */ }
+        _ => { /* 拒绝或封禁处理 */ }
     }
 
     Ok(())
@@ -515,8 +362,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use limiteron::error::LimiteronError;
 use limiteron::limiters::TokenBucketLimiter;
 
-async fn process_request() -> Result<(), LimiteronError> {
-    let limiter = TokenBucketLimiter::new(10, 1);
+async fn process_request(limiter: &TokenBucketLimiter) -> Result<(), LimiteronError> {
     match limiter.allow(1).await {
         Ok(true) => {
             println!("✅ 成功");
@@ -543,7 +389,7 @@ async fn process_request() -> Result<(), LimiteronError> {
 ```
 
 **错误类型:**
-- [错误参考](API_REFERENCE.md#错误处理)
+- [错误参考](API_REFERENCE.md#-错误处理)
 
 </details>
 
@@ -552,18 +398,17 @@ async fn process_request() -> Result<(), LimiteronError> {
 
 <br>
 
-**当前状态:** ✅ **完全支持**
+**完全支持。** 全部核心 API 均为异步（基于 tokio），限流器同时实现 `Send + Sync` 可跨任务共享。
 
 **示例:**
 
 ```rust
-use limiteron::limiters::TokenBucketLimiter;
+use limiteron::limiters::{Limiter, TokenBucketLimiter};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let limiter = TokenBucketLimiter::new(10, 1);
 
-    // 在异步上下文中使用
     match limiter.allow(1).await {
         Ok(true) => println!("✅ 请求允许"),
         Ok(false) => println!("❌ 请求被限流"),
@@ -580,7 +425,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use limiteron::flow_control;
 
 #[flow_control(rate = "10/s")]
-async fn api_handler() -> Result<String, Box<dyn std::error::Error>> {
+async fn api_handler() -> Result<String, limiteron::error::LimiteronError> {
     Ok("Success".to_string())
 }
 ```
@@ -589,55 +434,26 @@ async fn api_handler() -> Result<String, Box<dyn std::error::Error>> {
 
 ---
 
-## 性能
-
-<div align="center">
-
-### ⚡ 速度和优化
-
-</div>
+## ⚡ 性能
 
 <details>
 <summary><b>❓ 性能如何?</b></summary>
 
 <br>
 
-**基准测试结果:**
+**基准测试结果**（2026-01-19 实测，详见 [README 性能](../README.md#-性能)）：
 
-<table>
-<tr>
-<th>操作</th>
-<th>吞吐量</th>
-<th>延迟 (P50)</th>
-<th>延迟 (P99)</th>
-</tr>
-<tr>
-<td>令牌桶检查</td>
-<td>12M+ ops/s</td>
-<td>< 100ns</td>
-<td>< 1µs</td>
-</tr>
-<tr>
-<td>固定窗口检查</td>
-<td>20M+ ops/s</td>
-<td>< 100ns</td>
-<td>< 500ns</td>
-</tr>
-<tr>
-<td>并发检查</td>
-<td>12M+ ops/s</td>
-<td>< 100ns</td>
-<td>< 1µs</td>
-</tr>
-</table>
+| 操作 | 吞吐量 | 延迟 (P50) | 延迟 (P99) |
+|------|--------|-----------|-----------|
+| 令牌桶检查 | 12M+ ops/s | < 100ns | < 1µs |
+| 固定窗口检查 | 20M+ ops/s | < 100ns | < 500ns |
+| 并发检查 | 12M+ ops/s | < 100ns | < 1µs |
 
 **自己运行基准测试:**
 
 ```bash
-cargo bench
+cargo bench --features full
 ```
-
-**另请参阅:** [性能指南](../README.md#-性能)
 
 </details>
 
@@ -653,9 +469,9 @@ cargo bench
    cargo build --release
    ```
 
-2. **使用 L1 缓存:**
+2. **利用 L1 负缓存:**
    ```rust
-   // L1 缓存默认启用，且为负缓存语义——仅缓存"拒绝/封禁"决策，
+   // L1 负缓存默认启用，且为负缓存语义——仅缓存"拒绝/封禁"决策，
    // "允许"决策永不入缓存，因此任何一次请求都会重新执行限流/封禁检查。
    let governor = Governor::builder()
        .with_l1_cache_enabled(true)
@@ -663,17 +479,19 @@ cargo bench
        .await?;
    ```
 
-3. **使用全局实例:**
+3. **使用全局共享实例:**
    ```rust
-   lazy_static! {
-       static ref LIMITER: TokenBucketLimiter = TokenBucketLimiter::new(10, 1);
-   }
+   use limiteron::limiters::TokenBucketLimiter;
+   use std::sync::LazyLock;
+
+   static LIMITER: LazyLock<TokenBucketLimiter> =
+       LazyLock::new(|| TokenBucketLimiter::new(10, 1));
    ```
 
 4. **使用宏:**
    ```rust
    #[flow_control(rate = "100/s")]
-   async fn api_handler() -> Result<String, LimiteronError> {
+   async fn api_handler() -> Result<String, limiteron::error::LimiteronError> {
        Ok("Success".to_string())
    }
    ```
@@ -685,40 +503,19 @@ cargo bench
 
 <br>
 
-**典型内存使用:**
+**内存特征（定性）：**
 
-<table>
-<tr>
-<th>场景</th>
-<th>内存使用</th>
-<th>说明</th>
-</tr>
-<tr>
-<td>基础初始化</td>
-<td>~10 MB</td>
-<td>最低开销</td>
-</tr>
-<tr>
-<td>使用 L2 缓存 (10,000 条目)</td>
-<td>~50 MB</td>
-<td>每条目 ~4KB</td>
-</tr>
-<tr>
-<td>使用 L3 缓存 (100,000 条目)</td>
-<td>~200 MB</td>
-<td>可配置</td>
-</tr>
-<tr>
-<td>高吞吐模式</td>
-<td>~100 MB</td>
-<td>额外缓冲区</td>
-</tr>
-</table>
+| 组件 | 内存特征 | 说明 |
+|------|---------|------|
+| 核心限流器 | 单实例 KB 级 | 原子计数器状态 |
+| L1 负缓存 | 受容量上限约束 | 默认 1000 条，可经 `L1CacheConfig` 调整 |
+| MemoryStorage | 随活跃 key 数增长 | 限流器管理器带 LRU 淘汰（上限 100,000 条）防刷爆 |
+| 持久化后端 | 由连接池配置决定 | dbnexus 连接池参数可控 |
 
 **减少内存使用:**
 
 ```rust
-// 通过限制 L1 缓存大小来减少内存使用
+// 通过限制 L1 负缓存容量来减少内存使用
 let governor = Governor::builder()
     .with_l1_cache_config(L1CacheConfig::new(Duration::from_secs(60), 1000))
     .build()
@@ -727,54 +524,32 @@ let governor = Governor::builder()
 
 **内存安全:**
 - ✅ Rust 内存安全保证
-- ✅ 无内存泄漏
-- ✅ 自动清理
+- ✅ 限流器管理器 LRU 淘汰防无界增长
+- ✅ 后台任务 `Drop` 防泄漏
 
 </details>
 
 ---
 
-## 安全
-
-<div align="center">
-
-### 🔒 安全特性
-
-</div>
+## 🔒 安全
 
 <details>
 <summary><b>❓ 这个库安全吗?</b></summary>
 
 <br>
 
-**是的！** 安全是我们的首要任务。
+**安全设计贯穿始终。** 全部安全机制均可在源码与[安全文档](SECURITY.md)中对应：
 
-**安全特性:**
+| 防线 | 机制 |
+|------|------|
+| 输入防线 | 标识符 key 消毒（ASCII 白名单 + 128 字符截断）、IP / 用户 ID / MAC 格式校验 |
+| 算法边界 | 令牌桶饱和运算封顶、配额窗口时钟回退防护 |
+| Admin 自保护 | 管理端点自身限流、分桶内存上限、多 key 令牌认证与 RBAC |
+| 数据保护 | secrecy 保护敏感数据、日志脱敏、审计事件 HMAC-SHA256 链式签名 |
+| 传输防线 | 可信代理 X-Forwarded-For 提取、Webhook 外发签名与防重放、SSRF URL 校验 |
+| 供应链 | rustls-webpki 最低版本锁（CVE-2025-48369）、cargo-deny / cargo-audit / CodeQL |
 
-<table>
-<tr>
-<td width="50%">
-
-**实现**
-- ✅ 内存安全 (Rust)
-- ✅ 输入验证
-- ✅ SQL 注入防护
-- ✅ 密码保护
-
-</td>
-<td width="50%">
-
-**保护**
-- ✅ 缓冲区溢出保护
-- ✅ 侧信道抵抗
-- ✅ 内存安全
-- ✅ 参数化查询
-
-</td>
-</tr>
-</table>
-
-**更多详情:** [安全指南](../README.md#-安全)
+**更多详情:** [安全文档](SECURITY.md)
 
 </details>
 
@@ -785,19 +560,16 @@ let governor = Governor::builder()
 
 **请负责任地报告安全问题:**
 
-1. **不要**创建公开的 GitHub issues
-2. **通过 GitHub Issues 报告**，并标记为 security
-3. **包括:**
-   - 漏洞描述
-   - 复现步骤
-   - 潜在影响
-   - 建议的修复（如果有）
+1. **不要**创建公开 issue 披露漏洞细节
+2. **优先使用 GitHub 私密漏洞报告**：仓库页 → Security → Report a vulnerability；若不可用，可在 Issues 中报告但**不要**包含可直接利用的细节、PoC 载荷或影响线上环境的信息
+3. **包括:** 受影响版本、feature 组合、复现步骤、影响评估
 
-**响应时间线:**
-- 📧 初始响应: 24 小时
-- 🔍 评估: 72 小时
-- 🔧 修复（如果有效）: 7-30 天
-- 📢 公开披露: 修复发布后
+**响应时间线**（与 [安全文档](SECURITY.md) 一致）:
+
+- 📧 确认: 48 小时内
+- 🔍 初步评估: 7 天内
+- 🔧 修复: 先在私有分支进行，随下一个版本发布
+- 📢 披露: 协调披露，修复发布后在更新日志"安全"分类记录
 
 </details>
 
@@ -808,34 +580,18 @@ let governor = Governor::builder()
 
 **数据存储选项:**
 
-<table>
-<tr>
-<th>方法</th>
-<th>安全性</th>
-<th>使用场景</th>
-</tr>
-<tr>
-<td><b>内存</b></td>
-<td>🔒 良好</td>
-<td>开发、测试</td>
-</tr>
-<tr>
-<td><b>PostgreSQL</b></td>
-<td>🔒🔒 更好</td>
-<td>单服务器部署</td>
-</tr>
-<tr>
-<td><b>Redis</b></td>
-<td>🔒🔒 更好</td>
-<td>分布式部署</td>
-</tr>
-</table>
+| 方法 | 适用场景 | 说明 |
+|------|---------|------|
+| 内存 | 开发、测试 | 开箱即用，重启即失 |
+| SQLite（经 dbnexus） | 单机部署 | 嵌入式持久化，无需外部服务 |
+| PostgreSQL / MySQL（经 dbnexus） | 生产部署 | 参数化查询防注入，建议启用 TLS |
+| Redis（经 oxcache / lua-script） | 分布式缓存与限流 | Lua 脚本原子操作 |
 
 **最佳实践:**
 
 ```rust
-// 1. 使用环境变量
-let redis_url = env::var("REDIS_URL")?;
+// 1. 使用环境变量管理连接串
+let dsn = std::env::var("DATABASE_URL")?;
 
 // 2. 设置适当的权限
 // 确保数据库访问权限最小化
@@ -848,39 +604,29 @@ let redis_url = env::var("REDIS_URL")?;
 
 <br>
 
-**当前状态:** ✅ **无已知漏洞**
+**当前状态:** ✅ **无已知未修复漏洞**
 
 **我们如何维护安全:**
 
 1. **依赖扫描:**
    ```bash
    cargo audit
+   cargo deny check
    ```
 
-2. **定期更新:**
-   - 每周依赖更新
-   - 48 小时内安全补丁
+2. **定期更新:** CI 与 pre-push 钩子持续运行安全审计；对已知漏洞依赖做最低版本锁定（如 rustls-webpki，CVE-2025-48369）
 
-3. **测试:**
-   - 模糊测试
-   - 静态分析
-   - 安全代码审查
+3. **测试:** 安全测试套件（`security_tests`、`admin_security_tests`）与静态分析（CodeQL）
 
 **保持知情:**
 - 🔔 关注此仓库
-- 📰 查看 [GitHub Security Advisories](../../security/advisories)
+- 📰 查看 [Security Advisories](https://github.com/Kirky-X/limiteron/security/advisories)
 
 </details>
 
 ---
 
-## 故障排除
-
-<div align="center">
-
-### 🔧 常见问题
-
-</div>
+## 🔧 故障排除
 
 <details>
 <summary><b>❓ 限流不生效</b></summary>
@@ -888,7 +634,8 @@ let redis_url = env::var("REDIS_URL")?;
 <br>
 
 **问题:**
-```
+
+```text
 所有请求都通过了限流
 ```
 
@@ -897,7 +644,7 @@ let redis_url = env::var("REDIS_URL")?;
 **解决方案:**
 
 ```rust
-use limiteron::limiters::{TokenBucketLimiter, Limiter};
+use limiteron::limiters::{Limiter, TokenBucketLimiter};
 use std::sync::Arc;
 
 // 使用 Arc 共享 limiter 实例
@@ -930,7 +677,7 @@ for i in 0..100 {
   cargo run --release
   ```
 
-- [ ] 是否启用了 L1 缓存?
+- [ ] 是否启用了 L1 负缓存?
   ```rust
   let governor = Governor::builder()
       .with_l1_cache_enabled(true)
@@ -938,12 +685,12 @@ for i in 0..100 {
       .await?;
   ```
 
-- [ ] 是否使用 Arc 共享实例?
+- [ ] 是否使用 Arc / LazyLock 共享实例?
   ```rust
   let limiter = Arc::new(TokenBucketLimiter::new(10, 1));
   ```
 
-**更多帮助:** [性能指南](../README.md#-性能)
+**更多帮助:** [README 性能](../README.md#-性能)
 
 </details>
 
@@ -955,26 +702,22 @@ for i in 0..100 {
 **解决方案:**
 
 ```rust
-// 减少 L1 缓存大小
+// 调低 L1 负缓存容量
 let governor = Governor::builder()
     .with_l1_cache_config(L1CacheConfig::new(Duration::from_secs(60), 1000))
     .build()
     .await?;
 ```
 
+限流器管理器自带 LRU 淘汰（上限 100,000 条），恶意 key 不会无限累积。
+
 </details>
 
-**更多问题?** 查看 [用户指南](USER_GUIDE.md#故障排除)
+**更多问题?** 查看 [用户指南故障排除](USER_GUIDE.md#-故障排除)
 
 ---
 
-## 贡献
-
-<div align="center">
-
-### 🤝 加入社区
-
-</div>
+## 🤝 贡献
 
 <details>
 <summary><b>❓ 如何贡献?</b></summary>
@@ -983,28 +726,12 @@ let governor = Governor::builder()
 
 **贡献方式:**
 
-<table>
-<tr>
-<td width="50%">
-
-**代码贡献**
-- 🐛 修复 bug
-- ✨ 添加功能
-- 📝 改进文档
-- ✅ 编写测试
-
-</td>
-<td width="50%">
-
-**非代码贡献**
-- 📖 编写教程
-- 🎨 设计资源
-- 🌍 翻译文档
-- 💬 回答问题
-
-</td>
-</tr>
-</table>
+| 代码贡献 | 非代码贡献 |
+|---------|-----------|
+| 🐛 修复 bug | 📖 编写教程 |
+| ✨ 添加功能 | 🌍 翻译文档 |
+| 📝 改进文档 | 💬 回答问题 |
+| ✅ 编写测试 | 🎨 优化示例 |
 
 **开始:**
 
@@ -1013,6 +740,8 @@ let governor = Governor::builder()
 3. ✏️ 进行修改
 4. ✅ 添加测试
 5. 📤 提交 PR
+
+详细流程见[贡献指南](CONTRIBUTING.md)。
 
 </details>
 
@@ -1023,9 +752,9 @@ let governor = Governor::builder()
 
 **报告前:**
 
-1. ✅ 查看 [现有 issues](../../issues)
+1. ✅ 查看 [现有 issues](https://github.com/Kirky-X/limiteron/issues)
 2. ✅ 尝试最新版本
-3. ✅ 查看 [故障排除指南](USER_GUIDE.md#故障排除)
+3. ✅ 查看 [故障排除指南](USER_GUIDE.md#-故障排除)
 
 **创建好的 bug 报告:**
 
@@ -1046,14 +775,14 @@ bug 的清晰描述
 
 ### 环境
 - OS: Ubuntu 22.04
-- Rust version: 1.85.0
-- Project version: 1.0.0
+- Rust version: 1.97.1
+- limiteron version: 0.3.0-rc.3
 
 ### 其他上下文
 任何其他相关信息
 ```
 
-**提交:** [创建 Issue](../../issues/new)
+**提交:** [创建 Issue](https://github.com/Kirky-X/limiteron/issues/new)
 
 </details>
 
@@ -1062,51 +791,17 @@ bug 的清晰描述
 
 <br>
 
-<div align="center">
-
-### 💬 支持渠道
-
-</div>
-
-<table>
-<tr>
-<td width="50%" align="center">
-
-**🐛 Issues**
-
-[GitHub Issues](../../issues)
-
-Bug 报告和功能请求
-
-</td>
-<td width="50%" align="center">
-
-**💬 Discussions**
-
-[GitHub Discussions](../../discussions)
-
-问答和想法
-
-</td>
-</tr>
-</table>
-
-**响应时间:**
-- 🐛 严重 bug: 24 小时
-- 🔧 功能请求: 1 周
-- 💬 问题: 2-3 天
+| 渠道 | 用途 |
+|------|------|
+| 🐛 [GitHub Issues](https://github.com/Kirky-X/limiteron/issues) | Bug 报告和功能请求 |
+| 💬 [GitHub Discussions](https://github.com/Kirky-X/limiteron/discussions) | 问答和想法 |
+| 📦 [GitHub 仓库](https://github.com/Kirky-X/limiteron) | 查看源代码 |
 
 </details>
 
 ---
 
-## 许可证
-
-<div align="center">
-
-### 📄 许可证信息
-
-</div>
+## 📄 许可证
 
 <details>
 <summary><b>❓ 使用什么许可证?</b></summary>
@@ -1148,36 +843,14 @@ Bug 报告和功能请求
 
 ---
 
-<div align="center">
-
 ### 🎯 还有其他问题?
 
-<table>
-<tr>
-<td width="33%" align="center">
-<a href="../../issues">
-<b>创建 Issue</b>
-</a>
-</td>
-<td width="33%" align="center">
-<a href="../../discussions">
-<b>开始讨论</b>
-</a>
-</td>
-<td width="33%" align="center">
-<a href="https://github.com/kirkyx/limiteron">
-<b>GitHub</b>
-</a>
-</td>
-</tr>
-</table>
+| 渠道 | 入口 |
+|------|------|
+| 🐛 创建 Issue | [Issues](https://github.com/Kirky-X/limiteron/issues) |
+| 💬 开始讨论 | [Discussions](https://github.com/Kirky-X/limiteron/discussions) |
+| 🏠 GitHub 仓库 | [Kirky-X/limiteron](https://github.com/Kirky-X/limiteron) |
 
 ---
 
-**[📖 用户指南](USER_GUIDE.md)** • **[📚 API 参考](API_REFERENCE.md)** • **[🏠 首页](../README.md)**
-
-由文档团队制作
-
-[⬆ 返回顶部](#-limiteron-常见问题)
-
-</div>
+[📖 用户指南](USER_GUIDE.md) • [📘 API 参考](API_REFERENCE.md) • [🏠 返回首页](../README.md)

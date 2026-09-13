@@ -6,9 +6,6 @@
 //! module (no upstream dependencies) that constructs a limiteron
 //! [`Governor`](crate::Governor) capability during
 //! [`AsyncKit::build`](trait_kit::AsyncKit::build).
-//!
-//! See `specmark/changes/trait-kit-async-integration/specs/limiteron-module/spec.md`
-//! for the acceptance criteria driving this module.
 
 pub mod module;
 pub use module::LimiteronModule;

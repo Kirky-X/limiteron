@@ -104,7 +104,7 @@ pub struct Governor {
     #[cfg(feature = "ban-manager")]
     ban_manager: Arc<BanManager>,
 
-    /// 并行封禁检查器（新增）
+    /// 并行封禁检查器
     #[cfg(feature = "parallel-checker")]
     parallel_ban_checker: Arc<crate::storage::ParallelBanChecker>,
 

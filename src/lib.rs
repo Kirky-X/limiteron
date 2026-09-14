@@ -136,6 +136,9 @@ pub mod matchers;
 pub mod oxcache_lua;
 #[cfg(feature = "quota-control")]
 pub mod quota;
+// 同步限流原语（tokio-free，std + parking_lot）：供纯同步消费者使用
+#[cfg(feature = "sync")]
+pub mod sync;
 #[cfg(any(feature = "telemetry", feature = "monitoring"))]
 pub mod telemetry;
 #[cfg(feature = "multi-tenant")]
@@ -174,6 +177,8 @@ pub use ban::{
 pub use circuit::{CircuitBreaker, CircuitBreakerConfig};
 #[cfg(feature = "audit-log")]
 pub use logging::audit::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
+#[cfg(feature = "sync")]
+pub use sync::{CircuitCallError, RateLimitRejection, SyncCircuitBreaker, SyncFixedWindowLimiter};
 // 导出配置相关类型
 #[cfg(feature = "cache-service")]
 pub use cache::{Cache, CacheKey, CacheService, MemoryCache};

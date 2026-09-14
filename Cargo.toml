@@ -257,8 +257,11 @@ cli = []
 # 封禁跨实例同步：经 oxcache Pub/Sub 总线（协议层）广播封禁变更
 ban-sync = ["oxcache/invalidation"]
 # ============================================
-# Minimal: 核心限流功能（无外部存储依赖）
-minimal = []
+# Minimal: 核心限流功能（无外部存储依赖）；sync 为 tokio-free 同步原语（std + parking_lot）
+minimal = ["sync"]
+
+# 同步限流原语：SyncCircuitBreaker / SyncFixedWindowLimiter，供纯同步消费者使用
+sync = []
 
 # Standard: 标准配置 - 核心功能 + PostgreSQL
 standard = ["sqlite", "ban-manager", "quota-control", "circuit-breaker"]
@@ -290,6 +293,7 @@ full = [
     "lua-script",
     "multi-tenant",
     "admin-api",
+    "sync",
 ]
 
 default = []

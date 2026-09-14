@@ -45,3 +45,9 @@ pub use crate::middleware::{
 
 // DbStorage removed as part of direct-inheritance refactoring
 // Use dbnexus::DbStorage directly instead
+
+// 同步限流原语（tokio-free）
+#[cfg(feature = "sync")]
+pub use crate::sync::{
+    CircuitCallError, RateLimitRejection, SyncCircuitBreaker, SyncFixedWindowLimiter,
+};

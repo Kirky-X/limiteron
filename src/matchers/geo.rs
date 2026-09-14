@@ -293,17 +293,19 @@ impl GeoMatcher {
         // 获取文件元数据
         let metadata = std::fs::metadata(db_path).map_err(LimiteronError::IoError)?;
 
-        // 验证文件大小（GeoLite2-City.mmdb 通常大于 50MB）
-        const MIN_DB_SIZE: u64 = 50 * 1024 * 1024; // 50MB
+        // 文件大小仅作启发式告警，不做硬性下限：GeoLite2-City 全量库通常 > 50MB，
+        // 但 Country 库 / MaxMind 官方测试库 / 自定义库完全可能只有几十 KB。
+        // 真正的损坏/截断由下方 Reader::from_source 的格式解析兜底（非法文件仍返回 Err）。
+        const TYPICAL_DB_SIZE: u64 = 50 * 1024 * 1024; // 50MB
         const MAX_DB_SIZE: u64 = 500 * 1024 * 1024; // 500MB
 
         let file_size = metadata.len();
-        if file_size < MIN_DB_SIZE {
-            return Err(LimiteronError::ConfigError(format!(
-                "GeoLite2数据库文件大小异常（{} bytes），可能已损坏或不是完整文件。最小要求: {} \
-                 bytes",
-                file_size, MIN_DB_SIZE
-            )));
+        if file_size < TYPICAL_DB_SIZE {
+            log::warn!(
+                target: "geo",
+                "GeoLite2数据库文件小于典型全量库大小（{} bytes < {} bytes）——Country/测试/自定义库属正常，损坏文件将由格式解析阶段拒绝",
+                file_size, TYPICAL_DB_SIZE
+            );
         }
 
         if file_size > MAX_DB_SIZE {
@@ -384,8 +386,9 @@ impl GeoMatcher {
     /// - `ip`: IP地址
     ///
     /// # 返回
-    /// - `Ok(GeoInfo)`: 地理信息
-    /// - `Err(LimiteronError)`: 查询失败
+    /// - `Ok(GeoInfo)`: 地理信息；库中无该 IP 记录时为 `GeoInfo::empty()`
+    ///   （用 `is_empty()` 判定，负缓存生效）
+    /// - `Err(LimiteronError)`: 查询/解析失败（数据库损坏等）
     ///
     /// # 性能
     /// - 首次查询: ~1ms
@@ -424,14 +427,16 @@ impl GeoMatcher {
             .lookup(ip)
             .map_err(|e| LimiteronError::ConfigError(format!("IP查询失败: {}", e)))?;
 
-        // 解码为 City 结构
-        let city: geoip2::City = lookup_result
+        // 解码为 City 结构。库中无该 IP 记录（私有 IP / 未知网段）不是错误：
+        // 返回 `GeoInfo::empty()`（调用方经 `is_empty()` 判定），并作为负缓存写入，
+        // 避免重复穿透数据库。格式损坏仍是 Err。
+        let decoded: Option<geoip2::City> = lookup_result
             .decode()
-            .map_err(|e| LimiteronError::ConfigError(format!("IP数据解析失败: {}", e)))?
-            .ok_or_else(|| LimiteronError::ConfigError("IP不在数据库中".to_string()))?;
-
-        // 提取地理信息
-        let info = self.extract_geo_info(&city);
+            .map_err(|e| LimiteronError::ConfigError(format!("IP数据解析失败: {}", e)))?;
+        let info = match decoded {
+            Some(city) => self.extract_geo_info(&city),
+            None => GeoInfo::empty(),
+        };
 
         // 更新缓存。容量由 Moka 强制执行（见 with_cache_limit）：
         // 旧实现此处有一段只打日志的「守卫」加死代码，实际的容量
@@ -1064,8 +1069,9 @@ mod tests {
 
     #[cfg(feature = "geo-matching")]
     #[tokio::test]
-    async fn test_geo_matcher_new_file_too_small() {
-        // 创建一个临时小文件，应触发文件大小异常错误
+    async fn test_geo_matcher_small_invalid_file_rejected_by_parser() {
+        // 大小仅作启发式告警（Country/测试/自定义库合法地只有几十 KB），
+        // 真正的损坏由 mmdb 格式解析兜底：非法内容必须在解析阶段返回 Err
         let temp_dir = std::env::temp_dir();
         let temp_path = temp_dir.join(format!(
             "limiteron_test_geo_small_{}.mmdb",
@@ -1086,8 +1092,8 @@ mod tests {
         );
         let msg = err.to_string();
         assert!(
-            msg.contains("大小异常") || msg.contains("size"),
-            "error should mention file size: {}",
+            msg.contains("无效") || msg.contains("invalid") || msg.contains("数据库"),
+            "error should mention invalid database content: {}",
             msg
         );
     }

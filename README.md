@@ -56,29 +56,26 @@
 
 ## ✨ 功能特性
 
-<table>
+<table style="width:100%; border-collapse: collapse">
 <tr>
-<td width="50%" valign="top">
-
-### 🎯 流量治理
-
-- ✅ **多种限流算法** — 令牌桶（Token Bucket）、滑动窗口、分片滑动窗口、固定窗口、并发控制、GCRA、HTB 分层令牌桶（`src/limiters/`）
-- ✅ **封禁管理** — IP / 用户 / MAC / Geo 目标封禁、CIDR 网段封禁、优先级体系、YAML 批量加载与热重载、跨实例同步（`ban-sync`）
-- ✅ **配额控制** — 周期性配额分配、配额预警、配额透支（`src/quota/`）
-- ✅ **熔断与降级** — 自动故障转移、状态恢复、降级策略（`src/circuit/`、`src/fallback.rs`）
-
-</td>
-<td width="50%" valign="top">
-
-### ⚡ 工程能力
-
-- 🚀 **高性能** — 令牌桶吞吐 12M+ ops/s、P99 延迟 < 1µs（见[性能](#-性能)）
-- 🧩 **声明式接入** — `#[flow_control]` 过程宏、Tower 中间件、Admin REST API、`limiteron-cli`
-- 🏢 **多租户** — tenant+key 复合决策键，缓存/封禁/配额按租户隔离
-- 📈 **可观测性** — Prometheus 指标、OTLP 追踪导出、HMAC-SHA256 链式审计日志、K8s 探针端点
-- 🔐 **安全内建** — 标识符 key 消毒、日志脱敏、Webhook 签名防重放、Admin RBAC
-
-</td>
+<td width="50%" style="vertical-align:top; padding: 12px">🎯 <b>限流算法矩阵</b><br><span style="color:#64748B">令牌桶（Token Bucket）、滑动窗口、分片滑动窗口、固定窗口、并发控制、GCRA、HTB 分层令牌桶（<code>src/limiters/</code>）</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🚫 <b>封禁管理</b><br><span style="color:#64748B">IP / 用户 / MAC / Geo 目标封禁、CIDR 网段封禁、优先级体系、YAML 批量加载与热重载、跨实例同步（<code>ban-sync</code>）</span></td>
+</tr>
+<tr>
+<td width="50%" style="vertical-align:top; padding: 12px">⚖️ <b>配额控制</b><br><span style="color:#64748B">周期性配额分配、配额预警、配额透支（<code>src/quota/</code>）</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🧯 <b>熔断与降级</b><br><span style="color:#64748B">自动故障转移、状态恢复、降级策略（<code>src/circuit/</code>、<code>src/fallback.rs</code>）</span></td>
+</tr>
+<tr>
+<td width="50%" style="vertical-align:top; padding: 12px">🚀 <b>高性能</b><br><span style="color:#64748B">令牌桶吞吐 12M+ ops/s、P99 延迟 &lt; 1µs（见[性能](#-性能)）</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🧩 <b>声明式接入</b><br><span style="color:#64748B"><code>#[flow_control]</code> 过程宏、Tower 中间件、Admin REST API、<code>limiteron-cli</code></span></td>
+</tr>
+<tr>
+<td width="50%" style="vertical-align:top; padding: 12px">🏢 <b>多租户</b><br><span style="color:#64748B">tenant+key 复合决策键，缓存/封禁/配额按租户隔离</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">📈 <b>可观测性</b><br><span style="color:#64748B">Prometheus 指标、OTLP 追踪导出、HMAC-SHA256 链式审计日志、K8s 探针端点</span></td>
+</tr>
+<tr>
+<td width="50%" style="vertical-align:top; padding: 12px">🔐 <b>安全内建</b><br><span style="color:#64748B">标识符 key 消毒、日志脱敏、Webhook 签名防重放、Admin RBAC</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🧠 <b>决策链级联</b><br><span style="color:#64748B">DecisionChain 按优先级级联执行多条规则，支持短路（<code>src/decision_chain/</code>）</span></td>
 </tr>
 </table>
 

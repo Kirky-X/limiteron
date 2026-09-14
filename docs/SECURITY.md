@@ -30,7 +30,7 @@
 
 ## 🚨 漏洞报告流程
 
-1. **报告渠道**：请优先使用 GitHub 的私有漏洞报告功能（仓库页 → Security → Report a vulnerability）私下披露；若该功能不可用，可在 [Issues](https://github.com/Kirky-X/limiteron/issues) 中报告，但请**不要**包含可直接利用的细节、PoC 载荷或影响线上环境的信息。
+1. **报告渠道**：请优先使用 GitHub 的私有漏洞报告功能（仓库页 → Security → Report a vulnerability）私下披露；若该功能不可用，可发送邮件至 Kirky-X@outlook.com 或在 [Issues](https://github.com/Kirky-X/limiteron/issues) 中报告，但请**不要**包含可直接利用的细节、PoC 载荷或影响线上环境的信息。
 2. **报告内容**：请尽量包含受影响的版本（`Cargo.toml` 中的 version）、涉及的 feature 组合、复现步骤、影响评估（如可导致限流被绕过、拒绝服务等）。
 3. **响应与修复**：维护者确认后会评估严重性并安排修复，修复会先在私有分支进行，随下一个版本发布。
 4. **披露约定**：采用协调披露。修复发布后，会在 [CHANGELOG](CHANGELOG.md) 对应版本的"安全"分类中记录（可参考 0.2.8 的 vuln-0001 ~ vuln-0004 系列修复记录），并在讨论中致谢报告者（如报告者同意）。

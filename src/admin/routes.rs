@@ -76,7 +76,7 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
     result == 0
 }
 
-/// MEDIUM-002 修复：锁定 rate_buckets mutex，从中毒状态恢复而非 panic。
+/// 锁定 rate_buckets mutex，从中毒状态恢复而非 panic。
 ///
 /// std::sync::Mutex 在持锁期间 panic 时会"中毒"。原实现 `.lock().expect(...)`
 /// 会在中毒时 panic，导致 admin API 整体不可用——对于 per-client 速率分桶
@@ -342,7 +342,7 @@ mod tests {
     }
 
     // ========================================================================
-    // MEDIUM-002 修复测试：rate_buckets Mutex 中毒恢复
+    // rate_buckets Mutex 中毒恢复
     //
     // 验证策略：
     // 1. 构造 Mutex 并通过持锁时 panic 使其中毒
@@ -361,7 +361,7 @@ mod tests {
         });
         assert!(result.is_err(), "前置条件：mutex 应已被毒化");
 
-        // MEDIUM-002: lock_rate_buckets 应从中毒状态恢复，不 panic
+        // lock_rate_buckets 应从中毒状态恢复，不 panic
         let mut guard = lock_rate_buckets(&mutex);
         assert!(guard.is_empty(), "恢复后的 guard 应能访问 map");
         guard.insert(

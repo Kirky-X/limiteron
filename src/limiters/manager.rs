@@ -16,8 +16,8 @@
 //! - `DashMap` 提供高并发读写
 //! - `Arc` 共享限流器实例
 //! - 全局单例通过 `std::sync::LazyLock` 实现（Rust 1.80+）
-//! - 访问时间使用 `AtomicU64`（纳秒时间戳），快速路径无锁更新（audit-C-001）
-//! - cleanup 用 `AtomicBool` 限制并发，避免同步阻塞请求（audit-H-002）
+//! - 访问时间使用 `AtomicU64`（纳秒时间戳），快速路径无锁更新
+//! - cleanup 用 `AtomicBool` 限制并发，避免同步阻塞请求
 //!
 //! # 限制
 //!
@@ -31,7 +31,7 @@
 //!   不会触发 panic。这是已知限制，未来需要时可改为缓存 (amount, unit_secs) 元组作为指纹。
 //! - `rate_limiters` 与 `rate_access_times` 在并发场景下可能出现短暂不一致
 //!   （如 cleanup 期间）。这是 DashMap 多 shard 的固有问题，cleanup 使用 `retain`
-//!   原子过滤以最小化窗口（audit-L-001 已缓解）。
+//!   原子过滤以最小化窗口。
 
 use crate::limiters::{ConcurrencyLimiter, TokenBucketLimiter};
 use ahash::AHashSet;
@@ -55,7 +55,7 @@ const CLEANUP_RATIO: f64 = 0.1;
 
 /// 获取当前 Unix 纳秒时间戳
 ///
-/// 用作 `AtomicU64` 访问时间存储，避免快速路径中的写锁（audit-C-001）。
+/// 用作 `AtomicU64` 访问时间存储，避免快速路径中的写锁。
 /// 返回 `u64`，时钟回退或溢出时返回 0（保守值，cleanup 时被当作"最旧"淘汰）。
 fn now_nanos() -> u64 {
     SystemTime::now()
@@ -64,7 +64,7 @@ fn now_nanos() -> u64 {
         .unwrap_or(0)
 }
 
-/// 脱敏 key 用于 panic 消息（audit-H-001）
+/// 脱敏 key 用于 panic 消息
 ///
 /// 避免将用户标识符（user_id / api_key 等）原文泄露到日志或 panic 输出。
 /// - 长度 ≤ 16：仅暴露字符数（如 `<8 chars>`）
@@ -79,7 +79,7 @@ fn redact_key(key: &str) -> String {
     }
 }
 
-/// 通用 LRU 清理逻辑（audit-M-001 DRY + audit-H-001 不持锁分配 + audit-M-004 不全排序）
+/// 通用 LRU 清理逻辑
 ///
 /// - 收集 (key, access_time) 到 Vec（持读锁，仅 map 不 collect 大数据）
 /// - 用 `select_nth_unstable_by_key` 找到第 `to_remove` 个最旧的（O(n) 平均，无需全排序）
@@ -143,7 +143,7 @@ pub struct LimiterManager {
     rate_limiters: DashMap<String, Arc<TokenBucketLimiter>>,
     /// Rate limiters 最后访问时间（key -> AtomicU64 纳秒时间戳），用于 LRU 淘汰
     ///
-    /// 使用 `AtomicU64` 而非 `Instant`，快速路径无锁更新（audit-C-001）。
+    /// 使用 `AtomicU64` 而非 `Instant`，快速路径无锁更新。
     rate_access_times: DashMap<String, AtomicU64>,
     /// Quota limiters 缓存（key -> QuotaLimiter）
     #[cfg(feature = "quota-control")]
@@ -155,7 +155,7 @@ pub struct LimiterManager {
     concurrency_limiters: DashMap<String, Arc<ConcurrencyLimiter>>,
     /// Concurrency limiters 最后访问时间（key -> AtomicU64 纳秒时间戳）
     concurrency_access_times: DashMap<String, AtomicU64>,
-    /// Rate limiter cleanup 并发限制（audit-H-002：避免同步清理阻塞请求）
+    /// Rate limiter cleanup 并发限制
     rate_cleanup_in_progress: AtomicBool,
     /// Quota limiter cleanup 并发限制
     #[cfg(feature = "quota-control")]
@@ -205,7 +205,7 @@ impl LimiterManager {
     /// 同 key 但参数（capacity / refill_rate）不一致时 panic（Rule 12：失败必须显性化）。
     /// 这是设计决策：参数不一致是代码 bug，应在开发阶段发现。
     /// 生产环境 panic 会导致当前请求失败（500），但不会崩溃整个进程。
-    /// panic 消息中 key 已脱敏（audit-H-001），避免泄露用户标识符到日志。
+    /// panic 消息中 key 已脱敏，避免泄露用户标识符到日志。
     ///
     /// # 限制
     ///
@@ -223,7 +223,7 @@ impl LimiterManager {
         amount: u64,
         unit_secs: u64,
     ) -> Arc<TokenBucketLimiter> {
-        let key = key.to_string(); // audit-L-001：缓存一次，避免慢路径多次 to_string
+        let key = key.to_string(); // 缓存一次，避免慢路径多次 to_string
         let refill_rate = amount
             .checked_div(unit_secs)
             .map(|v| v.max(1))
@@ -233,7 +233,7 @@ impl LimiterManager {
         if let Some(existing) = self.rate_limiters.get(&key) {
             let existing_limiter = existing.value();
             // 参数一致性校验（Rule 12：失败必须显性化）
-            // audit-H-001：panic 消息中 key 已脱敏
+            // panic 消息中 key 已脱敏
             assert!(
                 existing_limiter.capacity() == amount
                     && existing_limiter.refill_rate() == refill_rate,
@@ -245,7 +245,7 @@ impl LimiterManager {
                 refill_rate
             );
             // 更新访问时间（LRU 用）
-            // audit-C-001：用 AtomicU64::store 无锁更新，避免 insert 写锁 + 堆分配
+            // 用 AtomicU64::store 无锁更新，避免 insert 写锁 + 堆分配
             if let Some(t) = self.rate_access_times.get(&key) {
                 t.store(now_nanos(), Ordering::Relaxed);
             } else {
@@ -259,7 +259,7 @@ impl LimiterManager {
         }
 
         // 慢路径：entry().or_insert_with().clone() 模式
-        // audit-H-002：返回 DashMap 中的 Arc 而非本地创建的，避免并发场景下限流绕过
+        // 返回 DashMap 中的 Arc 而非本地创建的，避免并发场景下限流绕过
         let limiter = self
             .rate_limiters
             .entry(key.clone())
@@ -270,7 +270,7 @@ impl LimiterManager {
             .or_insert_with(|| AtomicU64::new(now_nanos()));
 
         // LRU 检查：超过阈值则触发 cleanup
-        // audit-H-002：用 AtomicBool CAS 限制并发 cleanup，避免同步阻塞请求
+        // 用 AtomicBool CAS 限制并发 cleanup，避免同步阻塞请求
         if self.rate_limiters.len() > CLEANUP_THRESHOLD {
             if self
                 .rate_cleanup_in_progress
@@ -298,7 +298,7 @@ impl LimiterManager {
     /// # Panic
     ///
     /// 同 key 但参数（max / period）不一致时 panic（Rule 12：失败必须显性化）。
-    /// panic 消息中 key 已脱敏（audit-H-001）。
+    /// panic 消息中 key 已脱敏。
     #[cfg(feature = "quota-control")]
     pub fn get_quota_limiter(
         &self,
@@ -306,13 +306,13 @@ impl LimiterManager {
         period: std::time::Duration,
         max: u64,
     ) -> Arc<QuotaLimiter> {
-        let key = key.to_string(); // audit-L-001：缓存一次
+        let key = key.to_string(); // 缓存一次
 
         // 快速路径：get() 读锁
         if let Some(existing) = self.quota_limiters.get(&key) {
             let existing_limiter = existing.value();
             // 参数一致性校验（Rule 12：失败必须显性化）
-            // audit-H-001：panic 消息中 key 已脱敏
+            // panic 消息中 key 已脱敏
             assert!(
                 existing_limiter.max() == max && existing_limiter.period() == period,
                 "LimiterManager: quota limiter key '{}' already exists with different params (existing: max={}, period={:?}; new: max={}, period={:?})",
@@ -322,7 +322,7 @@ impl LimiterManager {
                 max,
                 period
             );
-            // 更新访问时间（audit-C-001：无锁 store）
+            // 更新访问时间
             if let Some(t) = self.quota_access_times.get(&key) {
                 t.store(now_nanos(), Ordering::Relaxed);
             } else {
@@ -333,7 +333,7 @@ impl LimiterManager {
             return existing_limiter.clone();
         }
 
-        // 慢路径：entry().or_insert_with().clone()（audit-H-002）
+        // 慢路径：entry().or_insert_with().clone()
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: max,
@@ -351,7 +351,7 @@ impl LimiterManager {
             .entry(key.clone())
             .or_insert_with(|| AtomicU64::new(now_nanos()));
 
-        // LRU 检查（audit-H-002：AtomicBool CAS 限制并发）
+        // LRU 检查
         if self.quota_limiters.len() > CLEANUP_THRESHOLD {
             if self
                 .quota_cleanup_in_progress
@@ -378,7 +378,7 @@ impl LimiterManager {
     /// # Panic
     ///
     /// 同 key 但参数（max_concurrent）不一致时 panic（Rule 12：失败必须显性化）。
-    /// panic 消息中 key 已脱敏（audit-H-001）。
+    /// panic 消息中 key 已脱敏。
     pub fn get_concurrency_limiter(
         &self,
         key: &str,
@@ -394,13 +394,13 @@ impl LimiterManager {
             redact_key(key)
         );
 
-        let key = key.to_string(); // audit-L-001：缓存一次
+        let key = key.to_string(); // 缓存一次
 
         // 快速路径：get() 读锁
         if let Some(existing) = self.concurrency_limiters.get(&key) {
             let existing_limiter = existing.value();
             // 参数一致性校验（Rule 12：失败必须显性化）
-            // audit-H-001：panic 消息中 key 已脱敏
+            // panic 消息中 key 已脱敏
             assert!(
                 existing_limiter.max_concurrent() == max_concurrent,
                 "LimiterManager: concurrency limiter key '{}' already exists with different params (existing: max_concurrent={}; new: max_concurrent={})",
@@ -408,7 +408,7 @@ impl LimiterManager {
                 existing_limiter.max_concurrent(),
                 max_concurrent
             );
-            // 更新访问时间（audit-C-001：无锁 store）
+            // 更新访问时间
             if let Some(t) = self.concurrency_access_times.get(&key) {
                 t.store(now_nanos(), Ordering::Relaxed);
             } else {
@@ -419,7 +419,7 @@ impl LimiterManager {
             return existing_limiter.clone();
         }
 
-        // 慢路径：entry().or_insert_with().clone()（audit-H-002）
+        // 慢路径：entry().or_insert_with().clone()
         let limiter = self
             .concurrency_limiters
             .entry(key.clone())
@@ -429,7 +429,7 @@ impl LimiterManager {
             .entry(key.clone())
             .or_insert_with(|| AtomicU64::new(now_nanos()));
 
-        // LRU 检查（audit-H-002：AtomicBool CAS 限制并发）
+        // LRU 检查
         if self.concurrency_limiters.len() > CLEANUP_THRESHOLD {
             if self
                 .concurrency_cleanup_in_progress
@@ -464,7 +464,7 @@ impl LimiterManager {
     /// LRU 清理：按访问时间淘汰最旧的 (1 - CLEANUP_RATIO) 比例外的条目
     ///
     /// 当 `rate_limiters.len()` 超过 `CLEANUP_THRESHOLD` 时被调用，
-    /// 委托给 `cleanup_lru` 泛型函数（audit-M-001 DRY）。
+    /// 委托给 `cleanup_lru` 泛型函数。
     fn cleanup_rate_limiters(&self) {
         self.cleanup_rate_limiters_to(MAX_LIMITER_ENTRIES);
     }
@@ -501,20 +501,20 @@ impl LimiterManager {
         );
     }
 
-    /// 获取 rate limiter 缓存数量（audit-M-003：cfg-gate 仅测试可用）
+    /// 获取 rate limiter 缓存数量
     #[cfg(test)]
     pub fn rate_limiter_count(&self) -> usize {
         self.rate_limiters.len()
     }
 
-    /// 获取 quota limiter 缓存数量（audit-M-003：cfg-gate 仅测试可用）
+    /// 获取 quota limiter 缓存数量
     #[cfg(feature = "quota-control")]
     #[cfg(test)]
     pub fn quota_limiter_count(&self) -> usize {
         self.quota_limiters.len()
     }
 
-    /// 获取 concurrency limiter 缓存数量（audit-M-003：cfg-gate 仅测试可用）
+    /// 获取 concurrency limiter 缓存数量
     #[cfg(test)]
     pub fn concurrency_limiter_count(&self) -> usize {
         self.concurrency_limiters.len()
@@ -941,7 +941,7 @@ mod tests {
 
     #[test]
     fn test_concurrent_get_rate_limiter_consistency() {
-        // audit-M-006：并发场景下多线程 get 同 key 应返回同一 Arc 实例
+        // 并发场景下多线程 get 同 key 应返回同一 Arc 实例
         // 验证 entry().or_insert_with().clone() 模式不会让并发线程绕过限流
         let manager = LimiterManager::new();
         let key = "concurrent_test_key";
@@ -954,7 +954,7 @@ mod tests {
             }
 
             let limiters: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-            // 所有线程应返回同一 Arc 实例（audit-H-002 修复后）
+            // 所有线程应返回同一 Arc 实例
             for l in &limiters[1..] {
                 assert!(
                     Arc::ptr_eq(&limiters[0], l),

@@ -7,7 +7,7 @@
 use limiteron::error::StorageError;
 use std::time::Duration;
 
-// NOTE: 以下 API 在源码中不存在，相关测试已移除（v0.2.0 决策）：
+// NOTE: 以下 API 在源码中不存在，相关测试已移除：
 // - `CacheKey::rate_limit/ban/quota/custom`（CacheKey 是 trait，非 struct，无这些方法）
 // - `Cacheable` trait（cache_key/to_cache_bytes/from_cache_bytes 方法）
 // - `Cache::new_memory(100)` 构造函数（oxcache 0.3.2 无此方法）

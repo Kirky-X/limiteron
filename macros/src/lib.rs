@@ -334,7 +334,7 @@ impl QuotaLimit {
 ///
 /// - `mode`: "reject" / "log_only" / "throttle"
 /// - `error_variant`: LimiteronError 变体名（如 `"RateLimitExceeded"`），作为 `&str` 传入，
-///   函数内部转换为 `syn::Ident` 插值到 quote!（audit-L-007：简化调用点签名）
+///   函数内部转换为 `syn::Ident` 插值到 quote!
 /// - `reject_message`: reject 模式下的错误消息
 fn build_exceed_handler(
     mode: &str,
@@ -409,7 +409,7 @@ fn build_exceed_handler(
 /// # 安全
 ///
 /// 仅允许 ASCII 字符（`is_ascii_alphanumeric`），拒绝 Unicode 同形字符攻击
-/// （如西里尔字母 `а`、希腊字母 `о` 等）（audit-M-001）。
+/// （如西里尔字母 `а`、希腊字母 `о` 等）。
 fn sanitize_key_component(s: &str) -> String {
     s.chars()
         .filter(|c: &char| c.is_ascii_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
@@ -482,7 +482,7 @@ fn generate_flow_control(
         // reject / throttle 模式下消费 token 并检查
         let check_logic = if on_exceed_mode == "log_only" {
             quote! {
-                let _ = &rate_limiter;  // audit-L-003：引用避免 unused 警告（更地道写法）
+                let _ = &rate_limiter;  // 引用避免 unused 警告（更地道写法）
             }
         } else {
             quote! {
@@ -493,7 +493,7 @@ fn generate_flow_control(
         };
         quote! {
             let rate_key = {
-                // audit-M-001: 仅 ASCII alphanumeric，拒绝 Unicode 同形字符攻击
+                // 仅 ASCII alphanumeric，拒绝 Unicode 同形字符攻击
                 let sanitize = |s: &str| s
                     .chars()
                     .filter(|c: &char| c.is_ascii_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
@@ -533,7 +533,7 @@ fn generate_flow_control(
         // reject / throttle 模式下消费配额并检查
         let check_logic = if on_exceed_mode == "log_only" {
             quote! {
-                let _ = &quota_limiter;  // audit-L-003：引用避免 unused 警告（更地道写法）
+                let _ = &quota_limiter;  // 引用避免 unused 警告（更地道写法）
             }
         } else {
             quote! {
@@ -545,7 +545,7 @@ fn generate_flow_control(
         };
         quote! {
             let quota_key = {
-                // audit-M-001: 仅 ASCII alphanumeric，拒绝 Unicode 同形字符攻击
+                // 仅 ASCII alphanumeric，拒绝 Unicode 同形字符攻击
                 let sanitize = |s: &str| s
                     .chars()
                     .filter(|c: &char| c.is_ascii_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
@@ -592,7 +592,7 @@ fn generate_flow_control(
         // reject / throttle 模式下 acquire permit 并持有到函数结束
         let check_logic = if on_exceed_mode == "log_only" {
             quote! {
-                let _ = &concurrency_limiter;  // audit-L-003：引用避免 unused 警告（更地道写法）
+                let _ = &concurrency_limiter;  // 引用避免 unused 警告（更地道写法）
             }
         } else {
             quote! {
@@ -610,7 +610,7 @@ fn generate_flow_control(
         };
         quote! {
             let concurrency_key = {
-                // audit-M-001: 仅 ASCII alphanumeric，拒绝 Unicode 同形字符攻击
+                // 仅 ASCII alphanumeric，拒绝 Unicode 同形字符攻击
                 let sanitize = |s: &str| s
                     .chars()
                     .filter(|c: &char| c.is_ascii_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
@@ -1670,7 +1670,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_key_component_edge_cases() {
-        // audit-L-002：覆盖 sanitize_key_component 的所有边界条件
+        // 覆盖 sanitize_key_component 的所有边界条件
         // 包括空字符串、纯特殊字符、合法字符、超长截断、Unicode 过滤
 
         // 空字符串
@@ -1698,7 +1698,7 @@ mod tests {
         // "ns:user:123" → ":" 被过滤
         assert_eq!(sanitize_key_component("ns:user:123"), "nsuser123");
 
-        // Unicode 字符被过滤（audit-M-001: is_ascii_alphanumeric）
+        // Unicode 字符被过滤
         // 中文应被过滤
         assert_eq!(sanitize_key_component("\u{4e2d}\u{6587}_test"), "_test");
         // 日文应被过滤
@@ -1729,7 +1729,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_key_component_defense_in_depth() {
-        // audit-M-001: 防御性测试 - 同形字符攻击场景
+        // 防御性测试 - 同形字符攻击场景
         // 攻击者可能用 'аdmin'（西里尔字母 а）冒充 'admin'（视觉相同但 Unicode 不同），
         // 试图绕过基于 key 的隔离。sanitize 后西里尔字母 'а' 被过滤，
         // 'аdmin' → 'dmin'，与合法 'admin' 不同：

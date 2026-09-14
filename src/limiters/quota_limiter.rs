@@ -55,7 +55,7 @@ impl QuotaLimiter {
     ///
     /// # Panic
     ///
-    /// `config.window_size == 0` 时 panic（audit-L-003）。
+    /// `config.window_size == 0` 时 panic。
     /// `window_size = 0` 会导致 `Duration::from_secs(0)` 窗口立即过期，
     /// 每次请求都重置 usage，配额限制形同虚设——这是配置 bug，应在开发阶段发现。
     /// 用 `assert!` 而非 `Result` 以保持 API 兼容性（Rule 12：失败必须显性化）。
@@ -93,7 +93,7 @@ impl QuotaLimiter {
     ///
     /// # 注意
     ///
-    /// 仅供 `LimiterManager` 参数一致性校验使用（audit-M-002），不应在业务代码中调用。
+    /// 仅供 `LimiterManager` 参数一致性校验使用，不应在业务代码中调用。
     /// 业务代码应通过 `Limiter::check` 接口与 limiter 交互，而非直接读取配置。
     pub fn max(&self) -> u64 {
         self.config.limit
@@ -103,7 +103,7 @@ impl QuotaLimiter {
     ///
     /// # 注意
     ///
-    /// 仅供 `LimiterManager` 参数一致性校验使用（audit-M-002），不应在业务代码中调用。
+    /// 仅供 `LimiterManager` 参数一致性校验使用，不应在业务代码中调用。
     /// 业务代码应通过 `Limiter::check` 接口与 limiter 交互，而非直接读取配置。
     pub fn period(&self) -> std::time::Duration {
         std::time::Duration::from_secs(self.config.window_size)
@@ -380,7 +380,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "QuotaConfig.window_size must be greater than 0")]
     fn test_quota_limiter_window_size_zero_panics() {
-        // audit-L-003: window_size=0 会导致窗口立即过期，配额限制失效
+        // window_size=0 会导致窗口立即过期，配额限制失效
         // 应在 new() 阶段 panic 而非静默接受错误配置（Rule 12）
         let mut config = create_test_config();
         config.window_size = 0;

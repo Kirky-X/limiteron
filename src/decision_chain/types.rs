@@ -293,8 +293,22 @@ impl DecisionChain {
                 Ok(false) => {
                     // 节点拒绝 - 节点级指标立即更新；请求级统计（total/rejected）在
                     // 末尾统一结算，避免多节点非短路拒绝时对同一请求重复计数
-                    // （diting MED-002）
                     self.stats.increment_node_rejection(&node.id);
+
+                    // 拒绝元数据回填桶容量快照：limit 硬编码 0 会让宿主渲染出
+                    // "RateLimit-Limit: 0"（IETF 语义是桶容量，应为配置配额）。
+                    // allow 拒绝路径不消费令牌，remaining() 读到的即真实状态。
+                    let snapshot = node.limiter.remaining().await.ok();
+                    let now_secs = || {
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0)
+                    };
+                    let (limit, reset_at, retry_after) = match &snapshot {
+                        Some(s) => (s.limit, now_secs() + s.reset_secs, s.reset_secs.max(1)),
+                        None => (0, now_secs() + 60, 60),
+                    };
 
                     // 检查短路标志
                     if node.short_circuit {
@@ -303,25 +317,17 @@ impl DecisionChain {
                         self.stats.increment_rejected();
                         return Ok(Decision::Rejected(RejectionMetadata {
                             reason: format!("Rejected by {}: rate limit exceeded", node.name),
-                            retry_after: 60,
-                            limit: 0,
-                            reset_at: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_secs())
-                                .unwrap_or(0)
-                                + 60,
+                            retry_after,
+                            limit,
+                            reset_at,
                         }));
                     }
                     // 非短路：记录拒绝但继续执行后续节点
                     last_rejection = Some(RejectionMetadata {
                         reason: format!("Rejected by {}: rate limit exceeded", node.name),
-                        retry_after: 60,
-                        limit: 0,
-                        reset_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0)
-                            + 60,
+                        retry_after,
+                        limit,
+                        reset_at,
                     });
                 }
                 Err(e) => {
@@ -335,7 +341,7 @@ impl DecisionChain {
         }
 
         // 如果有非短路拒绝，请求级统计结算为"拒绝"
-        // （不重复计数、不误计为允许；diting MED-002）
+        // （不重复计数、不误计为允许；）
         if let Some(rejection) = last_rejection {
             self.stats.increment_total();
             self.stats.increment_rejected();
@@ -1875,7 +1881,7 @@ mod tests {
 
         let stats = chain.stats_sync();
         // 每次 check 恰好计入一次 total（3 次允许 + 1 次非短路拒绝 = 4），
-        // 拒绝不再被重复计数或误计为 allowed（diting MED-002）
+        // 拒绝不再被重复计数或误计为 allowed
         assert_eq!(stats.total_checks, 4);
         assert_eq!(stats.rejected_count, 1);
     }

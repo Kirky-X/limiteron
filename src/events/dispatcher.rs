@@ -5,6 +5,11 @@
 //! 监听事件通道并将事件分发给注册的处理器和 Webhook。
 
 use crate::events::EventEmitter;
+// `Event` 仅被 webhook 发送路径（send_webhook 及其调用点）消费，
+// 与 webhook 特性同门控，避免 webhook-off 构建下 unused import 告警。
+#[cfg(not(feature = "webhook"))]
+use crate::events::EventHandler;
+#[cfg(feature = "webhook")]
 use crate::events::{Event, EventHandler};
 #[cfg(feature = "webhook")]
 use crate::webhook_validator::validate_webhook_url;
@@ -135,6 +140,7 @@ impl EventDispatcher {
         }
 
         let handlers = self.handlers.clone();
+        #[cfg(feature = "webhook")]
         let webhook_urls = self.webhook_urls.clone();
         #[cfg(feature = "webhook")]
         let http_client = self.http_client.clone();
@@ -171,11 +177,15 @@ impl EventDispatcher {
                             }
                         }
 
-                        // 发送到 Webhook
-                        let urls = webhook_urls.read().await.clone();
-                        for url in &urls {
-                            if let Err(e) = send_webhook(&http_client, url, &event).await {
-                                error!("Failed to send webhook to {}: {}", url, e);
+                        // 发送到 Webhook（webhook 特性关闭时无 http_client 且
+                        // send_webhook 为 2 参存根，整个分派块必须同门控）
+                        #[cfg(feature = "webhook")]
+                        {
+                            let urls = webhook_urls.read().await.clone();
+                            for url in &urls {
+                                if let Err(e) = send_webhook(&http_client, url, &event).await {
+                                    error!("Failed to send webhook to {}: {}", url, e);
+                                }
                             }
                         }
                     }
@@ -312,15 +322,6 @@ pub(crate) async fn send_webhook(
     } else {
         Err(format!("Webhook returned error status: {}", response.status()).into())
     }
-}
-
-/// Webhook 未启用时的存根实现
-#[cfg(not(feature = "webhook"))]
-async fn send_webhook(
-    _url: &str,
-    _event: &Event,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    Err("Webhook feature is not enabled. Enable 'webhook' feature to use webhooks.".into())
 }
 
 #[cfg(test)]

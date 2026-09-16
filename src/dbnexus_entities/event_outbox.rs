@@ -9,6 +9,11 @@ use dbnexus::db_entity;
 use sea_orm::entity::prelude::*;
 
 /// Event outbox model
+///
+/// DDL（`create_table_ddl`）始终参与 `create_all_tables_ddl`；Model/Relation
+/// 的唯一消费者是 `event-system` 特性下的 outbox 存储适配器，该特性关闭时
+/// 按预留项处理（allow 而非删除，保持 schema 与适配器同步演进）。
+#[cfg_attr(not(feature = "event-system"), allow(dead_code))]
 #[db_entity(table_name = "limiteron_event_outbox", primary_key = "id")]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "limiteron_event_outbox")]
@@ -36,6 +41,7 @@ pub struct Model {
 }
 
 /// Relations for the entity
+#[cfg_attr(not(feature = "event-system"), allow(dead_code))]
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {}
 
@@ -55,6 +61,7 @@ pub fn create_table_ddl() -> &'static str {
 }
 
 /// SQLite 方言建表 DDL（单测/本地后端）
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn create_table_ddl_sqlite() -> &'static str {
     r#"
     CREATE TABLE IF NOT EXISTS limiteron_event_outbox (

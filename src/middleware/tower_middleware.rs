@@ -662,7 +662,9 @@ mod tests {
         let resp: Response<()> = svc.call(make_req("/api", "u")).await.unwrap();
         assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(resp.headers().get("RateLimit-Remaining").unwrap(), "0");
-        assert_eq!(resp.headers().get("Retry-After").unwrap(), "60");
+        // TokenBucket(capacity=1, refill=10) 拒绝后决策链按桶快照回填：下一令牌
+        // 0.1s 后可用，secs 截断为 0 再 max(1)，故 Retry-After 为 "1" 而非兜底 60。
+        assert_eq!(resp.headers().get("Retry-After").unwrap(), "1");
     }
 
     #[tokio::test]

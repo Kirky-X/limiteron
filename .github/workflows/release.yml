@@ -25,9 +25,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4716b85f2fac3e324e64fa2810f6b5c3905760a5 # 1.97.1
       - name: Verify build (all features)
-        run: cargo build --release --workspace --no-default-features --features full
+        run: cargo build --release --workspace --no-default-features --features full,postgres
       - name: Verify tests pass
-        run: cargo test --workspace --no-fail-fast --no-default-features --features full
+        run: cargo test --workspace --no-fail-fast --no-default-features --features full,postgres
 
   github-release:
     name: Create GitHub Release
@@ -109,7 +109,7 @@ jobs:
           else
             TOKEN="$CRATES_IO_TOKEN"
           fi
-          OUTPUT=$(cargo publish --token "$TOKEN" --no-default-features --features full 2>&1) || {
+          OUTPUT=$(cargo publish --token "$TOKEN" --no-default-features --features full,postgres 2>&1) || {
             if echo "$OUTPUT" | grep -qE "already exists|already published"; then
               echo "::warning::limiteron already published, continuing"
             else

@@ -37,6 +37,7 @@ pub mod matchers;
 pub mod quota;
 #[allow(unused_imports)]
 pub mod telemetry;
+#[cfg(feature = "validation")]
 #[allow(unused_imports)]
 pub mod validation;
 
@@ -71,5 +72,6 @@ pub use matchers::*;
 pub use quota::*;
 #[allow(unused_imports)]
 pub use telemetry::*;
+#[cfg(feature = "validation")]
 #[allow(unused_imports)]
 pub use validation::*;

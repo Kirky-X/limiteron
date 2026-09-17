@@ -13,6 +13,6 @@ pub mod circuit_breaker_fallback;
 pub mod config;
 pub mod governor_limiters;
 pub mod matcher_limiter;
-#[cfg(all(feature = "quota-control", feature = "cache-storage"))]
+#[cfg(all(feature = "quota-control", feature = "cache-redis"))]
 pub mod quota_alert;
 pub mod real_storage;

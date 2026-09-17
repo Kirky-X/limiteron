@@ -98,7 +98,7 @@ enum State {
 /// 同步三态熔断器。
 ///
 /// 线程安全（内部 `parking_lot::Mutex`）。时间经泛型 [`Clock`] 注入：
-/// 生产用默认 [`SystemClock`]，测试注入 [`MockClock`](crate::clock::MockClock)
+/// 生产用默认 [`SystemClock`]，测试注入 `MockClock`
 /// 手动推进，不依赖真实睡眠。
 ///
 /// # 示例

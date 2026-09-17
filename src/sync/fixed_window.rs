@@ -70,7 +70,7 @@ struct WindowEntry {
 /// 同步固定窗口限流器（per-identifier）。
 ///
 /// 线程安全（内部 `parking_lot::Mutex`）。时间经泛型 [`Clock`] 注入：
-/// 生产用默认 [`SystemClock`]，测试注入 [`MockClock`](crate::clock::MockClock)
+/// 生产用默认 [`SystemClock`]，测试注入 `MockClock`
 /// 手动推进。
 ///
 /// # 示例

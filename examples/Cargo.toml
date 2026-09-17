@@ -14,13 +14,13 @@ workspace = true
 
 [dependencies]
 limiteron = { path = ".." }
-tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
 ahash = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 serde_json = "1.0"
 futures = "0.3"
 # http 用于 tower_middleware 的 Tower Service/Layer 集成（tower 通过 limiteron 重导出访问）
-http = "1.4"
+http = "1.5"
 # reqwest 用于 ban_http_api 示例向 AdminServer 发送 HTTP 请求
 reqwest = { version = "0.13", features = ["json"] }
 # tempfile 用于 ban_file_loader 示例创建临时 YAML 文件
@@ -29,7 +29,7 @@ tempfile = "3.27"
 axum = "0.8"
 # vuln-0004 修复：CVE-2025-48369，强制 rustls-webpki >= 0.103.13
 # 安全优先于 x.x 版本格式规则；此为间接依赖的最低版本约束
-rustls-webpki = "0.103.13"
+rustls-webpki = "0.103.15"
 
 [[bin]]
 name = "simple_rate_limit"

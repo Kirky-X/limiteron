@@ -69,8 +69,12 @@
 //!
 //! > **⚠️ 已声明未实现的 no-op features**：以下 feature 仅为下游兼容（vecboost 等）而
 //! > 声明，**启用无任何效果**，不提供对应功能，请勿依赖它们做能力判断：
-//! > `adaptive-limiting`、`priority-queue`、`admission-control`。若你实际需要其中某项
-//! > 能力，请在 limiteron 仓库提出 issue 寻求实现。
+//! > `priority-queue`、`admission-control`。若你实际需要其中某项能力，请在 limiteron
+//! > 仓库提出 issue 寻求实现。
+//! >
+//! > `adaptive-limiting` 不在此列：自 rc4 起为真实实现（AIMD 自适应并发限流器，
+//! > 见 `limiters::adaptive` 模块），启用后编译进 `AdaptiveConcurrencyLimiter`
+//! > 及其配置/许可类型。
 
 #![allow(clippy::collapsible_if)]
 
@@ -143,6 +147,7 @@ pub mod sync;
 pub mod telemetry;
 #[cfg(feature = "multi-tenant")]
 mod tenant;
+#[cfg(feature = "validation")]
 pub mod validation;
 #[cfg(feature = "webhook")]
 pub(crate) mod webhook_validator;
@@ -261,9 +266,12 @@ pub use telemetry::{Metrics, set_global_metrics, try_global};
 pub use telemetry::{TelemetryConfig, Tracer, init_telemetry};
 #[cfg(feature = "validation")]
 pub use validation::{
-    validate_api_key, validate_ban_reason, validate_ban_target, validate_header_value,
-    validate_ip_address, validate_length, validate_mac_address, validate_path, validate_user_id,
+    validate_api_key, validate_ban_reason, validate_header_value, validate_ip_address,
+    validate_length, validate_mac_address, validate_path, validate_user_id,
 };
+// validate_ban_target 的参数 BanTarget 由 ban-manager 提供，需双 feature 同时启用
+#[cfg(all(feature = "validation", feature = "ban-manager"))]
+pub use validation::validate_ban_target;
 
 #[cfg(feature = "lua-script")]
 pub use oxcache_lua::{
@@ -279,11 +287,11 @@ pub use storage::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, Quota
 pub use storage::ParallelBanChecker;
 
 // Re-export CacheStorage (feature-gated)
-#[cfg(feature = "cache-storage")]
+#[cfg(feature = "cache-redis")]
 pub use cache::CacheBanStorage;
-#[cfg(feature = "cache-storage")]
+#[cfg(feature = "cache-redis")]
 pub use cache::CacheQuotaStorage;
-#[cfg(feature = "cache-storage")]
+#[cfg(feature = "cache-redis")]
 pub use cache::CacheStorage;
 
 // Re-export GCRA limiter (feature-gated)

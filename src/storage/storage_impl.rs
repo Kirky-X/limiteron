@@ -1667,6 +1667,7 @@ mod memory_ban_storage_tests {
     }
 
     #[test]
+    #[cfg(feature = "validation")]
     fn test_t604_cidr_target_validation() {
         // 合法 v4/v6 CIDR
         assert!(crate::validation::validate_cidr("10.0.0.0/8").is_ok());

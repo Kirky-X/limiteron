@@ -724,7 +724,7 @@ pub fn new() -> Self
 pub fn create_storage() -> Arc<dyn Storage>   // 便捷构造（替代已移除的 StorageCreate trait）
 ```
 
-> **注意**：v0.2.1 移除了 `RedisStorage` 与 `redis-storage` 特性，缓存统一经 oxcache 管理（启用 `cache-storage` 特性接入 Redis 缓存后端）。
+> **注意**：v0.2.1 移除了 `RedisStorage` 与 `redis-storage` 特性，缓存统一经 oxcache 管理（启用 `cache-redis` 特性接入 Redis 缓存后端，`cache-storage` 为其兼容别名）。
 
 **示例：**
 

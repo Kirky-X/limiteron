@@ -405,17 +405,10 @@ impl GovernorBuilder {
                 .map(Arc::new)?
         };
 
-        // 创建并行封禁检查器
+        // 创建并行封禁检查器（parallel-checker 蕴含 ban-manager，BanManager 必可用）
         #[cfg(feature = "parallel-checker")]
         let parallel_ban_checker = self.parallel_ban_checker.unwrap_or_else(|| {
-            #[cfg(feature = "ban-manager")]
-            {
-                Arc::new(crate::storage::ParallelBanChecker::new(ban_manager.clone()))
-            }
-            #[cfg(not(feature = "ban-manager"))]
-            {
-                panic!("parallel-checker feature requires ban-manager feature")
-            }
+            Arc::new(crate::storage::ParallelBanChecker::new(ban_manager.clone()))
         });
 
         // 创建标识符提取器（如果未提供）

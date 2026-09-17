@@ -5,15 +5,6 @@ members = [
     "examples",
 ]
 resolver = "2"
-exclude = [
-    "temp/comprehensive_test",
-    "temp/concurrent_test",
-    "temp/integration_test",
-    "temp/test_macro_fixed",
-    "temp/test_project",
-    "temp/test_project_simple",
-    "temp/comprehensive_test/Cargo.toml",
-]
 
 [workspace.package]
 version = "0.3.0-rc.4"
@@ -37,7 +28,7 @@ toml = "1.1"
 
 # 时间和UUID
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.23", features = ["v4", "serde"] }
+uuid = { version = "1.26", features = ["v4", "serde"] }
 
 # 错误处理
 thiserror = "2.0"
@@ -101,7 +92,7 @@ proptest = "1.11"
 axum = { version = "0.8", features = ["json"] }
 tower = { version = "0.5" }
 tower-layer = { version = "0.3" }
-http = { version = "1.4" }
+http = { version = "1.5" }
 
 # 安全
 hmac = { version = "0.13" }
@@ -109,7 +100,7 @@ sha2 = { version = "0.11" }
 hex = { version = "0.4" }
 
 # 高级匹配
-maxminddb = { version = "0.30" }
+maxminddb = { version = "0.32" }
 woothee = { version = "0.13" }
 
 [package]
@@ -124,12 +115,15 @@ description = "Unified flow control framework for Rust"
 keywords = ["rate-limiting", "quota", "throttling", "circuit-breaker"]
 categories = ["web-programming", "concurrency"]
 
+# docs.rs 文档构建特征集：preset 与存储后端解耦后 full 不含任何 dbnexus 驱动，
+# 显式叠加 postgres 保持单后端合法且适配器文档完整
+[package.metadata.docs.rs]
+features = ["full", "postgres"]
+
 [lints]
 workspace = true
 
-[workspace.lints.rust]
-
-[workspace.lints.clippy]
+[workspace.lints]
 
 [dependencies]
 tokio.workspace = true
@@ -157,13 +151,13 @@ sea-orm = { workspace = true, optional = true }
 # 安全约束：CVE-2025-48369，强制 rustls-webpki >= 0.103.13
 # 通过 dbnexus/sea-orm/reqwest 的 TLS 依赖间接引入，显式约束最低版本以防止 Cargo 解析到脆弱版本。
 # 注：版本格式为例外（用户规则要求 x.x，但安全约束需要 patch 段），安全优先级高于代码质量规则。
-rustls-webpki = { version = "0.103.13", optional = true }
+rustls-webpki = { version = "0.103.15", optional = true }
 
 # 缓存库（必需）
 oxcache.workspace = true
 
 # Redis 客户端（lua-script 特性需要，用于解析 eval_lua 返回值）
-redis = { version = "1.5", default-features = false, optional = true }
+redis = { version = "1.7", default-features = false, optional = true }
 
 # 宏依赖（可选）
 limiteron-macros = { workspace = true, optional = true }
@@ -206,7 +200,7 @@ writeable = { version = "0.6", optional = true }
 # trait-kit integration (optional, feature-gated via `kit`).
 # trait-kit 0.4 is used via path dependency for workspace compatibility.
 [dependencies.trait-kit]
-version = "0.5.0-rc.4"
+version = "0.5.0-rc.5"
 features = ["async", "health", "lifecycle"]
 optional = true
 default-features = false
@@ -254,8 +248,10 @@ test-clock = []
 # 配置 CLI：`limiteron-cli` 二进制 + src/cli 可单测核心。
 # 默认不编译（决策热路径零开销）。
 cli = []
-# 封禁跨实例同步：经 oxcache Pub/Sub 总线（协议层）广播封禁变更
-ban-sync = ["oxcache/invalidation"]
+# 封禁跨实例同步：经 oxcache Pub/Sub 总线（协议层）广播封禁变更。
+# ban_sync 模块依赖 event-system 的 EventEmitter/EventDispatcher，故一并启用，
+# 避免单开 ban-sync 时模块静默缺席。
+ban-sync = ["event-system", "oxcache/invalidation"]
 # ============================================
 # Minimal: 核心限流功能（无外部存储依赖）；sync 为 tokio-free 同步原语（std + parking_lot）
 minimal = ["sync"]
@@ -263,13 +259,13 @@ minimal = ["sync"]
 # 同步限流原语：SyncCircuitBreaker / SyncFixedWindowLimiter，供纯同步消费者使用
 sync = []
 
-# Standard: 标准配置 - 核心功能 + PostgreSQL
-standard = ["sqlite", "ban-manager", "quota-control", "circuit-breaker"]
+# Standard: 核心功能组合。preset 不含存储后端（dbnexus 禁止 embedded 与 server-side
+# 驱动共存，钉死驱动会与下游叠加的后端 feature 冲突）；按需自行叠加 sqlite/postgres/mysql
+standard = ["ban-manager", "quota-control", "circuit-breaker"]
 
-# Full: 所有功能
+# Full: 除存储后端外的全部功能（后端同样按需叠加 sqlite/postgres/mysql）
 full = [
-    "postgres",
-    "cache-storage",
+    "cache-redis",
     "ban-manager",
     "quota-control",
     "circuit-breaker",
@@ -277,7 +273,6 @@ full = [
     "custom-limiter",
     "gcra",
     "log-redaction",
-    "config-security",
     "parallel-checker",
     "geo-matching",
     "device-matching",
@@ -325,8 +320,11 @@ sqlite = ["dep:dbnexus", "dbnexus/sqlite", "dbnexus/runtime-tokio-rustls", "dep:
 # 互斥——多后端 crate 不适用 --all-features 验证，用显式单驱动 features 组合。
 mysql = ["dep:dbnexus", "dbnexus/mysql", "dbnexus/runtime-tokio-rustls", "dep:sea-orm"]
 
-# 缓存存储 - 通过 oxcache 切换后端 (memory/redis 等)
-cache-storage = ["cache-service", "oxcache/redis"]
+# Redis 缓存后端 - 经 oxcache 接入 Redis（原 cache-storage，更名以消除与
+# cache-service 的近义混淆）
+cache-redis = ["cache-service", "oxcache/redis"]
+# Deprecated: cache-storage 的向后兼容别名，等价于 cache-redis
+cache-storage = ["cache-redis"]
 
 # Lua 脚本支持 - 使用 oxcache 的 lua-script 特性
 lua-script = ["oxcache/lua", "dep:redis"]
@@ -352,7 +350,6 @@ gcra = []
 # Security Features (安全功能)
 # ============================================
 log-redaction = ["dep:regex"]
-config-security = []
 validation = []
 
 # ============================================
@@ -416,15 +413,6 @@ tower-middleware = ["dep:tower", "dep:tower-layer", "dep:http"]
 # 分布式限流支持 - 提供 incr 等原子方法，兼容分布式 DAO（如 BulwarkDao）
 # 进程内限流器只需 Limiter trait；分布式限流器实现 DistributedLimiter trait
 distributed = []
-
-# ============================================
-# Development Features (开发/测试)
-# ============================================
-# 遗留测试 - 用于标记尚未实现的功能测试
-legacy_tests = []
-
-# 混沌测试特性 - 启用故障注入和延迟注入测试
-chaos-testing = []
 
 # ============================================
 # External Integrations (外部集成)

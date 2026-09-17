@@ -11,10 +11,6 @@ pub(crate) mod types;
 // 配置级热重载计划实现（见 roadmap）。
 // #[cfg(feature = "config-watcher")]
 // pub mod watcher;
-// config-security 模块尚未实现：当前依赖 AdminApiConfig::validate() 进行基本校验，
-// 完整配置安全审计计划实现（见 roadmap）。
-// #[cfg(feature = "config-security")]
-// pub mod security;
 
 // Re-export all config types from types module
 pub use types::{
@@ -38,9 +34,3 @@ pub(crate) use types::parse_window_size;
 // 配置级热重载计划实现（见 roadmap）。
 // #[cfg(feature = "config-watcher")]
 // pub use crate::config::watcher::{ConfigChangeCallback, ConfigWatcher, WatchMode};
-
-// Re-export config security (requires config-security feature)
-// config-security 模块尚未实现：当前依赖 AdminApiConfig::validate() 进行基本校验，
-// 完整配置安全审计计划实现（见 roadmap）。
-// #[cfg(feature = "config-security")]
-// pub use crate::config::security::{ConfigSecurityReport, ConfigSecurityValidator};

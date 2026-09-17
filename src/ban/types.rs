@@ -428,7 +428,8 @@ impl BanManagerBuilder {
 
 /// 验证封禁目标
 ///
-/// 使用统一的 validation 模块进行验证。
+/// 使用统一的 validation 模块进行验证（validation feature 关闭时调用方跳过校验）。
+#[cfg(feature = "validation")]
 fn validate_ban_target(target: &BanTarget) -> Result<(), LimiteronError> {
     match target {
         BanTarget::Ip(ip) => crate::validation::validate_ip_address(ip),
@@ -739,7 +740,9 @@ impl BanManager {
             _ => {}
         }
 
-        // 输入验证
+        // 输入验证：目标校验依赖 validation 模块（feature 关闭时跳过），
+        // 原因校验自包含、始终执行
+        #[cfg(feature = "validation")]
         validate_ban_target(&target)?;
         validate_ban_reason(&reason)?;
 

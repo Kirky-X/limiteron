@@ -8,7 +8,8 @@
 //!
 //! # 与 async 版本的设计差异
 //!
-//! - 时间经 [`Clock`] 注入（默认 [`SystemClock`]），测试用 [`MockClock`]
+//! - 时间经 [`Clock`](crate::clock::Clock) 注入（默认
+//!   [`SystemClock`](crate::clock::SystemClock)），测试用 `MockClock`
 //!   （`test-clock` feature）手动推进，不依赖真实睡眠；
 //! - [`SyncCircuitBreaker`] 的半开探针准入由状态机内建：`Open` 冷却到期后
 //!   首个 `admit` 调用原子地完成 `Open → HalfOpen` 转换并成为探针，后续调用

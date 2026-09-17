@@ -14,13 +14,13 @@ mod tests {
     #[allow(unused_imports)]
     use super::modules::*;
     use limiteron::BanStorage;
-    #[cfg(feature = "cache-storage")]
+    #[cfg(feature = "cache-redis")]
     use limiteron::QuotaStorage;
-    #[cfg(feature = "cache-storage")]
+    #[cfg(feature = "cache-redis")]
     use std::sync::Arc;
 
     #[tokio::test]
-    #[cfg(feature = "cache-storage")]
+    #[cfg(feature = "cache-redis")]
     async fn test_quota_storage_consume_semantics() {
         let storage = limiteron::cache::CacheQuotaStorage::new(Arc::new(
             limiteron::oxcache::backend::dashmap_memory(),

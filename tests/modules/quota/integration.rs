@@ -5,19 +5,18 @@
 //! 测试配额控制模块的基本功能
 
 use limiteron::QuotaStorage;
-#[cfg(all(feature = "quota-control", feature = "cache-storage"))]
+#[cfg(all(feature = "quota-control", feature = "cache-redis"))]
 use limiteron::quota::{QuotaConfig, QuotaController, QuotaType};
 use std::sync::Arc;
 use std::time::Duration;
 
 // 产品 QuotaStorage：CacheQuotaStorage（cache-backed，真实实现）
-#[cfg(all(feature = "quota-control", feature = "cache-storage"))]
-#[cfg(feature = "cache-storage")]
+#[cfg(all(feature = "quota-control", feature = "cache-redis"))]
 type ProductQuotaStorage = limiteron::cache::CacheQuotaStorage;
 
 /// 测试配额控制器模块导入
 #[tokio::test]
-#[cfg(all(feature = "quota-control", feature = "cache-storage"))]
+#[cfg(all(feature = "quota-control", feature = "cache-redis"))]
 async fn test_quota_controller_module_import() {
     // 测试模块导入（完整测试需要 PostgreSQL）
     let config = QuotaConfig {
@@ -34,7 +33,7 @@ async fn test_quota_controller_module_import() {
 
 /// 4.2.1: 测试配额状态持久化
 #[tokio::test]
-#[cfg(all(feature = "quota-control", feature = "cache-storage"))]
+#[cfg(all(feature = "quota-control", feature = "cache-redis"))]
 async fn test_quota_persists_state() {
     let storage: Arc<dyn QuotaStorage> = Arc::new(ProductQuotaStorage::new(Arc::new(
         limiteron::oxcache::backend::dashmap_memory(),
@@ -74,7 +73,7 @@ async fn test_quota_persists_state() {
 
 /// 4.2.2: 测试并发消费
 #[tokio::test]
-#[cfg(all(feature = "quota-control", feature = "cache-storage"))]
+#[cfg(all(feature = "quota-control", feature = "cache-redis"))]
 async fn test_quota_concurrent_consumption() {
     use limiteron::tokio::task::JoinSet;
 
@@ -120,7 +119,7 @@ async fn test_quota_concurrent_consumption() {
 
 /// 4.2.3: 测试重启后状态恢复
 #[tokio::test]
-#[cfg(all(feature = "quota-control", feature = "cache-storage"))]
+#[cfg(all(feature = "quota-control", feature = "cache-redis"))]
 async fn test_quota_recovers_after_restart() {
     let storage: Arc<dyn QuotaStorage> = Arc::new(ProductQuotaStorage::new(Arc::new(
         limiteron::oxcache::backend::dashmap_memory(),

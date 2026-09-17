@@ -176,8 +176,10 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 | Preset | Description | Enabled Features |
 |--------|-------------|------------------|
 | `minimal` | Core rate limiting, no external storage dependencies | none |
-| `standard` | Core features + SQLite persistence | `sqlite`, `ban-manager`, `quota-control`, `circuit-breaker` |
-| `full` | Everything (includes `postgres`, excludes `sqlite` / `mysql` / `cli`) | 25 features, see Cargo.toml |
+| `standard` | Core features (ban / quota / circuit breaker) | `ban-manager`, `quota-control`, `circuit-breaker` |
+| `full` | Everything except storage backends (excludes `cli`) | 24 features, see Cargo.toml |
+
+> Note: presets include no storage backend; add `sqlite` / `postgres` / `mysql` on top for persistence (dbnexus drivers are mutually exclusive — only one per build).
 
 <details>
 <summary><b>📋 Complete Feature List (by Category)</b></summary>
@@ -189,7 +191,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td rowspan="5">Storage Backends</td><td><code>postgres</code></td><td>PostgreSQL storage (dbnexus server-side driver + sea-orm)</td><td>❌</td></tr>
 <tr><td><code>sqlite</code></td><td>SQLite storage (dbnexus embedded driver, default local backend)</td><td>❌</td></tr>
 <tr><td><code>mysql</code></td><td>MySQL storage (dbnexus server-side driver)</td><td>❌</td></tr>
-<tr><td><code>cache-storage</code></td><td>Cache storage (oxcache Redis backend)</td><td>❌</td></tr>
+<tr><td><code>cache-redis</code></td><td>Redis cache backend (via oxcache; formerly <code>cache-storage</code>, kept as a compatibility alias)</td><td>❌</td></tr>
 <tr><td><code>lua-script</code></td><td>Redis Lua script execution (via oxcache <code>eval_lua</code>)</td><td>❌</td></tr>
 <tr><td rowspan="8">Core</td><td><code>ban-manager</code></td><td>Ban management (target bans, priorities, file loading)</td><td>❌</td></tr>
 <tr><td><code>bulkhead</code></td><td>Bulkhead isolation: per-resource-group pools + independent concurrency budgets and isolation metrics</td><td>❌</td></tr>
@@ -199,8 +201,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td><code>custom-limiter</code></td><td>Custom rate limiter support</td><td>❌</td></tr>
 <tr><td><code>cache-service</code></td><td>Unified cache service (DI support)</td><td>❌</td></tr>
 <tr><td><code>gcra</code></td><td>GCRA rate limiting algorithm</td><td>❌</td></tr>
-<tr><td rowspan="3">Security</td><td><code>log-redaction</code></td><td>Log redaction</td><td>❌</td></tr>
-<tr><td><code>config-security</code></td><td>Configuration security validation</td><td>❌</td></tr>
+<tr><td rowspan="2">Security</td><td><code>log-redaction</code></td><td>Log redaction</td><td>❌</td></tr>
 <tr><td><code>validation</code></td><td>Identifier input validation (IP / User ID / MAC)</td><td>❌</td></tr>
 <tr><td>Performance</td><td><code>parallel-checker</code></td><td>Parallel ban checking</td><td>❌</td></tr>
 <tr><td rowspan="2">Advanced Matching</td><td><code>geo-matching</code></td><td>Geographic matching (MaxMindDB)</td><td>❌</td></tr>
@@ -220,7 +221,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td>Multi-Tenancy</td><td><code>multi-tenant</code></td><td>tenant+key compound decision keys and per-tenant isolation</td><td>❌</td></tr>
 <tr><td>Middleware</td><td><code>tower-middleware</code></td><td>Tower Layer / Service integration</td><td>❌</td></tr>
 <tr><td>Distributed</td><td><code>distributed</code></td><td><code>DistributedLimiter</code> trait + in-memory implementation (Redis implementation additionally requires <code>lua-script</code>)</td><td>❌</td></tr>
-<tr><td rowspan="3">Algorithms</td><td><code>adaptive-limiting</code></td><td>AIMD adaptive concurrency limiter (latency/error-rate feedback window tuning)</td><td>❌</td></tr>
+<tr><td rowspan="3">Algorithms</td><td><code>adaptive-limiting</code></td><td>AIMD adaptive concurrency limiter (latency/error-rate feedback window tuning)</td><td>✅</td></tr>
 <tr><td><code>priority-queue</code></td><td>Compatibility declaration, no effect when enabled</td><td>❌</td></tr>
 <tr><td><code>admission-control</code></td><td>Compatibility declaration, no effect when enabled</td><td>❌</td></tr>
 <tr><td rowspan="5">Ecosystem</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> integration (health/lifecycle ports)</td><td>❌</td></tr>
@@ -228,9 +229,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td><code>inklog</code></td><td>inklog structured logging integration</td><td>❌</td></tr>
 <tr><td><code>config-confers</code></td><td>Load configuration from confers sources</td><td>❌</td></tr>
 <tr><td><code>config-confers-reload</code></td><td>confers hot reload (implies <code>config-confers</code>)</td><td>❌</td></tr>
-<tr><td rowspan="3">Development/Testing</td><td><code>test-clock</code></td><td><code>MockClock</code> test clock (external test consumers only)</td><td>❌</td></tr>
-<tr><td><code>chaos-testing</code></td><td>Chaos testing (fault/latency injection, test-only)</td><td>❌</td></tr>
-<tr><td><code>legacy_tests</code></td><td>Legacy test marker</td><td>❌</td></tr>
+<tr><td>Development/Testing</td><td><code>test-clock</code></td><td><code>MockClock</code> test clock (external test consumers only)</td><td>❌</td></tr>
 </table>
 
 </details>
@@ -318,7 +317,7 @@ Limiteron collaborates closely with its sibling crates in the workspace; each in
 | Integration | Features | Description |
 |-------------|----------|-------------|
 | [dbnexus](https://github.com/Kirky-X/dbnexus) | `postgres` / `sqlite` / `mysql` | Database abstraction layer providing persistent storage adapters and metrics propagation |
-| [oxcache](https://github.com/Kirky-X/oxcache) | `cache-service` / `cache-storage` / `lua-script` / `ban-sync` | Unified cache service, Redis Lua execution, Pub/Sub ban broadcast |
+| [oxcache](https://github.com/Kirky-X/oxcache) | `cache-service` / `cache-redis` / `lua-script` / `ban-sync` | Unified cache service, Redis cache backend, Lua execution, Pub/Sub ban broadcast |
 | [trait-kit](https://github.com/Kirky-X/trait-kit) | `kit` | `LimiteronModule` modular integration + health/lifecycle ports |
 | [inklog](https://github.com/Kirky-X/inklog) | `inklog` | Structured logging (console/file/database sinks) with the `SinkRateLimit` port |
 | [confers](https://github.com/Kirky-X/confers) | `config-confers` / `config-confers-reload` | Configuration source loading and hot reload (automatic rollback on validation failure) |

@@ -173,8 +173,10 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 | 预设 | 说明 | 启用的特性 |
 |------|------|------------|
 | `minimal` | 核心限流，无外部存储依赖 | 无 |
-| `standard` | 核心功能 + SQLite 持久化 | `sqlite`、`ban-manager`、`quota-control`、`circuit-breaker` |
-| `full` | 全部功能组合（含 `postgres`，不含 `sqlite` / `mysql` / `cli`） | 25 项特性，见 Cargo.toml |
+| `standard` | 核心功能（封禁 / 配额 / 熔断） | `ban-manager`、`quota-control`、`circuit-breaker` |
+| `full` | 除存储后端外的全部功能（不含 `cli`） | 24 项特性，见 Cargo.toml |
+
+> 注：preset 均不含存储后端，持久化需自行叠加 `sqlite` / `postgres` / `mysql`（dbnexus 驱动互斥，一次构建只能叠加一个）。
 
 <details>
 <summary><b>📋 全部特性（按类别）</b></summary>
@@ -186,7 +188,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td rowspan="5">存储后端</td><td><code>postgres</code></td><td>PostgreSQL 存储（dbnexus 服务端驱动 + sea-orm）</td><td>❌</td></tr>
 <tr><td><code>sqlite</code></td><td>SQLite 存储（dbnexus 嵌入式驱动，本地默认后端）</td><td>❌</td></tr>
 <tr><td><code>mysql</code></td><td>MySQL 存储（dbnexus 服务端驱动）</td><td>❌</td></tr>
-<tr><td><code>cache-storage</code></td><td>缓存存储（oxcache Redis 后端）</td><td>❌</td></tr>
+<tr><td><code>cache-redis</code></td><td>Redis 缓存后端（经 oxcache；原 <code>cache-storage</code>，保留为兼容别名）</td><td>❌</td></tr>
 <tr><td><code>lua-script</code></td><td>Redis Lua 脚本执行（经 oxcache <code>eval_lua</code>）</td><td>❌</td></tr>
 <tr><td rowspan="8">核心功能</td><td><code>ban-manager</code></td><td>封禁管理（目标封禁、优先级、文件加载）</td><td>❌</td></tr>
 <tr><td><code>bulkhead</code></td><td>舱壁隔离：按资源组分池 + 独立并发预算与隔离指标</td><td>❌</td></tr>
@@ -196,8 +198,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>custom-limiter</code></td><td>自定义限流器扩展</td><td>❌</td></tr>
 <tr><td><code>cache-service</code></td><td>统一缓存服务（DI 支持）</td><td>❌</td></tr>
 <tr><td><code>gcra</code></td><td>GCRA 限流算法</td><td>❌</td></tr>
-<tr><td rowspan="3">安全</td><td><code>log-redaction</code></td><td>日志脱敏</td><td>❌</td></tr>
-<tr><td><code>config-security</code></td><td>配置安全校验</td><td>❌</td></tr>
+<tr><td rowspan="2">安全</td><td><code>log-redaction</code></td><td>日志脱敏</td><td>❌</td></tr>
 <tr><td><code>validation</code></td><td>标识符输入校验（IP / 用户 ID / MAC）</td><td>❌</td></tr>
 <tr><td>性能</td><td><code>parallel-checker</code></td><td>并行封禁检查</td><td>❌</td></tr>
 <tr><td rowspan="2">高级匹配</td><td><code>geo-matching</code></td><td>地理位置匹配（MaxMindDB）</td><td>❌</td></tr>
@@ -217,7 +218,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td>多租户</td><td><code>multi-tenant</code></td><td>tenant+key 复合决策键与按租户隔离</td><td>❌</td></tr>
 <tr><td>中间件</td><td><code>tower-middleware</code></td><td>Tower Layer / Service 集成</td><td>❌</td></tr>
 <tr><td>分布式</td><td><code>distributed</code></td><td><code>DistributedLimiter</code> trait + 内存实现（Redis 实现需另启用 <code>lua-script</code>）</td><td>❌</td></tr>
-<tr><td rowspan="3">限流算法</td><td><code>adaptive-limiting</code></td><td>AIMD 自适应并发限流器（延迟/错误率反馈调窗）</td><td>❌</td></tr>
+<tr><td rowspan="3">限流算法</td><td><code>adaptive-limiting</code></td><td>AIMD 自适应并发限流器（延迟/错误率反馈调窗）</td><td>✅</td></tr>
 <tr><td><code>priority-queue</code></td><td>兼容声明，启用无效果</td><td>❌</td></tr>
 <tr><td><code>admission-control</code></td><td>兼容声明，启用无效果</td><td>❌</td></tr>
 <tr><td rowspan="5">生态集成</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> 集成（健康/生命周期端口）</td><td>❌</td></tr>
@@ -225,9 +226,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>inklog</code></td><td>inklog 结构化日志集成</td><td>❌</td></tr>
 <tr><td><code>config-confers</code></td><td>confers 配置源加载</td><td>❌</td></tr>
 <tr><td><code>config-confers-reload</code></td><td>confers 热重载（隐含 <code>config-confers</code>）</td><td>❌</td></tr>
-<tr><td rowspan="3">开发/测试</td><td><code>test-clock</code></td><td><code>MockClock</code> 测试时钟（外部测试消费者专用）</td><td>❌</td></tr>
-<tr><td><code>chaos-testing</code></td><td>混沌测试（故障/延迟注入，仅测试用途）</td><td>❌</td></tr>
-<tr><td><code>legacy_tests</code></td><td>遗留测试标记</td><td>❌</td></tr>
+<tr><td>开发/测试</td><td><code>test-clock</code></td><td><code>MockClock</code> 测试时钟（外部测试消费者专用）</td><td>❌</td></tr>
 </table>
 
 </details>
@@ -315,7 +314,7 @@ Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式
 | 集成 | 特性 | 说明 |
 |------|------|------|
 | [dbnexus](https://github.com/Kirky-X/dbnexus) | `postgres` / `sqlite` / `mysql` | 数据库抽象层，提供持久化存储适配器与指标传递 |
-| [oxcache](https://github.com/Kirky-X/oxcache) | `cache-service` / `cache-storage` / `lua-script` / `ban-sync` | 统一缓存服务、Redis Lua 执行、Pub/Sub 封禁广播 |
+| [oxcache](https://github.com/Kirky-X/oxcache) | `cache-service` / `cache-redis` / `lua-script` / `ban-sync` | 统一缓存服务、Redis 缓存后端、Lua 执行、Pub/Sub 封禁广播 |
 | [trait-kit](https://github.com/Kirky-X/trait-kit) | `kit` | `LimiteronModule` 模块化接入 + 健康/生命周期端口 |
 | [inklog](https://github.com/Kirky-X/inklog) | `inklog` | 结构化日志（console/file/database sinks），含 `SinkRateLimit` 限流端口 |
 | [confers](https://github.com/Kirky-X/confers) | `config-confers` / `config-confers-reload` | 配置源加载与热重载（验证失败自动回滚） |

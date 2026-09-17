@@ -327,6 +327,7 @@ async fn test_storage_error_no_sensitive_leak() {
 }
 
 /// 测试验证错误不泄露敏感信息
+#[cfg(feature = "validation")]
 #[test]
 fn test_validation_error_no_sensitive_leak() {
     use limiteron::validation::{validate_ip_address, validate_user_id};

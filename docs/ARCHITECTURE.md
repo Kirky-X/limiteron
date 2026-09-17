@@ -130,7 +130,7 @@ sequenceDiagram
 |------|------|------|------|
 | MemoryStorage | `src/storage/storage_impl.rs` | 始终可用 | 内存存储，同时实现 `Storage` / `BanStorage` / `QuotaStorage`，适合单机开发与测试 |
 | dbnexus 适配器 | `src/adapters/` | `postgres` / `sqlite` / `mysql`（互斥） | 经 dbnexus 持久化，`StorageFactory` 从 DSN 创建 |
-| oxcache 缓存 | `src/cache/` | `cache-service` / `cache-storage` | 统一缓存服务，Redis 后端经 oxcache 接入 |
+| oxcache 缓存 | `src/cache/` | `cache-service` / `cache-redis` | 统一缓存服务，Redis 后端经 oxcache 接入 |
 | Redis Lua 原子操作 | `src/oxcache_lua.rs` | `lua-script` | 令牌桶/滑动窗口/固定窗口/配额脚本经 oxcache `eval_lua` 原子执行，支撑分布式限流 |
 
 > **说明**：`RedisStorage` 与 `redis-storage` 特性已在 v0.2.1 移除，缓存统一经 oxcache 管理。`postgres` / `sqlite` / `mysql` 三种 dbnexus 驱动互斥，不可共存于同一构建。
@@ -144,23 +144,22 @@ sequenceDiagram
 ```mermaid
 flowchart BT
     PC["parallel-checker"] --> BM["ban-manager"]
-    CS["cache-storage"] --> CSV["cache-service"]
+    CR["cache-redis"] --> CSV["cache-service"]
     MET["metrics"] --> MON["monitoring"]
     AL["audit-log"] --> TEL["telemetry"]
     OTLP["otlp"] --> TEL
-    STD["standard"] --> SQL["sqlite"]
-    STD --> BM
+    STD["standard"] --> BM
     STD --> QC["quota-control"]
     STD --> CBR["circuit-breaker"]
 ```
 
 | 类别 | 代表特性 | 说明 |
 |------|---------|------|
-| 预设 | `minimal` / `standard` / `full` | minimal 即 `default = []`（无外部存储依赖）；standard 为 SQLite 组合；full 覆盖除 CLI 外的主要能力 |
+| 预设 | `minimal` / `standard` / `full` | minimal 即 `default = []`（无外部存储依赖）；preset 均不含存储后端，持久化需自行叠加 `postgres` / `sqlite` / `mysql` |
 | 存储 | `postgres` / `sqlite` / `mysql` | dbnexus 驱动，三者互斥 |
-| 缓存 | `cache-service` / `cache-storage` / `lua-script` | oxcache 集成 |
+| 缓存 | `cache-service` / `cache-redis` / `lua-script` | oxcache 集成（`cache-storage` 为 `cache-redis` 的兼容别名） |
 | 算法 | `gcra` / `adaptive-limiting` | GCRA 限流、AIMD 自适应并发 |
-| 安全 | `log-redaction` / `config-security` / `validation` | 脱敏、配置校验、输入校验 |
+| 安全 | `log-redaction` / `validation` | 脱敏、输入校验 |
 | 可观测 | `telemetry` / `monitoring` / `metrics` / `audit-log` / `otlp` | 指标、追踪、审计；`metrics` 隐含 `monitoring`，`audit-log` / `otlp` 隐含 `telemetry` |
 | 控制面 | `admin-api` / `cli` | 管理 REST API 与 `limiteron-cli` |
 | 事件 | `event-system` / `webhook` / `ban-sync` | 事件订阅与 Outbox；`webhook` 签名外发与 `ban-sync` 跨实例广播需与 `event-system` 组合启用 |

@@ -20,6 +20,6 @@ quote.workspace = true
 proc-macro2.workspace = true
 
 [dev-dependencies]
-limiteron = { path = ".." }
+limiteron = { version = "0.3.0-rc.4", path = ".." }
 tokio.workspace = true
 trybuild.workspace = true

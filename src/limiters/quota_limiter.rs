@@ -44,7 +44,7 @@ pub struct QuotaLimiter {
 /// 避免与真实用户键冲突的低概率前缀。
 const ANONYMOUS_QUOTA_KEY: &str = "__limiteron_anonymous_quota__";
 
-/// 每 key 用量记录的跟踪上限（diting MED-001：高基数 key 内存约束）
+/// 每 key 用量记录的跟踪上限（高基数 key 内存约束）
 const QUOTA_MAX_TRACKED_KEYS: usize = 10_000;
 
 impl QuotaLimiter {
@@ -121,7 +121,7 @@ impl QuotaLimiter {
         let now = Instant::now();
         let window_duration = Duration::from_secs(self.config.window_size);
 
-        // diting MED-001：防攻击者可控的高基数 key 无限增长（OOM DoS）——
+        // 防攻击者可控的高基数 key 无限增长（OOM DoS）——
         // 超过跟踪上限时清理已过期窗口的记录，把内存约束在 ~上限 + 单窗口新增以内。
         // single-flight：并发下仅一个调用执行 O(n) retain，避免清理本身成为热路径放大器。
         if self.usage.len() > QUOTA_MAX_TRACKED_KEYS
@@ -180,7 +180,7 @@ impl QuotaLimiter {
 impl crate::limiters::Limiter for QuotaLimiter {
     async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
         // 链式/无 key 场景下无法按用户键跟踪：对内部匿名桶消耗配额，
-        // 使配额规则经决策链挂载时真实生效（diting MED-004/005 修复）。
+        // 使配额规则经决策链挂载时真实生效。
         // 超出限制映射为 Ok(false)（拒绝语义），而非错误语义。
         match self.check_and_consume(ANONYMOUS_QUOTA_KEY).await {
             Ok(ok) => Ok(ok),
@@ -276,7 +276,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_quota_limiter_allow_method() {
-        // allow() 现在对匿名桶消耗配额（diting MED-005 修复）：
+        // allow() 现在对匿名桶消耗配额
         // 到上限后返回 Ok(false)（拒绝语义），使链式挂载真实生效。
         let config = create_test_config(); // limit = 10
         let limiter = QuotaLimiter::new(config);
@@ -374,7 +374,7 @@ mod tests {
     }
 
     // ========================================================================
-    // audit-macro-followup 修复20 (L-003): window_size=0 panic 测试
+    // audit-macro-followup 修复20 window_size=0 panic 测试
     // ========================================================================
 
     #[test]

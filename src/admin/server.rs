@@ -109,7 +109,7 @@ impl AdminServer {
             address
         );
 
-        // HIGH-001 修复：启用 ConnectInfo<SocketAddr> 注入，
+        // 启用 ConnectInfo<SocketAddr> 注入，
         // 使 routes middleware 可通过 req.extensions() 获取 TCP 连接远端 IP
         // 用于 per-client rate limit 分桶
         axum::serve(

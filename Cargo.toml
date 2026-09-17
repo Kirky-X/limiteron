@@ -154,7 +154,7 @@ ahash.workspace = true
 # 数据库操作（可选）
 dbnexus = { workspace = true, optional = true }
 sea-orm = { workspace = true, optional = true }
-# 安全约束（vuln-0004 修复 / MEDIUM-003）：CVE-2025-48369，强制 rustls-webpki >= 0.103.13
+# 安全约束：CVE-2025-48369，强制 rustls-webpki >= 0.103.13
 # 通过 dbnexus/sea-orm/reqwest 的 TLS 依赖间接引入，显式约束最低版本以防止 Cargo 解析到脆弱版本。
 # 注：版本格式为例外（用户规则要求 x.x，但安全约束需要 patch 段），安全优先级高于代码质量规则。
 rustls-webpki = { version = "0.103.13", optional = true }
@@ -310,7 +310,7 @@ admission-control = []
 # PostgreSQL 存储 - 使用 dbnexus（显式 opt-in：默认不启用，仅在启用本 feature 时才
 # 拉入 dbnexus/postgres server-side 驱动；其它 feature（如 metrics）只激活 dbnexus 非
 # 驱动能力，不会与下游嵌入式数据库（sqlite/duckdb/ladybug）特性冲突）。
-# 含 rustls-webpki 显式约束（MEDIUM-003：CVE-2025-48369 最低版本锁）
+# 含 rustls-webpki 显式约束（CVE-2025-48369 最低版本锁）
 postgres = ["dep:dbnexus", "dbnexus/postgres", "dbnexus/runtime-tokio-rustls", "dep:sea-orm", "dep:rustls-webpki"]
 
 # SQLite 存储 - 使用 dbnexus 嵌入式驱动（默认本地后端，无需外部服务）。

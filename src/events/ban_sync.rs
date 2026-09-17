@@ -266,7 +266,7 @@ mod tests {
         }
     }
 
-    /// 两实例经 mock Pub/Sub 同步：A 封禁 → B 可见（spec R-lim4-005 跨实例场景）
+    /// 两实例经 mock Pub/Sub 同步：A 封禁 → B 可见（spec 跨实例场景）
     #[tokio::test]
     async fn test_t616_ban_visible_on_other_instance() {
         let transport = Arc::new(InMemoryPubSubTransport::new());

@@ -340,7 +340,7 @@ mod tests {
         config
     }
 
-    /// R-limiteron-module-001: `LimiteronModule::NAME == "limiteron"`.
+    /// `LimiteronModule::NAME == "limiteron"`.
     #[test]
     fn limiteron_module_meta_name() {
         assert_eq!(LimiteronModule::NAME, "limiteron");
@@ -356,7 +356,7 @@ mod tests {
         assert_eq!(deps[0].1, TypeId::of::<OxcacheModule>());
     }
 
-    /// R-limiteron-module-001: register `LimiteronModule` + `set_config` +
+    /// register `LimiteronModule` + `set_config` +
     /// `build()` + `require::<LimiteronModule>()` returns an `Arc<Governor>`
     /// capability that was constructed from the kit's config.
     /// 带 OxcacheModule 的标准 kit 组装（dbnexus 同款范式）
@@ -382,7 +382,7 @@ mod tests {
         let _ = governor;
     }
 
-    /// R-limiteron-module-001: build reads `FlowControlConfig` from
+    /// build reads `FlowControlConfig` from
     /// `kit.config::<FlowControlConfig>()` — verifies the config we set is
     /// honored by the constructed Governor (build returns Err on missing
     /// config).
@@ -401,7 +401,7 @@ mod tests {
         // missing config).
     }
 
-    /// R-limiteron-module-001: `LimiteronModule::build` returns a
+    /// `LimiteronModule::build` returns a
     /// `Pin<Box<dyn Future + Send>>` (async build), not a sync `Result`.
     /// Verified by calling `AsyncAutoBuilder::build` directly on an unbuilt
     /// kit and awaiting the returned future.

@@ -143,8 +143,8 @@ impl RuleBuilder {
                         alert_threshold: _,
                         overdraft: _overdraft,
                     } => {
-                        // quota-control 特性开启时真实挂载配额限流器（不再静默跳过；
-                        // diting MED-004 修复）。链式场景经 QuotaLimiter 的匿名桶生效。
+                        // quota-control 特性开启时真实挂载配额限流器（不再静默跳过）。
+                        // 链式场景经 QuotaLimiter 的匿名桶生效。
                         #[cfg(feature = "quota-control")]
                         {
                             let window_secs = Self::parse_duration(_window)?.as_secs().max(1);
@@ -183,7 +183,7 @@ impl RuleBuilder {
                         }
                     }
                     LimiterConfig::Concurrency { max_concurrent } => {
-                        // diting HIGH-002 修复后：链式 allow() 以「租约」真实计入并发占用
+                        // 修复后：链式 allow() 以「租约」真实计入并发占用
                         //（LEASE_DURATION 内持有 permit，近似请求生命周期）。
                         // 精确的请求级并发控制仍推荐服务层直接使用 acquire()/guard。
                         (
@@ -1081,7 +1081,7 @@ mod tests {
         assert_eq!(chains.len(), 1);
         assert!(chains.contains_key("quota-rule"));
         let chain = chains.get("quota-rule").unwrap();
-        // quota-control 特性开启时配额规则被真实挂载（diting MED-004 修复）
+        // quota-control 特性开启时配额规则被真实挂载
         #[cfg(feature = "quota-control")]
         assert_eq!(chain.node_count(), 1);
         #[cfg(not(feature = "quota-control"))]

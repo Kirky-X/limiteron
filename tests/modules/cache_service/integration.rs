@@ -11,7 +11,7 @@ use std::time::Duration;
 // - `CacheKey::rate_limit/ban/quota/custom`（CacheKey 是 trait，非 struct，无这些方法）
 // - `Cacheable` trait（cache_key/to_cache_bytes/from_cache_bytes 方法）
 // - `Cache::new_memory(100)` 构造函数（oxcache 0.3.2 无此方法）
-// 待 v0.2.1 决策：是补源码 API 还是保持移除。
+// 待定：是补源码 API 还是保持移除。
 
 // ============================================================================
 // Mock CacheService for trait testing

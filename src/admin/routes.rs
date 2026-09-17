@@ -52,14 +52,14 @@ pub(crate) fn role_allows(role: AdminRole, method: &http::Method) -> bool {
     }
 }
 
-/// HIGH-001: per-client rate limit bucket 类型
+/// per-client rate limit bucket 类型
 ///
 /// key = (group, client_ip)，value = (request_count, window_start Instant)。
 /// 提取为 type alias 以避免 clippy::type_complexity 警告。
 type RateBucketMap = AHashMap<(String, String), (u64, Instant)>;
 type RateBuckets = Arc<Mutex<RateBucketMap>>;
 
-/// HIGH-001 修复补强：per-client bucket 内存上限。
+/// 补强：per-client bucket 内存上限。
 ///
 /// 原实现从不删除过期 entry，攻击者用轮换源 IP 可令 map 单调膨胀至 OOM（内存耗尽 DoS）。
 /// 此处设硬上限：超过则先清扫已过期窗口的 entry；若清扫后仍超限，移除最旧（最小 window_start）的 entry。
@@ -155,7 +155,7 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
     let role_mapping = config.api_key_roles.clone();
     let valid_keys = config.api_key_roles.keys().cloned().collect::<Vec<_>>();
     let rate_limits = config.rate_limits.clone();
-    // HIGH-001 修复：per-client rate buckets，key = (group, client_ip)
+    // per-client rate buckets，key = (group, client_ip)
     //
     // vuln-0002 原实现按 group 全局共享计数器，单个恶意客户端耗尽配额后
     // 所有合法管理员也被限制（DoS 放大器）。此处改为按 (group, client_ip)
@@ -182,7 +182,7 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
                 // vuln-0002 修复：速率限制检查（在鉴权之前，防止暴力破解和 DDoS）
                 let path = req.uri().path();
                 let group = group_for_path(path);
-                // HIGH-001：提取 client IP 用于 per-client 分桶
+                // 提取 client IP 用于 per-client 分桶
                 let client_ip = req
                     .extensions()
                     .get::<ConnectInfo<SocketAddr>>()
@@ -193,7 +193,7 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
                 let now = Instant::now();
                 {
                     let mut buckets = lock_rate_buckets(&rate_buckets);
-                    // HIGH-001 补强：先清扫本窗口已过期 entry，防止 map 无限膨胀（OOM DoS）。
+                    // 补强：先清扫本窗口已过期 entry，防止 map 无限膨胀（OOM DoS）。
                     buckets.retain(|_, (_, start)| now.duration_since(*start) < window);
                     // 清扫后若仍超容量上限，淘汰最旧（window_start 最小）的 entry。
                     if buckets.len() >= RATE_BUCKET_MAX_ENTRIES {
@@ -994,7 +994,7 @@ mod tests {
     }
 
     // ========================================================================
-    // HIGH-001 修复测试：per-client rate limit buckets
+    // 测试：per-client rate limit buckets
     //
     // 验证策略：
     // 1. 不同 client_ip 的请求有独立计数器（一个耗尽不影响另一个）

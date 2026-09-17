@@ -1486,7 +1486,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_identifier_multibyte_utf8_no_panic() {
-        // 多字节 UTF-8 标识符不得触发字节切片 panic（回归：v0.2.10 会 panic）
+        // 多字节 UTF-8 标识符不得触发字节切片 panic（回归：会 panic）
         assert_eq!(sanitize_identifier("用户ab"), "***");
         assert_eq!(sanitize_identifier("a测@example.com"), "***@example.com");
         assert_eq!(

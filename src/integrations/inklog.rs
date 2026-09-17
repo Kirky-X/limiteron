@@ -81,7 +81,7 @@ pub async fn init_inklog_logger_with_config(
 mod tests {
     use super::*;
 
-    /// R-inklog-001: `init_inklog_logger()` returns a `LoggerManager`.
+    /// `init_inklog_logger()` returns a `LoggerManager`.
     #[tokio::test]
     #[serial_test::serial]
     async fn init_inklog_logger_returns_manager() {
@@ -89,7 +89,7 @@ mod tests {
         assert!(result.is_ok(), "init_inklog_logger should return Ok");
     }
 
-    /// R-inklog-001: `log`/`tracing` macros do not panic after inklog init.
+    /// `log`/`tracing` macros do not panic after inklog init.
     #[tokio::test]
     #[serial_test::serial]
     async fn log_macros_survive_after_inklog_init() {
@@ -101,7 +101,7 @@ mod tests {
         tracing::info!(target: "limiteron", "tracing via inklog");
     }
 
-    /// R-inklog-001: `init_inklog_logger()` is idempotent (repeat calls don't panic).
+    /// `init_inklog_logger()` is idempotent (repeat calls don't panic).
     #[tokio::test]
     #[serial_test::serial]
     async fn init_inklog_logger_is_idempotent() {

@@ -247,7 +247,7 @@ impl Limiter for ConcurrencyLimiter {
             ));
         }
 
-        // diting HIGH-002 修复：链式 allow() 无法感知请求结束，此前 permit 在本函数
+        // 链式 allow() 无法感知请求结束，此前 permit 在本函数
         // 返回即被释放 → 并发限制完全不生效。现改为「租约」语义：获取的 permit 在
         // CHAIN_LEASE_DURATION 内保持并发占用（近似请求生命周期），到期自动释放。
         // 精确的请求级并发控制仍由 acquire()/guard API 提供（Drop 即释放）。
@@ -408,7 +408,7 @@ mod tests {
     async fn test_concurrency_limiter_trait() {
         use super::super::traits::Limiter;
         let limiter = ConcurrencyLimiter::new(2);
-        // diting HIGH-002 修复后：allow() 以租约持有 permit（CHAIN_LEASE_DURATION），
+        // 修复后：allow() 以租约持有 permit（CHAIN_LEASE_DURATION），
         // 并发占用被真实计入 —— 前 2 次允许，第 3 次在租约窗口内被拒绝
         assert!(limiter.allow(1).await.unwrap());
         assert!(limiter.allow(1).await.unwrap());

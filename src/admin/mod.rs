@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 管理控制面API
 //!
@@ -38,4 +38,4 @@ pub use config::{AdminApiConfig, AdminRole};
 #[cfg(feature = "admin-api")]
 pub use server::AdminServer;
 #[cfg(feature = "admin-api")]
-pub use server::AppState;
+pub use server::LimiteronState;

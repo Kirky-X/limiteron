@@ -750,13 +750,12 @@ impl AuditLogger {
         use std::io::Write;
 
         // 检查是否需要轮转
-        if let Some(max_size) = config.max_file_size {
-            if let Ok(metadata) = std::fs::metadata(path) {
-                if metadata.len() >= max_size {
-                    // 执行日志轮转
-                    Self::rotate_log_file(path, config.max_files)?;
-                }
-            }
+        if let Some(max_size) = config.max_file_size
+            && let Ok(metadata) = std::fs::metadata(path)
+            && metadata.len() >= max_size
+        {
+            // 执行日志轮转
+            Self::rotate_log_file(path, config.max_files)?;
         }
 
         // 确保目录存在

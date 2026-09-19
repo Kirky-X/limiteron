@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! L1 本地缓存模块
 //!
@@ -15,7 +15,7 @@ use std::time::Duration;
 
 /// 可缓存的决策结果
 ///
-/// 用于 L1 缓存的决策结果类型，支持序列化和反序列化。
+/// 用于 缓存的决策结果类型，支持序列化和反序列化。
 /// 与 Decision 类型不同，该类型专门用于缓存场景。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct CacheableDecision {
@@ -240,7 +240,7 @@ impl RateLimitCacheKey {
     }
 }
 
-/// L1 缓存统计信息
+/// 缓存统计信息
 ///
 /// 记录缓存的命中、未命中、驱逐等统计信息。
 #[derive(Debug, Clone, Default)]
@@ -284,9 +284,9 @@ impl L1CacheStats {
     }
 }
 
-/// L1 本地缓存配置
+/// 本地缓存配置
 ///
-/// 用于配置 L1 缓存的行为参数。
+/// 用于配置 缓存的行为参数。
 #[derive(Debug, Clone)]
 pub struct L1CacheConfig {
     /// 默认 TTL（生存时间）
@@ -338,14 +338,14 @@ impl L1CacheConfig {
 
 /// 孤岛模式降级策略
 ///
-/// 当存储层（L2/L3）不可用时，L1 缓存进入孤岛模式，使用此策略决定如何处理请求。
+/// 当存储层不可用时，缓存进入孤岛模式，使用此策略决定如何处理请求。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum IslandFallbackStrategy {
     /// 保守策略：拒绝所有请求，避免过载
     RejectAll,
     /// 宽松策略：允许所有请求通过，可能超限
     AllowAll,
-    /// 本地降级：使用 L1 缓存中的历史决策（如果存在）
+    /// 本地降级：使用 缓存中的历史决策（如果存在）
     #[default]
     LocalDecision,
     /// 配额限制：使用预设的保守配额继续限流
@@ -359,7 +359,7 @@ pub enum IslandFallbackStrategy {
 
 /// 孤岛模式配置
 ///
-/// 配置 L1 缓存在存储层故障时的行为。
+/// 配置 缓存在存储层故障时的行为。
 #[derive(Debug, Clone)]
 pub struct IslandModeConfig {
     /// 是否启用孤岛模式
@@ -412,7 +412,7 @@ impl IslandModeConfig {
     }
 }
 
-/// L1 本地缓存
+/// 本地缓存
 ///
 /// 使用 oxcache 实现的高性能异步缓存，用于缓存热点限流结果。
 /// 支持 TTL 过期策略和容量限制。
@@ -431,13 +431,13 @@ impl IslandModeConfig {
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::{L1Cache, L1CacheConfig};
+/// use limiteron::{Cache, CacheConfig};
 /// use std::time::Duration;
 ///
 /// #[tokio::main]
 /// async fn main() {
-///     let config = L1CacheConfig::new(Duration::from_secs(60), 1000);
-///     let cache: L1Cache<String> = L1Cache::with_config(config).await.unwrap();
+///     let config = CacheConfig::new(Duration::from_secs(60), 1000);
+///     let cache: Cache<String> = Cache::with_config(config).await.unwrap();
 ///
 ///     // 设置缓存
 ///     cache.set("key".to_string(), "value".to_string()).await;
@@ -508,7 +508,7 @@ impl<T> L1Cache<T>
 where
     T: Serialize + DeserializeOwned + Send + Sync + 'static,
 {
-    /// 使用默认配置创建 L1 缓存
+    /// 使用默认配置创建 缓存
     ///
     /// # Errors
     ///
@@ -517,7 +517,7 @@ where
         Self::with_config(L1CacheConfig::default()).await
     }
 
-    /// 使用指定配置创建 L1 缓存
+    /// 使用指定配置创建 缓存
     ///
     /// # 参数
     ///
@@ -731,7 +731,7 @@ where
 
     /// 启用孤岛模式
     ///
-    /// 当存储层（L2/L3）故障时调用，L1 缓存进入独立运行模式。
+    /// 当存储层故障时调用，缓存进入独立运行模式。
     ///
     /// # 参数
     /// - `config`: 孤岛模式配置
@@ -750,7 +750,7 @@ where
 
     /// 禁用孤岛模式
     ///
-    /// 当存储层恢复后调用，L1 缓存恢复正常模式。
+    /// 当存储层恢复后调用，缓存恢复正常模式。
     pub fn disable_island_mode(&self) {
         let was_island = self.is_island_mode.swap(0, Ordering::AcqRel);
         if was_island == 1 {

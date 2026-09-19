@@ -300,10 +300,10 @@ impl ConditionEvaluator for MatchCondition {
                 }
             }
             MatchCondition::Ip(ip_ranges) => {
-                if let Some(client_ip) = &context.client_ip {
-                    if let Ok(ip) = client_ip.parse::<IpAddr>() {
-                        return ip_ranges.iter().any(|range| range.contains(&ip));
-                    }
+                if let Some(client_ip) = &context.client_ip
+                    && let Ok(ip) = client_ip.parse::<IpAddr>()
+                {
+                    return ip_ranges.iter().any(|range| range.contains(&ip));
                 }
                 false
             }

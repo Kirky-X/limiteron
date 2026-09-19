@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Tower Service/Layer 实现
 //!
@@ -46,8 +46,10 @@ impl Default for RateLimitConfig {
         Self {
             return_429_on_reject: true,
             return_403_on_ban: true,
-            reject_body: "Rate limit exceeded".to_string(),
-            ban_body: "Access denied".to_string(),
+            // 默认响应体走 FTL 目录（当前 locale → en 回退；键 rate-limit-exceeded /
+            // access-denied），显式覆盖仍可经 with_reject_body/with_ban_body 注入
+            reject_body: crate::i18n::t_simple("rate-limit-exceeded"),
+            ban_body: crate::i18n::t_simple("access-denied"),
             skip_health_checks: true,
             health_check_paths: vec![
                 "/health".to_string(),
@@ -131,10 +133,10 @@ impl<B> IntoRequestContext<B> for DefaultRequestContextConverter {
             .with_method(request.method().as_str());
 
         // 提取用户 ID
-        if let Some(user_id) = request.headers().get("x-user-id") {
-            if let Ok(value) = user_id.to_str() {
-                context = context.with_header("X-User-Id", value);
-            }
+        if let Some(user_id) = request.headers().get("x-user-id")
+            && let Ok(value) = user_id.to_str()
+        {
+            context = context.with_header("X-User-Id", value);
         }
 
         // 提取 IP 地址（优先 X-Real-IP，其次 X-Forwarded-For）
@@ -142,20 +144,20 @@ impl<B> IntoRequestContext<B> for DefaultRequestContextConverter {
             if let Ok(value) = ip.to_str() {
                 context = context.with_client_ip(value);
             }
-        } else if let Some(forwarded) = request.headers().get("x-forwarded-for") {
-            if let Ok(value) = forwarded.to_str() {
-                // X-Forwarded-For 可能包含多个 IP，取第一个
-                if let Some(first_ip) = value.split(',').next() {
-                    context = context.with_client_ip(first_ip.trim());
-                }
+        } else if let Some(forwarded) = request.headers().get("x-forwarded-for")
+            && let Ok(value) = forwarded.to_str()
+        {
+            // X-Forwarded-For 可能包含多个 IP，取第一个
+            if let Some(first_ip) = value.split(',').next() {
+                context = context.with_client_ip(first_ip.trim());
             }
         }
 
         // 提取 API Key
-        if let Some(api_key) = request.headers().get("x-api-key") {
-            if let Ok(value) = api_key.to_str() {
-                context = context.with_header("X-API-Key", value);
-            }
+        if let Some(api_key) = request.headers().get("x-api-key")
+            && let Ok(value) = api_key.to_str()
+        {
+            context = context.with_header("X-API-Key", value);
         }
 
         // 复制所有 headers 到 context

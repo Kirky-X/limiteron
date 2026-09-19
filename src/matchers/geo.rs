@@ -172,10 +172,10 @@ impl GeoCondition {
 
         // 检查国家匹配
         if !self.countries.is_empty() {
-            if let Some(country_code) = &info.country_code {
-                if self.countries.contains(country_code) {
-                    return true;
-                }
+            if let Some(country_code) = &info.country_code
+                && self.countries.contains(country_code)
+            {
+                return true;
             }
             // 如果没有国家信息，不匹配
             return false;
@@ -183,20 +183,20 @@ impl GeoCondition {
 
         // 检查城市匹配
         if !self.cities.is_empty() {
-            if let Some(city) = &info.city {
-                if self.cities.contains(city) {
-                    return true;
-                }
+            if let Some(city) = &info.city
+                && self.cities.contains(city)
+            {
+                return true;
             }
             return false;
         }
 
         // 检查大洲匹配
         if !self.continents.is_empty() {
-            if let Some(continent) = &info.continent {
-                if self.continents.contains(continent) {
-                    return true;
-                }
+            if let Some(continent) = &info.continent
+                && self.continents.contains(continent)
+            {
+                return true;
             }
             return false;
         }

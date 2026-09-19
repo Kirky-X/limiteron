@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! E2E 高级场景测试
 //!
@@ -17,8 +17,6 @@
 //! - 每个 feature 用 `#[cfg(feature = "xxx")]` 隔离
 //! - 并发测试用 `multi_thread` runtime
 //! - 错误断言用 match + panic 描述预期变体
-
-#![cfg(test)]
 
 use limiteron::error::{Decision, LimiteronError};
 use limiteron::limiters::{
@@ -478,7 +476,7 @@ mod fallback_strategy {
         FallbackManager::new(Arc::new(cache))
     }
 
-    /// FailOpen：主操作失败时返回 FallbackError（diting Low：调用方以
+    /// FailOpen：主操作失败时返回 FallbackError（调用方以
     /// 变体识别降级语义，而非靠字符串约定）
     #[tokio::test]
     async fn fail_open_returns_limit_error_on_failure() {

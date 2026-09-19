@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! `limiteron-cli` —— 规则文件配置 CLI。
 //!
@@ -122,11 +122,15 @@ fn usage_error(command: &str, message: &str) -> CliInvocation {
 }
 
 /// 解析配置文件；任何失败折叠为一条错误消息（供 JSON 诊断输出）。
+///
+/// 类型化错误走本地化路径（`i18n::I18nExt::to_localized_string`，当前
+/// locale → en 回退）；`ConfigError` 载荷本身已是英文规范串（T016）。
 fn load_config(path: &str) -> Result<FlowControlConfig, String> {
+    use crate::i18n::I18nExt;
     crate::ConfigLoader::load_from_file(path).map_err(|e| match e {
         crate::LimiteronError::ConfigError(msg) => msg,
         crate::LimiteronError::IoError(io) => format!("IO error: {io}"),
-        other => format!("{other}"),
+        other => other.to_localized_string(),
     })
 }
 
@@ -144,18 +148,21 @@ fn collect_warnings(config: &FlowControlConfig) -> Vec<String> {
                 .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
     };
     if !semver_ok {
-        warnings.push(format!(
-            "version '{}' 不是 x.y.z 数字形态（语义化版本建议）",
-            config.version
+        warnings.push(crate::i18n::t(
+            "cli-warning-version-format",
+            &[("version", config.version.clone())],
         ));
     }
 
     let mut seen = std::collections::HashSet::new();
     for rule in &config.rules {
         if !seen.insert(rule.priority) {
-            warnings.push(format!(
-                "规则 '{}' 的 priority {} 与其他规则重复（匹配顺序歧义）",
-                rule.id, rule.priority
+            warnings.push(crate::i18n::t(
+                "cli-warning-duplicate-priority",
+                &[
+                    ("rule_id", rule.id.clone()),
+                    ("priority", rule.priority.to_string()),
+                ],
             ));
         }
     }
@@ -427,7 +434,7 @@ mod tests {
         assert_eq!(inv.exit_code, EXIT_ERROR);
         let errors = inv.output["errors"].as_array().unwrap();
         assert!(
-            errors[0].as_str().unwrap().contains("限流器"),
+            errors[0].as_str().unwrap().contains("limiter"),
             "rule violation surfaced: {errors:?}"
         );
     }
@@ -473,7 +480,7 @@ mod tests {
             inv.output["errors"][0]
                 .as_str()
                 .unwrap()
-                .contains("至少需要一个规则"),
+                .contains("At least one rule is required"),
             "yaml parsed: {:?}",
             inv.output
         );

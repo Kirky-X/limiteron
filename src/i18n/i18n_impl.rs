@@ -1,41 +1,7 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 
-use super::*;
-use std::cmp::Ordering;
-use std::str::FromStr;
-
-/// 本地化时间窗口词（I8）：`second`/`minute`/`hour`/`day` 的常见译文，
-/// 未覆盖的语言或词原样返回（调用方模板已按语言回退英文）。
-fn localize_window(lang: &str, window: &str) -> String {
-    let lower = window.to_lowercase();
-    match (lang, lower.as_str()) {
-        ("zh", "second") => "秒".to_string(),
-        ("zh", "minute") => "分钟".to_string(),
-        ("zh", "hour") => "小时".to_string(),
-        ("zh", "day") => "天".to_string(),
-        ("ja", "second") => "秒".to_string(),
-        ("ja", "minute") => "分".to_string(),
-        ("ja", "hour") => "時間".to_string(),
-        ("ja", "day") => "日".to_string(),
-        ("ko", "second") => "초".to_string(),
-        ("ko", "minute") => "분".to_string(),
-        ("ko", "hour") => "시간".to_string(),
-        ("ko", "day") => "일".to_string(),
-        ("de", "second") => "Sekunde".to_string(),
-        ("de", "minute") => "Minute".to_string(),
-        ("de", "hour") => "Stunde".to_string(),
-        ("de", "day") => "Tag".to_string(),
-        // fr 的 second/minute 与英文拼写一致，走回退即可
-        ("fr", "hour") => "heure".to_string(),
-        ("fr", "day") => "jour".to_string(),
-        ("es", "second") => "segundo".to_string(),
-        ("es", "minute") => "minuto".to_string(),
-        ("es", "hour") => "hora".to_string(),
-        ("es", "day") => "día".to_string(),
-        _ => window.to_string(),
-    }
-}
+use super::I18nError;
 use icu::collator::Collator;
 use icu::collator::options::CollatorOptions;
 use icu::datetime::DateTimeFormatter;
@@ -46,7 +12,21 @@ use icu::decimal::input::Decimal;
 use icu::decimal::options::DecimalFormatterOptions;
 use icu::locale::Locale;
 use icu::plurals::{PluralCategory, PluralRules, PluralRulesOptions};
+use std::cmp::Ordering;
+use std::str::FromStr;
 use writeable::Writeable;
+
+/// Locale-aware formatter backed by ICU4X compiled data.
+///
+/// Construct with [`LimiterI18nFormatter::new`] using a BCP-47 locale tag
+/// (e.g. `"en-US"`, `"zh-CN"`). All formatters are created eagerly so
+/// that repeated formatting calls are allocation-light.
+pub struct LimiterI18nFormatter {
+    locale: Locale,
+    decimal_formatter: DecimalFormatter,
+    plural_rules: PluralRules,
+    collator: icu::collator::CollatorBorrowed<'static>,
+}
 
 /// Map a [`PluralCategory`] to its capitalized CLDR name (e.g. `"One"`, `"Other"`).
 fn plural_category_name(category: PluralCategory) -> &'static str {
@@ -57,6 +37,18 @@ fn plural_category_name(category: PluralCategory) -> &'static str {
         PluralCategory::Few => "Few",
         PluralCategory::Many => "Many",
         PluralCategory::Other => "Other",
+    }
+}
+
+/// Map a rate-limit window word to its FTL key (`window-*` in messages.ftl).
+/// Unknown words yield `None` and are passed through verbatim.
+fn window_ftl_key(window: &str) -> Option<&'static str> {
+    match window.to_lowercase().as_str() {
+        "second" => Some("window-second"),
+        "minute" => Some("window-minute"),
+        "hour" => Some("window-hour"),
+        "day" => Some("window-day"),
+        _ => None,
     }
 }
 
@@ -129,9 +121,10 @@ impl LimiterI18nFormatter {
     /// Build a locale-aware rate-limit message combining the current
     /// `count`, the configured `limit`, and a human-readable `window`
     /// (e.g. `"minute"`, `"hour"`). Counters are formatted with the
-    /// locale's grouping/decimal separators, and the message template
-    /// is selected by the locale's language (falling back to English
-    /// for uncovered languages; I8).
+    /// locale's grouping/decimal separators, and the message template and
+    /// window word resolve through the Fluent catalog (`rate-limit-message`,
+    /// `window-*`) — the catalog only carries `en`/`zh`, so any other
+    /// formatter locale falls back to the English template.
     ///
     /// # Errors
     /// Returns [`I18nError::InvalidNumber`] if either counter cannot be
@@ -144,25 +137,20 @@ impl LimiterI18nFormatter {
     ) -> Result<String, I18nError> {
         let count_str = self.format_number(count as f64)?;
         let limit_str = self.format_number(limit as f64)?;
-        let lang = self.locale.id.language.as_str();
-        let window = localize_window(lang, window);
-        Ok(match lang {
-            "zh" => format!("已超出限流：每个{window} {count_str}/{limit_str} 个请求"),
-            "ja" => {
-                format!("レート制限を超過しました：{window}あたり{count_str}/{limit_str}リクエスト")
-            }
-            "ko" => format!("요청 한도 초과: {window}당 {count_str}/{limit_str}개 요청"),
-            "de" => {
-                format!("Ratenlimit überschritten: {count_str}/{limit_str} Anfragen pro {window}")
-            }
-            "fr" => format!(
-                "Limit de requêtes dépassée : {count_str}/{limit_str} requêtes par {window}"
-            ),
-            "es" => format!(
-                "Límite de solicitudes excedido: {count_str}/{limit_str} solicitudes por {window}"
-            ),
-            _ => format!("Rate limit exceeded: {count_str}/{limit_str} requests per {window}"),
-        })
+        let lang = self.locale.id.language.as_str().to_string();
+        let window_str = match window_ftl_key(window) {
+            Some(key) => super::catalog::translate_for(&lang, key, &[]),
+            None => window.to_string(),
+        };
+        Ok(super::catalog::translate_for(
+            &lang,
+            "rate-limit-message",
+            &[
+                ("count", count_str),
+                ("limit", limit_str),
+                ("window", window_str),
+            ],
+        ))
     }
 
     /// Format an ISO calendar date (year / month / day) as a rate-limit
@@ -279,6 +267,40 @@ mod tests {
             msg.contains("Rate limit exceeded"),
             "message should contain prefix: got '{msg}'"
         );
+    }
+
+    #[test]
+    fn test_format_rate_limit_message_zh() {
+        let fmt = LimiterI18nFormatter::new("zh-CN").expect("zh-CN locale");
+        let msg = fmt
+            .format_rate_limit_message(5, 100, "minute")
+            .expect("rate limit message");
+        assert!(
+            msg.contains("已超出限流"),
+            "zh message should use the zh template: got '{msg}'"
+        );
+        assert!(
+            msg.contains("分钟") && msg.contains("5/100"),
+            "zh message should localize the window word and keep counters: got '{msg}'"
+        );
+    }
+
+    /// T016 收敛守卫：仅 en/zh 有模板，ja/ko/de/fr/es 等一律回退英文模板
+    /// （窗口词与计数均与 en 输出一致）。
+    #[test]
+    fn test_rate_limit_message_unsupported_locales_fall_back_to_en() {
+        let en = LimiterI18nFormatter::new("en-US").expect("en-US locale");
+        let expected = en
+            .format_rate_limit_message(5, 100, "minute")
+            .expect("en message");
+        for tag in ["ja-JP", "ko-KR", "de-DE", "fr-FR", "es-ES"] {
+            let fmt = LimiterI18nFormatter::new(tag)
+                .unwrap_or_else(|e| panic!("{tag} should parse: {e}"));
+            let msg = fmt
+                .format_rate_limit_message(5, 100, "minute")
+                .unwrap_or_else(|e| panic!("{tag} message should format: {e}"));
+            assert_eq!(msg, expected, "{tag} must fall back to the en template");
+        }
     }
 
     #[test]

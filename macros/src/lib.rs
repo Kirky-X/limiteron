@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Limiteron 过程宏
 //!
@@ -434,7 +434,7 @@ fn generate_flow_control(
     let on_exceed_mode = config.on_exceed.as_str();
     let key_prefix_str = config.key_prefix.clone().unwrap_or_default();
     let fn_name_str = fn_name.to_string();
-    // audit-M1/L2: 宏展开期对 prefix 和 fname 做防御性 sanitize（与运行时 sanitize 闭包一致）
+    // audit-: 宏展开期对 prefix 和 fname 做防御性 sanitize（与运行时 sanitize 闭包一致）
     let sanitized_prefix = sanitize_key_component(&key_prefix_str);
     let sanitized_fname = sanitize_key_component(&fn_name_str);
 
@@ -470,7 +470,7 @@ fn generate_flow_control(
             _ => 1,
         };
         let fname = sanitized_fname.clone();
-        // audit-M5: key_prefix=None 时生成 "rate:fn:xxx"（无前导冒号，恢复旧行为）
+        // audit-: key_prefix=None 时生成 "rate:fn:xxx"（无前导冒号，恢复旧行为）
         // key_prefix=Some(p) 时生成 "p:rate:fn:xxx"
         let key_tpl = if config.key_prefix.is_some() {
             let p = sanitized_prefix.clone();
@@ -478,7 +478,7 @@ fn generate_flow_control(
         } else {
             quote! { format!("rate:{}:{}", #fname, sanitize(&identifier)) }
         };
-        // audit-M2: log_only 模式下不消费 rate token（语义=仅记录，不产生副作用）
+        // audit-: log_only 模式下不消费 rate token（语义=仅记录，不产生副作用）
         // reject / throttle 模式下消费 token 并检查
         let check_logic = if on_exceed_mode == "log_only" {
             quote! {
@@ -521,7 +521,7 @@ fn generate_flow_control(
         let max = quota.max;
         let duration = quota.to_duration();
         let fname = sanitized_fname.clone();
-        // audit-M5: key_prefix=None 时生成 "quota:fn:xxx"（无前导冒号，恢复旧行为）
+        // audit-: key_prefix=None 时生成 "quota:fn:xxx"（无前导冒号，恢复旧行为）
         // key_prefix=Some(p) 时生成 "p:quota:fn:xxx"
         let key_tpl = if config.key_prefix.is_some() {
             let p = sanitized_prefix.clone();
@@ -529,7 +529,7 @@ fn generate_flow_control(
         } else {
             quote! { format!("quota:{}:{}", #fname, sanitize(&identifier)) }
         };
-        // audit-M2: log_only 模式下不消费配额（语义=仅记录，不产生副作用）
+        // audit-: log_only 模式下不消费配额（语义=仅记录，不产生副作用）
         // reject / throttle 模式下消费配额并检查
         let check_logic = if on_exceed_mode == "log_only" {
             quote! {
@@ -573,7 +573,7 @@ fn generate_flow_control(
 
     let concurrency_check = if let Some(concurrency) = config.concurrency {
         let fname = sanitized_fname.clone();
-        // audit-M5: key_prefix=None 时生成 "concurrency:fn:xxx"（无前导冒号，恢复旧行为）
+        // audit-: key_prefix=None 时生成 "concurrency:fn:xxx"（无前导冒号，恢复旧行为）
         // key_prefix=Some(p) 时生成 "p:concurrency:fn:xxx"
         let key_tpl = if config.key_prefix.is_some() {
             let p = sanitized_prefix.clone();
@@ -581,14 +581,14 @@ fn generate_flow_control(
         } else {
             quote! { format!("concurrency:{}:{}", #fname, sanitize(&identifier)) }
         };
-        // audit-L1: 仅 reject 模式下 match 的 None 分支为 unreachable（exceed_handler 中 return Err 提前返回）
+        // audit-: 仅 reject 模式下 match 的 None 分支为 unreachable（exceed_handler 中 return Err 提前返回）
         // 其他模式不生成 #[allow(unreachable_code)]，避免掩盖真实 unreachable 代码
         let allow_attr = if on_exceed_mode == "reject" {
             quote! { #[allow(unreachable_code)] }
         } else {
             quote! {}
         };
-        // audit-M2: log_only 模式下不持有 permit（语义=不产生副作用，不占用并发槽位）
+        // audit-: log_only 模式下不持有 permit（语义=不产生副作用，不占用并发槽位）
         // reject / throttle 模式下 acquire permit 并持有到函数结束
         let check_logic = if on_exceed_mode == "log_only" {
             quote! {
@@ -874,7 +874,7 @@ mod tests {
             "log_only mode should NOT generate RateLimitExceeded; tokens = {}",
             tokens_str
         );
-        // audit-M2: log_only 模式下不应调用 rate_limiter.allow（不消费 token）
+        // audit-: log_only 模式下不应调用 rate_limiter.allow（不消费 token）
         assert!(
             !tokens_str.contains(".allow"),
             "log_only mode should NOT call .allow() (audit-M2: no side effects); tokens = {}",
@@ -1176,7 +1176,7 @@ mod tests {
 
     #[test]
     fn test_generate_no_key_prefix_keeps_original_format() {
-        // audit-M5: 未设置 key_prefix 时，key 格式应为 "rate:fn:xxx"（无前导冒号，恢复旧行为）
+        // audit-: 未设置 key_prefix 时，key 格式应为 "rate:fn:xxx"（无前导冒号，恢复旧行为）
         let config = FlowControlConfig {
             rate: Some(RateLimit {
                 amount: 100,

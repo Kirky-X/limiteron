@@ -85,10 +85,10 @@ impl BatchTokenPrefetcher {
 
     /// 取（或按新容量重建）key 对应的令牌桶
     fn bucket_for(&self, key: &str, tokens: u64) -> Arc<TokenBucketLimiter> {
-        if let Some(existing) = self.buckets.get(key) {
-            if existing.capacity() == tokens {
-                return existing.value().clone();
-            }
+        if let Some(existing) = self.buckets.get(key)
+            && existing.capacity() == tokens
+        {
+            return existing.value().clone();
         }
         // capacity = tokens, refill_rate = tokens（预取预算按秒恢复，1:1）
         let limiter = Arc::new(TokenBucketLimiter::new(tokens, tokens));

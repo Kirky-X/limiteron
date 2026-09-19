@@ -1,10 +1,100 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Error 类型的 impl 块和单元测试
 //!
 //! 从 `mod.rs` 拆分而来，包含所有错误相关类型的实现逻辑。
 
 use super::*;
+use crate::i18n::LocalizedMsg;
+
+// ============================================================================
+// 错误双轨（dbnexus error_ext 模式）：Display 保持英文规范串（thiserror），
+// 本地化输出经 `i18n::I18nExt::to_localized_string()` 查 FTL 目录。
+// `LimiteronError::StorageError` 委托内层 `StorageError` 的键/参数，避免
+// "Storage error: Connection error: x" 双层包装。
+// ============================================================================
+
+impl LocalizedMsg for StorageError {
+    fn message_key(&self) -> &'static str {
+        match self {
+            StorageError::ConnectionError(_) => "error-storage-connection",
+            StorageError::QueryError(_) => "error-storage-query",
+            StorageError::TimeoutError(_) => "error-storage-timeout",
+            StorageError::NotFound(_) => "error-storage-not-found",
+            StorageError::AuthenticationError(_) => "error-storage-authentication",
+            StorageError::PermissionError(_) => "error-storage-permission",
+            StorageError::InvalidConfig(_) => "error-storage-invalid-config",
+            StorageError::RateLimitError(_) => "error-storage-rate-limit",
+            StorageError::ValidationError(_) => "error-storage-validation",
+        }
+    }
+
+    fn message_args(&self) -> Vec<(&'static str, String)> {
+        match self {
+            StorageError::ConnectionError(message)
+            | StorageError::QueryError(message)
+            | StorageError::TimeoutError(message)
+            | StorageError::NotFound(message)
+            | StorageError::AuthenticationError(message)
+            | StorageError::PermissionError(message)
+            | StorageError::InvalidConfig(message)
+            | StorageError::RateLimitError(message)
+            | StorageError::ValidationError(message) => vec![("message", message.clone())],
+        }
+    }
+}
+
+impl LocalizedMsg for LimiteronError {
+    fn message_key(&self) -> &'static str {
+        match self {
+            LimiteronError::ConfigError(_) => "error-config",
+            LimiteronError::StorageError(inner) => inner.message_key(),
+            LimiteronError::LimitError(_) => "error-limit",
+            LimiteronError::BanError(_) => "error-ban",
+            LimiteronError::CircuitBreakerError(_) => "error-circuit-breaker",
+            LimiteronError::FallbackError(_) => "error-fallback",
+            LimiteronError::AuditLogError(_) => "error-audit-log",
+            LimiteronError::AuthorizationError(_) => "error-authorization",
+            LimiteronError::IoError(_) => "error-io",
+            LimiteronError::SerdeError(_) => "error-serde",
+            LimiteronError::YamlError(_) => "error-yaml",
+            LimiteronError::RateLimitExceeded(_) => "error-rate-limit-exceeded",
+            LimiteronError::QuotaExceeded(_) => "error-quota-exceeded",
+            LimiteronError::ConcurrencyLimitExceeded(_) => "error-concurrency-limit-exceeded",
+            LimiteronError::Throttled(_) => "error-throttled",
+            LimiteronError::ValidationError(_) => "error-validation",
+            LimiteronError::LockError(_) => "error-lock",
+            LimiteronError::TimeError(_) => "error-time",
+            LimiteronError::DependencyError(_) => "error-dependency",
+            LimiteronError::Other(_) => "error-other",
+        }
+    }
+
+    fn message_args(&self) -> Vec<(&'static str, String)> {
+        match self {
+            LimiteronError::StorageError(inner) => inner.message_args(),
+            LimiteronError::ConfigError(message)
+            | LimiteronError::LimitError(message)
+            | LimiteronError::BanError(message)
+            | LimiteronError::CircuitBreakerError(message)
+            | LimiteronError::FallbackError(message)
+            | LimiteronError::AuditLogError(message)
+            | LimiteronError::AuthorizationError(message)
+            | LimiteronError::RateLimitExceeded(message)
+            | LimiteronError::QuotaExceeded(message)
+            | LimiteronError::ConcurrencyLimitExceeded(message)
+            | LimiteronError::Throttled(message)
+            | LimiteronError::ValidationError(message)
+            | LimiteronError::LockError(message)
+            | LimiteronError::TimeError(message)
+            | LimiteronError::DependencyError(message)
+            | LimiteronError::Other(message) => vec![("message", message.clone())],
+            LimiteronError::IoError(err) => vec![("message", err.to_string())],
+            LimiteronError::SerdeError(err) => vec![("message", err.to_string())],
+            LimiteronError::YamlError(err) => vec![("message", err.to_string())],
+        }
+    }
+}
 
 impl StorageError {
     /// 判断是否为临时错误（可重试）
@@ -122,7 +212,34 @@ mod tests {
     #[test]
     fn test_error_message() {
         let error = LimiteronError::ConfigError("测试错误".to_string());
-        assert_eq!(error.to_string(), "配置错误: 测试错误");
+        assert_eq!(error.to_string(), "Configuration error: 测试错误");
+    }
+
+    /// 错误双轨：Display 恒英文规范串；to_localized_string 随 locale，
+    /// message_en 恒英文。单测试内顺序完成全部 locale 断言（全局 override
+    /// 态在并行测试下存在竞态，合并为单用例消除交叉污染）。
+    #[test]
+    fn test_localized_dual_track() {
+        use crate::i18n::{I18nExt, clear_locale_override, set_locale};
+
+        let err = LimiteronError::StorageError(StorageError::NotFound("k".into()));
+        // Display 恒英文（规范轨；包装变体带前缀，内层经 #[from] 嵌套 Display）
+        assert_eq!(err.to_string(), "Storage error: Not found: k");
+        // message_en 恒英文（经目录，与 Display 对齐）
+        assert_eq!(err.message_en(), "Not found: k");
+
+        clear_locale_override();
+        set_locale("en").expect("en is valid");
+        assert_eq!(err.to_localized_string(), "Not found: k");
+
+        set_locale("zh-CN").expect("zh-CN is valid");
+        assert_eq!(err.to_localized_string(), "未找到: k");
+
+        // 委托：包装变体直接落到内层 StorageError 的键
+        let wrapped = LimiteronError::StorageError(StorageError::QueryError("q".into()));
+        assert_eq!(wrapped.message_en(), "Query error: q");
+
+        clear_locale_override();
     }
 
     #[test]
@@ -295,93 +412,99 @@ mod tests {
     fn test_flowguard_error_variants_display() {
         assert_eq!(
             LimiteronError::LimitError("x".into()).to_string(),
-            "限流错误: x"
+            "Rate limit error: x"
         );
         assert_eq!(
             LimiteronError::BanError("x".into()).to_string(),
-            "封禁错误: x"
+            "Ban error: x"
         );
         assert_eq!(
             LimiteronError::CircuitBreakerError("x".into()).to_string(),
-            "熔断器错误: x"
+            "Circuit breaker error: x"
         );
         assert_eq!(
             LimiteronError::FallbackError("x".into()).to_string(),
-            "降级错误: x"
+            "Fallback error: x"
         );
         assert_eq!(
             LimiteronError::AuditLogError("x".into()).to_string(),
-            "审计日志错误: x"
+            "Audit log error: x"
         );
         assert_eq!(
             LimiteronError::AuthorizationError("x".into()).to_string(),
-            "授权错误: x"
+            "Authorization error: x"
         );
         assert_eq!(
             LimiteronError::RateLimitExceeded("x".into()).to_string(),
-            "速率限制超出: x"
+            "Rate limit exceeded: x"
         );
         assert_eq!(
             LimiteronError::QuotaExceeded("x".into()).to_string(),
-            "配额超出: x"
+            "Quota exceeded: x"
         );
         assert_eq!(
             LimiteronError::ConcurrencyLimitExceeded("x".into()).to_string(),
-            "并发限制超出: x"
+            "Concurrency limit exceeded: x"
         );
         assert_eq!(
             LimiteronError::ValidationError("x".into()).to_string(),
-            "验证错误: x"
+            "Validation error: x"
         );
         assert_eq!(
             LimiteronError::LockError("x".into()).to_string(),
-            "锁获取错误: x"
+            "Lock acquisition error: x"
         );
         assert_eq!(
             LimiteronError::TimeError("x".into()).to_string(),
-            "时间错误: x"
+            "Time error: x"
         );
         assert_eq!(
             LimiteronError::DependencyError("x".into()).to_string(),
-            "依赖缺失: x"
+            "Missing dependency: x"
         );
-        assert_eq!(LimiteronError::Other("x".into()).to_string(), "未知错误: x");
+        assert_eq!(
+            LimiteronError::Other("x".into()).to_string(),
+            "Unknown error: x"
+        );
     }
 
     #[test]
     fn test_storage_error_display() {
         assert_eq!(
             StorageError::ConnectionError("c".into()).to_string(),
-            "连接错误: c"
+            "Connection error: c"
         );
         assert_eq!(
             StorageError::QueryError("q".into()).to_string(),
-            "查询错误: q"
+            "Query error: q"
         );
         assert_eq!(
             StorageError::TimeoutError("t".into()).to_string(),
-            "超时错误: t"
+            "Timeout error: t"
         );
-        assert_eq!(StorageError::NotFound("n".into()).to_string(), "未找到: n");
+        assert_eq!(
+            StorageError::NotFound("n".into()).to_string(),
+            "Not found: n"
+        );
         assert_eq!(
             StorageError::AuthenticationError("a".into()).to_string(),
-            "认证错误: a"
+            "Authentication error: a"
         );
         assert_eq!(
             StorageError::PermissionError("p".into()).to_string(),
-            "权限错误: p"
+            "Permission error: p"
         );
         assert_eq!(
             StorageError::InvalidConfig("i".into()).to_string(),
-            "无效配置: i"
+            "Invalid configuration: i"
         );
         assert_eq!(
             StorageError::RateLimitError("r".into()).to_string(),
-            "速率限制: r"
+            "Rate limit: r"
         );
         assert_eq!(
             StorageError::ValidationError("v".into()).to_string(),
-            "验证错误: v"
+            "Validation error: v"
         );
     }
 

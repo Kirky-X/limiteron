@@ -68,44 +68,44 @@ impl ConfigLoader {
     ) -> Result<FlowControlConfig, LimiteronError> {
         let mut config = Self::load_from_file(path)?;
 
-        if let Ok(storage_str) = std::env::var("LIMITERON_GLOBAL_STORAGE") {
-            if !storage_str.trim().is_empty() {
-                // 与 cache/metrics 保持一致：先 trim 再解析（`" redis "` 不应报错）
-                let storage_type = crate::config::StorageType::parse(storage_str.trim())
+        if let Ok(storage_str) = std::env::var("LIMITERON_GLOBAL_STORAGE")
+            && !storage_str.trim().is_empty()
+        {
+            // 与 cache/metrics 保持一致：先 trim 再解析（`" redis "` 不应报错）
+            let storage_type = crate::config::StorageType::parse(storage_str.trim())
                     .ok_or_else(|| {
                         LimiteronError::ConfigError(format!(
                             "Invalid LIMITERON_GLOBAL_STORAGE value: {}. Valid: memory, postgresql, redis",
                             storage_str
                         ))
                     })?;
-                config.global.storage = storage_type;
-            }
+            config.global.storage = storage_type;
         }
 
-        if let Ok(cache_str) = std::env::var("LIMITERON_GLOBAL_CACHE") {
-            if !cache_str.trim().is_empty() {
-                let cache_backend = crate::config::CacheBackend::parse(cache_str.trim())
-                    .ok_or_else(|| {
-                        LimiteronError::ConfigError(format!(
-                            "Invalid LIMITERON_GLOBAL_CACHE value: {}. Valid: memory, redis, none",
-                            cache_str
-                        ))
-                    })?;
-                config.global.cache = cache_backend;
-            }
+        if let Ok(cache_str) = std::env::var("LIMITERON_GLOBAL_CACHE")
+            && !cache_str.trim().is_empty()
+        {
+            let cache_backend =
+                crate::config::CacheBackend::parse(cache_str.trim()).ok_or_else(|| {
+                    LimiteronError::ConfigError(format!(
+                        "Invalid LIMITERON_GLOBAL_CACHE value: {}. Valid: memory, redis, none",
+                        cache_str
+                    ))
+                })?;
+            config.global.cache = cache_backend;
         }
 
-        if let Ok(metrics_str) = std::env::var("LIMITERON_GLOBAL_METRICS") {
-            if !metrics_str.trim().is_empty() {
-                let metrics_backend =
+        if let Ok(metrics_str) = std::env::var("LIMITERON_GLOBAL_METRICS")
+            && !metrics_str.trim().is_empty()
+        {
+            let metrics_backend =
                     crate::config::MetricsBackend::parse(metrics_str.trim()).ok_or_else(|| {
                         LimiteronError::ConfigError(format!(
                             "Invalid LIMITERON_GLOBAL_METRICS value: {}. Valid: prometheus, statsd, none",
                             metrics_str
                         ))
                     })?;
-                config.global.metrics = metrics_backend;
-            }
+            config.global.metrics = metrics_backend;
         }
 
         Ok(config)

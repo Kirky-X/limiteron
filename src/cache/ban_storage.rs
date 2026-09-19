@@ -242,27 +242,26 @@ impl CacheBanStorage {
         }
 
         let raw = self.backend.get(&key).await.map_err(map_error)?;
-        if let Some(data) = raw {
-            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&data) {
-                if let Some(mut record) = record_from_json(&v) {
-                    f(&mut record);
-                    let ttl = record
-                        .expires_at
-                        .signed_duration_since(chrono::Utc::now())
-                        .num_seconds()
-                        .max(1) as u64;
-                    let data = serde_json::to_vec(&record_to_json(&record))
-                        .map_err(|e| StorageError::QueryError(format!("{e}")))?;
-                    self.backend
-                        .set(
-                            Arc::from(key.as_str()),
-                            Arc::new(data),
-                            Some(std::time::Duration::from_secs(ttl)),
-                        )
-                        .await
-                        .map_err(map_error)?;
-                }
-            }
+        if let Some(data) = raw
+            && let Ok(v) = serde_json::from_slice::<serde_json::Value>(&data)
+            && let Some(mut record) = record_from_json(&v)
+        {
+            f(&mut record);
+            let ttl = record
+                .expires_at
+                .signed_duration_since(chrono::Utc::now())
+                .num_seconds()
+                .max(1) as u64;
+            let data = serde_json::to_vec(&record_to_json(&record))
+                .map_err(|e| StorageError::QueryError(format!("{e}")))?;
+            self.backend
+                .set(
+                    Arc::from(key.as_str()),
+                    Arc::new(data),
+                    Some(std::time::Duration::from_secs(ttl)),
+                )
+                .await
+                .map_err(map_error)?;
         }
         Ok(())
     }

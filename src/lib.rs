@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Limiteron - Unified Flow Control Framework
 //!
@@ -33,7 +33,8 @@
 //! - Macros (requires `macros` feature)
 //! - Distributed rate limiting (requires `distributed` feature)
 //! - trait-kit AsyncKit integration (requires `kit` feature)
-//! - Internationalization (requires `i18n` feature)
+//! - Internationalization: Fluent catalog + locale detection + error dual-track
+//!   (always available); ICU number/date/plural/sort formatting (requires `i18n` feature)
 //! - inklog structured logging (requires `inklog` feature)
 //!
 //! # Examples
@@ -64,7 +65,7 @@
 //! - **High performance**: Zero runtime overhead through compile-time optimization
 //! - **Distributed rate limiting**: `DistributedLimiter` trait + `InMemoryDistributedLimiter` implementation (requires `distributed` feature)
 //! - **trait-kit integration**: AsyncKit `LimiteronModule` (requires `kit` feature)
-//! - **Internationalization**: Locale-aware number/date/plural/sort formatting (requires `i18n` feature)
+//! - **Internationalization**: Fluent message catalog (en/zh) + locale detection chain + error dual-track (always compiled); ICU4X locale-aware number/date/plural/sort formatting (requires `i18n` feature)
 //! - **inklog logging**: inklog structured logging integration (requires `inklog` feature)
 //!
 //! > **⚠️ 已声明未实现的 no-op features**：以下 feature 仅为下游兼容（vecboost 等）而
@@ -75,8 +76,6 @@
 //! > `adaptive-limiting` 不在此列：自 rc4 起为真实实现（AIMD 自适应并发限流器，
 //! > 见 `limiters::adaptive` 模块），启用后编译进 `AdaptiveConcurrencyLimiter`
 //! > 及其配置/许可类型。
-
-#![allow(clippy::collapsible_if)]
 
 pub mod prelude;
 
@@ -152,9 +151,10 @@ pub mod validation;
 #[cfg(feature = "webhook")]
 pub(crate) mod webhook_validator;
 
-// ICU4X 国际化格式化 (feature-gated). 提供 locale 感知的限流消息/数字/日期/复数/排序格式化。
-// Mirrors trait-kit/oxcache i18n pattern.
-#[cfg(feature = "i18n")]
+// 国际化 (i18n). 基础层(Fluent 消息目录 locales/{en,zh} + 语言检测链 + 错误双轨)
+// 常驻编译——错误双轨与 CLI/admin 出口在默认构建下即消费本地化路径;ICU4X
+// 格式化器(LimiterI18nFormatter)仍由 `i18n` feature 门控。
+// Mirrors dbnexus/inklog i18n pattern (change unify-rust-i18n).
 pub mod i18n;
 
 // External integrations. Each integration lives under `integrations/` and
@@ -330,11 +330,11 @@ pub use middleware::{
 
 // Re-export underlying dependencies used in public API and trait definitions.
 //
-// Scope: only type references (L1) — e.g. `use limiteron::oxcache::Cache`,
+// Scope: only type references — e.g. `use limiteron::oxcache::Cache`,
 // `use limiteron::tokio::sync::Mutex`, `use limiteron::async_trait::async_trait`.
-// Macro attributes that expand to canonical crate paths (L2, e.g.
+// Macro attributes that expand to canonical crate paths (e.g.
 // `#[tokio::main]` expands to `tokio::runtime::...`, `#[derive(serde::Serialize)]`
-// expands to `impl serde::Serialize`) and macro invocations (L3, e.g.
+// expands to `impl serde::Serialize`) and macro invocations (e.g.
 // `tokio::spawn`) reference absolute crate paths at expansion time and cannot
 // be routed through a re-export alias; downstream crates must still declare
 // direct dependencies for those uses (e.g. benches/regression.rs keeps

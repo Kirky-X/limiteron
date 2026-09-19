@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! DBNexusQuotaStorageAdapter - DBNexus-based implementation of QuotaStorage trait
 //!
@@ -84,7 +84,7 @@ impl DBNexusQuotaStorageAdapter {
     }
 
     /// Build an allowed ConsumeResult from the post-consumption ledger value
-    /// （diting 简化：改用共享的 `ConsumeResult::allowed` 构造器）
+    /// （简化：改用共享的 `ConsumeResult::allowed` 构造器）
     fn allowed_result(new_consumed: u64, limit: u64) -> ConsumeResult {
         ConsumeResult::allowed(new_consumed, limit)
     }
@@ -119,7 +119,7 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
     /// （`WHERE consumed + cost <= "limit"` + `RETURNING`），消除
     /// read-check-write 竞态下的静默超额放行。未命中时区分「超限拒绝」
     /// 与「无活跃记录」；后者经新窗口原子重启（复用过期行）或守卫式
-    /// 插入处理，两条路径都以 `ON CONFLICT` 兜底并发首触（diting Medium：
+    /// 插入处理，两条路径都以 `ON CONFLICT` 兜底并发首触（
     /// 旧实现并发 INSERT 撞 quota_key UNIQUE 会向请求返回错误）。
     async fn consume(
         &self,
@@ -138,7 +138,7 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
         let window_end = now + chrono_window;
 
         // 活跃窗口原子累加：命中即允许并返回累加后的 consumed。
-        // 限额取 LEAST(存储列, 调用方参数)（diting Low）：运行期调低
+        // 限额取 LEAST(存储列, 调用方参数)：运行期调低
         // 配额上限时，活跃窗口也按新上限裁决。
         const CONSUME_SQL: &str = r#"
             UPDATE limiteron_quotas

@@ -84,10 +84,10 @@ impl LimiteronQueryThrottle {
     }
 
     fn bucket_for(&self, shard_id: &str) -> Arc<TokenBucketLimiter> {
-        if let Some(b) = self.buckets.get(shard_id) {
-            if b.capacity() == self.budget {
-                return b.value().clone();
-            }
+        if let Some(b) = self.buckets.get(shard_id)
+            && b.capacity() == self.budget
+        {
+            return b.value().clone();
         }
         // budget 变化 → last-config-wins 重建（控制面操作，容量即语义）
         let bucket = Arc::new(TokenBucketLimiter::new(self.budget, self.budget));

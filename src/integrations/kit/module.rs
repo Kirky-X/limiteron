@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! `LimiteronModule` — trait-kit `AsyncKit` integration for limiteron.
 //!
@@ -104,7 +104,7 @@ impl ModuleMeta for LimiteronModule {
 
     /// 依赖 `OxcacheModule`（dbnexus `DbNexusModule` 同款范式）——
     /// 上游 oxcache 先构建缓存后端，limiteron 构建期经 `require` 注入并做
-    /// 探活写读（缓存链路故障快速失败；未注入/不可用时降级为内存 L1，不阻断）。
+    /// 探活写读（缓存链路故障快速失败；未注入/不可用时降级为内存，不阻断）。
     fn dependencies() -> &'static [(&'static str, TypeId)] {
         static DEPS: std::sync::OnceLock<Vec<(&'static str, TypeId)>> = std::sync::OnceLock::new();
         DEPS.get_or_init(|| vec![("oxcache", TypeId::of::<OxcacheModule>())])
@@ -137,7 +137,7 @@ impl AsyncAutoBuilder for LimiteronModule {
                 .unwrap_or_else(|| Arc::new(MemoryBanStorage::new()) as Arc<dyn BanStorage>);
             // 经 OxcacheModule 注入缓存——上游缓存后端可用时执行
             // set/get/delete 探活写读（验证 kit 缓存链路）；探测失败仅告警
-            // 并继续（Governor 自带内存 L1 兜底，缓存故障不阻断限流主链路）。
+            // 并继续（Governor 自带内存 兜底，缓存故障不阻断限流主链路）。
             if let Ok(cache) = kit.require::<OxcacheModule>() {
                 const PROBE_KEY: &str = "limiteron:kit:probe";
                 let payload: Arc<Vec<u8>> = Arc::new(b"limiteron-cache-probe".to_vec());

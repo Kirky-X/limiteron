@@ -247,10 +247,10 @@ pub fn redact_advanced(value: Option<&str>, field_name: Option<&str>) -> String 
     // `contains()` 子串匹配，`monkey`/`tokenizer` 等无关字段会被误脱敏，
     // 导致合法字段的日志可见性损失；`my_token_123` 这类真实敏感字段
     // 仍被正确覆盖。
-    if let Some(name) = field_name {
-        if is_sensitive_field_name(name) {
-            return "***".to_string();
-        }
+    if let Some(name) = field_name
+        && is_sensitive_field_name(name)
+    {
+        return "***".to_string();
     }
 
     // 应用正则模式脱敏：任何 regex 命中即完全脱敏（修复 result 被丢弃的逻辑缺陷）

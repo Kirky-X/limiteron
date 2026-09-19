@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 动作相关类型
 
@@ -220,11 +220,11 @@ impl BanConfig {
     /// 校验封禁配置
     pub fn validate(&self) -> Result<(), String> {
         if self.threshold == 0 {
-            return Err("封禁阈值不能为0".to_string());
+            return Err("Ban threshold cannot be 0".to_string());
         }
 
         if self.backoff_multiplier <= 0.0 {
-            return Err("退避倍数必须大于0".to_string());
+            return Err("Backoff multiplier must be greater than 0".to_string());
         }
 
         Ok(())

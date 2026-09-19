@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Governor 主控制器 - 重构版本
 //!
@@ -134,10 +134,10 @@ pub struct Governor {
     /// 统计管理器
     stats: StatsManager,
 
-    /// L1 本地缓存（用于缓存热点限流结果）
+    /// 本地缓存（用于缓存热点限流结果）
     l1_cache: L1Cache<CacheableDecision>,
 
-    /// 是否启用 L1 缓存
+    /// 是否启用 缓存
     l1_cache_enabled: std::sync::atomic::AtomicBool,
 
     /// 降级管理器（可选，feature-gated）
@@ -158,7 +158,7 @@ pub struct Governor {
 
     /// 租户解析器（可选，feature-gated `multi-tenant`）
     ///
-    /// 配置后，决策键（L1 缓存键/事件键/封禁键）以 tenant+key 复合键计算，
+    /// 配置后，决策键（缓存键/事件键/封禁键）以 tenant+key 复合键计算，
     /// 实现存储/配额/封禁按租户隔离；未配置时行为与现状逐位一致。
     #[cfg(feature = "multi-tenant")]
     tenant_resolver: Option<Arc<dyn crate::tenant::TenantResolver>>,
@@ -212,9 +212,9 @@ pub struct GovernorBuilder {
     tracer: Option<Arc<Tracer>>,
     #[cfg(feature = "parallel-checker")]
     parallel_ban_checker: Option<Arc<crate::storage::ParallelBanChecker>>,
-    /// L1 缓存配置
+    /// 缓存配置
     l1_cache_config: Option<L1CacheConfig>,
-    /// 是否启用 L1 缓存
+    /// 是否启用 缓存
     l1_cache_enabled: bool,
     /// 降级管理器（可选，feature-gated）
     #[cfg(feature = "fallback")]
@@ -249,7 +249,7 @@ impl GovernorBuilder {
             #[cfg(feature = "parallel-checker")]
             parallel_ban_checker: None,
             l1_cache_config: None,
-            l1_cache_enabled: true, // 默认启用 L1 缓存（负缓存语义：仅缓存拒绝/封禁决策）
+            l1_cache_enabled: true, // 默认启用 缓存（负缓存语义：仅缓存拒绝/封禁决策）
             #[cfg(feature = "fallback")]
             fallback_manager: None,
             #[cfg(feature = "event-system")]
@@ -263,7 +263,7 @@ impl GovernorBuilder {
     /// 设置租户解析器（feature `multi-tenant`）
     ///
     /// 配置后，Governor 决策键以 tenant+key 复合键计算：
-    /// L1 缓存键、事件键、封禁键均带租户命名空间前缀，
+    /// 缓存键、事件键、封禁键均带租户命名空间前缀，
     /// 存储/配额/封禁按租户隔离。未配置时行为与现状逐位一致。
     #[cfg(feature = "multi-tenant")]
     pub fn with_tenant_resolver(
@@ -342,13 +342,13 @@ impl GovernorBuilder {
         self
     }
 
-    /// 设置 L1 缓存配置
+    /// 设置 缓存配置
     pub fn with_l1_cache_config(mut self, config: L1CacheConfig) -> Self {
         self.l1_cache_config = Some(config);
         self
     }
 
-    /// 启用或禁用 L1 缓存
+    /// 启用或禁用 缓存
     pub fn with_l1_cache_enabled(mut self, enabled: bool) -> Self {
         self.l1_cache_enabled = enabled;
         self
@@ -463,7 +463,7 @@ impl GovernorBuilder {
         let rule_chains_map = RuleBuilder::build_rule_chains(&config)?;
         let rule_chains = Arc::new(tokio::sync::RwLock::new(rule_chains_map));
 
-        // 创建 L1 缓存
+        // 创建 缓存
         let l1_cache_config = self
             .l1_cache_config
             .unwrap_or_else(|| L1CacheConfig::new(std::time::Duration::from_secs(60), 10_000));
@@ -484,7 +484,7 @@ impl GovernorBuilder {
             // 注册孤岛模式回调（直接 await 确保注册完成）
             fm.register_island_mode_callback(std::sync::Arc::new(move |is_island| {
                 if is_island {
-                    // 进入孤岛模式：配置 L1 缓存的孤岛降级策略
+                    // 进入孤岛模式：配置 缓存的孤岛降级策略
                     let island_config =
                         IslandModeConfig::new(IslandFallbackStrategy::LocalDecision);
                     l1_cache_ref.enable_island_mode(island_config);
@@ -555,7 +555,7 @@ impl Governor {
     ///
     /// 默认配置内置一条兜底限流规则（内存 TokenBucket：容量 100、
     /// 每秒补充 10、匹配所有用户、超限拒绝），使「开箱即用」真正可用。
-    /// 修复 H5：旧实现默认空配置必然 `validate()` 失败后 `expect` panic。
+    /// 修复：旧实现默认空配置必然 `validate()` 失败后 `expect` panic。
     /// 需要自定义规则集时使用 `builder()`。
     ///
     /// # 示例
@@ -611,7 +611,7 @@ impl Governor {
     ///
     /// # 返回
     /// - `Ok(Governor)`: 创建成功
-    /// - `Err(LimiteronError)`: 依赖初始化失败（修复 H6：不再在初始化
+    /// - `Err(LimiteronError)`: 依赖初始化失败（修复：不再在初始化
     ///   失败时 panic，而是把错误交还给调用方处置）
     #[allow(clippy::too_many_arguments)]
     pub async fn with_dependencies(
@@ -864,7 +864,7 @@ impl Governor {
 
     /// 检查请求 - 简化版本使用并行检查器
     ///
-    /// 该方法会首先检查 L1 缓存，如果缓存命中则直接返回缓存结果。
+    /// 该方法会首先检查 缓存，如果缓存命中则直接返回缓存结果。
     /// 如果缓存未命中，则执行完整的检查流程，并将结果缓存。
     ///
     /// 当启用了 FallbackManager 时，会在存储层故障时自动降级。
@@ -930,8 +930,8 @@ impl Governor {
         trace!("Extracted identifier: {}", identifier.key());
 
         // 多租户贯穿：决策键改写为 tenant+key 复合键。
-        // L1 缓存键、封禁精确匹配键、事件键均以限定后的标识符计算，
-        // 实现 L1 缓存与租户封禁按租户隔离；未配置 resolver 时原样返回。
+        // 缓存键、封禁精确匹配键、事件键均以限定后的标识符计算，
+        // 实现 缓存与租户封禁按租户隔离；未配置 resolver 时原样返回。
         #[cfg(feature = "multi-tenant")]
         let identifier = self.tenant_scoped_identifier(context, identifier);
 
@@ -948,7 +948,7 @@ impl Governor {
 
         // 并行封禁检查 (仅当 parallel-checker 特性启用时)
         //
-        // 必须先于 L1 缓存读取执行：即使缓存中存在条目，被封禁的标识符也
+        // 必须先于 缓存读取执行：即使缓存中存在条目，被封禁的标识符也
         // 不会被缓存击中而绕过封禁检查。
         #[cfg(feature = "parallel-checker")]
         {
@@ -974,7 +974,7 @@ impl Governor {
             }
         }
 
-        // 尝试从 L1 缓存获取结果
+        // 尝试从 缓存获取结果
         //
         // 只缓存"拒绝/封禁"决策（负缓存，fail-closed）：任何一次请求都必须重新
         // 执行限流器与封禁检查来消耗令牌/更新状态；缓存命中只能返回非"允许"的
@@ -1025,14 +1025,13 @@ impl Governor {
                         self.update_stats_for_decision(&result);
 
                         // 负缓存：仅缓存拒绝/封禁决策（fail-closed），"允许"决策永不入缓存
-                        if self.is_l1_cache_enabled() {
-                            if let Ok(ref decision) = result {
-                                let cache_key =
-                                    self.build_cache_key_multi(&identifier, &matched_rules);
-                                let cacheable = CacheableDecision::from_decision(decision);
-                                let _ = self.l1_cache.set(cache_key, cacheable).await;
-                                trace!("L1 缓存已更新: decision=rejected");
-                            }
+                        if self.is_l1_cache_enabled()
+                            && let Ok(ref decision) = result
+                        {
+                            let cache_key = self.build_cache_key_multi(&identifier, &matched_rules);
+                            let cacheable = CacheableDecision::from_decision(decision);
+                            let _ = self.l1_cache.set(cache_key, cacheable).await;
+                            trace!("L1 缓存已更新: decision=rejected");
                         }
 
                         // 发射事件
@@ -1082,16 +1081,16 @@ impl Governor {
                 crate::fallback::ComponentType::Redis,
                 || async { self.check_internal(&context_clone).await },
                 || async {
-                    // 降级操作：尝试仅使用 L1 缓存
+                    // 降级操作：尝试仅使用 缓存
                     self.check_l1_cache_only(&context_clone).await
                 },
             )
             .await
     }
 
-    /// 仅使用 L1 缓存的降级检查
+    /// 仅使用 缓存的降级检查
     ///
-    /// 当存储层不可用时，尝试仅从 L1 缓存获取决策结果。
+    /// 当存储层不可用时，尝试仅从 缓存获取决策结果。
     #[cfg(feature = "fallback")]
     async fn check_l1_cache_only(
         &self,
@@ -1103,7 +1102,7 @@ impl Governor {
             ));
         }
 
-        // 尝试从 L1 缓存获取结果
+        // 尝试从 缓存获取结果
         let identifier = self.identifier_extractor.extract(context).ok_or_else(|| {
             LimiteronError::ConfigError("Failed to extract identifier".to_string())
         })?;
@@ -1127,7 +1126,7 @@ impl Governor {
             return Ok(Decision::allowed_default());
         }
 
-        // 尝试从 L1 缓存获取第一个规则的决策
+        // 尝试从 缓存获取第一个规则的决策
         let first_rule = &matched_rules[0];
         let cache_key = self.build_cache_key(&identifier, &first_rule.id);
 
@@ -1139,8 +1138,8 @@ impl Governor {
                 Ok(decision)
             }
             _ => {
-                // L1 缓存未命中，根据孤岛模式策略处理。
-                // 各分支均补齐请求级统计（H4）：降级路径此前不计数，
+                // 缓存未命中，根据孤岛模式策略处理。
+                // 各分支均补齐请求级统计：降级路径此前不计数，
                 // 孤岛/降级期间的 allowed/error 指标全部丢失。
                 if self.l1_cache.is_island_mode() {
                     if let Some(config) = self.l1_cache.island_config() {
@@ -1159,7 +1158,7 @@ impl Governor {
                                 ))
                             }
                             IslandFallbackStrategy::LocalDecision => {
-                                // 已在上面尝试过 L1 缓存，未命中
+                                // 已在上面尝试过 缓存，未命中
                                 log::warn!(target: "governor", "孤岛模式 - L1 缓存未命中，使用保守策略");
                                 let decision = Decision::allowed_default();
                                 self.update_stats_for_decision(&Ok(decision.clone()));
@@ -1416,7 +1415,7 @@ impl Governor {
     /// - 配置 resolver 且解析到租户 → `tenant:{id}:env:{env}:{identifier.key()}`
     /// - 否则 → `identifier.key()`（与现状逐位一致）
     ///
-    /// 该键贯穿 L1 负缓存、事件发射与封禁存储，实现按租户隔离。
+    /// 该键贯穿 负缓存、事件发射与封禁存储，实现按租户隔离。
     #[cfg(feature = "multi-tenant")]
     pub fn decision_key(&self, context: &RequestContext, identifier: &Identifier) -> String {
         match self.resolve_tenant(context) {
@@ -1428,7 +1427,7 @@ impl Governor {
     /// 将标识符改写为租户限定标识符（内部）
     ///
     /// 保持标识符类型不变，仅对值加命名空间前缀——下游所有按值键控的
-    /// 消费点（L1 缓存键、封禁精确匹配、事件键）自动获得租户隔离。
+    /// 消费点（缓存键、封禁精确匹配、事件键）自动获得租户隔离。
     /// 未配置 resolver / 解析失败 / 租户为默认 global 时原样返回。
     #[cfg(feature = "multi-tenant")]
     fn tenant_scoped_identifier(
@@ -1516,14 +1515,12 @@ impl Governor {
         let Some(target) = identifier.to_ban_target() else {
             return Ok(None);
         };
-        if let Some(ns) = self.resolve_tenant(context) {
-            if ns != crate::tenant::Namespace::default() {
-                if let Some(scoped) = crate::storage::qualify_ban_target(&target, &ns) {
-                    if let Some(record) = self.ban_storage.is_banned(&scoped).await? {
-                        return Ok(Some(record));
-                    }
-                }
-            }
+        if let Some(ns) = self.resolve_tenant(context)
+            && ns != crate::tenant::Namespace::default()
+            && let Some(scoped) = crate::storage::qualify_ban_target(&target, &ns)
+            && let Some(record) = self.ban_storage.is_banned(&scoped).await?
+        {
+            return Ok(Some(record));
         }
         Ok(self.ban_storage.is_banned(&target).await?)
     }
@@ -1590,7 +1587,7 @@ impl Governor {
     /// 1. 校验新配置（失败 → Err，旧配置原样保留，即 rollback 语义）；
     /// 2. 预构建新 `RuleMatcher` 与 rule→decision-chain 映射（构建失败同样拒绝）；
     /// 3. 原子换入 config + rule_matcher + rule_chains；
-    /// 4. 清空 L1 决策缓存（旧配置下的缓存决策不再可信）；
+    /// 4. 清空 决策缓存（旧配置下的缓存决策不再可信）；
     /// 5. 记录 `ConfigChangeRecord`（`ChangeSource::Api`）。
     ///
     /// 供 Admin API `POST /api/v1/config` 与 confers watch 共同使用。
@@ -1624,7 +1621,7 @@ impl Governor {
             (old_version, old_hash)
         };
 
-        // 4. L1 决策缓存失效（best-effort：清空失败不阻断换装）
+        // 4. 决策缓存失效（best-effort：清空失败不阻断换装）
         if let Err(e) = self.l1_cache.clear().await {
             log::warn!("apply_config: L1 cache clear failed: {e}");
         }
@@ -1658,41 +1655,41 @@ impl Governor {
         })
     }
 
-    // ==================== L1 缓存相关方法 ====================
+    // ==================== 缓存相关方法 ====================
 
-    /// 获取 L1 缓存统计信息
+    /// 获取 缓存统计信息
     #[cfg(test)]
     pub(crate) async fn l1_cache_stats(&self) -> crate::l1_cache::L1CacheStats {
         self.l1_cache.stats().await
     }
 
-    /// 启用 L1 缓存
+    /// 启用 缓存
     pub fn enable_l1_cache(&self) {
         self.l1_cache_enabled
             .store(true, std::sync::atomic::Ordering::Release);
         info!("L1 缓存已启用");
     }
 
-    /// 禁用 L1 缓存
+    /// 禁用 缓存
     pub fn disable_l1_cache(&self) {
         self.l1_cache_enabled
             .store(false, std::sync::atomic::Ordering::Release);
         info!("L1 缓存已禁用");
     }
 
-    /// 检查 L1 缓存是否启用
+    /// 检查 缓存是否启用
     pub fn is_l1_cache_enabled(&self) -> bool {
         self.l1_cache_enabled
             .load(std::sync::atomic::Ordering::Acquire)
     }
 
-    /// 清空 L1 缓存
+    /// 清空 缓存
     pub async fn clear_l1_cache(&self) {
         let _ = self.l1_cache.clear().await;
         info!("L1 缓存已清空");
     }
 
-    /// 清理 L1 缓存中的过期条目
+    /// 清理 缓存中的过期条目
     pub async fn evict_expired_l1_cache(&self) -> usize {
         let evicted = self.l1_cache.evict_expired().await.unwrap_or(0);
         if evicted > 0 {
@@ -1743,7 +1740,7 @@ impl Governor {
         debug!("已使规则 {} 的 L1 缓存失效", rule_id);
     }
 
-    /// 获取 L1 缓存大小
+    /// 获取 缓存大小
     pub async fn l1_cache_size(&self) -> usize {
         self.l1_cache.len().await.unwrap_or(0)
     }
@@ -1770,7 +1767,7 @@ impl Governor {
 
     /// 获取运行时自省快照
     ///
-    /// 一次性聚合「规则 → 决策链 → 统计 → L1 缓存 → 健康」的结构化状态，
+    /// 一次性聚合「规则 → 决策链 → 统计 → 缓存 → 健康」的结构化状态，
     /// 供 Admin API `GET /api/v1/introspect`（JSON）与排障工具消费。
     pub async fn introspect(&self) -> IntrospectionSnapshot {
         let config = self.config.read().await;
@@ -1871,7 +1868,7 @@ impl Governor {
         // 检查配置锁是否可读（如果 RwLock 中毒则 panic，视为健康）
         let _config_guard = self.config.read().await;
 
-        // L1 缓存为内存实现，不会故障；只要 Governor 存在即视为健康
+        // 缓存为内存实现，不会故障；只要 Governor 存在即视为健康
         let cache_healthy = true;
 
         // 检查 ban_manager（feature-gated）
@@ -1949,7 +1946,7 @@ impl Governor {
         //     let _ = tokio::time::timeout(Duration::from_secs(30), handle).await;
         // }
 
-        // 清空 L1 缓存
+        // 清空 缓存
         self.clear_l1_cache().await;
 
         info!("Governor 优雅关闭完成");
@@ -1978,7 +1975,7 @@ pub struct HealthStatus {
     pub storage_healthy: bool,
     /// 封禁存储后端是否健康
     pub ban_storage_healthy: bool,
-    /// L1 缓存是否健康
+    /// 缓存是否健康
     pub cache_healthy: bool,
     /// 后台任务是否存活
     pub background_tasks_alive: bool,
@@ -2036,7 +2033,7 @@ pub struct ChainIntrospection {
     pub node_rejections: Vec<(String, u64)>,
 }
 
-/// L1 缓存自省摘要
+/// 缓存自省摘要
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct L1Introspection {
     /// 是否启用
@@ -2095,7 +2092,7 @@ pub struct IntrospectionSnapshot {
     pub chains: Vec<ChainIntrospection>,
     /// 聚合统计
     pub stats: GovernorStats,
-    /// L1 缓存状态
+    /// 缓存状态
     pub l1_cache: L1Introspection,
     /// 组件健康
     pub health: HealthIntrospection,
@@ -2346,7 +2343,7 @@ mod governor_construction_tests {
             status.ban_storage_healthy,
             "ban_storage_healthy should be true for MemoryBanStorage"
         );
-        // L1 缓存为内存实现，应健康
+        // 缓存为内存实现，应健康
         assert!(status.cache_healthy, "cache_healthy should be true");
         // 无后台任务时视为存活
         assert!(
@@ -2772,7 +2769,7 @@ mod governor_construction_tests {
         assert!(result.is_err());
     }
 
-    /// H5 修复回归：Governor::new() 不再因空默认配置 expect panic，
+    /// 回归：Governor::new() 不再因空默认配置 expect panic，
     /// 而是内置一条可用的兜底规则并返回 Ok；兜底规则实际生效
     /// （同 user 超过 TokenBucket 容量后被拒绝）。
     #[tokio::test]
@@ -3193,7 +3190,7 @@ mod governor_construction_tests {
     }
 
     // ============================================================================
-    // L1 Cache Methods
+    // Cache Methods
     // ============================================================================
 
     #[tokio::test]
@@ -3642,7 +3639,7 @@ mod governor_construction_tests {
     }
 
     // ============================================================================
-    // L1 Cache - pub(crate) Stats
+    // Cache - pub(crate) Stats
     // ============================================================================
 
     #[tokio::test]
@@ -4177,7 +4174,7 @@ mod governor_feature_gated_tests {
         assert!(result.is_err());
     }
 
-    /// L1 缓存禁用时，check_l1_cache_only 返回 Err。
+    /// 缓存禁用时，check_l1_cache_only 返回 Err。
     #[cfg(feature = "fallback")]
     #[tokio::test]
     async fn test_check_with_fallback_l1_cache_disabled() {
@@ -4202,7 +4199,7 @@ mod governor_feature_gated_tests {
             .expect("build should succeed");
 
         // 无标识符请求：check_internal 失败 → 降级到 check_l1_cache_only
-        // → L1 缓存禁用，返回 Err
+        // → 缓存禁用，返回 Err
         let ctx = RequestContext::default();
         let result = governor.check(&ctx).await;
         assert!(result.is_err());
@@ -4344,7 +4341,7 @@ mod governor_feature_gated_tests {
         ctx
     }
 
-    /// check_l1_cache_only: L1 缓存禁用时返回 Err（覆盖 lines 943-946）
+    /// check_l1_cache_only: 缓存禁用时返回 Err（覆盖 lines 943-946）
     #[cfg(feature = "fallback")]
     #[tokio::test]
     async fn test_check_l1_cache_only_disabled_returns_err() {
@@ -4550,7 +4547,7 @@ mod governor_feature_gated_tests {
             .await
             .expect("build should succeed");
 
-        // 负缓存语义：check() 的"允许"结果永不写入 L1 缓存（只缓存拒绝/封禁决策）。
+        // 负缓存语义：check() 的"允许"结果永不写入 缓存（只缓存拒绝/封禁决策）。
         // 先验证允许请求不会填充缓存。
         let ctx = create_ip_request_context("10.0.0.1");
         let _ = governor.check(&ctx).await;
@@ -4579,7 +4576,7 @@ mod governor_feature_gated_tests {
     }
 
     /// 覆盖 update_stats_for_decision 中 Banned 分支 (line 1050)
-    /// 通过在 L1 缓存中手动放入 Banned 决策，然后调用 check_l1_cache_only 触发
+    /// 通过在 缓存中手动放入 Banned 决策，然后调用 check_l1_cache_only 触发
     #[cfg(feature = "fallback")]
     #[tokio::test]
     async fn test_check_l1_cache_only_cached_banned_updates_stats() {
@@ -4598,7 +4595,7 @@ mod governor_feature_gated_tests {
         let ctx = create_ip_request_context("10.0.0.50");
         let cache_key = "rl:ip:10.0.0.50:ip_rule".to_string();
 
-        // 在 L1 缓存中放入 Banned 决策
+        // 在 缓存中放入 Banned 决策
         let ban_info = BanInfo::new("test ban".to_string(), chrono::Utc::now(), 1);
         let banned_decision = CacheableDecision::banned(&ban_info);
         governor

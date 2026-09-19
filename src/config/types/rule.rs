@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 规则相关类型
 
@@ -22,33 +22,33 @@ impl Rule {
     /// 校验规则
     pub fn validate(&self) -> Result<(), String> {
         if self.id.is_empty() {
-            return Err("规则ID不能为空".to_string());
+            return Err("Rule ID cannot be empty".to_string());
         }
 
         if self.name.is_empty() {
-            return Err("规则名称不能为空".to_string());
+            return Err("Rule name cannot be empty".to_string());
         }
 
         if self.matchers.is_empty() {
-            return Err("规则至少需要一个匹配器".to_string());
+            return Err("Rule requires at least one matcher".to_string());
         }
 
         if self.limiters.is_empty() {
-            return Err("规则至少需要一个限流器".to_string());
+            return Err("Rule requires at least one limiter".to_string());
         }
 
         // 校验匹配器
         for (index, matcher) in self.matchers.iter().enumerate() {
             matcher
                 .validate()
-                .map_err(|e| format!("匹配器[{}]: {}", index, e))?;
+                .map_err(|e| format!("Matcher[{index}]: {e}"))?;
         }
 
         // 校验限流器
         for (index, limiter) in self.limiters.iter().enumerate() {
             limiter
                 .validate()
-                .map_err(|e| format!("限流器[{}]: {}", index, e))?;
+                .map_err(|e| format!("Limiter[{index}]: {e}"))?;
         }
 
         // 校验动作
@@ -92,35 +92,35 @@ impl Matcher {
         match self {
             Matcher::User { user_ids } => {
                 if user_ids.is_empty() {
-                    return Err("用户ID列表不能为空".to_string());
+                    return Err("User ID list cannot be empty".to_string());
                 }
             }
             Matcher::Ip { ip_ranges } => {
                 if ip_ranges.is_empty() {
-                    return Err("IP范围列表不能为空".to_string());
+                    return Err("IP range list cannot be empty".to_string());
                 }
             }
             Matcher::Geo { countries } => {
                 if countries.is_empty() {
-                    return Err("国家列表不能为空".to_string());
+                    return Err("Country list cannot be empty".to_string());
                 }
             }
             Matcher::ApiVersion { versions } => {
                 if versions.is_empty() {
-                    return Err("API版本列表不能为空".to_string());
+                    return Err("API version list cannot be empty".to_string());
                 }
             }
             Matcher::Device { device_types } => {
                 if device_types.is_empty() {
-                    return Err("设备类型列表不能为空".to_string());
+                    return Err("Device type list cannot be empty".to_string());
                 }
             }
             Matcher::Custom { name, config } => {
                 if name.is_empty() {
-                    return Err("自定义匹配器名称不能为空".to_string());
+                    return Err("Custom matcher name cannot be empty".to_string());
                 }
                 if config.is_null() {
-                    return Err("自定义匹配器配置不能为空".to_string());
+                    return Err("Custom matcher config cannot be empty".to_string());
                 }
             }
         }

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Matchers 示例
 //!
@@ -179,7 +179,7 @@ fn demo_rule_matcher() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("  Rule count: {}", matcher.rule_count());
 
-    // 测试 1：匹配 admin 路径
+    // 匹配 admin 路径
     let ctx = RequestContext::new()
         .with_path("/admin/settings")
         .with_method("GET");
@@ -189,7 +189,7 @@ fn demo_rule_matcher() -> Result<(), Box<dyn std::error::Error>> {
         matched.map(|r| r.id.as_str()).unwrap_or("none")
     );
 
-    // 测试 2：匹配 user-001
+    // 匹配 user-001
     let ctx = RequestContext::new()
         .with_path("/api/v1/data")
         .with_method("GET")
@@ -200,7 +200,7 @@ fn demo_rule_matcher() -> Result<(), Box<dyn std::error::Error>> {
         matched.map(|r| r.id.as_str()).unwrap_or("none")
     );
 
-    // 测试 3：match_all 返回所有匹配的规则
+    // match_all 返回所有匹配的规则
     let all_matches = matcher.match_all(&ctx);
     println!("  match_all returned {} rules", all_matches.len());
     for rule in &all_matches {

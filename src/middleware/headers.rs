@@ -91,19 +91,19 @@ pub fn inject_rate_limit_headers<B>(
     }
 
     // RateLimit-Policy (可选，包含策略名称)
-    if !values.policy.is_empty() {
-        if let Ok(header_value) = HeaderValue::from_str(&values.policy) {
-            response
-                .headers_mut()
-                .insert("RateLimit-Policy", header_value);
-        }
+    if !values.policy.is_empty()
+        && let Ok(header_value) = HeaderValue::from_str(&values.policy)
+    {
+        response
+            .headers_mut()
+            .insert("RateLimit-Policy", header_value);
     }
 
     // Retry-After (仅在请求被拒绝时)
-    if let Some(retry_after) = values.retry_after {
-        if let Ok(header_value) = HeaderValue::from_str(&retry_after.to_string()) {
-            response.headers_mut().insert("Retry-After", header_value);
-        }
+    if let Some(retry_after) = values.retry_after
+        && let Ok(header_value) = HeaderValue::from_str(&retry_after.to_string())
+    {
+        response.headers_mut().insert("Retry-After", header_value);
     }
 
     response

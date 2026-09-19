@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Matcher + Limiter 集成测试
 //!
@@ -53,8 +53,8 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
             .expect("Failed to create governor"),
     );
 
-    // 禁用 L1 缓存以确保限流器状态正确更新
-    // L1 缓存会绕过限流检查导致令牌不被消耗
+    // 禁用 缓存以确保限流器状态正确更新
+    // 缓存会绕过限流检查导致令牌不被消耗
     governor.disable_l1_cache();
 
     governor

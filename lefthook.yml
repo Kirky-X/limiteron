@@ -9,8 +9,10 @@ pre-commit:
       run: cargo fmt --all -- --check
     clippy:
       glob: "*.rs"
-      # CLIPPY_GATE 为本仓库零告警门槛 feature 组合(与 CI clippy job 一致)
-      run: cargo clippy --all-targets --no-default-features --features full -- -D warnings
+      # CLIPPY_GATE 为本仓库零告警门槛 feature 组合(与 CI clippy job 一致：
+      # full,postgres——full 不含驱动，postgres 腿的 adapters/dbnexus_entities
+      # 必须在本地同样编译，此前本地 full 漏 postgres 与 CI 口径分裂)
+      run: cargo clippy --all-targets --no-default-features --features full,postgres -- -D warnings
     cargo-deny:
       run: cargo deny check
     no-private-key:
@@ -27,4 +29,6 @@ pre-push:
       run: cargo audit
     coverage-80:
       name: coverage ≥80% lines
-      run: cargo llvm-cov --fail-under-lines 80
+      # 与 CI coverage job 同口径（full,postgres）——此前裸 default(=[]) 统计的
+      # 是零 feature 空壳，80% 门槛形同虚设。
+      run: cargo llvm-cov --workspace --no-default-features --features full,postgres --lib --fail-under-lines 80

@@ -254,11 +254,11 @@ impl Limiter for AdaptiveConcurrencyLimiter {
 
         // 熔断联动：打开即拒绝并计错误信号收紧窗口
         #[cfg(feature = "circuit-breaker")]
-        if let Some(cb) = &self.circuit_breaker {
-            if cb.is_open().await {
-                self.record_error();
-                return Ok(false);
-            }
+        if let Some(cb) = &self.circuit_breaker
+            && cb.is_open().await
+        {
+            self.record_error();
+            return Ok(false);
         }
 
         loop {

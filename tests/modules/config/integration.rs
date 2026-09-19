@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 配置模块集成测试
 //!
@@ -48,7 +48,7 @@ fn make_valid_config(version: &str, rules: Vec<Rule>) -> FlowControlConfig {
 }
 
 // ============================================================================
-// 测试 1: 有效配置通过验证
+// 有效配置通过验证
 // ============================================================================
 
 #[tokio::test]
@@ -58,7 +58,7 @@ async fn test_valid_config_passes_validation() {
 }
 
 // ============================================================================
-// 测试 2: 空版本号校验失败
+// 空版本号校验失败
 // ============================================================================
 
 #[tokio::test]
@@ -76,11 +76,11 @@ async fn test_empty_version_fails_validation() {
 
     let result = config.validate();
     assert!(result.is_err(), "空版本号配置应校验失败");
-    assert_eq!(result.unwrap_err(), "版本号不能为空");
+    assert_eq!(result.unwrap_err(), "Version cannot be empty");
 }
 
 // ============================================================================
-// 测试 3: 重复规则 ID 校验失败
+// 重复规则 ID 校验失败
 // ============================================================================
 
 #[tokio::test]
@@ -90,11 +90,15 @@ async fn test_duplicate_rule_ids_fail_validation() {
 
     let result = config.validate();
     assert!(result.is_err(), "重复规则ID应校验失败");
-    assert!(result.unwrap_err().contains("规则ID重复: duplicate_id"));
+    assert!(
+        result
+            .unwrap_err()
+            .contains("Duplicate rule ID: duplicate_id")
+    );
 }
 
 // ============================================================================
-// 测试 4: 存储类型使用默认值
+// 存储类型使用默认值
 // ============================================================================
 
 #[tokio::test]
@@ -118,7 +122,7 @@ async fn test_storage_type_default() {
 }
 
 // ============================================================================
-// 测试 5a: 版本比较 - 相同版本
+// a: 版本比较 - 相同版本
 // ============================================================================
 
 #[tokio::test]
@@ -134,7 +138,7 @@ async fn test_version_compare_equal() {
 }
 
 // ============================================================================
-// 测试 5b: 版本比较 - 新版本
+// b: 版本比较 - 新版本
 // ============================================================================
 
 #[tokio::test]
@@ -150,7 +154,7 @@ async fn test_version_compare_greater() {
 }
 
 // ============================================================================
-// 测试 5c: 版本比较 - 旧版本
+// c: 版本比较 - 旧版本
 // ============================================================================
 
 #[tokio::test]
@@ -166,7 +170,7 @@ async fn test_version_compare_less() {
 }
 
 // ============================================================================
-// 测试 6: 无效版本格式比较（不应 panic）
+// 无效版本格式比较（不应 panic）
 // ============================================================================
 
 #[tokio::test]
@@ -206,7 +210,7 @@ async fn test_invalid_version_format_no_panic() {
 }
 
 // ============================================================================
-// 测试 7: ConfigBuilder 构建最小有效配置
+// ConfigBuilder 构建最小有效配置
 // ============================================================================
 
 #[tokio::test]
@@ -229,7 +233,7 @@ async fn test_config_builder_minimal_valid() {
 }
 
 // ============================================================================
-// 测试 8: ConfigBuilder 构建包含多个规则的配置
+// ConfigBuilder 构建包含多个规则的配置
 // ============================================================================
 
 #[tokio::test]
@@ -286,7 +290,7 @@ async fn test_config_builder_with_multiple_rules() {
 }
 
 // ============================================================================
-// 测试 9: ConfigBuilder 在构建时校验无效参数
+// ConfigBuilder 在构建时校验无效参数
 // ============================================================================
 
 #[tokio::test]
@@ -294,7 +298,7 @@ async fn test_config_builder_validation_during_construction() {
     // 缺少规则
     let result = ConfigBuilder::new().build();
     assert!(result.is_err());
-    assert_eq!(result.unwrap_err(), "至少需要一个规则");
+    assert_eq!(result.unwrap_err(), "At least one rule is required");
 
     // 规则缺少 ID
     let result = ConfigBuilder::new()
@@ -305,7 +309,7 @@ async fn test_config_builder_validation_during_construction() {
         })
         .build();
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("规则ID不能为空"));
+    assert!(result.unwrap_err().contains("Rule ID cannot be empty"));
 
     // 规则缺少匹配器
     let result = ConfigBuilder::new()
@@ -316,7 +320,11 @@ async fn test_config_builder_validation_during_construction() {
         })
         .build();
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("规则至少需要一个匹配器"));
+    assert!(
+        result
+            .unwrap_err()
+            .contains("Rule requires at least one matcher")
+    );
 
     // 规则缺少限流器
     let result = ConfigBuilder::new()
@@ -327,11 +335,15 @@ async fn test_config_builder_validation_during_construction() {
         })
         .build();
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("规则至少需要一个限流器"));
+    assert!(
+        result
+            .unwrap_err()
+            .contains("Rule requires at least one limiter")
+    );
 }
 
 // ============================================================================
-// 测试 10: ConfigBuilder 方法链式调用
+// ConfigBuilder 方法链式调用
 // ============================================================================
 
 #[tokio::test]
@@ -360,7 +372,7 @@ async fn test_config_builder_method_chaining() {
 }
 
 // ============================================================================
-// 测试 11: 相同配置产生相同哈希
+// 相同配置产生相同哈希
 // ============================================================================
 
 #[tokio::test]
@@ -376,7 +388,7 @@ async fn test_identical_configs_same_hash() {
 }
 
 // ============================================================================
-// 测试 12: 不同配置产生不同哈希
+// 不同配置产生不同哈希
 // ============================================================================
 
 #[tokio::test]
@@ -398,7 +410,7 @@ async fn test_different_configs_different_hashes() {
 }
 
 // ============================================================================
-// 测试 13: 哈希在多次运行中保持确定性
+// 哈希在多次运行中保持确定性
 // ============================================================================
 
 #[tokio::test]
@@ -415,7 +427,7 @@ async fn test_hash_is_deterministic() {
 }
 
 // ============================================================================
-// 测试 14: 版本升级时创建变更记录
+// 版本升级时创建变更记录
 // ============================================================================
 
 #[tokio::test]
@@ -433,7 +445,7 @@ async fn test_change_record_version_upgrade() {
 }
 
 // ============================================================================
-// 测试 15a: 变更记录 - 新增规则
+// a: 变更记录 - 新增规则
 // ============================================================================
 
 #[tokio::test]
@@ -450,14 +462,14 @@ async fn test_change_record_identifies_added_rules() {
     let record = new_config.create_change_record(Some(&old_config), ChangeSource::Api);
 
     assert!(
-        record.changes.iter().any(|c| c.contains("新增规则")),
+        record.changes.iter().any(|c| c.contains("Rules added")),
         "变更记录应包含新增规则: {:?}",
         record.changes
     );
 }
 
 // ============================================================================
-// 测试 15b: 变更记录 - 移除规则
+// b: 变更记录 - 移除规则
 // ============================================================================
 
 #[tokio::test]
@@ -479,14 +491,14 @@ async fn test_change_record_identifies_removed_rules() {
     );
 
     assert!(
-        record.changes.iter().any(|c| c.contains("移除规则")),
+        record.changes.iter().any(|c| c.contains("Rules removed")),
         "变更记录应包含移除规则: {:?}",
         record.changes
     );
 }
 
 // ============================================================================
-// 测试 15c: 变更记录 - 修改的规则
+// c: 变更记录 - 修改的规则
 // ============================================================================
 
 #[tokio::test]
@@ -517,14 +529,17 @@ async fn test_change_record_identifies_modified_rules() {
     let record = new_config.create_change_record(Some(&old_config), ChangeSource::Reload);
 
     assert!(
-        record.changes.iter().any(|c| c.contains("全局配置")),
+        record
+            .changes
+            .iter()
+            .any(|c| c.contains("Global configuration")),
         "变更记录应包含全局配置变更: {:?}",
         record.changes
     );
 }
 
 // ============================================================================
-// 测试 16: 规则唯一性 - 唯一 ID 接受
+// 规则唯一性 - 唯一 ID 接受
 // ============================================================================
 
 #[tokio::test]
@@ -542,7 +557,7 @@ async fn test_unique_rule_ids_accepted() {
 }
 
 // ============================================================================
-// 测试 17: 重复规则 ID 检测
+// 重复规则 ID 检测
 // ============================================================================
 
 #[tokio::test]
@@ -553,11 +568,11 @@ async fn test_duplicate_rule_ids_detected() {
 
     let result = config.validate();
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("规则ID重复: my_rule"));
+    assert!(result.unwrap_err().contains("Duplicate rule ID: my_rule"));
 }
 
 // ============================================================================
-// 测试 18: 大小写敏感规则 ID 比较
+// 大小写敏感规则 ID 比较
 // ============================================================================
 
 #[tokio::test]
@@ -578,7 +593,7 @@ async fn test_case_sensitive_rule_id_comparison() {
 }
 
 // ============================================================================
-// 测试 19: ConfigHistory 基本操作
+// ConfigHistory 基本操作
 // ============================================================================
 
 #[tokio::test]
@@ -631,7 +646,7 @@ async fn test_config_history_basic_operations() {
 }
 
 // ============================================================================
-// 测试 20: ConfigHistory 超出 max_records 时自动淘汰旧记录
+// ConfigHistory 超出 max_records 时自动淘汰旧记录
 // ============================================================================
 
 #[tokio::test]
@@ -662,7 +677,7 @@ async fn test_config_history_eviction() {
 }
 
 // ============================================================================
-// 测试 21: 配置克隆 - 独立副本
+// 配置克隆 - 独立副本
 // ============================================================================
 
 #[tokio::test]
@@ -677,7 +692,7 @@ async fn test_clone_configuration_independent() {
 }
 
 // ============================================================================
-// 测试 22: 修改克隆不影响原始配置
+// 修改克隆不影响原始配置
 // ============================================================================
 
 #[tokio::test]
@@ -713,7 +728,7 @@ async fn test_modify_clone_without_affecting_original() {
 }
 
 // ============================================================================
-// 测试 23: 嵌套结构深度克隆
+// 嵌套结构深度克隆
 // ============================================================================
 
 #[cfg(feature = "quota-control")]
@@ -787,7 +802,7 @@ async fn test_deep_clone_nested_structures() {
 }
 
 // ============================================================================
-// 测试 24: 序列化往返 (JSON)
+// 序列化往返 (JSON)
 // ============================================================================
 
 #[tokio::test]
@@ -874,7 +889,7 @@ async fn test_serialization_roundtrip_json() {
 }
 
 // ============================================================================
-// 测试 25: 反序列化无效 JSON 优雅失败
+// 反序列化无效 JSON 优雅失败
 // ============================================================================
 
 #[tokio::test]
@@ -890,7 +905,7 @@ async fn test_deserialize_invalid_json_fails() {
 }
 
 // ============================================================================
-// 测试 26: 反序列化缺失可选字段使用默认值
+// 反序列化缺失可选字段使用默认值
 // ============================================================================
 
 #[tokio::test]
@@ -928,7 +943,7 @@ async fn test_deserialize_missing_optional_fields() {
 }
 
 // ============================================================================
-// 测试 27: ChangeSource 各种变体
+// ChangeSource 各种变体
 // ============================================================================
 
 #[tokio::test]
@@ -961,7 +976,7 @@ async fn test_change_source_variants() {
 }
 
 // ============================================================================
-// 测试 28: GlobalConfig 有效类型验证
+// GlobalConfig 有效类型验证
 // ============================================================================
 
 #[tokio::test]
@@ -993,7 +1008,7 @@ async fn test_global_config_validation_valid_types() {
 }
 
 // ============================================================================
-// 测试 29: GlobalConfig 各种有效类型组合
+// GlobalConfig 各种有效类型组合
 // ============================================================================
 
 #[tokio::test]
@@ -1029,7 +1044,7 @@ async fn test_global_config_various_type_combinations() {
 }
 
 // ============================================================================
-// 测试 30: Rule 验证各种无效配置
+// Rule 验证各种无效配置
 // ============================================================================
 
 #[tokio::test]
@@ -1095,7 +1110,7 @@ async fn test_rule_validation_various_invalid_cases() {
 }
 
 // ============================================================================
-// 测试 31: is_same_as 方法
+// is_same_as 方法
 // ============================================================================
 
 #[tokio::test]
@@ -1115,7 +1130,7 @@ async fn test_is_same_as_method() {
 }
 
 // ============================================================================
-// 测试 32: ConfigBuilder 支持 ConcurrencyLimiter
+// ConfigBuilder 支持 ConcurrencyLimiter
 // ============================================================================
 
 #[tokio::test]
@@ -1141,7 +1156,7 @@ async fn test_config_builder_with_concurrency_limiter() {
 }
 
 // ============================================================================
-// 测试 33: 配置变更记录 - 无旧配置（初始配置）
+// 配置变更记录 - 无旧配置（初始配置）
 // ============================================================================
 
 #[tokio::test]
@@ -1154,5 +1169,9 @@ async fn test_change_record_initial_config() {
     assert_eq!(record.new_version, "0.1.0");
     assert_eq!(record.old_hash, None);
     assert!(!record.new_hash.is_empty());
-    assert!(record.changes.contains(&"初始配置".to_string()));
+    assert!(
+        record
+            .changes
+            .contains(&"Initial configuration".to_string())
+    );
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Fixed Window 属性测试
 //!
@@ -189,7 +189,7 @@ proptest! {
 
         let rt = tokio::runtime::Runtime::new().unwrap();
 
-        // 测试3个窗口
+        // 个窗口
         for window in 0..3 {
             let mut count = 0u64;
 

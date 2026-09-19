@@ -1008,15 +1008,15 @@ impl BanManager {
                 }
 
                 // 时间范围过滤
-                if let Some(start) = filter.start_time {
-                    if record.banned_at < start {
-                        return false;
-                    }
+                if let Some(start) = filter.start_time
+                    && record.banned_at < start
+                {
+                    return false;
                 }
-                if let Some(end) = filter.end_time {
-                    if record.banned_at > end {
-                        return false;
-                    }
+                if let Some(end) = filter.end_time
+                    && record.banned_at > end
+                {
+                    return false;
                 }
 
                 true
@@ -1269,11 +1269,11 @@ impl BanManager {
 /// 注意：BanManager 内部字段均为 `Arc`，可被 clone，Drop 只在最后一个引用被丢弃时触发。
 impl Drop for BanManager {
     fn drop(&mut self) {
-        if let Ok(mut handle_guard) = self.auto_unban_handle.try_write() {
-            if let Some(handle) = handle_guard.take() {
-                handle.abort();
-                debug!("BanManager auto-unban task aborted on drop");
-            }
+        if let Ok(mut handle_guard) = self.auto_unban_handle.try_write()
+            && let Some(handle) = handle_guard.take()
+        {
+            handle.abort();
+            debug!("BanManager auto-unban task aborted on drop");
         }
     }
 }
@@ -1374,12 +1374,12 @@ mod tests {
 
         async fn can_insert(&self, current_len: usize) -> Result<(), crate::error::StorageError> {
             let behavior = self.behavior.read().await;
-            if let Some(max_entries) = behavior.max_entries {
-                if current_len >= max_entries {
-                    return Err(crate::error::StorageError::QueryError(
-                        "超过最大封禁条目限制".to_string(),
-                    ));
-                }
+            if let Some(max_entries) = behavior.max_entries
+                && current_len >= max_entries
+            {
+                return Err(crate::error::StorageError::QueryError(
+                    "超过最大封禁条目限制".to_string(),
+                ));
             }
             Ok(())
         }
@@ -1403,10 +1403,10 @@ mod tests {
 
             let mut bans = self.bans.write().await;
             let now = chrono::Utc::now();
-            if let Some(record) = bans.get(target) {
-                if record.expires_at > now {
-                    return Ok(Some(record.clone()));
-                }
+            if let Some(record) = bans.get(target)
+                && record.expires_at > now
+            {
+                return Ok(Some(record.clone()));
             }
             bans.remove(target);
             Ok(None)

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! HTTP处理器
 
@@ -11,7 +11,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use super::routes::OperatorIdentity;
-use super::server::AppState;
+use super::server::LimiteronState;
 #[cfg(feature = "ban-manager")]
 use crate::ban::{BanFilter, BanTarget};
 
@@ -59,7 +59,7 @@ pub async fn healthz() -> Json<serde_json::Value> {
 /// 聚合 [`Governor::health_status()`](crate::governor::Governor::health_status) 的组件级状态：
 /// - 全部健康 → 200 + `{"status":"ready", ...}`
 /// - 任一不健康 → 503 + 不健康组件明细
-pub async fn readyz(State(state): State<AppState>) -> axum::response::Response {
+pub async fn readyz(State(state): State<LimiteronState>) -> axum::response::Response {
     let status = state.governor.health_status().await;
     let body = serde_json::json!({
         "status": if status.healthy() { "ready" } else { "not_ready" },
@@ -77,10 +77,10 @@ pub async fn readyz(State(state): State<AppState>) -> axum::response::Response {
 
 /// GET /metrics — Prometheus 文本格式指标
 ///
-/// 数据源优先级：`AppState.metrics`（显式注入）→ 全局指标（`try_global()`）
+/// 数据源优先级：`LimiteronState.metrics`（显式注入）→ 全局指标（`try_global()`）
 /// → 空 exposition（合法 Prometheus 注释行，保持 200 契约）。
 #[cfg(feature = "monitoring")]
-pub async fn metrics(State(state): State<AppState>) -> axum::response::Response {
+pub async fn metrics(State(state): State<LimiteronState>) -> axum::response::Response {
     use axum::http::header;
     let content_type = "text/plain; version=0.0.4";
     let text = match state.metrics.clone().or_else(crate::telemetry::try_global) {
@@ -116,7 +116,7 @@ pub struct SystemStatus {
 }
 
 /// GET /api/v1/status
-pub async fn get_status(State(state): State<AppState>) -> Json<ApiResponse<SystemStatus>> {
+pub async fn get_status(State(state): State<LimiteronState>) -> Json<ApiResponse<SystemStatus>> {
     let stats = state.governor.stats().await;
 
     // 饱和运算：计数器持续累加可能接近 u64::MAX，且回退场景下
@@ -166,36 +166,35 @@ pub async fn get_status(State(state): State<AppState>) -> Json<ApiResponse<Syste
 
 /// GET /api/v1/introspect —— 运行时自省快照（JSON）
 ///
-/// 聚合 Governor 的规则/决策链/统计/L1 缓存/健康状态，并叠加
+/// 聚合 Governor 的规则/决策链/统计/ 缓存/健康状态，并叠加
 /// 封禁清单（ban-manager）与熔断状态（circuit-breaker）。
 /// 只读端点：viewer 角色即可访问。
-pub async fn introspect(State(state): State<AppState>) -> Json<serde_json::Value> {
+pub async fn introspect(State(state): State<LimiteronState>) -> Json<serde_json::Value> {
     let snapshot = state.governor.introspect().await;
     let mut body = serde_json::to_value(&snapshot).unwrap_or_else(|_| serde_json::json!({}));
 
     #[cfg(feature = "ban-manager")]
-    if let Some(ref bm) = state.ban_manager {
-        if let Ok(bans) = bm
+    if let Some(ref bm) = state.ban_manager
+        && let Ok(bans) = bm
             .list_bans(BanFilter {
                 active_only: true,
                 ..Default::default()
             })
             .await
-        {
-            let items: Vec<serde_json::Value> = bans
-                .iter()
-                .map(|b| {
-                    serde_json::json!({
-                        "target": b.target,
-                        "ban_times": b.ban_times,
-                        "is_manual": b.is_manual,
-                        "reason": b.reason,
-                        "expires_at": b.expires_at.to_rfc3339(),
-                    })
+    {
+        let items: Vec<serde_json::Value> = bans
+            .iter()
+            .map(|b| {
+                serde_json::json!({
+                    "target": b.target,
+                    "ban_times": b.ban_times,
+                    "is_manual": b.is_manual,
+                    "reason": b.reason,
+                    "expires_at": b.expires_at.to_rfc3339(),
                 })
-                .collect();
-            body["active_bans"] = serde_json::Value::Array(items);
-        }
+            })
+            .collect();
+        body["active_bans"] = serde_json::Value::Array(items);
     }
 
     #[cfg(feature = "circuit-breaker")]
@@ -218,7 +217,7 @@ const BATCH_MAX_ITEMS: usize = 1000;
 /// 并同步重建规则匹配器与决策链（真实生效，见 `Governor::apply_config`）。
 /// 写操作：仅 admin 角色可调用。
 pub async fn apply_config(
-    State(state): State<AppState>,
+    State(state): State<LimiteronState>,
     Json(config): Json<crate::config::FlowControlConfig>,
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
     match state.governor.apply_config(config).await {
@@ -265,7 +264,7 @@ pub struct BatchCheckBody {
 /// key 各执行一次完整 Governor 决策，返回逐项结果。单条失败不中断
 /// 整批（逐项报告 error）。上限 `BATCH_MAX_ITEMS` 条，超出返回 400。
 pub async fn check_batch(
-    State(state): State<AppState>,
+    State(state): State<LimiteronState>,
     Json(body): Json<BatchCheckBody>,
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
     if body.requests.is_empty() {
@@ -432,7 +431,7 @@ pub struct BanTargetQuery {
 /// 不再使用 JSON body 中的 `operator` 字段。
 #[cfg(feature = "ban-manager")]
 pub async fn delete_ban(
-    State(state): State<AppState>,
+    State(state): State<LimiteronState>,
     Extension(operator): Extension<OperatorIdentity>,
     Path(target): Path<String>,
     Query(query): Query<BanTargetQuery>,
@@ -541,7 +540,7 @@ pub struct BanResponse {
 /// 不再使用 JSON body 中的 `operator` 字段。
 #[cfg(feature = "ban-manager")]
 pub async fn create_ban(
-    State(state): State<AppState>,
+    State(state): State<LimiteronState>,
     Extension(operator): Extension<OperatorIdentity>,
     Json(req): Json<CreateBanRequest>,
 ) -> (StatusCode, Json<ApiResponse<BanResponse>>) {
@@ -623,7 +622,7 @@ pub struct UpdateQuotaResponse {
 /// 状态码：200=成功, 400=不支持的操作, 503=未配置, 500=内部错误
 #[cfg(feature = "quota-control")]
 pub async fn update_quota(
-    State(state): State<AppState>,
+    State(state): State<LimiteronState>,
     Path(tenant_id): Path<String>,
     Json(req): Json<UpdateQuotaRequest>,
 ) -> (StatusCode, Json<ApiResponse<UpdateQuotaResponse>>) {
@@ -695,7 +694,7 @@ pub struct CircuitBreakerStatus {
 /// 状态码：200=成功, 503=未配置
 #[cfg(feature = "circuit-breaker")]
 pub async fn get_circuit_breaker_status(
-    State(state): State<AppState>,
+    State(state): State<LimiteronState>,
 ) -> (StatusCode, Json<ApiResponse<CircuitBreakerStatus>>) {
     if let Some(ref cb) = state.circuit_breaker {
         let stats = cb.get_stats().await;
@@ -734,7 +733,7 @@ pub async fn get_circuit_breaker_status() -> (StatusCode, Json<ApiResponse<()>>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::admin::AppState;
+    use crate::admin::LimiteronState;
     use crate::admin::{make_governor, make_state};
     use std::sync::Arc;
 
@@ -805,7 +804,7 @@ mod tests {
         use crate::BanManager;
         let ban_manager = Arc::new(BanManager::new().await.unwrap());
         let governor = Arc::new(make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
             #[cfg(feature = "quota-control")]
@@ -838,7 +837,7 @@ mod tests {
         use crate::BanManager;
         let ban_manager = Arc::new(BanManager::new().await.unwrap());
         let governor = Arc::new(make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
             #[cfg(feature = "quota-control")]
@@ -895,7 +894,7 @@ mod tests {
             QuotaConfig::default(),
         ));
         let governor = Arc::new(make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             #[cfg(feature = "ban-manager")]
             ban_manager: None,
@@ -933,7 +932,7 @@ mod tests {
             CircuitBreakerConfig::default(),
         ));
         let governor = Arc::new(make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             #[cfg(feature = "ban-manager")]
             ban_manager: None,
@@ -960,7 +959,7 @@ mod tests {
             CircuitBreakerConfig::default(),
         ));
         let governor = Arc::new(make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
             #[cfg(feature = "quota-control")]
@@ -999,7 +998,7 @@ mod tests {
             .await
             .unwrap();
         let governor = Arc::new(make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
             #[cfg(feature = "quota-control")]
@@ -1048,7 +1047,7 @@ mod tests {
             .await
             .unwrap();
         let governor = Arc::new(make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
             #[cfg(feature = "quota-control")]
@@ -1103,7 +1102,7 @@ mod tests {
             .await
             .unwrap();
         let governor = Arc::new(make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
             #[cfg(feature = "quota-control")]
@@ -1139,7 +1138,7 @@ mod tests {
         use crate::BanManager;
         let ban_manager = Arc::new(BanManager::new().await.unwrap());
         let governor = Arc::new(make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
             #[cfg(feature = "quota-control")]
@@ -1193,7 +1192,7 @@ mod tests {
             .await
             .unwrap();
         let governor = Arc::new(make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
             #[cfg(feature = "quota-control")]
@@ -1237,7 +1236,7 @@ mod tests {
             QuotaConfig::default(),
         ));
         let governor = Arc::new(make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             #[cfg(feature = "ban-manager")]
             ban_manager: None,
@@ -1276,7 +1275,7 @@ mod tests {
             })
             .await;
         let governor = Arc::new(make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             #[cfg(feature = "ban-manager")]
             ban_manager: None,

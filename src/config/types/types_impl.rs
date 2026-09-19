@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Kirky.X🌠
+// SPDX-License-Identifier: MIT
+
 //! Configuration type implementations
 //!
 //! This module contains the implementations for FlowControlConfig,
@@ -20,7 +23,7 @@ impl FlowControlConfig {
     pub fn validate(&self) -> Result<(), String> {
         // 校验版本
         if self.version.is_empty() {
-            return Err("版本号不能为空".to_string());
+            return Err("Version cannot be empty".to_string());
         }
 
         // 校验全局配置
@@ -31,16 +34,16 @@ impl FlowControlConfig {
         for (index, rule) in self.rules.iter().enumerate() {
             // 检查规则ID是否唯一
             if !rule_ids.insert(&rule.id) {
-                return Err(format!("规则ID重复: {}", rule.id));
+                return Err(format!("Duplicate rule ID: {}", rule.id));
             }
 
             // 校验规则
             rule.validate()
-                .map_err(|e| format!("规则[{}]校验失败: {}", index, e))?;
+                .map_err(|e| format!("Rule[{index}] validation failed: {e}"))?;
         }
 
         if self.rules.is_empty() {
-            return Err("至少需要一个规则".to_string());
+            return Err("At least one rule is required".to_string());
         }
 
         Ok(())
@@ -82,7 +85,7 @@ impl FlowControlConfig {
             changes: if let Some(old) = old_config {
                 self.diff_changes(old)
             } else {
-                vec!["初始配置".to_string()]
+                vec!["Initial configuration".to_string()]
             },
         }
     }
@@ -93,18 +96,21 @@ impl FlowControlConfig {
 
         // 比较版本
         if self.version != old.version {
-            changes.push(format!("版本变更: {} -> {}", old.version, self.version));
+            changes.push(format!(
+                "Version changed: {} -> {}",
+                old.version, self.version
+            ));
         }
 
         // 比较全局配置
         if self.global != old.global {
-            changes.push("全局配置已变更".to_string());
+            changes.push("Global configuration changed".to_string());
         }
 
         // 比较规则数量
         if self.rules.len() != old.rules.len() {
             changes.push(format!(
-                "规则数量变更: {} -> {}",
+                "Rule count changed: {} -> {}",
                 old.rules.len(),
                 self.rules.len()
             ));
@@ -118,11 +124,11 @@ impl FlowControlConfig {
         let removed_rules: Vec<_> = old_rule_ids.difference(&new_rule_ids).collect();
 
         if !added_rules.is_empty() {
-            changes.push(format!("新增规则: {:?}", added_rules));
+            changes.push(format!("Rules added: {:?}", added_rules));
         }
 
         if !removed_rules.is_empty() {
-            changes.push(format!("移除规则: {:?}", removed_rules));
+            changes.push(format!("Rules removed: {:?}", removed_rules));
         }
 
         // 比较同 ID 规则的内容变更（否则改规则内容而不改 ID/数量时，
@@ -136,13 +142,13 @@ impl FlowControlConfig {
             if let Some(old_json) = old_rules_by_id.get(&rule.id) {
                 let new_json = serde_json::to_string(rule).unwrap_or_default();
                 if new_json != *old_json {
-                    changes.push(format!("规则内容变更: {}", rule.id));
+                    changes.push(format!("Rule content changed: {}", rule.id));
                 }
             }
         }
 
         if changes.is_empty() {
-            changes.push("配置内容无变化".to_string());
+            changes.push("No configuration changes".to_string());
         }
 
         changes
@@ -207,7 +213,7 @@ impl ConfigBuilder {
         let rules = rules?;
 
         if rules.is_empty() {
-            return Err("至少需要一个规则".to_string());
+            return Err("At least one rule is required".to_string());
         }
 
         let config = FlowControlConfig {
@@ -322,16 +328,16 @@ impl RuleBuilder {
 
     pub fn build(self) -> Result<Rule, String> {
         if self.id.is_empty() {
-            return Err("规则ID不能为空".to_string());
+            return Err("Rule ID cannot be empty".to_string());
         }
         if self.name.is_empty() {
-            return Err("规则名称不能为空".to_string());
+            return Err("Rule name cannot be empty".to_string());
         }
         if self.matchers.is_empty() {
-            return Err("规则至少需要一个匹配器".to_string());
+            return Err("Rule requires at least one matcher".to_string());
         }
         if self.limiters.is_empty() {
-            return Err("规则至少需要一个限流器".to_string());
+            return Err("Rule requires at least one limiter".to_string());
         }
 
         Ok(Rule {
@@ -543,7 +549,7 @@ on_exceed = "reject"
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("版本号不能为空"));
+        assert!(result.unwrap_err().contains("Version cannot be empty"));
     }
 
     #[test]
@@ -606,7 +612,7 @@ on_exceed = "reject"
         let config = FlowControlConfig::default();
         let record = config.create_change_record(None, ChangeSource::Poll);
         assert!(record.old_version.is_none());
-        assert_eq!(record.changes, vec!["初始配置"]);
+        assert_eq!(record.changes, vec!["Initial configuration"]);
     }
 
     #[test]
@@ -626,7 +632,7 @@ on_exceed = "reject"
         };
         let result = rule.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("规则ID不能为空"));
+        assert!(result.unwrap_err().contains("Rule ID cannot be empty"));
     }
 
     #[test]
@@ -646,7 +652,7 @@ on_exceed = "reject"
         };
         let result = rule.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("规则名称不能为空"));
+        assert!(result.unwrap_err().contains("Rule name cannot be empty"));
     }
 
     #[test]
@@ -664,7 +670,11 @@ on_exceed = "reject"
         };
         let result = rule.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("规则至少需要一个匹配器"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Rule requires at least one matcher")
+        );
     }
 
     #[test]
@@ -681,7 +691,11 @@ on_exceed = "reject"
         };
         let result = rule.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("规则至少需要一个限流器"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Rule requires at least one limiter")
+        );
     }
 
     #[test]
@@ -689,7 +703,7 @@ on_exceed = "reject"
         let matcher = Matcher::User { user_ids: vec![] };
         let result = matcher.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("用户ID列表不能为空"));
+        assert!(result.unwrap_err().contains("User ID list cannot be empty"));
     }
 
     #[test]
@@ -697,7 +711,11 @@ on_exceed = "reject"
         let matcher = Matcher::Ip { ip_ranges: vec![] };
         let result = matcher.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("IP范围列表不能为空"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("IP range list cannot be empty")
+        );
     }
 
     #[test]
@@ -705,7 +723,7 @@ on_exceed = "reject"
         let matcher = Matcher::Geo { countries: vec![] };
         let result = matcher.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("国家列表不能为空"));
+        assert!(result.unwrap_err().contains("Country list cannot be empty"));
     }
 
     #[test]
@@ -713,7 +731,11 @@ on_exceed = "reject"
         let matcher = Matcher::ApiVersion { versions: vec![] };
         let result = matcher.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("API版本列表不能为空"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("API version list cannot be empty")
+        );
     }
 
     #[test]
@@ -723,7 +745,11 @@ on_exceed = "reject"
         };
         let result = matcher.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("设备类型列表不能为空"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Device type list cannot be empty")
+        );
     }
 
     #[test]
@@ -734,7 +760,11 @@ on_exceed = "reject"
         };
         let result = matcher.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("自定义匹配器名称不能为空"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Custom matcher name cannot be empty")
+        );
     }
 
     #[test]
@@ -745,7 +775,11 @@ on_exceed = "reject"
         };
         let result = matcher.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("自定义匹配器配置不能为空"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Custom matcher config cannot be empty")
+        );
     }
 
     #[test]
@@ -756,7 +790,11 @@ on_exceed = "reject"
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("令牌桶容量不能为0"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Token bucket capacity cannot be 0")
+        );
     }
 
     #[test]
@@ -767,7 +805,7 @@ on_exceed = "reject"
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("填充速率不能为0"));
+        assert!(result.unwrap_err().contains("Refill rate cannot be 0"));
     }
 
     #[test]
@@ -778,7 +816,7 @@ on_exceed = "reject"
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("最大请求数不能为0"));
+        assert!(result.unwrap_err().contains("Max requests cannot be 0"));
     }
 
     #[test]
@@ -789,7 +827,7 @@ on_exceed = "reject"
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("最大请求数不能为0"));
+        assert!(result.unwrap_err().contains("Max requests cannot be 0"));
     }
 
     #[test]
@@ -816,7 +854,7 @@ on_exceed = "reject"
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("配额限制不能为0"));
+        assert!(result.unwrap_err().contains("Quota limit cannot be 0"));
     }
 
     #[test]
@@ -830,7 +868,11 @@ on_exceed = "reject"
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("告警阈值不能超过100%"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Alert threshold cannot exceed 100%")
+        );
     }
 
     #[test]
@@ -838,7 +880,7 @@ on_exceed = "reject"
         let config = LimiterConfig::Concurrency { max_concurrent: 0 };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("最大并发数不能为0"));
+        assert!(result.unwrap_err().contains("Max concurrency cannot be 0"));
     }
 
     #[test]
@@ -849,7 +891,11 @@ on_exceed = "reject"
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("自定义限流器名称不能为空"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Custom limiter name cannot be empty")
+        );
     }
 
     #[test]
@@ -860,7 +906,11 @@ on_exceed = "reject"
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("自定义限流器配置不能为空"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Custom limiter config cannot be empty")
+        );
     }
 
     #[test]
@@ -897,28 +947,32 @@ on_exceed = "reject"
     fn test_parse_window_size_empty() {
         let result = parse_window_size("");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("窗口大小不能为空"));
+        assert!(result.unwrap_err().contains("Window size cannot be empty"));
     }
 
     #[test]
     fn test_parse_window_size_no_unit() {
         let result = parse_window_size("10");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("缺少单位"));
+        assert!(result.unwrap_err().contains("missing unit"));
     }
 
     #[test]
     fn test_parse_window_size_invalid_unit() {
         let result = parse_window_size("10x");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("不支持的单位"));
+        assert!(result.unwrap_err().contains("Unsupported unit"));
     }
 
     #[test]
     fn test_parse_window_size_zero() {
         let result = parse_window_size("0s");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("窗口大小必须大于0"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Window size must be greater than 0")
+        );
     }
 
     #[test]
@@ -929,7 +983,7 @@ on_exceed = "reject"
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("最大透支量不能为0"));
+        assert!(result.unwrap_err().contains("max overdraft cannot be 0"));
     }
 
     #[test]
@@ -968,7 +1022,7 @@ on_exceed = "reject"
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("封禁阈值不能为0"));
+        assert!(result.unwrap_err().contains("Ban threshold cannot be 0"));
     }
 
     #[test]
@@ -982,7 +1036,11 @@ on_exceed = "reject"
         };
         let result = config.validate();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("退避倍数必须大于0"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Backoff multiplier must be greater than 0")
+        );
     }
 
     #[test]
@@ -1039,7 +1097,11 @@ on_exceed = "reject"
     fn test_config_builder_build_empty_rules() {
         let result = ConfigBuilder::new().build();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("至少需要一个规则"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("At least one rule is required")
+        );
     }
 
     #[test]
@@ -1152,7 +1214,7 @@ on_exceed = "reject"
             .token_bucket(1000, 100)
             .build();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("规则ID不能为空"));
+        assert!(result.unwrap_err().contains("Rule ID cannot be empty"));
     }
 
     #[test]
@@ -1163,7 +1225,7 @@ on_exceed = "reject"
             .token_bucket(1000, 100)
             .build();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("规则名称不能为空"));
+        assert!(result.unwrap_err().contains("Rule name cannot be empty"));
     }
 
     #[test]
@@ -1174,7 +1236,11 @@ on_exceed = "reject"
             .token_bucket(1000, 100)
             .build();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("规则至少需要一个匹配器"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Rule requires at least one matcher")
+        );
     }
 
     #[test]
@@ -1185,7 +1251,11 @@ on_exceed = "reject"
             .user_matcher(vec!["*".to_string()])
             .build();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("规则至少需要一个限流器"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("Rule requires at least one limiter")
+        );
     }
 
     #[test]
@@ -1211,7 +1281,7 @@ on_exceed = "reject"
             old_hash: None,
             new_hash: "abc".to_string(),
             source: ChangeSource::Poll,
-            changes: vec!["初始配置".to_string()],
+            changes: vec!["Initial configuration".to_string()],
         };
         history.add_record(record);
         assert_eq!(history.get_records().len(), 1);
@@ -1334,7 +1404,12 @@ on_exceed = "reject"
                 operator: "test".to_string(),
             },
         );
-        assert!(record.changes.iter().any(|c| c.contains("全局配置已变更")));
+        assert!(
+            record
+                .changes
+                .iter()
+                .any(|c| c.contains("Global configuration changed"))
+        );
     }
 
     #[test]
@@ -1351,7 +1426,12 @@ on_exceed = "reject"
         };
 
         let record = new_config.create_change_record(Some(&old_config), ChangeSource::Poll);
-        assert!(record.changes.iter().any(|c| c.contains("规则数量变更")));
+        assert!(
+            record
+                .changes
+                .iter()
+                .any(|c| c.contains("Rule count changed"))
+        );
     }
 
     #[test]
@@ -1368,7 +1448,7 @@ on_exceed = "reject"
         };
 
         let record = new_config.create_change_record(Some(&old_config), ChangeSource::Api);
-        assert!(record.changes.iter().any(|c| c.contains("新增规则")));
+        assert!(record.changes.iter().any(|c| c.contains("Rules added")));
     }
 
     #[test]
@@ -1385,7 +1465,7 @@ on_exceed = "reject"
         };
 
         let record = new_config.create_change_record(Some(&old_config), ChangeSource::Watch);
-        assert!(record.changes.iter().any(|c| c.contains("移除规则")));
+        assert!(record.changes.iter().any(|c| c.contains("Rules removed")));
     }
 
     #[test]
@@ -1398,6 +1478,11 @@ on_exceed = "reject"
         let new_config = old_config.clone();
 
         let record = new_config.create_change_record(Some(&old_config), ChangeSource::Reload);
-        assert!(record.changes.iter().any(|c| c.contains("配置内容无变化")));
+        assert!(
+            record
+                .changes
+                .iter()
+                .any(|c| c.contains("No configuration changes"))
+        );
     }
 }

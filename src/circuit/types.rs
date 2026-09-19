@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 熔断器类型定义
 
@@ -388,7 +388,7 @@ impl CircuitBreaker {
                 if let Some(last_failure) = *last_failure {
                     if self.clock.now().duration_since(last_failure) >= self.config.timeout {
                         // 超时到期：尝试切换到半开状态。
-                        // 判定与写入在同一写锁内（diting Medium：旧实现
+                        // 判定与写入在同一写锁内（旧实现
                         // 「读锁检查 + 无守卫写入」的 TOCTOU 会让并发的
                         // 第二个转换重复执行 finalize，把 half_open_calls
                         // 清零而部分击穿 B1 的精确准入）。
@@ -696,7 +696,7 @@ impl CircuitBreaker {
 
     /// 仅当当前仍为 `CircuitState::Open` 时原子地切换到 HalfOpen
     ///
-    /// 与 [`Self::transition_to_closed_if_half_open`] 同治（diting Medium）：
+    /// 与 [`Self::transition_to_closed_if_half_open`] 同治
     /// 判定与写入在同一写锁内，防止并发调用者的第二个 Open→HalfOpen
     /// 转换重复执行 finalize 而把 `half_open_calls` 清零、部分击穿
     /// half-open 的精确准入。

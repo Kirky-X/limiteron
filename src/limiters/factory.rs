@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 限流器工厂模块
 //!
@@ -150,7 +150,14 @@ impl LimiterFactory {
 
         for (index, config) in configs.iter().enumerate() {
             let limiter = Self::create(config).map_err(|e| {
-                LimiteronError::LimitError(format!("创建第 {} 个限流器失败: {}", index + 1, e))
+                // 经 FTL 目录（键 limiter-create-failed，序号 1-based 保留）
+                LimiteronError::LimitError(crate::i18n::t(
+                    "limiter-create-failed",
+                    &[
+                        ("index", (index + 1).to_string()),
+                        ("reason", e.to_string()),
+                    ],
+                ))
             })?;
             limiters.push(limiter);
         }

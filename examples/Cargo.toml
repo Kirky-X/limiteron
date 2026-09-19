@@ -13,7 +13,7 @@ publish = false
 workspace = true
 
 [dependencies]
-limiteron = { version = "0.3.0-rc.4", path = ".." }
+limiteron = { path = ".." }
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
 ahash = "0.8"
 chrono = { version = "0.4", features = ["serde"] }

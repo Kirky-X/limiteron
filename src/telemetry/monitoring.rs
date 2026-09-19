@@ -221,20 +221,18 @@ fn read_memory_usage() -> f64 {
     let mut available_kb: u64 = 0;
 
     for line in content.lines() {
-        if line.starts_with("MemTotal:") {
-            if let Some(value) = line.split_whitespace().nth(1) {
-                if let Ok(parsed) = value.parse::<u64>() {
-                    total_kb = parsed;
-                }
-            }
+        if line.starts_with("MemTotal:")
+            && let Some(value) = line.split_whitespace().nth(1)
+            && let Ok(parsed) = value.parse::<u64>()
+        {
+            total_kb = parsed;
         }
 
-        if line.starts_with("MemAvailable:") {
-            if let Some(value) = line.split_whitespace().nth(1) {
-                if let Ok(parsed) = value.parse::<u64>() {
-                    available_kb = parsed;
-                }
-            }
+        if line.starts_with("MemAvailable:")
+            && let Some(value) = line.split_whitespace().nth(1)
+            && let Ok(parsed) = value.parse::<u64>()
+        {
+            available_kb = parsed;
         }
     }
 

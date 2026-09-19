@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 错误类型定义
 //!
@@ -19,87 +19,91 @@ use thiserror::Error;
 mod error_impl;
 
 /// FlowGuard 错误类型
+///
+/// Display 输出英文规范串（双轨模式的规范轨）；本地化输出经
+/// `LimiteronError::to_localized_string()`（`i18n::I18nExt`，FTL 目录
+/// `locales/{en,zh}/messages.ftl`，键 `error-*`）。
 #[derive(Error, Debug)]
 pub enum LimiteronError {
     /// 配置错误
-    #[error("配置错误: {0}")]
+    #[error("Configuration error: {0}")]
     ConfigError(String),
 
     /// 存储错误
-    #[error("存储错误: {0}")]
+    #[error("Storage error: {0}")]
     StorageError(#[from] StorageError),
 
     /// 限流错误
-    #[error("限流错误: {0}")]
+    #[error("Rate limit error: {0}")]
     LimitError(String),
 
     /// 封禁错误
-    #[error("封禁错误: {0}")]
+    #[error("Ban error: {0}")]
     BanError(String),
 
     /// 熔断器错误
-    #[error("熔断器错误: {0}")]
+    #[error("Circuit breaker error: {0}")]
     CircuitBreakerError(String),
 
     /// 降级错误
-    #[error("降级错误: {0}")]
+    #[error("Fallback error: {0}")]
     FallbackError(String),
 
     /// 审计日志错误
-    #[error("审计日志错误: {0}")]
+    #[error("Audit log error: {0}")]
     AuditLogError(String),
 
     /// 授权错误
-    #[error("授权错误: {0}")]
+    #[error("Authorization error: {0}")]
     AuthorizationError(String),
 
     /// IO错误
-    #[error("IO错误: {0}")]
+    #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
     /// 序列化错误
-    #[error("序列化错误: {0}")]
+    #[error("Serialization error: {0}")]
     SerdeError(#[from] serde_json::Error),
 
     /// YAML解析错误
-    #[error("YAML解析错误: {0}")]
+    #[error("YAML parse error: {0}")]
     YamlError(#[from] serde_yaml_ng::Error),
 
     /// 速率限制超出
-    #[error("速率限制超出: {0}")]
+    #[error("Rate limit exceeded: {0}")]
     RateLimitExceeded(String),
 
     /// 配额超出
-    #[error("配额超出: {0}")]
+    #[error("Quota exceeded: {0}")]
     QuotaExceeded(String),
 
     /// 并发限制超出
-    #[error("并发限制超出: {0}")]
+    #[error("Concurrency limit exceeded: {0}")]
     ConcurrencyLimitExceeded(String),
 
     /// 排队超时：`on_exceed = "throttle"` 模式下，请求在限流队列中
     /// 等待超过队列时限仍未获得令牌时返回
-    #[error("排队超时: {0}")]
+    #[error("Throttle queue timeout: {0}")]
     Throttled(String),
 
     /// 验证错误
-    #[error("验证错误: {0}")]
+    #[error("Validation error: {0}")]
     ValidationError(String),
 
     /// 锁获取错误
-    #[error("锁获取错误: {0}")]
+    #[error("Lock acquisition error: {0}")]
     LockError(String),
 
     /// 时间错误
-    #[error("时间错误: {0}")]
+    #[error("Time error: {0}")]
     TimeError(String),
 
     /// 依赖缺失错误
-    #[error("依赖缺失: {0}")]
+    #[error("Missing dependency: {0}")]
     DependencyError(String),
 
     /// 其他错误
-    #[error("未知错误: {0}")]
+    #[error("Unknown error: {0}")]
     Other(String),
 }
 
@@ -107,39 +111,39 @@ pub enum LimiteronError {
 #[derive(Error, Debug, Clone)]
 pub enum StorageError {
     /// 连接错误
-    #[error("连接错误: {0}")]
+    #[error("Connection error: {0}")]
     ConnectionError(String),
 
     /// 查询错误
-    #[error("查询错误: {0}")]
+    #[error("Query error: {0}")]
     QueryError(String),
 
     /// 超时错误
-    #[error("超时错误: {0}")]
+    #[error("Timeout error: {0}")]
     TimeoutError(String),
 
     /// 未找到
-    #[error("未找到: {0}")]
+    #[error("Not found: {0}")]
     NotFound(String),
 
     /// 认证错误
-    #[error("认证错误: {0}")]
+    #[error("Authentication error: {0}")]
     AuthenticationError(String),
 
     /// 权限错误
-    #[error("权限错误: {0}")]
+    #[error("Permission error: {0}")]
     PermissionError(String),
 
     /// 无效配置
-    #[error("无效配置: {0}")]
+    #[error("Invalid configuration: {0}")]
     InvalidConfig(String),
 
     /// 速率限制
-    #[error("速率限制: {0}")]
+    #[error("Rate limit: {0}")]
     RateLimitError(String),
 
     /// 验证错误
-    #[error("验证错误: {0}")]
+    #[error("Validation error: {0}")]
     ValidationError(String),
 }
 

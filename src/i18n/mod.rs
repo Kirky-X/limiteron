@@ -1,14 +1,23 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
-//! ICU4X-backed internationalization formatting for rate-limit operations.
+//! Internationalization for limiteron: Fluent message catalog + locale
+//! detection + ICU4X-backed formatting.
 //!
-//! Provides locale-aware number formatting, date formatting, plural rules,
-//! and string collation via the `icu` crate (ICU4X 2.x). Useful for
-//! generating locale-sensitive rate-limit messages (e.g. "1 request" vs
-//! "2 requests"), formatting rate-limit counters, displaying window expiry
-//! times, and sorting rate-limit rules by locale-specific collation rules.
+//! # Layout (unified per change `unify-rust-i18n`)
 //!
-//! Enable with the `i18n` cargo feature:
+//! - [`catalog`]: `locales/{en,zh}/messages.ftl` embedded via `include_str!`
+//!   into concurrent `FluentBundle`s; `t()`/`translate()` lookup chain
+//!   terminates in English.
+//! - [`locale`]: detection chain `LIMITERON_LANG` → `LC_ALL` → `LC_MESSAGES`
+//!   → `LANG` → `sys-locale` → `en`; only `en`/`zh` are supported.
+//! - [`error_ext`]: error dual-track — canonical English `Display` plus
+//!   `to_localized_string()` via the catalog (dbnexus pattern).
+//! - `i18n_impl` (feature `i18n`): ICU4X DecimalFormatter/PluralRules/
+//!   Collator/DateTimeFormatter behind [`LimiterI18nFormatter`].
+//!
+//! The catalog/locale/error-ext base is always compiled (the error dual
+//! track and the CLI/admin exits consume it without feature gating); only
+//! the ICU formatter requires the `i18n` feature:
 //! ```toml
 //! [dependencies]
 //! limiteron = { version = "...", features = ["i18n"] }
@@ -17,21 +26,25 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use limiteron::i18n::LimiterI18nFormatter;
+//! use limiteron::i18n::{t, I18nExt};
 //!
-//! let fmt = LimiterI18nFormatter::new("en-US")?;
-//! let msg = fmt.format_rate_limit_message(5, 100, "minute")?;
-//! let plural = fmt.format_count(1)?; // "One"
-//! let window = fmt.format_window(2026, 7, 11)?;
+//! limiteron::i18n::init();
+//! let msg = t("rate-limit-exceeded", &[]);
+//! let localized = some_error.to_localized_string();
 //! ```
 
-use icu::collator::CollatorBorrowed;
-use icu::decimal::DecimalFormatter;
-use icu::locale::Locale;
-use icu::plurals::PluralRules;
 use thiserror::Error;
 
-/// Errors returned by [`LimiterI18nFormatter`] operations.
+pub mod catalog;
+pub mod error_ext;
+pub mod locale;
+
+pub use catalog::{t, t_simple, translate, translate_en, translate_for};
+pub use error_ext::{I18nExt, LocalizedMsg};
+pub use locale::{clear_locale_override, current_locale, detected_locale, init, set_locale};
+
+/// Errors returned by locale handling and (feature `i18n`) formatter
+/// operations.
 #[derive(Debug, Error)]
 pub enum I18nError {
     /// BCP-47 locale string could not be parsed.
@@ -48,16 +61,8 @@ pub enum I18nError {
     FormatError(String),
 }
 
-/// Locale-aware formatter backed by ICU4X compiled data.
-///
-/// Construct with [`LimiterI18nFormatter::new`] using a BCP-47 locale tag
-/// (e.g. `"en-US"`, `"zh-CN"`). All formatters are created eagerly so
-/// that repeated formatting calls are allocation-light.
-pub struct LimiterI18nFormatter {
-    locale: Locale,
-    decimal_formatter: DecimalFormatter,
-    plural_rules: PluralRules,
-    collator: CollatorBorrowed<'static>,
-}
-
+/// ICU4X-backed formatter module (feature-gated).
+#[cfg(feature = "i18n")]
 mod i18n_impl;
+#[cfg(feature = "i18n")]
+pub use i18n_impl::LimiterI18nFormatter;

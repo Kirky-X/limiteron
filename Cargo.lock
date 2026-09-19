@@ -568,15 +568,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 
 [[package]]
-name = "castaway"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dec551ab6e7578819132c713a93c022a05d60159dc86e7a7050223577484c55a"
-dependencies = [
- "rustversion",
-]
-
-[[package]]
 name = "cc"
 version = "1.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -718,32 +709,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "compact_str"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79fcda08c33bb58b97008b2cdada6622500e949e060f5913361763121abd2416"
-dependencies = [
- "castaway",
- "cfg-if",
- "itoa",
- "serde",
- "static_assertions",
- "zmij",
-]
-
-[[package]]
 name = "confers"
 version = "0.6.0-rc.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e93a0924eabc16e4fd10766c890d0c661ac62d32243ce8d8197a105931dbfb8"
 dependencies = [
  "anyhow",
  "arc-swap",
  "async-trait",
  "base64 0.23.1",
- "compact_str",
  "confers-macros",
- "getset",
+ "fluent-bundle",
  "indexmap",
  "itoa",
  "log",
@@ -752,16 +726,16 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sys-locale",
  "thiserror 2.0.20",
  "tokio",
+ "unic-langid",
  "url",
 ]
 
 [[package]]
 name = "confers-macros"
 version = "0.6.0-rc.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "246b658b18e09a056e9a69f5e8bd3be8f34ebe8efe2a13cd369c286e40f9367a"
 dependencies = [
  "darling 0.24.1",
  "proc-macro2",
@@ -1082,8 +1056,6 @@ dependencies = [
 [[package]]
 name = "dbnexus"
 version = "0.6.0-rc.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c401a79e18efbfe78d49c6e1739d18b61e96b3527fed73753443dbcfe46fcb9"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1114,8 +1086,6 @@ dependencies = [
 [[package]]
 name = "dbnexus-macros"
 version = "0.6.0-rc.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91821dfb82e45ff32682bfdb49f3082334278dd31a9313ef1974e002d03cf4da"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1555,17 +1525,6 @@ dependencies = [
  "r-efi 6.0.0",
  "rand_core 0.10.1",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "getset"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cf442baaabe4213ce7d1239afc26c039180b6456da2cededa316ae2c8a77a77"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -2292,8 +2251,6 @@ dependencies = [
 [[package]]
 name = "inklog"
 version = "0.3.0-rc.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de4b9a8ac2f3220e56f79315cd8a3bb318dbade1a8ff60cc72f02b724818b7f5"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2305,7 +2262,6 @@ dependencies = [
  "fluent-bundle",
  "futures",
  "icu",
- "intl-memoizer",
  "ipnet",
  "is-terminal",
  "log",
@@ -2402,12 +2358,6 @@ dependencies = [
  "libc",
  "windows-sys 0.60.2",
 ]
-
-[[package]]
-name = "is_ci"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7655c9839580ee829dfacba1d1278c2b7883e50a277ff7541299489d6bdfdc45"
 
 [[package]]
 name = "itertools"
@@ -2636,6 +2586,7 @@ dependencies = [
  "criterion",
  "dashmap",
  "dbnexus",
+ "fluent-bundle",
  "futures",
  "hex",
  "hmac",
@@ -2666,6 +2617,7 @@ dependencies = [
  "serde_yaml_ng",
  "serial_test",
  "sha2 0.11.0",
+ "sys-locale",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
@@ -2677,6 +2629,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "trait-kit",
+ "unic-langid",
  "uuid",
  "woothee",
  "writeable",
@@ -3022,20 +2975,15 @@ name = "owo-colors"
 version = "4.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c45bb4a6ae1280ec0803b1ef9d3455eb50f01efbbe1447ab020f1d54fba9d8"
-dependencies = [
- "supports-color 2.1.0",
- "supports-color 3.0.2",
-]
 
 [[package]]
 name = "oxcache"
 version = "0.5.0-rc.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d6c9870fdf44705199a23baf0ecfa891ba9b4b58fe56d556fb2afacf7e507f4"
 dependencies = [
  "async-trait",
  "chrono",
  "dashmap",
+ "fluent-bundle",
  "futures",
  "icu",
  "moka",
@@ -3047,6 +2995,7 @@ dependencies = [
  "serde_stacker",
  "tokio",
  "trait-kit",
+ "unic-langid",
  "uuid",
  "writeable",
 ]
@@ -4220,9 +4169,9 @@ dependencies = [
 
 [[package]]
 name = "sqlparser"
-version = "0.62.0"
+version = "0.63.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13c6d1b651dc4edf07eead2a0c6c78016ce971bc2c10da5266861b13f25e7cec"
+checksum = "3679862809bd1f92e563cf6fd820e28f39135303668001c10331d5027183e8b4"
 dependencies = [
  "log",
  "recursive",
@@ -4424,12 +4373,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "static_assertions"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
 name = "stringprep"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4457,25 +4400,6 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
-
-[[package]]
-name = "supports-color"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6398cde53adc3c4557306a96ce67b302968513830a77a95b2b17305d9719a89"
-dependencies = [
- "is-terminal",
- "is_ci",
-]
-
-[[package]]
-name = "supports-color"
-version = "3.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c64fc7232dd8d2e4ac5ce4ef302b1d81e0b80d055b9d77c7c4f51f6aa4c867d6"
-dependencies = [
- "is_ci",
-]
 
 [[package]]
 name = "syn"
@@ -4944,8 +4868,10 @@ dependencies = [
 [[package]]
 name = "trait-kit"
 version = "0.5.0-rc.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2645fc42f8787abe89d0031b798c0a881087ebc2ebb40a67ad71fa65def62534"
+dependencies = [
+ "fluent-bundle",
+ "unic-langid",
+]
 
 [[package]]
 name = "try-lock"

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! `limiteron-cli` —— limiteron 规则文件配置 CLI。
 //!
@@ -15,6 +15,9 @@
 //! ```
 
 fn main() {
+    // i18n 启动初始化：按检测链 LIMITERON_LANG → LC_ALL → LC_MESSAGES →
+    // LANG → sys-locale → en 固定本次调用的输出语言（T016）。
+    limiteron::i18n::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let invocation = limiteron::cli::run(args);
     // 序列化失败必须显性报错：静默输出空串 + 退出码 0 会让下游把

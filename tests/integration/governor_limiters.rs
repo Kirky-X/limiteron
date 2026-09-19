@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Governor + Limiters 集成测试
 //!
@@ -53,8 +53,8 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
             .expect("Failed to create governor"),
     );
 
-    // 禁用 L1 缓存以确保限流器状态正确更新
-    // L1 缓存会绕过限流检查导致令牌不被消耗
+    // 禁用 缓存以确保限流器状态正确更新
+    // 缓存会绕过限流检查导致令牌不被消耗
     governor.disable_l1_cache();
 
     governor
@@ -380,14 +380,14 @@ async fn test_fixed_window_integration() {
     );
 }
 
-// ==================== L1 缓存集成测试 ====================
+// ==================== 缓存集成测试 ====================
 
-/// 测试 Governor L1 缓存命中
+/// 测试 Governor 缓存命中
 #[tokio::test]
 async fn test_governor_l1_cache_hit() {
     let governor = create_governor().await;
 
-    // L1 缓存默认关闭（负缓存语义，仅缓存拒绝/封禁决策），此处显式启用
+    // 缓存默认关闭（负缓存语义，仅缓存拒绝/封禁决策），此处显式启用
     governor.enable_l1_cache();
     assert!(governor.is_l1_cache_enabled());
 
@@ -423,12 +423,12 @@ async fn test_governor_l1_cache_hit() {
     assert_eq!(stats.total_requests, 2);
 }
 
-/// 测试 Governor L1 缓存禁用
+/// 测试 Governor 缓存禁用
 #[tokio::test]
 async fn test_governor_l1_cache_disabled() {
     let governor = create_governor().await;
 
-    // 禁用 L1 缓存
+    // 禁用 缓存
     governor.disable_l1_cache();
     assert!(!governor.is_l1_cache_enabled());
 

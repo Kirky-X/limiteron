@@ -1,8 +1,12 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Webhook URL 校验
 //!
 //! 防止 SSRF 攻击，确保 webhook URL 指向安全的公网地址。
+//!
+//! 错误文案为英文规范串（与 FTL 目录 `webhook-*` 键的 en 模式逐字对齐，
+//! change `unify-rust-i18n` T016）；中文渲染面见
+//! `limiteron::i18n::t("webhook-*", args)`。
 
 /// 校验 Webhook URL 是否安全
 ///
@@ -22,40 +26,42 @@
 ///
 /// # 返回
 /// - `Ok(())`: URL 安全
-/// - `Err(String)`: 不安全的原因
+/// - `Err(String)`: 不安全的原因（英文规范串）
 #[cfg(feature = "webhook")]
 pub(crate) fn validate_webhook_url(url: &str, require_https: bool) -> Result<(), String> {
     let parsed = url
         .parse::<reqwest::Url>()
-        .map_err(|e| format!("无效的 URL: {}", e))?;
+        .map_err(|e| format!("Invalid URL: {}", e))?; // webhook-invalid-url
 
     if require_https && parsed.scheme() != "https" {
-        return Err("Webhook URL 必须使用 HTTPS 协议".to_string());
+        return Err("Webhook URL must use HTTPS protocol".to_string()); // webhook-https-required
     }
 
-    let host_raw = parsed.host_str().ok_or("URL 缺少主机名".to_string())?;
+    let host_raw = parsed
+        .host_str()
+        .ok_or_else(|| "URL is missing a host name".to_string())?; // webhook-missing-host
     // IPv6 地址在 URL 中带方括号（如 [::1]），parse::<IpAddr> 前需去除
     let host = host_raw.trim_start_matches('[').trim_end_matches(']');
     let lower_host = host.to_lowercase();
 
     if lower_host == "localhost" || lower_host == "127.0.0.1" || lower_host == "::1" {
-        return Err("禁止使用 localhost 或回环地址".to_string());
+        return Err("localhost or loopback addresses are forbidden".to_string()); // webhook-localhost-forbidden
     }
 
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
         if ip.is_loopback() {
-            return Err("禁止使用回环 IP 地址".to_string());
+            return Err("Loopback IP addresses are forbidden".to_string()); // webhook-loopback-forbidden
         }
         if ip.is_unspecified() {
-            return Err("禁止使用未指定 IP 地址".to_string());
+            return Err("Unspecified IP addresses are forbidden".to_string()); // webhook-unspecified-forbidden
         }
         match ip {
             std::net::IpAddr::V4(v4) => {
                 if v4.is_private() {
-                    return Err("禁止使用私有 IP 地址".to_string());
+                    return Err("Private IP addresses are forbidden".to_string()); // webhook-private-forbidden
                 }
                 if v4.is_link_local() {
-                    return Err("禁止使用链路本地地址".to_string());
+                    return Err("Link-local IP addresses are forbidden".to_string()); // webhook-link-local-forbidden
                 }
             }
             std::net::IpAddr::V6(v6) => {
@@ -63,25 +69,37 @@ pub(crate) fn validate_webhook_url(url: &str, require_https: bool) -> Result<(),
                 // 否则攻击者可用此格式绕过私有 IP 检查
                 if let Some(v4) = v6.to_ipv4_mapped() {
                     if v4.is_private() {
-                        return Err("禁止使用私有 IP 地址（IPv4-mapped IPv6 绕过尝试）".to_string());
+                        return Err(
+                            "Private IP addresses are forbidden (IPv4-mapped IPv6 bypass attempt)"
+                                .to_string(), // webhook-private-mapped-forbidden
+                        );
                     }
                     if v4.is_link_local() {
-                        return Err("禁止使用链路本地地址（IPv4-mapped IPv6 绕过尝试）".to_string());
+                        return Err(
+                            "Link-local addresses are forbidden (IPv4-mapped IPv6 bypass attempt)"
+                                .to_string(), // webhook-link-local-mapped-forbidden
+                        );
                     }
                     if v4.is_loopback() {
-                        return Err("禁止使用回环地址（IPv4-mapped IPv6 绕过尝试）".to_string());
+                        return Err(
+                            "Loopback addresses are forbidden (IPv4-mapped IPv6 bypass attempt)"
+                                .to_string(), // webhook-loopback-mapped-forbidden
+                        );
                     }
                     if v4.is_unspecified() {
-                        return Err("禁止使用未指定地址（IPv4-mapped IPv6 绕过尝试）".to_string());
+                        return Err(
+                            "Unspecified addresses are forbidden (IPv4-mapped IPv6 bypass attempt)"
+                                .to_string(), // webhook-unspecified-mapped-forbidden
+                        );
                     }
                 }
                 if v6.is_unique_local() {
-                    return Err("禁止使用唯一本地 IPv6 地址".to_string());
+                    return Err("Unique local IPv6 addresses are forbidden".to_string()); // webhook-unique-local-v6-forbidden
                 }
                 // IPv6 链路本地地址 fe80::/10
                 let segs = v6.segments();
                 if (segs[0] & 0xffc0) == 0xfe80 {
-                    return Err("禁止使用链路本地 IPv6 地址".to_string());
+                    return Err("Link-local IPv6 addresses are forbidden".to_string()); // webhook-link-local-v6-forbidden
                 }
             }
         }
@@ -116,7 +134,7 @@ mod tests {
     fn test_invalid_url_parse_error() {
         match validate_webhook_url("not a url", true) {
             Err(msg) => assert!(
-                msg.contains("无效的 URL"),
+                msg.contains("Invalid URL"),
                 "expected parse error, got: {}",
                 msg
             ),
@@ -127,11 +145,7 @@ mod tests {
     #[test]
     fn test_localhost_rejected() {
         match validate_webhook_url("http://localhost/webhook", false) {
-            Err(msg) => assert!(
-                msg.contains("localhost") || msg.contains("回环"),
-                "got: {}",
-                msg
-            ),
+            Err(msg) => assert!(msg.contains("localhost"), "got: {}", msg),
             Ok(_) => panic!("expected Err for localhost"),
         }
     }
@@ -139,11 +153,7 @@ mod tests {
     #[test]
     fn test_localhost_case_insensitive() {
         match validate_webhook_url("http://LocalHost/webhook", false) {
-            Err(msg) => assert!(
-                msg.contains("localhost") || msg.contains("回环"),
-                "got: {}",
-                msg
-            ),
+            Err(msg) => assert!(msg.contains("localhost"), "got: {}", msg),
             Ok(_) => panic!("expected Err for LocalHost"),
         }
     }
@@ -151,7 +161,7 @@ mod tests {
     #[test]
     fn test_loopback_ipv4_rejected() {
         match validate_webhook_url("http://127.0.0.1/webhook", false) {
-            Err(msg) => assert!(msg.contains("回环"), "got: {}", msg),
+            Err(msg) => assert!(msg.contains("Loopback IP"), "got: {}", msg),
             Ok(_) => panic!("expected Err for 127.0.0.1"),
         }
     }
@@ -159,7 +169,7 @@ mod tests {
     #[test]
     fn test_private_ip_10_rejected() {
         match validate_webhook_url("http://10.0.0.1/webhook", false) {
-            Err(msg) => assert!(msg.contains("私有"), "got: {}", msg),
+            Err(msg) => assert!(msg.contains("Private IP"), "got: {}", msg),
             Ok(_) => panic!("expected Err for 10.x.x.x"),
         }
     }
@@ -167,7 +177,7 @@ mod tests {
     #[test]
     fn test_private_ip_172_rejected() {
         match validate_webhook_url("http://172.16.0.1/webhook", false) {
-            Err(msg) => assert!(msg.contains("私有"), "got: {}", msg),
+            Err(msg) => assert!(msg.contains("Private IP"), "got: {}", msg),
             Ok(_) => panic!("expected Err for 172.16.x.x"),
         }
     }
@@ -175,7 +185,7 @@ mod tests {
     #[test]
     fn test_private_ip_192_rejected() {
         match validate_webhook_url("http://192.168.1.1/webhook", false) {
-            Err(msg) => assert!(msg.contains("私有"), "got: {}", msg),
+            Err(msg) => assert!(msg.contains("Private IP"), "got: {}", msg),
             Ok(_) => panic!("expected Err for 192.168.x.x"),
         }
     }
@@ -183,7 +193,7 @@ mod tests {
     #[test]
     fn test_link_local_rejected() {
         match validate_webhook_url("http://169.254.1.1/webhook", false) {
-            Err(msg) => assert!(msg.contains("链路"), "got: {}", msg),
+            Err(msg) => assert!(msg.contains("Link-local IP"), "got: {}", msg),
             Ok(_) => panic!("expected Err for 169.254.x.x"),
         }
     }
@@ -201,7 +211,7 @@ mod tests {
     #[test]
     fn test_missing_host_rejected() {
         match validate_webhook_url("file:///dev/null", false) {
-            Err(msg) => assert!(msg.contains("缺少主机名"), "got: {}", msg),
+            Err(msg) => assert!(msg.contains("missing a host name"), "got: {}", msg),
             Ok(_) => panic!("expected Err for URL with no host"),
         }
     }
@@ -221,7 +231,7 @@ mod tests {
     #[test]
     fn test_empty_url() {
         match validate_webhook_url("", false) {
-            Err(msg) => assert!(msg.contains("无效的 URL"), "got: {}", msg),
+            Err(msg) => assert!(msg.contains("Invalid URL"), "got: {}", msg),
             Ok(_) => panic!("expected Err for empty URL"),
         }
     }
@@ -233,7 +243,7 @@ mod tests {
         // ::ffff:10.0.0.1 是 IPv4-mapped IPv6，内嵌私有 IPv4，必须被拒绝
         match validate_webhook_url("http://[::ffff:10.0.0.1]/webhook", false) {
             Err(msg) => assert!(
-                msg.contains("IPv4-mapped") && msg.contains("私有"),
+                msg.contains("IPv4-mapped") && msg.contains("Private IP"),
                 "expected IPv4-mapped private rejection, got: {}",
                 msg
             ),
@@ -245,7 +255,7 @@ mod tests {
     fn test_ipv4_mapped_ipv6_loopback_rejected() {
         match validate_webhook_url("http://[::ffff:127.0.0.1]/webhook", false) {
             Err(msg) => assert!(
-                msg.contains("IPv4-mapped") && msg.contains("回环"),
+                msg.contains("IPv4-mapped") && msg.contains("Loopback"),
                 "got: {}",
                 msg
             ),
@@ -257,7 +267,7 @@ mod tests {
     fn test_ipv4_mapped_ipv6_link_local_rejected() {
         match validate_webhook_url("http://[::ffff:169.254.1.1]/webhook", false) {
             Err(msg) => assert!(
-                msg.contains("IPv4-mapped") && msg.contains("链路"),
+                msg.contains("IPv4-mapped") && msg.contains("Link-local"),
                 "got: {}",
                 msg
             ),
@@ -269,7 +279,7 @@ mod tests {
     fn test_ipv4_mapped_ipv6_unspecified_rejected() {
         match validate_webhook_url("http://[::ffff:0.0.0.0]/webhook", false) {
             Err(msg) => assert!(
-                msg.contains("IPv4-mapped") && msg.contains("未指定"),
+                msg.contains("IPv4-mapped") && msg.contains("Unspecified"),
                 "got: {}",
                 msg
             ),
@@ -280,7 +290,7 @@ mod tests {
     #[test]
     fn test_ipv4_unspecified_rejected() {
         match validate_webhook_url("http://0.0.0.0/webhook", false) {
-            Err(msg) => assert!(msg.contains("未指定"), "got: {}", msg),
+            Err(msg) => assert!(msg.contains("Unspecified IP"), "got: {}", msg),
             Ok(_) => panic!("expected Err for 0.0.0.0"),
         }
     }
@@ -288,7 +298,7 @@ mod tests {
     #[test]
     fn test_ipv6_unspecified_rejected() {
         match validate_webhook_url("http://[::]/webhook", false) {
-            Err(msg) => assert!(msg.contains("未指定"), "got: {}", msg),
+            Err(msg) => assert!(msg.contains("Unspecified IP"), "got: {}", msg),
             Ok(_) => panic!("expected Err for ::"),
         }
     }
@@ -296,7 +306,7 @@ mod tests {
     #[test]
     fn test_ipv6_link_local_rejected() {
         match validate_webhook_url("http://[fe80::1]/webhook", false) {
-            Err(msg) => assert!(msg.contains("链路本地 IPv6"), "got: {}", msg),
+            Err(msg) => assert!(msg.contains("Link-local IPv6"), "got: {}", msg),
             Ok(_) => panic!("expected Err for fe80::1"),
         }
     }
@@ -314,7 +324,7 @@ mod tests {
     #[test]
     fn test_loopback_ipv4_127_0_0_2_rejected() {
         match validate_webhook_url("http://127.0.0.2/webhook", false) {
-            Err(msg) => assert!(msg.contains("回环 IP"), "got: {}", msg),
+            Err(msg) => assert!(msg.contains("Loopback IP"), "got: {}", msg),
             Ok(_) => panic!("expected Err for 127.0.0.2"),
         }
     }
@@ -323,7 +333,7 @@ mod tests {
     #[test]
     fn test_ipv6_unique_local_rejected() {
         match validate_webhook_url("http://[fc00::1]/webhook", false) {
-            Err(msg) => assert!(msg.contains("唯一本地"), "got: {}", msg),
+            Err(msg) => assert!(msg.contains("Unique local IPv6"), "got: {}", msg),
             Ok(_) => panic!("expected Err for fc00::1"),
         }
     }

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 配置相关类型
 
@@ -111,7 +111,9 @@ impl TrustedProxyConfig {
         }
         for proxy in &self.proxies {
             if let Err(e) = Self::parse_cidr_or_ip(proxy) {
-                return Err(format!("无效的代理地址 '{}': {}", proxy, e));
+                // 英文规范串（与 FTL 键 config-invalid-proxy-address 的 en 模式
+                // 对齐，T016；中文渲染面经 i18n::t 同键取用）
+                return Err(format!("Invalid proxy address '{proxy}': {e}"));
             }
         }
         Ok(())
@@ -138,10 +140,10 @@ impl TrustedProxyConfig {
         };
         for proxy in &self.proxies {
             if proxy.contains('/') {
-                if let Ok(network) = proxy.parse::<IpNet>() {
-                    if network.contains(&ip_addr) {
-                        return true;
-                    }
+                if let Ok(network) = proxy.parse::<IpNet>()
+                    && network.contains(&ip_addr)
+                {
+                    return true;
                 }
             } else if proxy == ip {
                 return true;

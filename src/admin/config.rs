@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Admin API configuration
 
@@ -7,12 +7,31 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Admin API configuration validation error
+///
+/// 双轨：Display 英文规范串 + [`crate::i18n::LocalizedMsg`]（键
+/// `admin-config-*`，T016 已英文错误对齐补键）。
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("API key is required when admin API is enabled")]
     ApiKeyRequired,
     #[error("API key must be at least 16 characters, got {0}")]
     ApiKeyTooShort(usize),
+}
+
+impl crate::i18n::LocalizedMsg for ConfigError {
+    fn message_key(&self) -> &'static str {
+        match self {
+            ConfigError::ApiKeyRequired => "admin-config-api-key-required",
+            ConfigError::ApiKeyTooShort(_) => "admin-config-api-key-too-short",
+        }
+    }
+
+    fn message_args(&self) -> Vec<(&'static str, String)> {
+        match self {
+            ConfigError::ApiKeyRequired => vec![],
+            ConfigError::ApiKeyTooShort(length) => vec![("length", length.to_string())],
+        }
+    }
 }
 
 /// 管理面角色

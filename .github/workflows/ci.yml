@@ -56,6 +56,11 @@ jobs:
         run: cargo check --workspace --no-default-features --features full,postgres
       - name: Check no default features
         run: cargo check --workspace --no-default-features
+      # 2026-09-19 审计补腿：sqlite/mysql 驱动闭包此前从未被编译验证
+      - name: Check sqlite driver
+        run: cargo check -p limiteron --no-default-features --features full,sqlite
+      - name: Check mysql driver
+        run: cargo check -p limiteron --no-default-features --features full,mysql
 
   test:
     name: Test

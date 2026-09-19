@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Unit tests for DBNexus Storage Adapters
 //!
@@ -17,13 +17,16 @@ mod storage_adapter_tests {
     fn test_storage_error_types() {
         // Test StorageError conversion
         let not_found_error = StorageError::NotFound("key not found".to_string());
-        assert_eq!(not_found_error.to_string(), "未找到: key not found");
+        assert_eq!(not_found_error.to_string(), "Not found: key not found");
 
         let query_error = StorageError::QueryError("database error".to_string());
-        assert_eq!(query_error.to_string(), "查询错误: database error");
+        assert_eq!(query_error.to_string(), "Query error: database error");
 
         let connection_error = StorageError::ConnectionError("connection failed".to_string());
-        assert_eq!(connection_error.to_string(), "连接错误: connection failed");
+        assert_eq!(
+            connection_error.to_string(),
+            "Connection error: connection failed"
+        );
     }
 
     #[test]

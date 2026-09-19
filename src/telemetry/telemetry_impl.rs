@@ -406,10 +406,10 @@ impl Span {
     /// - `key`: 属性名
     /// - `value`: 属性值
     pub fn set_attribute(&self, key: &str, value: &str) {
-        if self.enabled {
-            if let Ok(mut attrs) = self.attributes.try_lock() {
-                attrs.push((key.to_string(), value.to_string()));
-            }
+        if self.enabled
+            && let Ok(mut attrs) = self.attributes.try_lock()
+        {
+            attrs.push((key.to_string(), value.to_string()));
         }
     }
 
@@ -419,10 +419,10 @@ impl Span {
     /// - `name`: 事件名
     /// - `attributes`: 事件属性
     pub fn add_event(&self, name: &str, attributes: Vec<(String, String)>) {
-        if self.enabled {
-            if let Ok(mut evts) = self.events.try_lock() {
-                evts.push((name.to_string(), attributes));
-            }
+        if self.enabled
+            && let Ok(mut evts) = self.events.try_lock()
+        {
+            evts.push((name.to_string(), attributes));
         }
     }
 
@@ -431,10 +431,10 @@ impl Span {
     /// # 参数
     /// - `error`: 错误信息
     pub fn record_error(&self, error: &str) {
-        if self.enabled {
-            if let Ok(mut err) = self.error.try_lock() {
-                *err = Some(error.to_string());
-            }
+        if self.enabled
+            && let Ok(mut err) = self.error.try_lock()
+        {
+            *err = Some(error.to_string());
         }
     }
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 限流器相关类型
 
@@ -16,7 +16,7 @@ impl OverdraftConfig {
     /// 校验透支配置
     pub fn validate(&self) -> Result<(), String> {
         if self.enabled && self.max_overdraft == 0 {
-            return Err("透支启用时，最大透支量不能为0".to_string());
+            return Err("Overdraft enabled: max overdraft cannot be 0".to_string());
         }
         Ok(())
     }
@@ -68,10 +68,10 @@ impl LimiterConfig {
                 refill_rate,
             } => {
                 if *capacity == 0 {
-                    return Err("令牌桶容量不能为0".to_string());
+                    return Err("Token bucket capacity cannot be 0".to_string());
                 }
                 if *refill_rate == 0 {
-                    return Err("填充速率不能为0".to_string());
+                    return Err("Refill rate cannot be 0".to_string());
                 }
             }
             LimiterConfig::SlidingWindow {
@@ -79,7 +79,7 @@ impl LimiterConfig {
                 max_requests,
             } => {
                 if *max_requests == 0 {
-                    return Err("最大请求数不能为0".to_string());
+                    return Err("Max requests cannot be 0".to_string());
                 }
                 Self::validate_window_size(window_size)?;
             }
@@ -88,7 +88,7 @@ impl LimiterConfig {
                 max_requests,
             } => {
                 if *max_requests == 0 {
-                    return Err("最大请求数不能为0".to_string());
+                    return Err("Max requests cannot be 0".to_string());
                 }
                 Self::validate_window_size(window_size)?;
             }
@@ -101,12 +101,12 @@ impl LimiterConfig {
             } => {
                 // QuotaType 是枚举，编译时保证类型安全
                 if *limit == 0 {
-                    return Err("配额限制不能为0".to_string());
+                    return Err("Quota limit cannot be 0".to_string());
                 }
-                if let Some(threshold) = alert_threshold {
-                    if *threshold > 100 {
-                        return Err("告警阈值不能超过100%".to_string());
-                    }
+                if let Some(threshold) = alert_threshold
+                    && *threshold > 100
+                {
+                    return Err("Alert threshold cannot exceed 100%".to_string());
                 }
                 Self::validate_window_size(window)?;
                 if let Some(overdraft) = overdraft {
@@ -115,15 +115,15 @@ impl LimiterConfig {
             }
             LimiterConfig::Concurrency { max_concurrent } => {
                 if *max_concurrent == 0 {
-                    return Err("最大并发数不能为0".to_string());
+                    return Err("Max concurrency cannot be 0".to_string());
                 }
             }
             LimiterConfig::Custom { name, config } => {
                 if name.is_empty() {
-                    return Err("自定义限流器名称不能为空".to_string());
+                    return Err("Custom limiter name cannot be empty".to_string());
                 }
                 if config.is_null() {
-                    return Err("自定义限流器配置不能为空".to_string());
+                    return Err("Custom limiter config cannot be empty".to_string());
                 }
             }
         }
@@ -140,7 +140,7 @@ impl LimiterConfig {
 pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration, String> {
     let trimmed = window_size.trim();
     if trimmed.is_empty() {
-        return Err("窗口大小不能为空".to_string());
+        return Err("Window size cannot be empty".to_string()); // window-size-empty
     }
 
     let split_index = trimmed
@@ -151,19 +151,19 @@ pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration
     let unit = unit_part.trim().to_lowercase();
 
     if num_str.is_empty() {
-        return Err("窗口大小格式错误：缺少数字部分".to_string());
+        return Err("Invalid window size format: missing number part".to_string()); // window-size-missing-number
     }
 
     if unit.is_empty() {
-        return Err("窗口大小格式错误：缺少单位".to_string());
+        return Err("Invalid window size format: missing unit".to_string()); // window-size-missing-unit
     }
 
     let num: u64 = num_str
         .parse()
-        .map_err(|_| format!("无效的数字格式: {}", num_str))?;
+        .map_err(|_| format!("Invalid number format: {num_str}"))?; // window-size-invalid-number
 
     if num == 0 {
-        return Err("窗口大小必须大于0".to_string());
+        return Err("Window size must be greater than 0".to_string()); // window-size-must-be-positive
     }
 
     match unit.as_str() {
@@ -173,8 +173,8 @@ pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration
         "h" | "hr" | "hour" | "hours" => mul_secs(num, 3600),
         "d" | "day" | "days" => mul_secs(num, 86400),
         _ => Err(format!(
-            "不支持的单位: {}。支持的单位: ms, s, m, h, d",
-            unit
+            // window-size-unsupported-unit
+            "Unsupported unit: {unit}. Supported units: ms, s, m, h, d"
         )),
     }
 }
@@ -183,7 +183,7 @@ pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration
 fn mul_secs(num: u64, factor: u64) -> Result<std::time::Duration, String> {
     num.checked_mul(factor)
         .map(std::time::Duration::from_secs)
-        .ok_or_else(|| format!("窗口大小溢出: {} * {} 秒超出 u64 范围", num, factor))
+        .ok_or_else(|| format!("Window size overflow: {num} * {factor} seconds exceeds u64 range")) // window-size-overflow
 }
 
 #[cfg(test)]

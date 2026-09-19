@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Admin 模块测试辅助函数
 //!
@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use crate::admin::AppState;
+use crate::admin::LimiteronState;
 use crate::config::{
     Action, ActionConfig, FlowControlConfig, GlobalConfig, LimiterConfig, Matcher, Rule,
 };
@@ -55,10 +55,10 @@ pub async fn make_governor() -> Governor {
         .expect("Governor build should succeed with valid config")
 }
 
-/// 构造最小可用 AppState（仅 Governor，可选组件均为 None）
-pub async fn make_state() -> AppState {
+/// 构造最小可用 LimiteronState（仅 Governor，可选组件均为 None）
+pub async fn make_state() -> LimiteronState {
     let governor = Arc::new(make_governor().await);
-    AppState {
+    LimiteronState {
         governor,
         #[cfg(feature = "ban-manager")]
         ban_manager: None,
@@ -71,9 +71,9 @@ pub async fn make_state() -> AppState {
     }
 }
 
-/// 构造带 BanManager 的 AppState（用于封禁相关测试）
+/// 构造带 BanManager 的 LimiteronState（用于封禁相关测试）
 #[cfg(feature = "ban-manager")]
-pub async fn make_state_with_ban_manager() -> AppState {
+pub async fn make_state_with_ban_manager() -> LimiteronState {
     use crate::BanManager;
     let governor = Arc::new(make_governor().await);
     let ban_manager = Arc::new(
@@ -81,7 +81,7 @@ pub async fn make_state_with_ban_manager() -> AppState {
             .await
             .expect("BanManager::new should succeed"),
     );
-    AppState {
+    LimiteronState {
         governor,
         ban_manager: Some(ban_manager),
         #[cfg(feature = "quota-control")]

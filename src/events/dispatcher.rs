@@ -165,15 +165,15 @@ impl EventDispatcher {
                         // 分发给处理器
                         let handlers_snapshot = handlers.read().await.clone();
                         for handler in &handlers_snapshot {
-                            if handler.accepts(&event.event_type) {
-                                if let Err(e) = handler.handle(&event).await {
-                                    error!(
-                                        "Handler {} failed to process event {}: {}",
-                                        handler.name(),
-                                        event.name(),
-                                        e
-                                    );
-                                }
+                            if handler.accepts(&event.event_type)
+                                && let Err(e) = handler.handle(&event).await
+                            {
+                                error!(
+                                    "Handler {} failed to process event {}: {}",
+                                    handler.name(),
+                                    event.name(),
+                                    e
+                                );
                             }
                         }
 
@@ -229,11 +229,11 @@ impl EventDispatcher {
 /// 使用 `try_write()` 而非 `write().await`，因为 `Drop::drop` 中不能使用 `.await`。
 impl Drop for EventDispatcher {
     fn drop(&mut self) {
-        if let Ok(mut handle_guard) = self.dispatch_handle.try_write() {
-            if let Some(handle) = handle_guard.take() {
-                handle.abort();
-                debug!("EventDispatcher dispatch task aborted on drop");
-            }
+        if let Ok(mut handle_guard) = self.dispatch_handle.try_write()
+            && let Some(handle) = handle_guard.take()
+        {
+            handle.abort();
+            debug!("EventDispatcher dispatch task aborted on drop");
         }
     }
 }

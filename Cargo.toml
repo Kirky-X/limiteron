@@ -10,7 +10,7 @@ resolver = "2"
 version = "0.3.0-rc.4"
 edition = "2024"
 rust-version = "1.97.1"
-authors = ["Kirky.X <Kirky-X@outlook.com>"]
+authors = ["Kirky-X <Kirky-X@outlook.com>"]
 license = "MIT"
 repository = "https://github.com/Kirky-X/limiteron"
 
@@ -68,16 +68,16 @@ serial_test = { version = "4.0", default-features = false }
 sea-orm = { version = "2.0", default-features = false, features = ["macros", "with-chrono"] }
 
 # 缓存库
-oxcache = { version = "0.5.0-rc.4", default-features = false, features = ["core"] }
+oxcache = { version = "0.5.0-rc.4", path = "../oxcache", default-features = false, features = ["core"] }
 
 # 数据库抽象层 — dbnexus 0.5。注意：此处不启用 postgres/mysql/sqlite 等数据库驱动，
 # 驱动由各 feature 显式请求（limiteron 的 `postgres` feature 会启用 dbnexus/postgres）。
 # 若在此写死 "postgres"，会强制 server-side 驱动，与下游（如 agentstem memory 的
 # dbnexus/sqlite）在同一次构建中合并，触发 dbnexus 的 embedded/server-side 互斥编译错误。
-dbnexus = { version = "0.6.0-rc.4", default-features = false, features = ["macros", "sql-parser", "permission"] }
+dbnexus = { version = "0.6.0-rc.4", path = "../dbnexus", default-features = false, features = ["macros", "sql-parser", "permission"] }
 
 # 宏
-limiteron-macros = { path = "macros", version = "0.3.0-rc.4" }
+limiteron-macros = { version = "0.3.0-rc.4", path = "macros" }
 
 # 监控
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -194,35 +194,35 @@ http = { workspace = true, optional = true }
 # 国际化 (optional, feature-gated via `i18n`).
 # ICU4X 2.x 提供 locale 感知的数字/日期/复数/排序格式化。
 # Mirrors trait-kit/oxcache i18n pattern.
-icu = { version = "2.3", optional = true }
+icu = { version = "2.3", default-features = false, features = ["compiled_data"], optional = true }
 writeable = { version = "0.6", optional = true }
+
+# i18n 基础设施（常驻依赖，不经 feature 门控）：Fluent 消息目录 + 语言检测链。
+# 错误双轨（Display 英文规范串 + to_localized_string）、CLI/admin HTTP 出口与
+# tower-middleware 默认文案在默认构建下即消费本地化路径，故 fluent 三件套常驻；
+# 仅 ICU 格式化器（LimiterI18nFormatter）继续由 `i18n` feature 门控。
+fluent-bundle = "0.16"
+unic-langid = "0.9"
+sys-locale = "0.3"
 
 # trait-kit integration (optional, feature-gated via `kit`).
 # trait-kit 0.4 is used via path dependency for workspace compatibility.
 [dependencies.trait-kit]
 version = "0.5.0-rc.5"
+path = "../trait-kit"
+default-features = false
 features = ["async", "health", "lifecycle"]
 optional = true
-default-features = false
-
-# inklog structured logging integration (optional, feature-gated via `inklog`).
-# inklog 0.1.x is published to crates.io. `default-features = false` excludes
-# the `http`/`cli` features — limiteron only needs the core LoggerManager +
-# log/tracing bridge. Mirrors the trait-kit optional-dependency pattern.
 [dependencies.inklog]
 version = "0.3.0-rc.4"
+path = "../inklog"
 default-features = false
 optional = true
-
-# confers configuration integration (optional, feature-gated via `config-confers`).
-# Mirrors trait-kit three-tier feature pattern: confers → reload → encryption.
 [dependencies.confers]
 version = "0.6.0-rc.4"
+path = "../confers"
 default-features = false
 optional = true
-
-# 其他
-
 [dev-dependencies]
 tokio-test.workspace = true
 tempfile.workspace = true
@@ -263,7 +263,13 @@ sync = []
 # 驱动共存，钉死驱动会与下游叠加的后端 feature 冲突）；按需自行叠加 sqlite/postgres/mysql
 standard = ["ban-manager", "quota-control", "circuit-breaker"]
 
-# Full: 除存储后端外的全部功能（后端同样按需叠加 sqlite/postgres/mysql）
+# Full: 除存储后端外的全部功能（后端同样按需叠加 sqlite/postgres/mysql）。
+# 2026-09-19 审计补齐：bulkhead/validation/i18n/inklog/config-confers(-reload)/
+# kit/adaptive-limiting/distributed/ban-sync 均为已实现模块，此前缺席导致这些
+# 源文件在 full 口径下从不参与编译（存在破损而不可知）。
+# 刻意不入 full：metrics（经 dbnexus/metrics 拉入存储栈，违背本 preset 的
+# "无存储后端"承诺）、cli（二进制面，默认不编译，见其定义处注释）、
+# test-clock（测试专用，见注释）、priority-queue/admission-control（no-op）。
 full = [
     "cache-redis",
     "ban-manager",
@@ -289,6 +295,16 @@ full = [
     "multi-tenant",
     "admin-api",
     "sync",
+    "bulkhead",
+    "validation",
+    "i18n",
+    "inklog",
+    "config-confers",
+    "config-confers-reload",
+    "kit",
+    "adaptive-limiting",
+    "distributed",
+    "ban-sync",
 ]
 
 default = []

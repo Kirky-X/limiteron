@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! HTTP服务器启动
 
@@ -19,7 +19,7 @@ use tokio::net::TcpListener;
 
 /// 应用状态
 #[derive(Clone)]
-pub struct AppState {
+pub struct LimiteronState {
     pub governor: Arc<Governor>,
     #[cfg(feature = "ban-manager")]
     pub ban_manager: Option<Arc<BanManager>>,
@@ -37,7 +37,7 @@ pub struct AppState {
 
 /// 管理API服务器
 pub struct AdminServer {
-    state: AppState,
+    state: LimiteronState,
     config: AdminApiConfig,
 }
 
@@ -45,7 +45,7 @@ impl AdminServer {
     /// 创建新服务器
     pub fn new(governor: Arc<Governor>, config: AdminApiConfig) -> Self {
         Self {
-            state: AppState {
+            state: LimiteronState {
                 governor,
                 #[cfg(feature = "ban-manager")]
                 ban_manager: None,

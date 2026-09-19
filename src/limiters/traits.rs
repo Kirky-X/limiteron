@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 限流器 traits 模块
 //!
@@ -116,9 +116,10 @@ pub trait Limiter: Send + Sync {
         if self.allow(1).await? {
             Ok(())
         } else {
-            Err(LimiteronError::LimitError(
-                "rate limit exceeded".to_string(),
-            ))
+            // 错误负载经 FTL 目录（键 rate-limit-exceeded，当前 locale → en 回退）
+            Err(LimiteronError::LimitError(crate::i18n::t_simple(
+                "rate-limit-exceeded",
+            )))
         }
     }
 }
@@ -316,7 +317,8 @@ mod tests {
         let result = limiter.check("any_key").await;
         match result {
             Err(LimiteronError::LimitError(msg)) => {
-                assert!(msg.contains("rate limit exceeded"))
+                // 负载经 FTL 目录（rate-limit-exceeded），断言对 en/zh 渲染均成立
+                assert!(msg.contains("Rate limit") || msg.contains("速率限制"))
             }
             other => panic!(
                 "expected Err(LimitError) for rejection, got {:?}",

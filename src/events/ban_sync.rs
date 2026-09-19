@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 封禁跨实例同步：经 oxcache Pub/Sub 语义广播封禁变更。
 //!
@@ -124,7 +124,7 @@ impl BanSyncConfig {
     }
 }
 
-/// 本地封禁应用端口：监听端把远端封禁事件落到本实例（BanManager / L1 等）
+/// 本地封禁应用端口：监听端把远端封禁事件落到本实例（BanManager / 等）
 #[async_trait::async_trait]
 pub trait BanSyncApplier: Send + Sync {
     /// 远端封禁生效

@@ -161,21 +161,19 @@ impl UserIdExtractorBuilder {
 impl IdentifierExtractor for UserIdExtractor {
     fn extract(&self, context: &RequestContext) -> Option<Identifier> {
         // 优先从HTTP头提取
-        if let Some(header_name) = &self.header_name {
-            if let Some(user_id) = context.get_header(header_name) {
-                if !user_id.is_empty() {
-                    return Some(Identifier::UserId(user_id.clone()));
-                }
-            }
+        if let Some(header_name) = &self.header_name
+            && let Some(user_id) = context.get_header(header_name)
+            && !user_id.is_empty()
+        {
+            return Some(Identifier::UserId(user_id.clone()));
         }
 
         // 从查询参数提取
-        if let Some(query_param_name) = &self.query_param_name {
-            if let Some(user_id) = context.query_params.get(query_param_name) {
-                if !user_id.is_empty() {
-                    return Some(Identifier::UserId(user_id.clone()));
-                }
-            }
+        if let Some(query_param_name) = &self.query_param_name
+            && let Some(user_id) = context.query_params.get(query_param_name)
+            && !user_id.is_empty()
+        {
+            return Some(Identifier::UserId(user_id.clone()));
         }
 
         // 使用默认用户ID
@@ -459,10 +457,10 @@ impl IdentifierExtractor for IpExtractor {
         if peer_is_trusted_proxy {
             // 直接对端是可信代理：安全地处理 X-Forwarded-For 链
             for header_name in &self.header_names {
-                if let Some(value) = context.get_header(header_name) {
-                    if let Some(ip) = self.parse_forwarded_chain(value) {
-                        return Some(Identifier::Ip(ip));
-                    }
+                if let Some(value) = context.get_header(header_name)
+                    && let Some(ip) = self.parse_forwarded_chain(value)
+                {
+                    return Some(Identifier::Ip(ip));
                 }
             }
         } else if !self.header_names.is_empty() {
@@ -482,10 +480,10 @@ impl IdentifierExtractor for IpExtractor {
         }
 
         // 回退到直接 TCP 对端地址（始终可信）
-        if let Some(client_ip) = &context.client_ip {
-            if let Some(ip) = self.parse_direct_ip(client_ip) {
-                return Some(Identifier::Ip(ip));
-            }
+        if let Some(client_ip) = &context.client_ip
+            && let Some(ip) = self.parse_direct_ip(client_ip)
+        {
+            return Some(Identifier::Ip(ip));
         }
 
         None
@@ -657,21 +655,21 @@ impl MacExtractorBuilder {
 impl IdentifierExtractor for MacExtractor {
     fn extract(&self, context: &RequestContext) -> Option<Identifier> {
         // 从HTTP头提取
-        if let Some(header_name) = &self.header_name {
-            if let Some(mac) = context.get_header(header_name) {
-                if !mac.is_empty() && self.validate_mac(mac) {
-                    return Some(Identifier::Mac(mac.clone()));
-                }
-            }
+        if let Some(header_name) = &self.header_name
+            && let Some(mac) = context.get_header(header_name)
+            && !mac.is_empty()
+            && self.validate_mac(mac)
+        {
+            return Some(Identifier::Mac(mac.clone()));
         }
 
         // 从查询参数提取
-        if let Some(query_param_name) = &self.query_param_name {
-            if let Some(mac) = context.query_params.get(query_param_name) {
-                if !mac.is_empty() && self.validate_mac(mac) {
-                    return Some(Identifier::Mac(mac.clone()));
-                }
-            }
+        if let Some(query_param_name) = &self.query_param_name
+            && let Some(mac) = context.query_params.get(query_param_name)
+            && !mac.is_empty()
+            && self.validate_mac(mac)
+        {
+            return Some(Identifier::Mac(mac.clone()));
         }
 
         None
@@ -848,12 +846,11 @@ impl ApiKeyExtractorBuilder {
 impl IdentifierExtractor for ApiKeyExtractor {
     fn extract(&self, context: &RequestContext) -> Option<Identifier> {
         // 从HTTP头提取
-        if let Some(header_name) = &self.header_name {
-            if let Some(value) = context.get_header(header_name) {
-                if let Some(key) = self.clean_key(value) {
-                    return Some(Identifier::ApiKey(key));
-                }
-            }
+        if let Some(header_name) = &self.header_name
+            && let Some(value) = context.get_header(header_name)
+            && let Some(key) = self.clean_key(value)
+        {
+            return Some(Identifier::ApiKey(key));
         }
 
         None
@@ -954,21 +951,19 @@ impl DeviceIdExtractor {
 impl IdentifierExtractor for DeviceIdExtractor {
     fn extract(&self, context: &RequestContext) -> Option<Identifier> {
         // 从HTTP头提取
-        if let Some(header_name) = &self.header_name {
-            if let Some(device_id) = context.get_header(header_name) {
-                if !device_id.is_empty() {
-                    return Some(Identifier::DeviceId(device_id.clone()));
-                }
-            }
+        if let Some(header_name) = &self.header_name
+            && let Some(device_id) = context.get_header(header_name)
+            && !device_id.is_empty()
+        {
+            return Some(Identifier::DeviceId(device_id.clone()));
         }
 
         // 从查询参数提取
-        if let Some(query_param_name) = &self.query_param_name {
-            if let Some(device_id) = context.query_params.get(query_param_name) {
-                if !device_id.is_empty() {
-                    return Some(Identifier::DeviceId(device_id.clone()));
-                }
-            }
+        if let Some(query_param_name) = &self.query_param_name
+            && let Some(device_id) = context.query_params.get(query_param_name)
+            && !device_id.is_empty()
+        {
+            return Some(Identifier::DeviceId(device_id.clone()));
         }
 
         None

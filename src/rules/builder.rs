@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 规则构建器模块
 //!
@@ -352,7 +352,7 @@ impl RuleBuilder {
     }
 }
 
-/// 非 Custom 匹配器的条件编译（diting 简化：`build_rules` 与
+/// 非 Custom 匹配器的条件编译（简化：`build_rules` 与
 /// `build_rules_with_registry` 共用；`Custom` 由调用方按注册表情况处理）
 fn base_condition(
     matcher: &ConfigMatcher,
@@ -409,7 +409,7 @@ fn assemble_rule(
 /// `matches`。自定义匹配器契约：轻量、首次 poll 即 Ready（头检查/
 /// 阈值比较等）。
 ///
-/// 修复（diting High）：不得对 `Pending` 自旋——noop waker 无人唤醒，
+/// 修复：不得对 `Pending` 自旋——noop waker 无人唤醒，
 /// 任何含真实 await 点的实现（contended 锁、`yield_now`、IO/定时器）
 /// 会把调用线程永久挂死在 100% CPU 循环。Pending 一律 `log::error!`
 /// 并按不匹配处理（与求值失败同口径）。
@@ -545,7 +545,7 @@ mod tests {
         // 未注册：恒不匹配（fail-open 占位）
         assert!(!by_id("rule-unregistered").condition.evaluate(&beta_ctx));
 
-        // diting High 回归：Pending future 不得自旋挂死，显性按不匹配处理
+        // 回归：Pending future 不得自旋挂死，显性按不匹配处理
         struct PendingMatcher;
         #[async_trait::async_trait]
         impl crate::matchers::custom::CustomMatcher for PendingMatcher {

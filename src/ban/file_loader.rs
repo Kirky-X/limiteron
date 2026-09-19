@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 文件封禁加载器模块
 //!
@@ -114,16 +114,17 @@ impl BanFileLoader {
         let path = self.path.clone();
         let ban_file: BanFile =
             tokio::task::spawn_blocking(move || -> Result<BanFile, LimiteronError> {
+                // 错误文案为英文规范串（与 FTL 键 ban-file-* 的 en 模式对齐，T016）
                 let file_meta = std::fs::metadata(&path).map_err(|e| {
                     LimiteronError::ConfigError(format!(
-                        "读取封禁文件元数据失败 {}: {}",
+                        "Failed to read ban file metadata {}: {}",
                         path.display(),
                         e
                     ))
                 })?;
                 if file_meta.len() > MAX_BAN_FILE_SIZE {
                     return Err(LimiteronError::ConfigError(format!(
-                        "封禁文件过大: {} ({} bytes, 上限 {} bytes)",
+                        "Ban file too large: {} ({} bytes, limit {} bytes)",
                         path.display(),
                         file_meta.len(),
                         MAX_BAN_FILE_SIZE
@@ -132,7 +133,7 @@ impl BanFileLoader {
 
                 let content = std::fs::read_to_string(&path).map_err(|e| {
                     LimiteronError::ConfigError(format!(
-                        "读取封禁文件失败 {}: {}",
+                        "Failed to read ban file {}: {}",
                         path.display(),
                         e
                     ))
@@ -140,14 +141,16 @@ impl BanFileLoader {
 
                 serde_yaml_ng::from_str(&content).map_err(|e| {
                     LimiteronError::ConfigError(format!(
-                        "解析封禁文件 YAML 失败 {}: {}",
+                        "Failed to parse ban file YAML {}: {}",
                         path.display(),
                         e
                     ))
                 })
             })
             .await
-            .map_err(|e| LimiteronError::ConfigError(format!("封禁文件加载任务失败: {}", e)))??;
+            .map_err(|e| {
+                LimiteronError::ConfigError(format!("Ban file load task failed: {e}"))
+            })??;
 
         let mut result = LoadResult::default();
 
@@ -158,7 +161,7 @@ impl BanFileLoader {
                 operator: "file_loader".to_string(),
             };
 
-            // 幂等防护（diting Medium）：热重载不是新的违规事件。同
+            // 幂等防护：热重载不是新的违规事件。同
             // target 且同 reason 的活跃封禁视为期望态已生效，跳过——
             // 否则每次重载都会经 upsert_ban_record 把 ban_times 原子 +1，
             // duration_secs 为 null 的条目退避时长随重载逐次升级。
@@ -225,23 +228,24 @@ impl BanFileLoader {
 
         let mut watcher = RecommendedWatcher::new(
             move |res: Result<notify::Event, notify::Error>| {
-                if let Ok(event) = res {
-                    if let notify::EventKind::Modify(_) | notify::EventKind::Create(_) = event.kind
-                    {
-                        // 文件变更，发送信号（忽略发送失败，说明接收端已关闭）
-                        let _ = tx.blocking_send(());
-                    }
+                if let Ok(event) = res
+                    && let notify::EventKind::Modify(_) | notify::EventKind::Create(_) = event.kind
+                {
+                    // 文件变更，发送信号（忽略发送失败，说明接收端已关闭）
+                    let _ = tx.blocking_send(());
                 }
             },
             notify::Config::default().with_poll_interval(Duration::from_secs(2)),
         )
-        .map_err(|e| LimiteronError::ConfigError(format!("启动文件监听失败: {}", e)))?;
+        .map_err(|e| LimiteronError::ConfigError(format!("Failed to start file watcher: {e}")))?;
 
         // 监听文件所在目录（监听文件本身在某些编辑器下会丢失事件）
         let watch_dir = path.parent().unwrap_or(Path::new("."));
         watcher
             .watch(watch_dir, RecursiveMode::NonRecursive)
-            .map_err(|e| LimiteronError::ConfigError(format!("注册文件监听失败: {}", e)))?;
+            .map_err(|e| {
+                LimiteronError::ConfigError(format!("Failed to register file watch: {e}"))
+            })?;
 
         let manager_clone = manager.clone();
         let loader_path = path.clone();
@@ -469,7 +473,8 @@ bans:
         let err = result.unwrap_err().to_string();
         // 文件不存在时 metadata 检查先失败
         assert!(
-            err.contains("读取封禁文件元数据失败") || err.contains("读取封禁文件失败"),
+            err.contains("Failed to read ban file metadata")
+                || err.contains("Failed to read ban file"),
             "错误信息: {}",
             err
         );
@@ -485,7 +490,11 @@ bans:
         let result = loader.load_once(&manager).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("解析封禁文件 YAML 失败"), "错误信息: {}", err);
+        assert!(
+            err.contains("Failed to parse ban file YAML"),
+            "错误信息: {}",
+            err
+        );
     }
 
     #[tokio::test]
@@ -581,7 +590,7 @@ bans:
         let r2 = loader.load_once(&manager).await.expect("第二次加载失败");
         assert_eq!(r2.success_count, 1);
 
-        // 验证封禁仍存在。diting Medium 幂等修复后：同 target + 同 reason
+        // 验证封禁仍存在。幂等修复后：同 target + 同 reason
         // 的重载视为期望态已生效，跳过而不递增 ban_times（避免热重载
         // 反复抬升 null duration 条目的退避时长）
         let ban = manager

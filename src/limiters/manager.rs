@@ -271,16 +271,15 @@ impl LimiterManager {
 
         // LRU 检查：超过阈值则触发 cleanup
         // 用 AtomicBool CAS 限制并发 cleanup，避免同步阻塞请求
-        if self.rate_limiters.len() > CLEANUP_THRESHOLD {
-            if self
+        if self.rate_limiters.len() > CLEANUP_THRESHOLD
+            && self
                 .rate_cleanup_in_progress
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
-            {
-                self.cleanup_rate_limiters();
-                self.rate_cleanup_in_progress
-                    .store(false, Ordering::Release);
-            }
+        {
+            self.cleanup_rate_limiters();
+            self.rate_cleanup_in_progress
+                .store(false, Ordering::Release);
         }
         limiter
     }
@@ -352,16 +351,15 @@ impl LimiterManager {
             .or_insert_with(|| AtomicU64::new(now_nanos()));
 
         // LRU 检查
-        if self.quota_limiters.len() > CLEANUP_THRESHOLD {
-            if self
+        if self.quota_limiters.len() > CLEANUP_THRESHOLD
+            && self
                 .quota_cleanup_in_progress
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
-            {
-                self.cleanup_quota_limiters();
-                self.quota_cleanup_in_progress
-                    .store(false, Ordering::Release);
-            }
+        {
+            self.cleanup_quota_limiters();
+            self.quota_cleanup_in_progress
+                .store(false, Ordering::Release);
         }
         limiter
     }
@@ -430,16 +428,15 @@ impl LimiterManager {
             .or_insert_with(|| AtomicU64::new(now_nanos()));
 
         // LRU 检查
-        if self.concurrency_limiters.len() > CLEANUP_THRESHOLD {
-            if self
+        if self.concurrency_limiters.len() > CLEANUP_THRESHOLD
+            && self
                 .concurrency_cleanup_in_progress
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
-            {
-                self.cleanup_concurrency_limiters();
-                self.concurrency_cleanup_in_progress
-                    .store(false, Ordering::Release);
-            }
+        {
+            self.cleanup_concurrency_limiters();
+            self.concurrency_cleanup_in_progress
+                .store(false, Ordering::Release);
         }
         limiter
     }

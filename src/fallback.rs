@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 降级策略实现
 //!
@@ -34,7 +34,7 @@ pub enum FallbackStrategy {
     FailOpen,
     /// 故障时拒绝所有请求（降级为全关闭）
     FailClosed,
-    /// 故障时使用降级服务（如L2缓存、缓存配置）
+    /// 故障时使用降级服务（如缓存、缓存配置）
     Degraded,
 }
 
@@ -45,7 +45,7 @@ pub enum ComponentType {
     Redis,
     /// PostgreSQL存储
     Postgres,
-    /// L3缓存
+    /// 缓存
     L2Cache,
     /// 配置服务
     Config,
@@ -143,7 +143,7 @@ pub struct FallbackManager {
     strategies: Arc<RwLock<HashMap<ComponentType, FallbackConfig>>>,
     /// 故障状态
     failure_states: Arc<RwLock<HashMap<ComponentType, bool>>>,
-    /// L2 缓存实例
+    /// 缓存实例
     l2_cache: Arc<Cache<String, String>>,
     /// 孤岛模式通知回调
     island_mode_callbacks: Arc<RwLock<Vec<IslandModeCallback>>>,
@@ -208,7 +208,7 @@ impl FallbackManager {
         }
     }
 
-    /// 获取 L2 缓存实例
+    /// 获取 缓存实例
     pub fn l2_cache(&self) -> &Arc<Cache<String, String>> {
         &self.l2_cache
     }
@@ -342,7 +342,7 @@ impl FallbackManager {
 
         match config.strategy {
             FallbackStrategy::FailOpen => {
-                // 故障开放：显性返回 FallbackError（diting Low：调用方以
+                // 故障开放：显性返回 FallbackError（调用方以
                 // 变体匹配降级语义，而非靠字符串约定；泛型 T 无法合成
                 // 默认值，是否放行由调用方决定）。
                 log::warn!(target: "fallback", "降级策略: FailOpen - 返回降级错误，由调用方决定放行");
@@ -439,7 +439,7 @@ impl FallbackManager {
 
     /// 通知所有回调孤岛模式状态变更
     ///
-    /// 先克隆回调列表并立即释放读锁，再逐个调用（H3）：回调内部可能
+    /// 先克隆回调列表并立即释放读锁，再逐个调用：回调内部可能
     /// 同步调用 `register_island_mode_callback` 获取写锁，持锁调用会
     /// 自我死锁（tokio RwLock 不可重入）。
     async fn notify_island_mode_change(&self, is_island: bool) {
@@ -475,7 +475,7 @@ impl FallbackManager {
     /// 与内部 `clear_failure` 不同，此方法会检查是否所有故障都已恢复。
     pub async fn clear_failure(&self, component: ComponentType) {
         // 仅当故障状态真实存在且清空后无残留故障时才通知退出孤岛模式
-        // （H2）：与 set_failure 的进入守卫对称，避免对从未故障的组件
+        // 与 set_failure 的进入守卫对称，避免对从未故障的组件
         // 触发"退出孤岛模式"通知。
         let should_notify = {
             let mut states = self.failure_states.write().await;
@@ -676,7 +676,7 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        // diting Low 回归：FailOpen 返回专用 FallbackError 变体，
+        // 回归：FailOpen 返回专用 FallbackError 变体，
         // 调用方以变体（而非字符串）识别降级语义
         assert!(matches!(err, LimiteronError::FallbackError(_)));
         assert!(err.to_string().contains("FailOpen"));
@@ -1210,7 +1210,7 @@ mod tests {
         });
         manager.register_island_mode_callback(callback).await;
 
-        // H2 修复回归：清除不存在的故障不得触发"退出孤岛模式"通知
+        // 回归：清除不存在的故障不得触发"退出孤岛模式"通知
         // （与 set_failure 的进入守卫对称；旧实现无条件通知，count==1）
         manager.clear_failure(ComponentType::Redis).await;
 

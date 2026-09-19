@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 控制器模块集成测试
 //!
@@ -315,7 +315,7 @@ async fn test_governor_checks_request_against_limiter() {
     assert_eq!(stats.total_requests, 1);
 }
 
-/// 2.6.2: Governor caches decisions in L1Cache
+/// 2.6.2: Governor caches decisions in Cache
 #[tokio::test]
 async fn test_governor_caches_decisions_in_l1_cache() {
     let governor: Arc<limiteron::Governor> = create_governor().await;

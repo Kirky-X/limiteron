@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 决策链类型定义
 
@@ -316,7 +316,12 @@ impl DecisionChain {
                         self.stats.increment_total();
                         self.stats.increment_rejected();
                         return Ok(Decision::Rejected(RejectionMetadata {
-                            reason: format!("Rejected by {}: rate limit exceeded", node.name),
+                            // 拒绝原因经 FTL 目录（键 decision-rejected-by，
+                            // 节点名插值保留，en 回退）
+                            reason: crate::i18n::t(
+                                "decision-rejected-by",
+                                &[("node", node.name.clone())],
+                            ),
                             retry_after,
                             limit,
                             reset_at,
@@ -324,7 +329,10 @@ impl DecisionChain {
                     }
                     // 非短路：记录拒绝但继续执行后续节点
                     last_rejection = Some(RejectionMetadata {
-                        reason: format!("Rejected by {}: rate limit exceeded", node.name),
+                        reason: crate::i18n::t(
+                            "decision-rejected-by",
+                            &[("node", node.name.clone())],
+                        ),
                         retry_after,
                         limit,
                         reset_at,

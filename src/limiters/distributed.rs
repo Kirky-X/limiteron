@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 分布式限流器模块
 //!
@@ -143,10 +143,10 @@ impl DistributedLimiter for InMemoryDistributedLimiter {
 
     async fn get_count(&self, key: &str) -> Result<u64, LimiteronError> {
         // 先检查 TTL 计数器
-        if let Some(entry) = self.ttl_counters.get(key) {
-            if entry.expires_at > Instant::now() {
-                return Ok(entry.count);
-            }
+        if let Some(entry) = self.ttl_counters.get(key)
+            && entry.expires_at > Instant::now()
+        {
+            return Ok(entry.count);
         }
 
         // 再检查永久计数器
@@ -481,7 +481,7 @@ impl RedisDistributedLimiter {
                 .map(|v| match v {
                     redis::Value::Int(n) => Ok(*n),
                     redis::Value::BulkString(bytes) => {
-                        let s = String::from_utf8_lossy(&bytes);
+                        let s = String::from_utf8_lossy(bytes);
                         s.parse::<i64>().map_err(|e| {
                             LimiteronError::StorageError(StorageError::QueryError(format!(
                                 "parse: {}",

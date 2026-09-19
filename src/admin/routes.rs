@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Route definitions
 
@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use super::{
     config::{AdminApiConfig, AdminRole},
     handlers,
-    server::AppState,
+    server::LimiteronState,
 };
 
 /// vuln-0001 修复：通过 request extensions 传递的鉴权 operator 身份
@@ -122,7 +122,7 @@ fn group_for_path(path: &str) -> &'static str {
     }
 }
 
-pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
+pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
     let mut router = Router::new()
         // K8s 探针与指标端点（bypass 认证）
         .route("/healthz", get(handlers::healthz))
@@ -196,14 +196,13 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
                     // 补强：先清扫本窗口已过期 entry，防止 map 无限膨胀（OOM DoS）。
                     buckets.retain(|_, (_, start)| now.duration_since(*start) < window);
                     // 清扫后若仍超容量上限，淘汰最旧（window_start 最小）的 entry。
-                    if buckets.len() >= RATE_BUCKET_MAX_ENTRIES {
-                        if let Some(oldest) = buckets
+                    if buckets.len() >= RATE_BUCKET_MAX_ENTRIES
+                        && let Some(oldest) = buckets
                             .iter()
                             .min_by_key(|(_, (_, start))| *start)
                             .map(|(k, _)| k.clone())
-                        {
-                            buckets.remove(&oldest);
-                        }
+                    {
+                        buckets.remove(&oldest);
                     }
                     let key = (group.to_string(), client_ip);
                     let entry = buckets.entry(key).or_insert((0, now));
@@ -213,10 +212,12 @@ pub fn create_router(state: AppState, config: &AdminApiConfig) -> Router {
                     } else if entry.0 < max {
                         entry.0 += 1;
                     } else {
-                        // 超限：返回 429 + Retry-After
+                        // 超限：返回 429 + Retry-After（响应体经 FTL 目录本地化，
+                        // 当前 locale → en 回退）
                         let retry_after = window - now.duration_since(entry.1);
-                        let mut resp =
-                            axum::response::Response::new(Body::from("Rate limit exceeded"));
+                        let mut resp = axum::response::Response::new(Body::from(
+                            crate::i18n::t_simple("rate-limit-exceeded"),
+                        ));
                         *resp.status_mut() = StatusCode::TOO_MANY_REQUESTS;
                         if let Ok(val) = retry_after
                             .as_secs()
@@ -714,7 +715,7 @@ mod tests {
                 .unwrap(),
         );
         let governor = Arc::new(crate::admin::make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
             #[cfg(feature = "quota-control")]
@@ -763,7 +764,7 @@ mod tests {
                 .unwrap(),
         );
         let governor = Arc::new(crate::admin::make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
             #[cfg(feature = "quota-control")]
@@ -827,7 +828,7 @@ mod tests {
             .unwrap();
 
         let governor = Arc::new(crate::admin::make_governor().await);
-        let state = AppState {
+        let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
             #[cfg(feature = "quota-control")]

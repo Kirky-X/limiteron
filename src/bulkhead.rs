@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 舱壁隔离（feature `bulkhead`）
 //!
@@ -49,6 +49,9 @@ impl Default for BulkheadConfig {
 }
 
 /// 舱壁错误
+///
+/// 双轨：Display 英文规范串 + [`crate::i18n::LocalizedMsg`]（键
+/// `bulkhead-*`，T016 已英文错误对齐补键）。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BulkheadError {
     /// 池已满：快速失败（不排队，避免线程/任务堆积）
@@ -58,6 +61,24 @@ pub enum BulkheadError {
     #[cfg(feature = "circuit-breaker")]
     #[error("bulkhead '{0}' circuit breaker is open")]
     CircuitOpen(String),
+}
+
+impl crate::i18n::LocalizedMsg for BulkheadError {
+    fn message_key(&self) -> &'static str {
+        match self {
+            BulkheadError::Full(_) => "bulkhead-full",
+            #[cfg(feature = "circuit-breaker")]
+            BulkheadError::CircuitOpen(_) => "bulkhead-circuit-open",
+        }
+    }
+
+    fn message_args(&self) -> Vec<(&'static str, String)> {
+        match self {
+            BulkheadError::Full(name) => vec![("name", name.clone())],
+            #[cfg(feature = "circuit-breaker")]
+            BulkheadError::CircuitOpen(name) => vec![("name", name.clone())],
+        }
+    }
 }
 
 /// 舱壁池统计（隔离指标）
@@ -182,7 +203,7 @@ impl BulkheadRegistry {
     }
 
     /// 预建/覆盖指定池配置（链式）
-    pub fn with_pool_config(mut self, name: impl Into<String>, config: BulkheadConfig) -> Self {
+    pub fn with_pool_config(self, name: impl Into<String>, config: BulkheadConfig) -> Self {
         let name = name.into();
         self.pools.insert(
             name.clone(),
@@ -232,11 +253,11 @@ impl BulkheadRegistry {
         #[cfg(feature = "circuit-breaker")]
         {
             let cb = bulkhead.circuit_breaker.read().clone();
-            if let Some(cb) = cb {
-                if cb.is_open().await {
-                    bulkhead.rejected.fetch_add(1, Ordering::Relaxed);
-                    return Err(BulkheadError::CircuitOpen(bulkhead.name().to_string()));
-                }
+            if let Some(cb) = cb
+                && cb.is_open().await
+            {
+                bulkhead.rejected.fetch_add(1, Ordering::Relaxed);
+                return Err(BulkheadError::CircuitOpen(bulkhead.name().to_string()));
             }
         }
 
@@ -296,8 +317,7 @@ mod tests {
         let err = registry
             .execute("group-a", async { 3 })
             .await
-            .err()
-            .expect("池 A 满后应快速失败");
+            .expect_err("池 A 满后应快速失败");
         assert_eq!(err, BulkheadError::Full("group-a".to_string()));
 
         // 池 B 独立预算，不受 A 饱和影响
@@ -385,8 +405,7 @@ mod tests {
         let err = registry
             .execute("cb-pool", async { 1 })
             .await
-            .err()
-            .expect("熔断打开的池应快速失败");
+            .expect_err("熔断打开的池应快速失败");
         assert!(
             matches!(err, BulkheadError::CircuitOpen(ref n) if n == "cb-pool"),
             "应返回 CircuitOpen，实际: {err:?}"

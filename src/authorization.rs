@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 封禁操作授权模块
 //!
@@ -632,6 +632,6 @@ mod tests {
     #[test]
     fn test_authorization_error_message() {
         let error = LimiteronError::AuthorizationError("测试授权错误".to_string());
-        assert_eq!(error.to_string(), "授权错误: 测试授权错误");
+        assert_eq!(error.to_string(), "Authorization error: 测试授权错误");
     }
 }

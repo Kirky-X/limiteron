@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Kirky.X🌠
+// SPDX-License-Identifier: MIT
+
 //! Storage implementations
 //!
 //! This module contains the implementations for the Storage, QuotaStorage,
@@ -48,13 +51,13 @@ impl Storage for MemoryStorage {
         let expiration = self.expiration.read().await.get(key).copied();
 
         // Check if key has expired
-        if let Some(exp) = expiration {
-            if exp <= now {
-                // Remove expired key
-                let _ = self.data.write().await.remove(key);
-                let _ = self.expiration.write().await.remove(key);
-                return Ok(None);
-            }
+        if let Some(exp) = expiration
+            && exp <= now
+        {
+            // Remove expired key
+            let _ = self.data.write().await.remove(key);
+            let _ = self.expiration.write().await.remove(key);
+            return Ok(None);
         }
 
         Ok(self.data.read().await.get(key).cloned())
@@ -125,13 +128,13 @@ impl BanStorage for MemoryBanStorage {
         // Check expiration first
         let expires_at = self.expiration.read().await.get(target).copied();
 
-        if let Some(exp) = expires_at {
-            if exp <= now {
-                // Remove expired ban
-                let _ = self.bans.write().await.remove(target);
-                let _ = self.expiration.write().await.remove(target);
-                return Ok(None);
-            }
+        if let Some(exp) = expires_at
+            && exp <= now
+        {
+            // Remove expired ban
+            let _ = self.bans.write().await.remove(target);
+            let _ = self.expiration.write().await.remove(target);
+            return Ok(None);
         }
 
         if let Some(record) = self.bans.read().await.get(target) {
@@ -140,32 +143,32 @@ impl BanStorage for MemoryBanStorage {
 
         // CIDR 网段两级检查——精确 IP 未命中时，遍历网段封禁记录
         // 做最长前缀匹配（未过期）。命中即返回前缀最具体的记录。
-        if let BanTarget::Ip(ip_str) = target {
-            if let Ok(ip) = ip_str.parse::<std::net::IpAddr>() {
-                let bans = self.bans.read().await;
-                let expiration = self.expiration.read().await;
-                let mut best: Option<(&BanRecord, u8)> = None;
-                for record in bans.values() {
-                    if !matches!(record.target, BanTarget::Cidr(_)) {
-                        continue;
-                    }
-                    // 过滤已过期的网段封禁
-                    if let Some(exp) = expiration.get(&record.target) {
-                        if *exp <= now {
-                            continue;
-                        }
-                    }
-                    if !record.target.contains_ip(&ip) {
-                        continue;
-                    }
-                    let prefix = record.target.prefix_len().unwrap_or(0);
-                    if best.is_none_or(|(_, p)| prefix > p) {
-                        best = Some((record, prefix));
-                    }
+        if let BanTarget::Ip(ip_str) = target
+            && let Ok(ip) = ip_str.parse::<std::net::IpAddr>()
+        {
+            let bans = self.bans.read().await;
+            let expiration = self.expiration.read().await;
+            let mut best: Option<(&BanRecord, u8)> = None;
+            for record in bans.values() {
+                if !matches!(record.target, BanTarget::Cidr(_)) {
+                    continue;
                 }
-                if let Some((record, _)) = best {
-                    return Ok(Some(record.clone()));
+                // 过滤已过期的网段封禁
+                if let Some(exp) = expiration.get(&record.target)
+                    && *exp <= now
+                {
+                    continue;
                 }
+                if !record.target.contains_ip(&ip) {
+                    continue;
+                }
+                let prefix = record.target.prefix_len().unwrap_or(0);
+                if best.is_none_or(|(_, p)| prefix > p) {
+                    best = Some((record, prefix));
+                }
+            }
+            if let Some((record, _)) = best {
+                return Ok(Some(record.clone()));
             }
         }
 

@@ -14,7 +14,7 @@ use sea_orm::entity::prelude::*;
 // lib 构建下无消费方；test 构建下 db_entity 派生会生成使用它的脚手架，故门控到非 test。
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "存储适配器尚未消费 RateLimitEntity")
+    expect(dead_code, reason = "RateLimitEntity is not yet consumed by storage adapters")
 )]
 #[db_entity(table_name = "limiteron_rate_limits", primary_key = "id")]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
@@ -47,7 +47,7 @@ pub struct Model {
 /// Relations for the entity
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "存储适配器尚未消费 RateLimitEntity")
+    expect(dead_code, reason = "RateLimitEntity is not yet consumed by storage adapters")
 )]
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {}
@@ -72,7 +72,7 @@ pub fn create_table_ddl() -> &'static str {
 // 仅实体内单测引用，lib 构建下无调用方（test 构建下活）。
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "键生成助手目前仅被本实体单测引用")
+    expect(dead_code, reason = "key generation helpers are currently only referenced by this entity unit tests")
 )]
 pub fn create_rate_key(identifier: &str, limiter_type: &str, params: &str) -> String {
     format!("{}:{}:{}", identifier, limiter_type, params)

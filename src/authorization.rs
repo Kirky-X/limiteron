@@ -33,6 +33,7 @@
 use async_trait::async_trait;
 
 use crate::error::LimiteronError;
+use crate::i18n::t;
 
 /// 授权提供者 trait
 ///
@@ -260,9 +261,9 @@ impl AuthorizationProvider for SimpleAuthorizationProvider {
         if self.is_authorized(operator) {
             Ok(())
         } else {
-            Err(LimiteronError::AuthorizationError(format!(
-                "操作者 '{}' 未被授权执行此操作",
-                operator
+            Err(LimiteronError::AuthorizationError(t(
+                "authz-operator-not-authorized",
+                &[("operator", operator.to_string())],
             )))
         }
     }
@@ -404,15 +405,18 @@ impl AuthorizationProvider for OperationAuthorizationProvider {
                 if roles.iter().any(|r| r == operator) {
                     Ok(())
                 } else {
-                    Err(LimiteronError::AuthorizationError(format!(
-                        "操作者 '{}' 未被授权执行操作 '{}'",
-                        operator, operation
+                    Err(LimiteronError::AuthorizationError(t(
+                        "authz-operator-not-authorized-for-operation",
+                        &[
+                            ("operator", operator.to_string()),
+                            ("operation", operation.to_string()),
+                        ],
                     )))
                 }
             }
-            None => Err(LimiteronError::AuthorizationError(format!(
-                "未知的操作类型: '{}'",
-                operation
+            None => Err(LimiteronError::AuthorizationError(t(
+                "authz-unknown-operation",
+                &[("operation", operation.to_string())],
             ))),
         }
     }

@@ -4,9 +4,8 @@
 //!
 //! 防止 SSRF 攻击，确保 webhook URL 指向安全的公网地址。
 //!
-//! 错误文案为英文规范串（与 FTL 目录 `webhook-*` 键的 en 模式逐字对齐，
-//! change `unify-rust-i18n` T016）；中文渲染面见
-//! `limiteron::i18n::t("webhook-*", args)`。
+//! 错误文案经 FTL 目录 `webhook-*` 键构造（T025 MEDIUM-1 接线）：
+//! `t(key, args)` 随 locale 渲染，默认/回退为英文规范串。
 
 /// 校验 Webhook URL 是否安全
 ///
@@ -26,42 +25,45 @@
 ///
 /// # 返回
 /// - `Ok(())`: URL 安全
-/// - `Err(String)`: 不安全的原因（英文规范串）
+/// - `Err(String)`: 不安全的原因（经 FTL 目录渲染，默认英文规范串）
 #[cfg(feature = "webhook")]
 pub(crate) fn validate_webhook_url(url: &str, require_https: bool) -> Result<(), String> {
+    use crate::i18n::t;
+
     let parsed = url
         .parse::<reqwest::Url>()
-        .map_err(|e| format!("Invalid URL: {}", e))?; // webhook-invalid-url
+        // T025 MEDIUM-1：错误文案接线 FTL（webhook-invalid-url），zh 渲染可达
+        .map_err(|e| t("webhook-invalid-url", &[("reason", e.to_string())]))?;
 
     if require_https && parsed.scheme() != "https" {
-        return Err("Webhook URL must use HTTPS protocol".to_string()); // webhook-https-required
+        return Err(t("webhook-https-required", &[]));
     }
 
     let host_raw = parsed
         .host_str()
-        .ok_or_else(|| "URL is missing a host name".to_string())?; // webhook-missing-host
+        .ok_or_else(|| t("webhook-missing-host", &[]))?;
     // IPv6 地址在 URL 中带方括号（如 [::1]），parse::<IpAddr> 前需去除
     let host = host_raw.trim_start_matches('[').trim_end_matches(']');
     let lower_host = host.to_lowercase();
 
     if lower_host == "localhost" || lower_host == "127.0.0.1" || lower_host == "::1" {
-        return Err("localhost or loopback addresses are forbidden".to_string()); // webhook-localhost-forbidden
+        return Err(t("webhook-localhost-forbidden", &[]));
     }
 
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
         if ip.is_loopback() {
-            return Err("Loopback IP addresses are forbidden".to_string()); // webhook-loopback-forbidden
+            return Err(t("webhook-loopback-forbidden", &[]));
         }
         if ip.is_unspecified() {
-            return Err("Unspecified IP addresses are forbidden".to_string()); // webhook-unspecified-forbidden
+            return Err(t("webhook-unspecified-forbidden", &[]));
         }
         match ip {
             std::net::IpAddr::V4(v4) => {
                 if v4.is_private() {
-                    return Err("Private IP addresses are forbidden".to_string()); // webhook-private-forbidden
+                    return Err(t("webhook-private-forbidden", &[]));
                 }
                 if v4.is_link_local() {
-                    return Err("Link-local IP addresses are forbidden".to_string()); // webhook-link-local-forbidden
+                    return Err(t("webhook-link-local-forbidden", &[]));
                 }
             }
             std::net::IpAddr::V6(v6) => {
@@ -69,37 +71,37 @@ pub(crate) fn validate_webhook_url(url: &str, require_https: bool) -> Result<(),
                 // 否则攻击者可用此格式绕过私有 IP 检查
                 if let Some(v4) = v6.to_ipv4_mapped() {
                     if v4.is_private() {
-                        return Err(
-                            "Private IP addresses are forbidden (IPv4-mapped IPv6 bypass attempt)"
-                                .to_string(), // webhook-private-mapped-forbidden
-                        );
+                        return Err(t(
+                            "webhook-private-mapped-forbidden",
+                            &[],
+                        )); // webhook-private-mapped-forbidden
                     }
                     if v4.is_link_local() {
-                        return Err(
-                            "Link-local addresses are forbidden (IPv4-mapped IPv6 bypass attempt)"
-                                .to_string(), // webhook-link-local-mapped-forbidden
-                        );
+                        return Err(t(
+                            "webhook-link-local-mapped-forbidden",
+                            &[],
+                        )); // webhook-link-local-mapped-forbidden
                     }
                     if v4.is_loopback() {
-                        return Err(
-                            "Loopback addresses are forbidden (IPv4-mapped IPv6 bypass attempt)"
-                                .to_string(), // webhook-loopback-mapped-forbidden
-                        );
+                        return Err(t(
+                            "webhook-loopback-mapped-forbidden",
+                            &[],
+                        )); // webhook-loopback-mapped-forbidden
                     }
                     if v4.is_unspecified() {
-                        return Err(
-                            "Unspecified addresses are forbidden (IPv4-mapped IPv6 bypass attempt)"
-                                .to_string(), // webhook-unspecified-mapped-forbidden
-                        );
+                        return Err(t(
+                            "webhook-unspecified-mapped-forbidden",
+                            &[],
+                        )); // webhook-unspecified-mapped-forbidden
                     }
                 }
                 if v6.is_unique_local() {
-                    return Err("Unique local IPv6 addresses are forbidden".to_string()); // webhook-unique-local-v6-forbidden
+                    return Err(t("webhook-unique-local-v6-forbidden", &[]));
                 }
                 // IPv6 链路本地地址 fe80::/10
                 let segs = v6.segments();
                 if (segs[0] & 0xffc0) == 0xfe80 {
-                    return Err("Link-local IPv6 addresses are forbidden".to_string()); // webhook-link-local-v6-forbidden
+                    return Err(t("webhook-link-local-v6-forbidden", &[]));
                 }
             }
         }

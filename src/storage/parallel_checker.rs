@@ -8,6 +8,7 @@
 
 use super::BanTarget;
 use crate::error::{BanInfo, LimiteronError};
+use crate::i18n::t;
 use crate::matchers::RequestContext;
 use futures::stream::{FuturesUnordered, StreamExt};
 use log::{debug, warn};
@@ -42,7 +43,10 @@ impl ParallelBanChecker {
     ) -> Result<Option<BanInfo>, LimiteronError> {
         let start = std::time::Instant::now();
 
-        debug!("开始并行封禁检查，目标数量: {}", targets.len());
+        debug!(
+            "parallel ban check started, target count: {}",
+            targets.len()
+        );
 
         if targets.is_empty() {
             return Ok(None);
@@ -61,7 +65,7 @@ impl ParallelBanChecker {
                 {
                     Ok(Some(detail)) if detail.expires_at > chrono::Utc::now() => {
                         debug!(
-                            "发现活跃封禁: 目标={:?}, 原因={}",
+                            "active ban found: target={:?}, reason={}",
                             target_clone, detail.reason
                         );
                         Ok(Some(BanInfo::new(
@@ -80,7 +84,10 @@ impl ParallelBanChecker {
         while let Some(result) = check_futures.next().await {
             match result {
                 Ok(Some(ban_info)) => {
-                    debug!("并行封禁检查完成（提前退出），耗时: {:?}", start.elapsed());
+                    debug!(
+                        "parallel ban check completed (early exit), elapsed: {:?}",
+                        start.elapsed()
+                    );
                     return Ok(Some(ban_info));
                 }
                 Ok(None) => continue,
@@ -89,13 +96,19 @@ impl ParallelBanChecker {
                     // 存储故障期间放行而非阻断全部流量。但必须以 warn 级
                     // 显性化——调用方无法区分「未封禁」与「存储故障」，
                     // 静默降级会让封禁在故障期间失效且无告警线索。
-                    warn!("封禁检查出错，按未封禁处理（fail-open）: {}", e);
+                    warn!(
+                        "{}",
+                        t("ban-check-error-fail-open", &[("error", e.to_string())])
+                    );
                     continue;
                 }
             }
         }
 
-        debug!("并行封禁检查完成，无封禁，耗时: {:?}", start.elapsed());
+        debug!(
+            "parallel ban check completed, no bans, elapsed: {:?}",
+            start.elapsed()
+        );
         Ok(None)
     }
 

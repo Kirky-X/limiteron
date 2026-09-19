@@ -4,6 +4,7 @@
 
 #[cfg(feature = "ban-manager")]
 use crate::BanManager;
+use crate::i18n::t;
 #[cfg(feature = "circuit-breaker")]
 use crate::CircuitBreaker;
 use crate::Governor;
@@ -91,7 +92,11 @@ impl AdminServer {
     /// 启动服务器
     pub async fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
         if !self.config.enabled {
-            log::info!(target: "admin-api", "管理API已禁用");
+            log::info!(
+                target: "admin-api",
+                "{}",
+                t("admin-api-disabled", &[])
+            );
             return Ok(());
         }
 
@@ -105,8 +110,8 @@ impl AdminServer {
 
         log::info!(
             target: "admin-api",
-            "管理API服务器已启动: http://{}",
-            address
+            "{}",
+            t("admin-api-started", &[("address", address.to_string())])
         );
 
         // 启用 ConnectInfo<SocketAddr> 注入，

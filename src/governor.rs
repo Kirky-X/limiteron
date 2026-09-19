@@ -13,6 +13,7 @@
 use crate::config::{ConfigChangeRecord, ConfigHistory, FlowControlConfig};
 use crate::decision_chain::DecisionChain;
 use crate::error::Decision;
+use crate::i18n::t;
 use crate::error::LimiteronError;
 #[cfg(feature = "fallback")]
 use crate::fallback::FallbackManager;
@@ -495,7 +496,11 @@ impl GovernorBuilder {
             }))
             .await;
 
-            log::info!(target: "governor", "已注册孤岛模式回调到 FallbackManager");
+            log::info!(
+            target: "governor",
+            "{}",
+            t("governor-island-callback-registered", &[])
+        );
         }
 
         Ok(Governor {
@@ -916,7 +921,7 @@ impl Governor {
         self.stats.increment_total();
 
         debug!(
-            "开始请求检查: user_id={}, ip={}, path={}, method={}",
+            "request check started: user_id={}, ip={}, path={}, method={}",
             redact_user_id(context.user_id.as_deref()),
             redact_ip(context.ip.as_deref()),
             context.path,
@@ -964,9 +969,18 @@ impl Governor {
 
                 if let Some(info) = ban_info {
                     warn!(
-                        "Request banned: 用户={}, 原因={}",
-                        crate::logging::redact_user_id(Some(identifier.key().as_str())),
-                        info.reason()
+                        "{}",
+                        t(
+                            "governor-request-banned",
+                            &[
+                                (
+                                    "user",
+                                    crate::logging::redact_user_id(Some(identifier.key().as_str()))
+                                        .to_string(),
+                                ),
+                                ("reason", info.reason().to_string()),
+                            ],
+                        )
                     );
                     self.stats.increment_banned();
                     return Ok(Decision::Banned(info));
@@ -985,12 +999,12 @@ impl Governor {
             if let Ok(Some(cached_decision)) = self.l1_cache.get(&cache_key).await {
                 let decision = cached_decision.to_decision();
                 if !matches!(decision, Decision::Allowed(_)) {
-                    trace!("L1 缓存命中(拒绝决策): key={}", cache_key);
+                    trace!("L1 cache hit (reject decision): key={}", cache_key);
                     self.update_stats_for_decision(&Result::Ok(decision.clone()));
                     return Ok(decision);
                 }
                 trace!(
-                    "L1 缓存命中但为允许决策，忽略并重新执行完整检查: key={}",
+                    "L1 cache hit but allow decision, ignoring and re-running full check: key={}",
                     cache_key
                 );
             }
@@ -1031,7 +1045,7 @@ impl Governor {
                             let cache_key = self.build_cache_key_multi(&identifier, &matched_rules);
                             let cacheable = CacheableDecision::from_decision(decision);
                             let _ = self.l1_cache.set(cache_key, cacheable).await;
-                            trace!("L1 缓存已更新: decision=rejected");
+                            trace!("L1 cache updated: decision=rejected");
                         }
 
                         // 发射事件
@@ -1097,9 +1111,10 @@ impl Governor {
         context: &RequestContext,
     ) -> Result<Decision, LimiteronError> {
         if !self.is_l1_cache_enabled() {
-            return Err(LimiteronError::LimitError(
-                "存储层故障且 L1 缓存未启用".to_string(),
-            ));
+            return Err(LimiteronError::LimitError(t(
+                "governor-storage-failure-no-l1",
+                &[],
+            )));
         }
 
         // 尝试从 缓存获取结果
@@ -1132,7 +1147,7 @@ impl Governor {
 
         match self.l1_cache.get(&cache_key).await {
             Ok(Some(cached_decision)) => {
-                trace!("孤岛模式 - L1 缓存命中: key={}", cache_key);
+                trace!("island mode - L1 cache hit: key={}", cache_key);
                 let decision = cached_decision.to_decision();
                 self.update_stats_for_decision(&Result::Ok(decision.clone()));
                 Ok(decision)
@@ -1145,21 +1160,34 @@ impl Governor {
                     if let Some(config) = self.l1_cache.island_config() {
                         match config.fallback_strategy {
                             IslandFallbackStrategy::AllowAll => {
-                                log::warn!(target: "governor", "孤岛模式 - 允许所有请求通过");
+                                log::warn!(
+                                    target: "governor",
+                                    "{}",
+                                    t("governor-island-allow-all", &[])
+                                );
                                 let decision = Decision::allowed_default();
                                 self.update_stats_for_decision(&Ok(decision.clone()));
                                 Ok(decision)
                             }
                             IslandFallbackStrategy::RejectAll => {
-                                log::warn!(target: "governor", "孤岛模式 - 拒绝所有请求");
+                                log::warn!(
+                                    target: "governor",
+                                    "{}",
+                                    t("governor-island-reject-all", &[])
+                                );
                                 self.stats.increment_error();
-                                Err(LimiteronError::LimitError(
-                                    "孤岛模式：存储层故障，拒绝请求".to_string(),
-                                ))
+                                Err(LimiteronError::LimitError(t(
+                                    "governor-island-reject-storage-failure",
+                                    &[],
+                                )))
                             }
                             IslandFallbackStrategy::LocalDecision => {
                                 // 已在上面尝试过 缓存，未命中
-                                log::warn!(target: "governor", "孤岛模式 - L1 缓存未命中，使用保守策略");
+                                log::warn!(
+                                    target: "governor",
+                                    "{}",
+                                    t("governor-island-l1-miss-conservative", &[])
+                                );
                                 let decision = Decision::allowed_default();
                                 self.update_stats_for_decision(&Ok(decision.clone()));
                                 Ok(decision)
@@ -1169,7 +1197,17 @@ impl Governor {
                                 window_secs,
                             } => {
                                 // 使用保守配额：简单计数，超出则拒绝
-                                log::warn!(target: "governor", "孤岛模式 - 使用保守配额: {}/{}s", max_requests, window_secs);
+                                log::warn!(
+                                    target: "governor",
+                                    "{}",
+                                    t(
+                                        "governor-island-conservative-quota",
+                                        &[
+                                            ("max", max_requests.to_string()),
+                                            ("window", window_secs.to_string()),
+                                        ],
+                                    )
+                                );
                                 // 这里可以实现一个简单的本地计数器
                                 // 为简化实现，当前直接允许
                                 let decision = Decision::allowed_default();
@@ -1186,9 +1224,10 @@ impl Governor {
                 } else {
                     // 不在孤岛模式，返回错误
                     self.stats.increment_error();
-                    Err(LimiteronError::LimitError(
-                        "存储层故障，降级缓存未命中".to_string(),
-                    ))
+                    Err(LimiteronError::LimitError(t(
+                        "governor-storage-failure-cache-miss",
+                        &[],
+                    )))
                 }
             }
         }
@@ -1287,7 +1326,16 @@ impl Governor {
 
         match ban_info {
             Some(info) => {
-                warn!("Resource banned: 资源={}, 原因={}", resource, info.reason());
+                warn!(
+                    "{}",
+                    t(
+                        "governor-resource-banned",
+                        &[
+                            ("resource", resource.to_string()),
+                            ("reason", info.reason().to_string()),
+                        ],
+                    )
+                );
                 Ok(Decision::Banned(info))
             }
             None => Ok(Decision::allowed_default()),
@@ -1318,9 +1366,10 @@ impl Governor {
 
         #[cfg(not(feature = "ban-manager"))]
         {
-            Err(LimiteronError::ConfigError(
-                "并行检查已禁用且未启用封禁管理器，无法执行资源封禁检查".to_string(),
-            ))
+            Err(LimiteronError::ConfigError(t(
+                "governor-resource-ban-check-unavailable",
+                &[],
+            )))
         }
     }
 
@@ -1332,7 +1381,7 @@ impl Governor {
         reason: &str,
         source: Option<BanSource>,
     ) -> Result<(), LimiteronError> {
-        debug!("Ban user: {} 原因: {}", identifier.key(), reason);
+        debug!("Ban user: {} reason: {}", identifier.key(), reason);
 
         let ban_target = identifier.to_ban_target();
 
@@ -1351,8 +1400,15 @@ impl Governor {
                 )
                 .await?;
             info!(
-                "用户 {} 已被封禁",
-                crate::logging::redact_user_id(Some(identifier.key().as_ref()))
+                "{}",
+                t(
+                    "governor-user-banned",
+                    &[(
+                        "user",
+                        crate::logging::redact_user_id(Some(identifier.key().as_ref()))
+                            .to_string(),
+                    )],
+                )
             );
         } else {
             return Err(LimiteronError::ValidationError(
@@ -1366,7 +1422,7 @@ impl Governor {
     /// 取消用户封禁
     #[cfg(feature = "ban-manager")]
     pub async fn unban_identifier(&self, identifier: &Identifier) -> Result<(), LimiteronError> {
-        debug!("取消Ban user: {}", identifier.key());
+        debug!("Unban user: {}", identifier.key());
 
         let ban_target = identifier.to_ban_target();
 
@@ -1378,8 +1434,15 @@ impl Governor {
 
             if unbanned {
                 info!(
-                    "用户 {} 已解封",
-                    crate::logging::redact_user_id(Some(identifier.key().as_ref()))
+                    "{}",
+                    t(
+                        "governor-user-unbanned",
+                        &[(
+                            "user",
+                            crate::logging::redact_user_id(Some(identifier.key().as_ref()))
+                                .to_string(),
+                        )],
+                    )
                 );
             }
             Ok(())
@@ -1495,9 +1558,18 @@ impl Governor {
             .await
             .map_err(LimiteronError::StorageError)?;
         info!(
-            "标识符已按租户封禁: namespace={}, key={}",
-            namespace,
-            crate::logging::redact_user_id(Some(identifier.key().as_str()))
+            "{}",
+            t(
+                "governor-tenant-ban-applied",
+                &[
+                    ("namespace", namespace.to_string()),
+                    (
+                        "key",
+                        crate::logging::redact_user_id(Some(identifier.key().as_str()))
+                            .to_string(),
+                    ),
+                ],
+            )
         );
         Ok(())
     }
@@ -1527,14 +1599,14 @@ impl Governor {
 
     /// 停止配置监视器
     pub async fn stop_config_watcher(&self) -> Result<(), LimiteronError> {
-        info!("停止配置监视器");
+        info!("{}", t("governor-config-watcher-stopped", &[]));
 
         Ok(())
     }
 
     /// 手动配置检查
     pub async fn manual_config_check(&self) -> Result<bool, LimiteronError> {
-        info!("手动配置检查");
+        info!("{}", t("governor-manual-config-check", &[]));
 
         let _config = self.config.read().await;
 
@@ -1561,7 +1633,7 @@ impl Governor {
 
     /// 重置统计信息
     pub async fn reset_stats(&self) {
-        info!("重置统计信息");
+        info!("{}", t("governor-stats-reset", &[]));
 
         self.decision_chain.write().await.reset_stats().await;
         self.rule_matcher.write().await.reset_stats();
@@ -1667,14 +1739,14 @@ impl Governor {
     pub fn enable_l1_cache(&self) {
         self.l1_cache_enabled
             .store(true, std::sync::atomic::Ordering::Release);
-        info!("L1 缓存已启用");
+        info!("{}", t("governor-l1-cache-enabled", &[]));
     }
 
     /// 禁用 缓存
     pub fn disable_l1_cache(&self) {
         self.l1_cache_enabled
             .store(false, std::sync::atomic::Ordering::Release);
-        info!("L1 缓存已禁用");
+        info!("{}", t("governor-l1-cache-disabled", &[]));
     }
 
     /// 检查 缓存是否启用
@@ -1686,14 +1758,14 @@ impl Governor {
     /// 清空 缓存
     pub async fn clear_l1_cache(&self) {
         let _ = self.l1_cache.clear().await;
-        info!("L1 缓存已清空");
+        info!("{}", t("governor-l1-cache-cleared", &[]));
     }
 
     /// 清理 缓存中的过期条目
     pub async fn evict_expired_l1_cache(&self) -> usize {
         let evicted = self.l1_cache.evict_expired().await.unwrap_or(0);
         if evicted > 0 {
-            debug!("L1 缓存清理了 {} 个过期条目", evicted);
+            debug!("L1 cache evicted {} expired entries", evicted);
         }
         evicted
     }
@@ -1724,7 +1796,7 @@ impl Governor {
             .l1_cache
             .invalidate(&RateLimitCacheKey::ban_check(identifier))
             .await;
-        debug!("已使标识符 {} 的 L1 缓存失效", identifier);
+        debug!("invalidated L1 cache for identifier {}", identifier);
     }
 
     /// 使指定规则的缓存失效
@@ -1737,7 +1809,7 @@ impl Governor {
             .l1_cache
             .invalidate_containing(&format!(":{}", rule_id))
             .await;
-        debug!("已使规则 {} 的 L1 缓存失效", rule_id);
+        debug!("invalidated L1 cache for rule {}", rule_id);
     }
 
     /// 获取 缓存大小
@@ -1751,7 +1823,7 @@ impl Governor {
         let mut logger = self.audit_logger.write().await;
         *logger = Some(audit_logger);
 
-        info!("审计日志记录器已设置");
+        info!("{}", t("governor-audit-logger-set", &[]));
     }
 
     /// 获取审计日志记录器
@@ -1826,7 +1898,7 @@ impl Governor {
     /// 执行真实的存储 ping、缓存可用性检查、后台任务存活检查。
     /// 返回 `Ok(())` 表示所有关键组件健康；返回 `Err` 包含具体故障信息。
     pub async fn health_check(&self) -> Result<(), LimiteronError> {
-        info!("健康检查");
+        info!("{}", t("governor-health-check", &[]));
 
         let status = self.health_status().await;
 
@@ -1932,11 +2004,11 @@ impl Governor {
             .is_err();
 
         if already_shutdown {
-            info!("Governor 已关闭，shutdown() 幂等返回 Ok");
+            info!("{}", t("governor-already-shutdown", &[]));
             return Ok(());
         }
 
-        info!("开始优雅关闭 Governor");
+        info!("{}", t("governor-shutdown-started", &[]));
 
         // 取消所有后台任务
         self.shutdown_token.cancel();
@@ -1949,7 +2021,7 @@ impl Governor {
         // 清空 缓存
         self.clear_l1_cache().await;
 
-        info!("Governor 优雅关闭完成");
+        info!("{}", t("governor-shutdown-complete", &[]));
         Ok(())
     }
 

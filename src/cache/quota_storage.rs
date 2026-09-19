@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 use crate::error::{ConsumeResult, StorageError};
+use crate::i18n::t;
 use crate::storage::{QuotaInfo, QuotaStorage};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -108,7 +109,9 @@ impl CacheQuotaStorage {
             Some(data) => std::str::from_utf8(&data)
                 .ok()
                 .and_then(|s| s.trim().parse::<u64>().ok())
-                .ok_or_else(|| StorageError::QueryError("quota counter 解析失败".to_string())),
+                .ok_or_else(|| {
+                    StorageError::QueryError(t("cache-quota-counter-parse-failed", &[]))
+                }),
             None => Ok(0),
         }
     }

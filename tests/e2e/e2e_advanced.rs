@@ -342,8 +342,16 @@ mod concurrency_limiter {
         let result = limiter.acquire(1).await;
         match result {
             Err(LimiteronError::LimitError(msg)) => {
+                // 错误文案经 FTL 渲染（concurrency-permit-acquire-timeout，T025），
+                // 以目录 en 值为期望，locale 无关
                 assert!(
-                    msg.contains("超时"),
+                    msg.contains(
+                        limiteron::i18n::translate_en(
+                            "concurrency-permit-acquire-timeout",
+                            &[],
+                        )
+                        .as_str()
+                    ),
                     "expected timeout message, got: {}",
                     msg
                 );

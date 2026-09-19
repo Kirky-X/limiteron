@@ -53,33 +53,33 @@ impl LuaScriptType {
 /// Parameters: KEYS\[1\] - key, ARGV\[1\] - window_size (ms), ARGV\[2\] - max_requests, ARGV\[3\] - current_timestamp
 /// Returns: (allowed: bool, current_count: int, reset_time: int)
 pub const SLIDING_WINDOW_SCRIPT: &str = r#"
--- 获取参数
+-- get parameters
 local key = KEYS[1]
 local window_size = tonumber(ARGV[1])
 local max_requests = tonumber(ARGV[2])
 local current_timestamp = tonumber(ARGV[3])
 local window_start = current_timestamp - window_size
 
--- 移除窗口外的元素
+-- remove elements outside the window
 redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
 
--- 获取当前窗口内的请求数
+-- get request count within the current window
 local current_count = redis.call('ZCARD', key)
 
--- 判断是否允许通过
+-- decide whether to allow
 local allowed = current_count < max_requests
 
--- 如果允许，添加当前请求
+-- if allowed, add the current request
 if allowed then
     redis.call('ZADD', key, current_timestamp, current_timestamp)
-    -- 设置过期时间（窗口大小 + 1秒）
+    -- set expiry (window size + 1 second)
     redis.call('EXPIRE', key, math.ceil(window_size / 1000) + 1)
 end
 
--- 计算重置时间（窗口开始时间 + 窗口大小）
+-- compute reset time (window start + window size)
 local reset_time = window_start + window_size
 
--- 返回结果
+-- return result
 return {allowed and 1 or 0, current_count, reset_time}
 "#;
 
@@ -89,33 +89,33 @@ return {allowed and 1 or 0, current_count, reset_time}
 /// Parameters: KEYS\[1\] - key, ARGV\[1\] - window_size (ms), ARGV\[2\] - max_requests, ARGV\[3\] - current_timestamp
 /// Returns: (allowed: bool, current_count: int, reset_time: int)
 pub const FIXED_WINDOW_SCRIPT: &str = r#"
--- 获取参数
+-- get parameters
 local key = KEYS[1]
 local window_size = tonumber(ARGV[1])
 local max_requests = tonumber(ARGV[2])
 local current_timestamp = tonumber(ARGV[3])
 
--- 计算当前窗口
+-- compute the current window
 local current_window = math.floor(current_timestamp / window_size) * window_size
 local window_key = key .. ':' .. current_window
 
--- 获取当前计数
+-- get the current count
 local current_count = tonumber(redis.call('GET', window_key)) or 0
 
--- 判断是否允许通过
+-- decide whether to allow
 local allowed = current_count < max_requests
 
--- 如果允许，增加计数
+-- if allowed, increment the count
 if allowed then
     redis.call('INCR', window_key)
-    -- 设置过期时间（窗口大小 + 1秒）
+    -- set expiry (window size + 1 second)
     redis.call('EXPIRE', window_key, math.ceil(window_size / 1000) + 1)
 end
 
--- 计算重置时间（下一个窗口开始时间）
+-- compute reset time (start of the next window)
 local reset_time = current_window + window_size
 
--- 返回结果
+-- return result
 return {allowed and 1 or 0, current_count, reset_time}
 "#;
 
@@ -125,7 +125,7 @@ return {allowed and 1 or 0, current_count, reset_time}
 /// Parameters: KEYS\[1\] - key, ARGV\[1\] - cost, ARGV\[2\] - limit, ARGV\[3\] - overdraft_limit, ARGV\[4\] - window_start, ARGV\[5\] - window_end, ARGV\[6\] - consumed_field, ARGV\[7\] - limit_field, ARGV\[8\] - window_start_field, ARGV\[9\] - window_end_field
 /// Returns: (allowed: bool, remaining: int, consumed: int)
 pub const QUOTA_CONSUME_SCRIPT: &str = r#"
--- 获取参数
+-- get parameters
 local key = KEYS[1]
 local cost = tonumber(ARGV[1])
 local limit = tonumber(ARGV[2])
@@ -137,39 +137,39 @@ local limit_field = ARGV[7]
 local window_start_field = ARGV[8]
 local window_end_field = ARGV[9]
 
--- 检查窗口是否过期
+-- check whether the window has expired
 local stored_window_start = tonumber(redis.call('HGET', key, window_start_field))
 if stored_window_start and stored_window_start ~= window_start then
-    -- 窗口已过期，重置配额
+    -- window expired, reset quota
     redis.call('HMSET', key, consumed_field, 0, window_start_field, window_start, window_end_field, window_end, limit_field, limit)
     redis.call('EXPIRE', key, math.ceil((window_end - window_start) / 1000) + 10)
 elseif not stored_window_start then
-    -- 首次消费，初始化配额信息
+    -- first consumption, initialize quota info
     redis.call('HMSET', key, consumed_field, 0, window_start_field, window_start, window_end_field, window_end, limit_field, limit)
     redis.call('EXPIRE', key, math.ceil((window_end - window_start) / 1000) + 10)
 else
-    -- 窗口未过期，更新limit信息（确保metadata一致性）
+    -- window not expired, update limit info (keep metadata consistent)
     redis.call('HSET', key, limit_field, limit)
 end
 
--- 获取当前已消费量
+-- get the current consumed amount
 local consumed = tonumber(redis.call('HGET', key, consumed_field)) or 0
 
--- 计算剩余配额（包括透支）
+-- compute remaining quota (including overdraft)
 local total_limit = limit + overdraft_limit
 local remaining = total_limit - consumed
 
--- 判断是否允许消费
+-- decide whether consumption is allowed
 local allowed = remaining >= cost
 
--- 如果允许，扣减配额
+-- if allowed, deduct the quota
 if allowed then
     redis.call('HINCRBY', key, consumed_field, cost)
     consumed = consumed + cost
     remaining = total_limit - consumed
 end
 
--- 返回结果
+-- return result
 return {allowed and 1 or 0, remaining, consumed}
 "#;
 
@@ -179,7 +179,7 @@ return {allowed and 1 or 0, remaining, consumed}
 /// Parameters: KEYS\[1\] - key, ARGV\[1\] - window_start, ARGV\[2\] - window_end, ARGV\[3\] - consumed_field, ARGV\[4\] - window_start_field, ARGV\[5\] - window_end_field
 /// Returns: success (1) or fail (0)
 pub const QUOTA_RESET_SCRIPT: &str = r#"
--- 获取参数
+-- get parameters
 local key = KEYS[1]
 local window_start = tonumber(ARGV[1])
 local window_end = tonumber(ARGV[2])
@@ -187,11 +187,11 @@ local consumed_field = ARGV[3]
 local window_start_field = ARGV[4]
 local window_end_field = ARGV[5]
 
--- 重置配额
+-- reset quota
 redis.call('HMSET', key, consumed_field, 0, window_start_field, window_start, window_end_field, window_end)
 redis.call('EXPIRE', key, math.ceil((window_end - window_start) / 1000) + 10)
 
--- 返回成功
+-- return success
 return 1
 "#;
 
@@ -201,42 +201,42 @@ return 1
 /// Parameters: KEYS\[1\] - key, ARGV\[1\] - capacity, ARGV\[2\] - refill_rate (tokens/ms), ARGV\[3\] - current_timestamp, ARGV\[4\] - tokens_requested
 /// Returns: (allowed: bool, tokens_remaining: int, refill_time: int)
 pub const TOKEN_BUCKET_SCRIPT: &str = r#"
--- 获取参数
+-- get parameters
 local key = KEYS[1]
 local capacity = tonumber(ARGV[1])
 local refill_rate = tonumber(ARGV[2])  -- tokens per millisecond
 local current_timestamp = tonumber(ARGV[3])
 local tokens_requested = tonumber(ARGV[4])
 
--- 获取令牌桶状态
+-- get token bucket state
 local tokens = tonumber(redis.call('HGET', key, 'tokens')) or capacity
 local last_refill = tonumber(redis.call('HGET', key, 'last_refill')) or current_timestamp
 
--- 计算需要补充的令牌数
+-- compute the number of tokens to refill
 local elapsed = current_timestamp - last_refill
 if elapsed > 0 then
     local tokens_to_add = elapsed * refill_rate
     tokens = math.min(capacity, tokens + tokens_to_add)
 end
 
--- 判断是否有足够的令牌
+-- decide whether there are enough tokens
 local allowed = tokens >= tokens_requested
 local tokens_remaining = tokens
 
--- 如果允许，扣除令牌
+-- if allowed, deduct the tokens
 if allowed then
     tokens = tokens - tokens_requested
     tokens_remaining = tokens
 end
 
--- 更新令牌桶状态
+-- update token bucket state
 redis.call('HMSET', key, 'tokens', tokens, 'last_refill', current_timestamp)
 redis.call('EXPIRE', key, math.ceil(capacity / refill_rate / 1000) + 60)
 
--- 计算下次补充时间（补充1个令牌所需时间）
+-- compute next refill time (time to refill 1 token)
 local refill_time = current_timestamp + math.ceil(1 / refill_rate)
 
--- 返回结果
+-- return result
 return {allowed and 1 or 0, tokens_remaining, refill_time}
 "#;
 

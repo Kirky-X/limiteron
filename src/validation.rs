@@ -25,6 +25,7 @@ use crate::constants::{
     MAX_MAC_ADDRESS_LENGTH, MAX_PATH_LENGTH, MAX_USER_ID_LENGTH,
 };
 use crate::error::LimiteronError;
+use crate::i18n::t;
 #[cfg(feature = "ban-manager")]
 use crate::storage::BanTarget;
 
@@ -347,21 +348,24 @@ pub fn validate_ban_target(target: &BanTarget) -> Result<(), LimiteronError> {
 /// 格式要求：2 字母大写，如 "CN", "US", "JP"
 pub fn validate_geo_country_code(code: &str) -> Result<(), LimiteronError> {
     if code.is_empty() {
-        return Err(LimiteronError::ValidationError(
-            "国家代码不能为空".to_string(),
-        ));
+        return Err(LimiteronError::ValidationError(t(
+            "validation-country-code-empty",
+            &[],
+        )));
     }
     if code.len() != 2 {
-        return Err(LimiteronError::ValidationError(format!(
-            "国家代码必须是 2 字母（ISO 3166-1 alpha-2），got {} 字符: {}",
-            code.len(),
-            code
+        return Err(LimiteronError::ValidationError(t(
+            "validation-country-code-length",
+            &[
+                ("length", code.len().to_string()),
+                ("code", code.to_string()),
+            ],
         )));
     }
     if !code.chars().all(|c| c.is_ascii_uppercase()) {
-        return Err(LimiteronError::ValidationError(format!(
-            "国家代码必须是大写字母: {}",
-            code
+        return Err(LimiteronError::ValidationError(t(
+            "validation-country-code-uppercase",
+            &[("code", code.to_string())],
         )));
     }
     Ok(())

@@ -22,6 +22,7 @@
 
 use crate::ban::{BanManager, BanSource};
 use crate::error::LimiteronError;
+use crate::i18n::t;
 use crate::storage::BanTarget;
 #[cfg(feature = "config-watcher")]
 use parking_lot::RwLock;
@@ -114,42 +115,54 @@ impl BanFileLoader {
         let path = self.path.clone();
         let ban_file: BanFile =
             tokio::task::spawn_blocking(move || -> Result<BanFile, LimiteronError> {
-                // 错误文案为英文规范串（与 FTL 键 ban-file-* 的 en 模式对齐，T016）
+                // 错误文案经 FTL 键 ban-file-* 构造（T025 MEDIUM-1 接线：
+                // t(key, args) 随 locale 渲染，默认/回退为英文规范串）
                 let file_meta = std::fs::metadata(&path).map_err(|e| {
-                    LimiteronError::ConfigError(format!(
-                        "Failed to read ban file metadata {}: {}",
-                        path.display(),
-                        e
+                    LimiteronError::ConfigError(t(
+                        "ban-file-metadata-read-failed",
+                        &[
+                            ("path", path.display().to_string()),
+                            ("reason", e.to_string()),
+                        ],
                     ))
                 })?;
                 if file_meta.len() > MAX_BAN_FILE_SIZE {
-                    return Err(LimiteronError::ConfigError(format!(
-                        "Ban file too large: {} ({} bytes, limit {} bytes)",
-                        path.display(),
-                        file_meta.len(),
-                        MAX_BAN_FILE_SIZE
+                    return Err(LimiteronError::ConfigError(t(
+                        "ban-file-too-large",
+                        &[
+                            ("path", path.display().to_string()),
+                            ("size", file_meta.len().to_string()),
+                            ("limit", MAX_BAN_FILE_SIZE.to_string()),
+                        ],
                     )));
                 }
 
                 let content = std::fs::read_to_string(&path).map_err(|e| {
-                    LimiteronError::ConfigError(format!(
-                        "Failed to read ban file {}: {}",
-                        path.display(),
-                        e
+                    LimiteronError::ConfigError(t(
+                        "ban-file-read-failed",
+                        &[
+                            ("path", path.display().to_string()),
+                            ("reason", e.to_string()),
+                        ],
                     ))
                 })?;
 
                 serde_yaml_ng::from_str(&content).map_err(|e| {
-                    LimiteronError::ConfigError(format!(
-                        "Failed to parse ban file YAML {}: {}",
-                        path.display(),
-                        e
+                    LimiteronError::ConfigError(t(
+                        "ban-file-yaml-parse-failed",
+                        &[
+                            ("path", path.display().to_string()),
+                            ("reason", e.to_string()),
+                        ],
                     ))
                 })
             })
             .await
             .map_err(|e| {
-                LimiteronError::ConfigError(format!("Ban file load task failed: {e}"))
+                LimiteronError::ConfigError(t(
+                    "ban-file-load-task-failed",
+                    &[("reason", e.to_string())],
+                ))
             })??;
 
         let mut result = LoadResult::default();
@@ -167,16 +180,24 @@ impl BanFileLoader {
             // duration_secs 为 null 的条目退避时长随重载逐次升级。
             match manager.read_ban(&entry.target).await {
                 Ok(Some(existing)) if existing.reason == entry.reason => {
-                    log::debug!("文件封禁已生效，重载跳过: target={:?}", entry.target);
+                    log::debug!(
+                        "file ban already active, reload skipped: target={:?}",
+                        entry.target
+                    );
                     result.success_count += 1;
                     continue;
                 }
                 Ok(_) => {}
                 Err(e) => {
                     log::warn!(
-                        "查询既有封禁失败，按新建处理: target={:?}, error={}",
-                        entry.target,
-                        e
+                        "{}",
+                        t(
+                            "ban-file-existing-lookup-failed-create-new",
+                            &[
+                                ("target", format!("{:?}", entry.target)),
+                                ("error", e.to_string()),
+                            ],
+                        )
                     );
                 }
             }
@@ -195,7 +216,16 @@ impl BanFileLoader {
                     result.success_count += 1;
                 }
                 Err(e) => {
-                    log::warn!("文件加载封禁失败: target={:?}, error={}", entry.target, e);
+                    log::warn!(
+                        "{}",
+                        t(
+                            "ban-file-entry-load-failed",
+                            &[
+                                ("target", format!("{:?}", entry.target)),
+                                ("error", e.to_string()),
+                            ],
+                        )
+                    );
                     result.errors.push(BanLoadError {
                         target_desc,
                         error: e.to_string(),
@@ -237,14 +267,22 @@ impl BanFileLoader {
             },
             notify::Config::default().with_poll_interval(Duration::from_secs(2)),
         )
-        .map_err(|e| LimiteronError::ConfigError(format!("Failed to start file watcher: {e}")))?;
+        .map_err(|e| {
+            LimiteronError::ConfigError(t(
+                "ban-file-watch-start-failed",
+                &[("reason", e.to_string())],
+            ))
+        })?;
 
         // 监听文件所在目录（监听文件本身在某些编辑器下会丢失事件）
         let watch_dir = path.parent().unwrap_or(Path::new("."));
         watcher
             .watch(watch_dir, RecursiveMode::NonRecursive)
             .map_err(|e| {
-                LimiteronError::ConfigError(format!("Failed to register file watch: {e}"))
+                LimiteronError::ConfigError(t(
+                    "ban-file-watch-register-failed",
+                    &[("reason", e.to_string())],
+                ))
             })?;
 
         let manager_clone = manager.clone();
@@ -270,17 +308,31 @@ impl BanFileLoader {
                         },
                     }
                 }
-                log::info!("封禁文件变更，触发重载: {}", loader.path().display());
+                log::info!(
+                    "{}",
+                    t(
+                        "ban-file-changed-reloading",
+                        &[("path", loader.path().display().to_string())],
+                    )
+                );
                 match loader.load_once(&manager_clone).await {
                     Ok(r) => {
                         log::info!(
-                            "封禁文件重载完成: 成功 {} 条, 失败 {} 条",
-                            r.success_count,
-                            r.failure_count
+                            "{}",
+                            t(
+                                "ban-file-reload-complete",
+                                &[
+                                    ("success", r.success_count.to_string()),
+                                    ("failure", r.failure_count.to_string()),
+                                ],
+                            )
                         );
                     }
                     Err(e) => {
-                        log::error!("封禁文件重载失败: {}", e);
+                        log::error!(
+                            "{}",
+                            t("ban-file-reload-failed", &[("reason", e.to_string())])
+                        );
                     }
                 }
             }

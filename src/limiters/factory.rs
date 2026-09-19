@@ -20,6 +20,7 @@ use crate::config::LimiterConfig;
 use crate::config::QuotaType;
 use crate::config::parse_window_size;
 use crate::error::LimiteronError;
+use crate::i18n::t;
 use std::sync::Arc;
 
 /// 配置限制常量
@@ -109,15 +110,17 @@ impl LimiterFactory {
                 overdraft: _,
             } => {
                 // Quota 类型由QuotaController处理
-                Err(LimiteronError::LimitError(
-                    "Quota 限流器类型需要由QuotaController处理".to_string(),
-                ))
+                Err(LimiteronError::LimitError(t(
+                    "limiter-quota-requires-controller",
+                    &[],
+                )))
             }
             LimiterConfig::Custom { .. } => {
                 // Custom 类型由CustomLimiterRegistry处理
-                Err(LimiteronError::LimitError(
-                    "Custom 限流器类型需要由CustomLimiterRegistry处理".to_string(),
-                ))
+                Err(LimiteronError::LimitError(t(
+                    "limiter-custom-requires-registry",
+                    &[],
+                )))
             }
         }
     }
@@ -220,15 +223,18 @@ impl LimiterFactory {
     ) -> Result<(), LimiteronError> {
         Self::parse_window_size(window_size)?;
         if max_requests == 0 {
-            return Err(LimiteronError::ConfigError(format!(
-                "{}最大请求数必须大于0",
-                limiter_type
+            return Err(LimiteronError::ConfigError(t(
+                "limiter-max-requests-must-be-positive",
+                &[("limiter_type", limiter_type.to_string())],
             )));
         }
         if max_requests > MAX_WINDOW_REQUESTS {
-            return Err(LimiteronError::ConfigError(format!(
-                "{}最大请求数过大，最大值为{}",
-                limiter_type, MAX_WINDOW_REQUESTS
+            return Err(LimiteronError::ConfigError(t(
+                "limiter-max-requests-too-large",
+                &[
+                    ("limiter_type", limiter_type.to_string()),
+                    ("max", MAX_WINDOW_REQUESTS.to_string()),
+                ],
             )));
         }
         Ok(())
@@ -241,25 +247,27 @@ impl LimiterFactory {
                 refill_rate,
             } => {
                 if *capacity == 0 {
-                    return Err(LimiteronError::ConfigError(
-                        "令牌桶容量必须大于0".to_string(),
-                    ));
+                    return Err(LimiteronError::ConfigError(t(
+                        "limiter-capacity-must-be-positive",
+                        &[],
+                    )));
                 }
                 if *refill_rate == 0 {
-                    return Err(LimiteronError::ConfigError(
-                        "令牌桶补充速率必须大于0".to_string(),
-                    ));
+                    return Err(LimiteronError::ConfigError(t(
+                        "limiter-refill-rate-must-be-positive",
+                        &[],
+                    )));
                 }
                 if *capacity > MAX_TOKEN_BUCKET_CAPACITY {
-                    return Err(LimiteronError::ConfigError(format!(
-                        "令牌桶容量过大，最大值为{}",
-                        MAX_TOKEN_BUCKET_CAPACITY
+                    return Err(LimiteronError::ConfigError(t(
+                        "limiter-capacity-too-large",
+                        &[("max", MAX_TOKEN_BUCKET_CAPACITY.to_string())],
                     )));
                 }
                 if *refill_rate > MAX_TOKEN_BUCKET_REFILL_RATE {
-                    return Err(LimiteronError::ConfigError(format!(
-                        "令牌桶补充速率过大，最大值为{}",
-                        MAX_TOKEN_BUCKET_REFILL_RATE
+                    return Err(LimiteronError::ConfigError(t(
+                        "limiter-refill-rate-too-large",
+                        &[("max", MAX_TOKEN_BUCKET_REFILL_RATE.to_string())],
                     )));
                 }
             }
@@ -267,38 +275,41 @@ impl LimiterFactory {
                 window_size,
                 max_requests,
             } => {
-                Self::validate_window_config(window_size, *max_requests, "滑动窗口")?;
+                Self::validate_window_config(window_size, *max_requests, "sliding window")?;
             }
             LimiterConfig::FixedWindow {
                 window_size,
                 max_requests,
             } => {
-                Self::validate_window_config(window_size, *max_requests, "固定窗口")?;
+                Self::validate_window_config(window_size, *max_requests, "fixed window")?;
             }
             LimiterConfig::Concurrency { max_concurrent } => {
                 if *max_concurrent == 0 {
-                    return Err(LimiteronError::ConfigError(
-                        "并发限制数必须大于0".to_string(),
-                    ));
+                    return Err(LimiteronError::ConfigError(t(
+                        "limiter-max-concurrent-must-be-positive",
+                        &[],
+                    )));
                 }
                 if *max_concurrent > MAX_CONCURRENT_REQUESTS {
-                    return Err(LimiteronError::ConfigError(format!(
-                        "并发限制数过大，最大值为{}",
-                        MAX_CONCURRENT_REQUESTS
+                    return Err(LimiteronError::ConfigError(t(
+                        "limiter-max-concurrent-too-large",
+                        &[("max", MAX_CONCURRENT_REQUESTS.to_string())],
                     )));
                 }
             }
             LimiterConfig::Quota { .. } => {
                 // Quota 类型由QuotaController处理
-                return Err(LimiteronError::LimitError(
-                    "Quota 限流器类型需要由QuotaController处理".to_string(),
-                ));
+                return Err(LimiteronError::LimitError(t(
+                    "limiter-quota-requires-controller",
+                    &[],
+                )));
             }
             LimiterConfig::Custom { .. } => {
                 // Custom 类型由CustomLimiterRegistry处理
-                return Err(LimiteronError::LimitError(
-                    "Custom 限流器类型需要由CustomLimiterRegistry处理".to_string(),
-                ));
+                return Err(LimiteronError::LimitError(t(
+                    "limiter-custom-requires-registry",
+                    &[],
+                )));
             }
         }
 

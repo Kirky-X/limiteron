@@ -29,6 +29,7 @@ pub const DEFAULT_PAGINATION_LIMIT: u64 = 100;
 pub const MAX_PAGINATION_LIMIT: u64 = 1000;
 
 use crate::authorization::AuthorizationProvider;
+use crate::i18n::t;
 use crate::constants::MAX_BAN_REASON_LENGTH;
 use crate::error::{LimiteronError, StorageError};
 use crate::storage::BanTarget;
@@ -408,12 +409,20 @@ impl BanManagerBuilder {
             let result = loader.load_once(&manager).await?;
             if result.failure_count > 0 {
                 log::warn!(
-                    "文件封禁加载存在失败: 成功 {} 条, 失败 {} 条",
-                    result.success_count,
-                    result.failure_count
+                    "{}",
+                    t(
+                        "ban-file-load-partial-failure",
+                        &[
+                            ("success", result.success_count.to_string()),
+                            ("failure", result.failure_count.to_string()),
+                        ],
+                    )
                 );
             } else {
-                log::info!("文件封禁加载完成: {} 条", result.success_count);
+                log::info!(
+                    "{}",
+                    t("ban-file-load-complete", &[("count", result.success_count.to_string())])
+                );
             }
             #[cfg(feature = "config-watcher")]
             {
@@ -447,23 +456,25 @@ fn validate_ban_target(target: &BanTarget) -> Result<(), LimiteronError> {
 /// 使用统一的 validation 模块进行验证。
 fn validate_ban_reason(reason: &str) -> Result<(), LimiteronError> {
     if reason.is_empty() {
-        return Err(LimiteronError::ValidationError(
-            "封禁原因不能为空".to_string(),
-        ));
+        return Err(LimiteronError::ValidationError(t(
+            "ban-reason-empty",
+            &[],
+        )));
     }
 
     if reason.len() > MAX_BAN_REASON_LENGTH {
-        return Err(LimiteronError::ValidationError(format!(
-            "封禁原因过长，最大长度为 {} 字符",
-            MAX_BAN_REASON_LENGTH
+        return Err(LimiteronError::ValidationError(t(
+            "ban-reason-too-long",
+            &[("max", MAX_BAN_REASON_LENGTH.to_string())],
         )));
     }
 
     // 检查是否包含控制字符
     if reason.contains(|c: char| c.is_control()) {
-        return Err(LimiteronError::ValidationError(
-            "封禁原因包含非法字符".to_string(),
-        ));
+        return Err(LimiteronError::ValidationError(t(
+            "ban-reason-invalid-chars",
+            &[],
+        )));
     }
 
     Ok(())
@@ -596,8 +607,8 @@ impl BanManager {
         // （Rule 12: 失败必须显性化 — 禁止静默跳过授权链路）
         if authorization_provider.is_none() {
             log::warn!(
-                "BanManager 创建时未配置 authorization_provider，\
-                 所有手动封禁操作将跳过细粒度授权检查（仅依赖 admin API key 认证）"
+                "{}",
+                t("ban-manager-no-authorization-provider", &[])
             );
         }
 
@@ -731,10 +742,14 @@ impl BanManager {
             }
             (None, BanSource::Manual { operator }) => {
                 log::warn!(
-                    "手动封禁跳过授权检查（未配置 authorization_provider）: \
-                     operator={}, target={:?}",
-                    operator,
-                    target
+                    "{}",
+                    t(
+                        "ban-manual-skip-authorization",
+                        &[
+                            ("operator", operator.clone()),
+                            ("target", format!("{:?}", target)),
+                        ],
+                    )
                 );
             }
             _ => {}
@@ -1095,17 +1110,30 @@ impl BanManager {
                         Ok(Ok(record)) => record,
                         Ok(Err(e)) => {
                             log::warn!(
-                                "封禁检查存储错误，按未封禁处理（fail-open）: target={:?}, error={}",
-                                target,
-                                e
+                                "{}",
+                                t(
+                                    "ban-check-storage-error-fail-open",
+                                    &[
+                                        ("target", format!("{:?}", target)),
+                                        ("error", e.to_string()),
+                                    ],
+                                )
                             );
                             None
                         }
                         Err(_) => {
                             log::warn!(
-                                "封禁检查超时（{:?}），按未封禁处理（fail-open）: target={:?}",
-                                Self::STORAGE_CHECK_TIMEOUT,
-                                target
+                                "{}",
+                                t(
+                                    "ban-check-timeout-fail-open",
+                                    &[
+                                        (
+                                            "timeout",
+                                            format!("{:?}", Self::STORAGE_CHECK_TIMEOUT)
+                                        ),
+                                        ("target", format!("{:?}", target)),
+                                    ],
+                                )
                             );
                             None
                         }

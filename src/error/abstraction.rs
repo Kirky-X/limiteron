@@ -99,12 +99,12 @@ pub enum GeneralSafeError {
 impl std::fmt::Display for SafeErrorMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SafeErrorMessage::ConfigError(e) => write!(f, "配置错误: {}", e),
-            SafeErrorMessage::StorageError(e) => write!(f, "存储错误: {}", e),
-            SafeErrorMessage::LimitError(e) => write!(f, "限流错误: {}", e),
-            SafeErrorMessage::BanError(e) => write!(f, "封禁错误: {}", e),
-            SafeErrorMessage::ValidationError(e) => write!(f, "验证错误: {}", e),
-            SafeErrorMessage::General(e) => write!(f, "错误: {}", e),
+            SafeErrorMessage::ConfigError(e) => write!(f, "Configuration error: {}", e),
+            SafeErrorMessage::StorageError(e) => write!(f, "Storage error: {}", e),
+            SafeErrorMessage::LimitError(e) => write!(f, "Rate limit error: {}", e),
+            SafeErrorMessage::BanError(e) => write!(f, "Ban error: {}", e),
+            SafeErrorMessage::ValidationError(e) => write!(f, "Validation error: {}", e),
+            SafeErrorMessage::General(e) => write!(f, "Error: {}", e),
         }
     }
 }
@@ -112,19 +112,19 @@ impl std::fmt::Display for SafeErrorMessage {
 impl std::fmt::Display for ConfigSafeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConfigSafeError::InvalidFormat => write!(f, "配置格式无效"),
-            ConfigSafeError::MissingRequiredField => write!(f, "缺少必需字段"),
-            ConfigSafeError::DuplicateRuleId => write!(f, "规则ID重复"),
-            ConfigSafeError::InvalidStorageType => write!(f, "无效的存储类型"),
-            ConfigSafeError::InvalidCacheType => write!(f, "无效的缓存类型"),
-            ConfigSafeError::InvalidMetricsType => write!(f, "无效的指标类型"),
-            ConfigSafeError::InvalidVersion => write!(f, "版本号无效"),
-            ConfigSafeError::RuleNotFound => write!(f, "规则不存在"),
-            ConfigSafeError::InvalidLimiterConfig => write!(f, "限流器配置无效"),
-            ConfigSafeError::InvalidMatcherConfig => write!(f, "匹配器配置无效"),
-            ConfigSafeError::ValueOutOfRange => write!(f, "值超出允许范围"),
-            ConfigSafeError::MalformedPattern => write!(f, "模式格式错误"),
-            ConfigSafeError::SecurityRisk => write!(f, "检测到安全风险"),
+            ConfigSafeError::InvalidFormat => write!(f, "Invalid configuration format"),
+            ConfigSafeError::MissingRequiredField => write!(f, "Missing required field"),
+            ConfigSafeError::DuplicateRuleId => write!(f, "Duplicate rule ID"),
+            ConfigSafeError::InvalidStorageType => write!(f, "Invalid storage type"),
+            ConfigSafeError::InvalidCacheType => write!(f, "Invalid cache type"),
+            ConfigSafeError::InvalidMetricsType => write!(f, "Invalid metrics type"),
+            ConfigSafeError::InvalidVersion => write!(f, "Invalid version"),
+            ConfigSafeError::RuleNotFound => write!(f, "Rule not found"),
+            ConfigSafeError::InvalidLimiterConfig => write!(f, "Invalid limiter configuration"),
+            ConfigSafeError::InvalidMatcherConfig => write!(f, "Invalid matcher configuration"),
+            ConfigSafeError::ValueOutOfRange => write!(f, "Value out of allowed range"),
+            ConfigSafeError::MalformedPattern => write!(f, "Malformed pattern"),
+            ConfigSafeError::SecurityRisk => write!(f, "Security risk detected"),
         }
     }
 }
@@ -132,13 +132,15 @@ impl std::fmt::Display for ConfigSafeError {
 impl std::fmt::Display for StorageSafeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StorageSafeError::ConnectionFailed => write!(f, "连接失败"),
-            StorageSafeError::QueryFailed => write!(f, "查询失败"),
-            StorageSafeError::Timeout => write!(f, "操作超时"),
-            StorageSafeError::NotFound => write!(f, "记录不存在"),
-            StorageSafeError::ConcurrentModification => write!(f, "数据被并发修改"),
-            StorageSafeError::StorageFull => write!(f, "存储空间不足"),
-            StorageSafeError::InvalidDataFormat => write!(f, "数据格式无效"),
+            StorageSafeError::ConnectionFailed => write!(f, "Connection failed"),
+            StorageSafeError::QueryFailed => write!(f, "Query failed"),
+            StorageSafeError::Timeout => write!(f, "Operation timed out"),
+            StorageSafeError::NotFound => write!(f, "Record not found"),
+            StorageSafeError::ConcurrentModification => {
+                write!(f, "Data was concurrently modified")
+            }
+            StorageSafeError::StorageFull => write!(f, "Storage full"),
+            StorageSafeError::InvalidDataFormat => write!(f, "Invalid data format"),
         }
     }
 }
@@ -146,12 +148,12 @@ impl std::fmt::Display for StorageSafeError {
 impl std::fmt::Display for LimitSafeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LimitSafeError::RateLimitExceeded => write!(f, "请求频率超出限制"),
-            LimitSafeError::QuotaExceeded => write!(f, "配额已用尽"),
-            LimitSafeError::ConcurrencyLimitExceeded => write!(f, "并发请求数超出限制"),
-            LimitSafeError::TokenBucketEmpty => write!(f, "令牌已用尽"),
-            LimitSafeError::WindowFull => write!(f, "时间窗口已满"),
-            LimitSafeError::TooManyRequests => write!(f, "请求过于频繁"),
+            LimitSafeError::RateLimitExceeded => write!(f, "Request rate exceeded"),
+            LimitSafeError::QuotaExceeded => write!(f, "Quota exhausted"),
+            LimitSafeError::ConcurrencyLimitExceeded => write!(f, "Concurrency limit exceeded"),
+            LimitSafeError::TokenBucketEmpty => write!(f, "Tokens exhausted"),
+            LimitSafeError::WindowFull => write!(f, "Time window is full"),
+            LimitSafeError::TooManyRequests => write!(f, "Too many requests"),
         }
     }
 }
@@ -159,12 +161,12 @@ impl std::fmt::Display for LimitSafeError {
 impl std::fmt::Display for BanSafeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BanSafeError::UserBanned => write!(f, "用户已被封禁"),
-            BanSafeError::IpBanned => write!(f, "IP地址已被封禁"),
-            BanSafeError::DeviceBanned => write!(f, "设备已被封禁"),
-            BanSafeError::RateExceeded => write!(f, "请求频率超出限制"),
-            BanSafeError::SpamDetected => write!(f, "检测到可疑行为"),
-            BanSafeError::SecurityViolation => write!(f, "安全检查未通过"),
+            BanSafeError::UserBanned => write!(f, "User is banned"),
+            BanSafeError::IpBanned => write!(f, "IP address is banned"),
+            BanSafeError::DeviceBanned => write!(f, "Device is banned"),
+            BanSafeError::RateExceeded => write!(f, "Request rate exceeded"),
+            BanSafeError::SpamDetected => write!(f, "Suspicious behavior detected"),
+            BanSafeError::SecurityViolation => write!(f, "Security check failed"),
         }
     }
 }
@@ -172,12 +174,12 @@ impl std::fmt::Display for BanSafeError {
 impl std::fmt::Display for ValidationSafeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValidationSafeError::InvalidInput => write!(f, "输入无效"),
-            ValidationSafeError::MalformedData => write!(f, "数据格式错误"),
-            ValidationSafeError::SecurityCheckFailed => write!(f, "安全检查失败"),
-            ValidationSafeError::InputTooLong => write!(f, "输入过长"),
-            ValidationSafeError::InvalidFormat => write!(f, "格式无效"),
-            ValidationSafeError::SuspiciousPattern => write!(f, "检测到可疑模式"),
+            ValidationSafeError::InvalidInput => write!(f, "Invalid input"),
+            ValidationSafeError::MalformedData => write!(f, "Malformed data"),
+            ValidationSafeError::SecurityCheckFailed => write!(f, "Security check failed"),
+            ValidationSafeError::InputTooLong => write!(f, "Input too long"),
+            ValidationSafeError::InvalidFormat => write!(f, "Invalid format"),
+            ValidationSafeError::SuspiciousPattern => write!(f, "Suspicious pattern detected"),
         }
     }
 }
@@ -185,15 +187,23 @@ impl std::fmt::Display for ValidationSafeError {
 impl std::fmt::Display for GeneralSafeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GeneralSafeError::InternalError => write!(f, "内部错误"),
-            GeneralSafeError::ServiceUnavailable => write!(f, "服务不可用"),
-            GeneralSafeError::InvalidRequest => write!(f, "请求无效"),
-            GeneralSafeError::Unauthorized => write!(f, "未授权"),
-            GeneralSafeError::Forbidden => write!(f, "禁止访问"),
-            GeneralSafeError::RateLimited => write!(f, "请求被限流"),
+            GeneralSafeError::InternalError => write!(f, "Internal error"),
+            GeneralSafeError::ServiceUnavailable => write!(f, "Service unavailable"),
+            GeneralSafeError::InvalidRequest => write!(f, "Invalid request"),
+            GeneralSafeError::Unauthorized => write!(f, "Unauthorized"),
+            GeneralSafeError::Forbidden => write!(f, "Forbidden"),
+            GeneralSafeError::RateLimited => write!(f, "Rate limited"),
         }
     }
 }
+
+impl std::error::Error for SafeErrorMessage {}
+impl std::error::Error for ConfigSafeError {}
+impl std::error::Error for StorageSafeError {}
+impl std::error::Error for LimitSafeError {}
+impl std::error::Error for BanSafeError {}
+impl std::error::Error for ValidationSafeError {}
+impl std::error::Error for GeneralSafeError {}
 
 /// 错误消息抽象器
 pub struct ErrorMessageAbstraction;
@@ -207,9 +217,9 @@ impl ErrorMessageAbstraction {
             SafeErrorMessage::StorageError(StorageSafeError::ConnectionFailed)
         } else if lower_error.contains("timeout") || lower_error.contains("timed out") {
             SafeErrorMessage::StorageError(StorageSafeError::Timeout)
-        } else if lower_error.contains("not found") || lower_error.contains("不存在") {
+        } else if lower_error.contains("not found") {
             SafeErrorMessage::StorageError(StorageSafeError::NotFound)
-        } else if lower_error.contains("duplicate") || lower_error.contains("冲突") {
+        } else if lower_error.contains("duplicate") {
             SafeErrorMessage::StorageError(StorageSafeError::ConcurrentModification)
         } else {
             SafeErrorMessage::StorageError(StorageSafeError::QueryFailed)
@@ -220,42 +230,25 @@ impl ErrorMessageAbstraction {
     pub fn abstract_config_error(detailed_error: &str) -> SafeErrorMessage {
         let lower_error = detailed_error.to_lowercase();
 
-        if lower_error.contains("duplicate") || lower_error.contains("重复") {
+        if lower_error.contains("duplicate") {
             SafeErrorMessage::ConfigError(ConfigSafeError::DuplicateRuleId)
-        } else if (lower_error.contains("storage") || lower_error.contains("存储"))
-            && (lower_error.contains("invalid") || lower_error.contains("无效"))
-        {
+        } else if lower_error.contains("storage") && lower_error.contains("invalid") {
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidStorageType)
-        } else if (lower_error.contains("cache") || lower_error.contains("缓存"))
-            && (lower_error.contains("invalid") || lower_error.contains("无效"))
-        {
+        } else if lower_error.contains("cache") && lower_error.contains("invalid") {
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidCacheType)
-        } else if lower_error.contains("version") || lower_error.contains("版本") {
+        } else if lower_error.contains("version") {
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidVersion)
-        } else if lower_error.contains("missing")
-            || lower_error.contains("empty")
-            || lower_error.contains("缺少")
-            || lower_error.contains("为空")
-        {
+        } else if lower_error.contains("missing") || lower_error.contains("empty") {
             SafeErrorMessage::ConfigError(ConfigSafeError::MissingRequiredField)
-        } else if lower_error.contains("format")
-            || lower_error.contains("格式")
-            || lower_error.contains("parse")
-        {
+        } else if lower_error.contains("format") || lower_error.contains("parse") {
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidFormat)
-        } else if lower_error.contains("limiter") || lower_error.contains("限流器") {
+        } else if lower_error.contains("limiter") {
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidLimiterConfig)
-        } else if lower_error.contains("matcher") || lower_error.contains("匹配器") {
+        } else if lower_error.contains("matcher") {
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidMatcherConfig)
-        } else if lower_error.contains("range")
-            || lower_error.contains("范围")
-            || lower_error.contains("out of")
-        {
+        } else if lower_error.contains("range") || lower_error.contains("out of") {
             SafeErrorMessage::ConfigError(ConfigSafeError::ValueOutOfRange)
-        } else if lower_error.contains("<script")
-            || lower_error.contains("注入")
-            || lower_error.contains("injection")
-        {
+        } else if lower_error.contains("<script") || lower_error.contains("injection") {
             SafeErrorMessage::ConfigError(ConfigSafeError::SecurityRisk)
         } else {
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidFormat)
@@ -266,21 +259,15 @@ impl ErrorMessageAbstraction {
     pub fn abstract_limit_error(detailed_error: &str) -> SafeErrorMessage {
         let lower_error = detailed_error.to_lowercase();
 
-        if lower_error.contains("rate")
-            || lower_error.contains("频率")
-            || lower_error.contains("rate limit")
-        {
+        if lower_error.contains("rate") || lower_error.contains("rate limit") {
             SafeErrorMessage::LimitError(LimitSafeError::RateLimitExceeded)
-        } else if lower_error.contains("quota") || lower_error.contains("配额") {
+        } else if lower_error.contains("quota") {
             SafeErrorMessage::LimitError(LimitSafeError::QuotaExceeded)
-        } else if lower_error.contains("concurrency")
-            || lower_error.contains("并发")
-            || lower_error.contains("concurrent")
-        {
+        } else if lower_error.contains("concurrency") || lower_error.contains("concurrent") {
             SafeErrorMessage::LimitError(LimitSafeError::ConcurrencyLimitExceeded)
-        } else if lower_error.contains("token") || lower_error.contains("令牌") {
+        } else if lower_error.contains("token") {
             SafeErrorMessage::LimitError(LimitSafeError::TokenBucketEmpty)
-        } else if lower_error.contains("window") || lower_error.contains("窗口") {
+        } else if lower_error.contains("window") {
             SafeErrorMessage::LimitError(LimitSafeError::WindowFull)
         } else {
             SafeErrorMessage::LimitError(LimitSafeError::TooManyRequests)
@@ -291,29 +278,18 @@ impl ErrorMessageAbstraction {
     pub fn abstract_validation_error(detailed_error: &str) -> SafeErrorMessage {
         let lower_error = detailed_error.to_lowercase();
 
-        if lower_error.contains("empty")
-            || lower_error.contains("null")
-            || lower_error.contains("为空")
-            || lower_error.contains("空")
-        {
+        if lower_error.contains("empty") || lower_error.contains("null") {
             SafeErrorMessage::ValidationError(ValidationSafeError::InvalidInput)
-        } else if lower_error.contains("length")
-            || lower_error.contains("too long")
-            || lower_error.contains("过长")
-        {
+        } else if lower_error.contains("length") || lower_error.contains("too long") {
             SafeErrorMessage::ValidationError(ValidationSafeError::InputTooLong)
-        } else if lower_error.contains("format")
-            || lower_error.contains("格式")
-            || lower_error.contains("parse")
-        {
+        } else if lower_error.contains("format") || lower_error.contains("parse") {
             SafeErrorMessage::ValidationError(ValidationSafeError::InvalidFormat)
         } else if lower_error.contains("<script")
             || lower_error.contains("sql")
             || lower_error.contains("injection")
-            || lower_error.contains("注入")
         {
             SafeErrorMessage::ValidationError(ValidationSafeError::SuspiciousPattern)
-        } else if lower_error.contains("security") || lower_error.contains("安全") {
+        } else if lower_error.contains("security") {
             SafeErrorMessage::ValidationError(ValidationSafeError::SecurityCheckFailed)
         } else {
             SafeErrorMessage::ValidationError(ValidationSafeError::MalformedData)
@@ -413,13 +389,13 @@ mod tests {
     #[test]
     fn test_safe_error_display() {
         let err = SafeErrorMessage::ConfigError(ConfigSafeError::DuplicateRuleId);
-        assert_eq!(err.to_string(), "配置错误: 规则ID重复");
+        assert_eq!(err.to_string(), "Configuration error: Duplicate rule ID");
 
         let err = SafeErrorMessage::StorageError(StorageSafeError::ConnectionFailed);
-        assert_eq!(err.to_string(), "存储错误: 连接失败");
+        assert_eq!(err.to_string(), "Storage error: Connection failed");
 
         let err = SafeErrorMessage::LimitError(LimitSafeError::RateLimitExceeded);
-        assert_eq!(err.to_string(), "限流错误: 请求频率超出限制");
+        assert_eq!(err.to_string(), "Rate limit error: Request rate exceeded");
     }
 
     #[test]
@@ -428,18 +404,6 @@ mod tests {
         assert_eq!(
             err,
             SafeErrorMessage::StorageError(StorageSafeError::ConcurrentModification)
-        );
-
-        let err = ErrorMessageAbstraction::abstract_storage_error("数据冲突");
-        assert_eq!(
-            err,
-            SafeErrorMessage::StorageError(StorageSafeError::ConcurrentModification)
-        );
-
-        let err = ErrorMessageAbstraction::abstract_storage_error("记录不存在");
-        assert_eq!(
-            err,
-            SafeErrorMessage::StorageError(StorageSafeError::NotFound)
         );
 
         let err = ErrorMessageAbstraction::abstract_storage_error("Unknown database error");
@@ -478,19 +442,7 @@ mod tests {
             SafeErrorMessage::ConfigError(ConfigSafeError::MissingRequiredField)
         );
 
-        let err = ErrorMessageAbstraction::abstract_config_error("缺少必需字段");
-        assert_eq!(
-            err,
-            SafeErrorMessage::ConfigError(ConfigSafeError::MissingRequiredField)
-        );
-
         let err = ErrorMessageAbstraction::abstract_config_error("Invalid format for field");
-        assert_eq!(
-            err,
-            SafeErrorMessage::ConfigError(ConfigSafeError::InvalidFormat)
-        );
-
-        let err = ErrorMessageAbstraction::abstract_config_error("配置格式无效");
         assert_eq!(
             err,
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidFormat)
@@ -520,31 +472,25 @@ mod tests {
             SafeErrorMessage::ConfigError(ConfigSafeError::SecurityRisk)
         );
 
-        let err = ErrorMessageAbstraction::abstract_config_error("检测到注入攻击");
-        assert_eq!(
-            err,
-            SafeErrorMessage::ConfigError(ConfigSafeError::SecurityRisk)
-        );
-
-        let err = ErrorMessageAbstraction::abstract_config_error("规则ID重复");
+        let err = ErrorMessageAbstraction::abstract_config_error("Duplicate rule ID");
         assert_eq!(
             err,
             SafeErrorMessage::ConfigError(ConfigSafeError::DuplicateRuleId)
         );
 
-        let err = ErrorMessageAbstraction::abstract_config_error("无效的存储类型");
+        let err = ErrorMessageAbstraction::abstract_config_error("Invalid storage type");
         assert_eq!(
             err,
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidStorageType)
         );
 
-        let err = ErrorMessageAbstraction::abstract_config_error("无效的缓存类型");
+        let err = ErrorMessageAbstraction::abstract_config_error("Invalid cache type");
         assert_eq!(
             err,
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidCacheType)
         );
 
-        let err = ErrorMessageAbstraction::abstract_config_error("版本号无效");
+        let err = ErrorMessageAbstraction::abstract_config_error("Invalid version");
         assert_eq!(
             err,
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidVersion)
@@ -574,13 +520,13 @@ mod tests {
 
     #[test]
     fn test_limit_error_abstraction_all_branches() {
-        let err = ErrorMessageAbstraction::abstract_limit_error("请求频率超出限制");
+        let err = ErrorMessageAbstraction::abstract_limit_error("Request rate exceeded");
         assert_eq!(
             err,
             SafeErrorMessage::LimitError(LimitSafeError::RateLimitExceeded)
         );
 
-        let err = ErrorMessageAbstraction::abstract_limit_error("配额已用尽");
+        let err = ErrorMessageAbstraction::abstract_limit_error("Quota exhausted for user");
         assert_eq!(
             err,
             SafeErrorMessage::LimitError(LimitSafeError::QuotaExceeded)
@@ -592,31 +538,13 @@ mod tests {
             SafeErrorMessage::LimitError(LimitSafeError::ConcurrencyLimitExceeded)
         );
 
-        let err = ErrorMessageAbstraction::abstract_limit_error("并发请求数超出限制");
-        assert_eq!(
-            err,
-            SafeErrorMessage::LimitError(LimitSafeError::ConcurrencyLimitExceeded)
-        );
-
         let err = ErrorMessageAbstraction::abstract_limit_error("No tokens available");
         assert_eq!(
             err,
             SafeErrorMessage::LimitError(LimitSafeError::TokenBucketEmpty)
         );
 
-        let err = ErrorMessageAbstraction::abstract_limit_error("令牌已用尽");
-        assert_eq!(
-            err,
-            SafeErrorMessage::LimitError(LimitSafeError::TokenBucketEmpty)
-        );
-
         let err = ErrorMessageAbstraction::abstract_limit_error("Window is full");
-        assert_eq!(
-            err,
-            SafeErrorMessage::LimitError(LimitSafeError::WindowFull)
-        );
-
-        let err = ErrorMessageAbstraction::abstract_limit_error("时间窗口已满");
         assert_eq!(
             err,
             SafeErrorMessage::LimitError(LimitSafeError::WindowFull)
@@ -652,25 +580,13 @@ mod tests {
             SafeErrorMessage::ValidationError(ValidationSafeError::InvalidInput)
         );
 
-        let err = ErrorMessageAbstraction::abstract_validation_error("输入为空");
-        assert_eq!(
-            err,
-            SafeErrorMessage::ValidationError(ValidationSafeError::InvalidInput)
-        );
-
-        let err = ErrorMessageAbstraction::abstract_validation_error("输入过长");
+        let err = ErrorMessageAbstraction::abstract_validation_error("Input too long: 1000 chars");
         assert_eq!(
             err,
             SafeErrorMessage::ValidationError(ValidationSafeError::InputTooLong)
         );
 
         let err = ErrorMessageAbstraction::abstract_validation_error("Parse error at line 1");
-        assert_eq!(
-            err,
-            SafeErrorMessage::ValidationError(ValidationSafeError::InvalidFormat)
-        );
-
-        let err = ErrorMessageAbstraction::abstract_validation_error("格式错误");
         assert_eq!(
             err,
             SafeErrorMessage::ValidationError(ValidationSafeError::InvalidFormat)
@@ -683,12 +599,6 @@ mod tests {
         );
 
         let err = ErrorMessageAbstraction::abstract_validation_error("Security check failed");
-        assert_eq!(
-            err,
-            SafeErrorMessage::ValidationError(ValidationSafeError::SecurityCheckFailed)
-        );
-
-        let err = ErrorMessageAbstraction::abstract_validation_error("安全检查失败");
         assert_eq!(
             err,
             SafeErrorMessage::ValidationError(ValidationSafeError::SecurityCheckFailed)
@@ -709,12 +619,6 @@ mod tests {
             SafeErrorMessage::ValidationError(ValidationSafeError::SuspiciousPattern)
         );
 
-        let err = ErrorMessageAbstraction::abstract_validation_error("检测到注入攻击");
-        assert_eq!(
-            err,
-            SafeErrorMessage::ValidationError(ValidationSafeError::SuspiciousPattern)
-        );
-
         let err = ErrorMessageAbstraction::abstract_validation_error("Unknown validation error");
         assert_eq!(
             err,
@@ -730,59 +634,68 @@ mod tests {
 
     #[test]
     fn test_display_config_safe_error_all_variants() {
-        assert_eq!(ConfigSafeError::InvalidFormat.to_string(), "配置格式无效");
+        assert_eq!(
+            ConfigSafeError::InvalidFormat.to_string(),
+            "Invalid configuration format"
+        );
         assert_eq!(
             ConfigSafeError::MissingRequiredField.to_string(),
-            "缺少必需字段"
+            "Missing required field"
         );
-        assert_eq!(ConfigSafeError::DuplicateRuleId.to_string(), "规则ID重复");
+        assert_eq!(ConfigSafeError::DuplicateRuleId.to_string(), "Duplicate rule ID");
         assert_eq!(
             ConfigSafeError::InvalidStorageType.to_string(),
-            "无效的存储类型"
+            "Invalid storage type"
         );
         assert_eq!(
             ConfigSafeError::InvalidCacheType.to_string(),
-            "无效的缓存类型"
+            "Invalid cache type"
         );
         assert_eq!(
             ConfigSafeError::InvalidMetricsType.to_string(),
-            "无效的指标类型"
+            "Invalid metrics type"
         );
-        assert_eq!(ConfigSafeError::InvalidVersion.to_string(), "版本号无效");
-        assert_eq!(ConfigSafeError::RuleNotFound.to_string(), "规则不存在");
+        assert_eq!(ConfigSafeError::InvalidVersion.to_string(), "Invalid version");
+        assert_eq!(ConfigSafeError::RuleNotFound.to_string(), "Rule not found");
         assert_eq!(
             ConfigSafeError::InvalidLimiterConfig.to_string(),
-            "限流器配置无效"
+            "Invalid limiter configuration"
         );
         assert_eq!(
             ConfigSafeError::InvalidMatcherConfig.to_string(),
-            "匹配器配置无效"
+            "Invalid matcher configuration"
         );
         assert_eq!(
             ConfigSafeError::ValueOutOfRange.to_string(),
-            "值超出允许范围"
+            "Value out of allowed range"
         );
         assert_eq!(
             ConfigSafeError::MalformedPattern.to_string(),
-            "模式格式错误"
+            "Malformed pattern"
         );
-        assert_eq!(ConfigSafeError::SecurityRisk.to_string(), "检测到安全风险");
+        assert_eq!(
+            ConfigSafeError::SecurityRisk.to_string(),
+            "Security risk detected"
+        );
     }
 
     #[test]
     fn test_display_storage_safe_error_all_variants() {
-        assert_eq!(StorageSafeError::ConnectionFailed.to_string(), "连接失败");
-        assert_eq!(StorageSafeError::QueryFailed.to_string(), "查询失败");
-        assert_eq!(StorageSafeError::Timeout.to_string(), "操作超时");
-        assert_eq!(StorageSafeError::NotFound.to_string(), "记录不存在");
+        assert_eq!(
+            StorageSafeError::ConnectionFailed.to_string(),
+            "Connection failed"
+        );
+        assert_eq!(StorageSafeError::QueryFailed.to_string(), "Query failed");
+        assert_eq!(StorageSafeError::Timeout.to_string(), "Operation timed out");
+        assert_eq!(StorageSafeError::NotFound.to_string(), "Record not found");
         assert_eq!(
             StorageSafeError::ConcurrentModification.to_string(),
-            "数据被并发修改"
+            "Data was concurrently modified"
         );
-        assert_eq!(StorageSafeError::StorageFull.to_string(), "存储空间不足");
+        assert_eq!(StorageSafeError::StorageFull.to_string(), "Storage full");
         assert_eq!(
             StorageSafeError::InvalidDataFormat.to_string(),
-            "数据格式无效"
+            "Invalid data format"
         );
     }
 
@@ -790,89 +703,126 @@ mod tests {
     fn test_display_limit_safe_error_all_variants() {
         assert_eq!(
             LimitSafeError::RateLimitExceeded.to_string(),
-            "请求频率超出限制"
+            "Request rate exceeded"
         );
-        assert_eq!(LimitSafeError::QuotaExceeded.to_string(), "配额已用尽");
+        assert_eq!(LimitSafeError::QuotaExceeded.to_string(), "Quota exhausted");
         assert_eq!(
             LimitSafeError::ConcurrencyLimitExceeded.to_string(),
-            "并发请求数超出限制"
+            "Concurrency limit exceeded"
         );
-        assert_eq!(LimitSafeError::TokenBucketEmpty.to_string(), "令牌已用尽");
-        assert_eq!(LimitSafeError::WindowFull.to_string(), "时间窗口已满");
-        assert_eq!(LimitSafeError::TooManyRequests.to_string(), "请求过于频繁");
+        assert_eq!(
+            LimitSafeError::TokenBucketEmpty.to_string(),
+            "Tokens exhausted"
+        );
+        assert_eq!(LimitSafeError::WindowFull.to_string(), "Time window is full");
+        assert_eq!(
+            LimitSafeError::TooManyRequests.to_string(),
+            "Too many requests"
+        );
     }
 
     #[test]
     fn test_display_ban_safe_error_all_variants() {
-        assert_eq!(BanSafeError::UserBanned.to_string(), "用户已被封禁");
-        assert_eq!(BanSafeError::IpBanned.to_string(), "IP地址已被封禁");
-        assert_eq!(BanSafeError::DeviceBanned.to_string(), "设备已被封禁");
-        assert_eq!(BanSafeError::RateExceeded.to_string(), "请求频率超出限制");
-        assert_eq!(BanSafeError::SpamDetected.to_string(), "检测到可疑行为");
+        assert_eq!(BanSafeError::UserBanned.to_string(), "User is banned");
+        assert_eq!(BanSafeError::IpBanned.to_string(), "IP address is banned");
+        assert_eq!(BanSafeError::DeviceBanned.to_string(), "Device is banned");
+        assert_eq!(
+            BanSafeError::RateExceeded.to_string(),
+            "Request rate exceeded"
+        );
+        assert_eq!(
+            BanSafeError::SpamDetected.to_string(),
+            "Suspicious behavior detected"
+        );
         assert_eq!(
             BanSafeError::SecurityViolation.to_string(),
-            "安全检查未通过"
+            "Security check failed"
         );
     }
 
     #[test]
     fn test_display_validation_safe_error_all_variants() {
-        assert_eq!(ValidationSafeError::InvalidInput.to_string(), "输入无效");
+        assert_eq!(ValidationSafeError::InvalidInput.to_string(), "Invalid input");
         assert_eq!(
             ValidationSafeError::MalformedData.to_string(),
-            "数据格式错误"
+            "Malformed data"
         );
         assert_eq!(
             ValidationSafeError::SecurityCheckFailed.to_string(),
-            "安全检查失败"
+            "Security check failed"
         );
-        assert_eq!(ValidationSafeError::InputTooLong.to_string(), "输入过长");
-        assert_eq!(ValidationSafeError::InvalidFormat.to_string(), "格式无效");
+        assert_eq!(ValidationSafeError::InputTooLong.to_string(), "Input too long");
+        assert_eq!(ValidationSafeError::InvalidFormat.to_string(), "Invalid format");
         assert_eq!(
             ValidationSafeError::SuspiciousPattern.to_string(),
-            "检测到可疑模式"
+            "Suspicious pattern detected"
         );
     }
 
     #[test]
     fn test_display_general_safe_error_all_variants() {
-        assert_eq!(GeneralSafeError::InternalError.to_string(), "内部错误");
+        assert_eq!(GeneralSafeError::InternalError.to_string(), "Internal error");
         assert_eq!(
             GeneralSafeError::ServiceUnavailable.to_string(),
-            "服务不可用"
+            "Service unavailable"
         );
-        assert_eq!(GeneralSafeError::InvalidRequest.to_string(), "请求无效");
-        assert_eq!(GeneralSafeError::Unauthorized.to_string(), "未授权");
-        assert_eq!(GeneralSafeError::Forbidden.to_string(), "禁止访问");
-        assert_eq!(GeneralSafeError::RateLimited.to_string(), "请求被限流");
+        assert_eq!(GeneralSafeError::InvalidRequest.to_string(), "Invalid request");
+        assert_eq!(GeneralSafeError::Unauthorized.to_string(), "Unauthorized");
+        assert_eq!(GeneralSafeError::Forbidden.to_string(), "Forbidden");
+        assert_eq!(GeneralSafeError::RateLimited.to_string(), "Rate limited");
     }
 
     #[test]
     fn test_display_safe_error_message_all_variants() {
         assert_eq!(
             SafeErrorMessage::ConfigError(ConfigSafeError::InvalidCacheType).to_string(),
-            "配置错误: 无效的缓存类型"
+            "Configuration error: Invalid cache type"
         );
         assert_eq!(
             SafeErrorMessage::StorageError(StorageSafeError::StorageFull).to_string(),
-            "存储错误: 存储空间不足"
+            "Storage error: Storage full"
         );
         assert_eq!(
             SafeErrorMessage::LimitError(LimitSafeError::WindowFull).to_string(),
-            "限流错误: 时间窗口已满"
+            "Rate limit error: Time window is full"
         );
         assert_eq!(
             SafeErrorMessage::BanError(BanSafeError::UserBanned).to_string(),
-            "封禁错误: 用户已被封禁"
+            "Ban error: User is banned"
         );
         assert_eq!(
             SafeErrorMessage::ValidationError(ValidationSafeError::InputTooLong).to_string(),
-            "验证错误: 输入过长"
+            "Validation error: Input too long"
         );
         assert_eq!(
             SafeErrorMessage::General(GeneralSafeError::InternalError).to_string(),
-            "错误: 内部错误"
+            "Error: Internal error"
         );
+    }
+
+    /// 错误双轨：Display 恒英文规范串；to_localized_string 随 locale，
+    /// message_en 恒英文（经目录，与 Display 逐字对齐）。
+    #[test]
+    fn test_safe_error_dual_track() {
+        use crate::i18n::{I18nExt, clear_locale_override, set_locale};
+
+        let err = SafeErrorMessage::StorageError(StorageSafeError::NotFound);
+        assert_eq!(err.to_string(), "Storage error: Record not found");
+        assert_eq!(err.message_en(), "Storage error: Record not found");
+
+        clear_locale_override();
+        set_locale("en").expect("en is valid");
+        assert_eq!(err.to_localized_string(), "Storage error: Record not found");
+
+        set_locale("zh-CN").expect("zh-CN is valid");
+        assert_eq!(err.to_localized_string(), "存储错误: 记录不存在");
+
+        // 内层变体同样具备双轨能力
+        let inner = StorageSafeError::ConcurrentModification;
+        assert_eq!(inner.to_string(), "Data was concurrently modified");
+        assert_eq!(inner.message_en(), "Data was concurrently modified");
+
+        clear_locale_override();
     }
 
     #[test]

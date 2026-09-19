@@ -6,6 +6,7 @@
 
 use super::traits::{Limiter, RateLimitSnapshot};
 use crate::error::LimiteronError;
+use crate::i18n::t;
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
@@ -195,21 +196,22 @@ impl ConcurrencyLimiter {
     ) -> Result<tokio::sync::SemaphorePermit<'_>, LimiteronError> {
         let cost_u32 = cost as u32;
         if cost_u32 as u64 != cost {
-            return Err(LimiteronError::LimitError(
-                "许可数量超出 u32 范围".to_string(),
-            ));
+            return Err(LimiteronError::LimitError(t(
+                "concurrency-permits-overflow-u32",
+                &[],
+            )));
         }
 
         let permit = match self.timeout {
             Some(timeout) => tokio::time::timeout(timeout, self.semaphore.acquire_many(cost_u32))
                 .await
-                .map_err(|_| LimiteronError::LimitError("获取许可超时".to_string()))?
-                .map_err(|_| LimiteronError::LimitError("信号量已关闭".to_string()))?,
+                .map_err(|_| LimiteronError::LimitError(t("concurrency-permit-acquire-timeout", &[])))?
+                .map_err(|_| LimiteronError::LimitError(t("concurrency-semaphore-closed", &[])))?,
             None => self
                 .semaphore
                 .acquire_many(cost_u32)
                 .await
-                .map_err(|_| LimiteronError::LimitError("信号量已关闭".to_string()))?,
+                .map_err(|_| LimiteronError::LimitError(t("concurrency-semaphore-closed", &[])))?,
         };
 
         Ok(permit)
@@ -226,9 +228,10 @@ impl ConcurrencyLimiter {
     fn try_acquire(&self, cost: u64) -> Result<tokio::sync::SemaphorePermit<'_>, LimiteronError> {
         let cost_u32 = cost as u32;
         if cost_u32 as u64 != cost {
-            return Err(LimiteronError::LimitError(
-                "许可数量超出 u32 范围".to_string(),
-            ));
+            return Err(LimiteronError::LimitError(t(
+                "concurrency-permits-overflow-u32",
+                &[],
+            )));
         }
 
         self.semaphore
@@ -242,9 +245,10 @@ impl Limiter for ConcurrencyLimiter {
     async fn allow(&self, cost: u64) -> Result<bool, LimiteronError> {
         let cost_u32 = cost as u32;
         if cost_u32 as u64 != cost {
-            return Err(LimiteronError::LimitError(
-                "许可数量超出 u32 范围".to_string(),
-            ));
+            return Err(LimiteronError::LimitError(t(
+                "concurrency-permits-overflow-u32",
+                &[],
+            )));
         }
 
         // 链式 allow() 无法感知请求结束，此前 permit 在本函数
@@ -270,9 +274,10 @@ impl Limiter for ConcurrencyLimiter {
     async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
         let cost_u32 = cost as u32;
         if cost_u32 as u64 != cost {
-            return Err(LimiteronError::LimitError(
-                "许可数量超出 u32 范围".to_string(),
-            ));
+            return Err(LimiteronError::LimitError(t(
+                "concurrency-permits-overflow-u32",
+                &[],
+            )));
         }
         let _ = cost_u32;
         Ok(self.current_snapshot())
@@ -453,7 +458,11 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(LimiteronError::LimitError(msg)) => {
-                assert!(msg.contains("超时"));
+                // 错误文案经 FTL 渲染（concurrency-permit-acquire-timeout），
+                // 以目录 en 值为期望，locale 无关
+                assert!(msg.contains(
+                    crate::i18n::translate_en("concurrency-permit-acquire-timeout", &[]).as_str()
+                ));
             }
             _ => panic!("expected timeout error"),
         }

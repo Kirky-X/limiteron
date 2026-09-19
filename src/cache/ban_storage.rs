@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 use crate::error::StorageError;
+use crate::i18n::t;
 use crate::storage::{BanHistory, BanRecord, BanStorage, BanTarget};
 use async_trait::async_trait;
 use oxcache::backend::CacheBackend;
@@ -143,9 +144,10 @@ impl CacheBanStorage {
                     return Ok(());
                 }
             }
-            return Err(StorageError::QueryError(
-                "ban index CAS 重试耗尽（并发冲突过高）".to_string(),
-            ));
+            return Err(StorageError::QueryError(t(
+                "cache-ban-index-cas-retries-exhausted",
+                &[],
+            )));
         }
 
         let mut idx = self.get_index().await?;
@@ -183,9 +185,10 @@ impl CacheBanStorage {
                     return Ok(());
                 }
             }
-            return Err(StorageError::QueryError(
-                "ban index CAS 重试耗尽（并发冲突过高）".to_string(),
-            ));
+            return Err(StorageError::QueryError(t(
+                "cache-ban-index-cas-retries-exhausted",
+                &[],
+            )));
         }
 
         let mut idx = self.get_index().await?;
@@ -236,9 +239,10 @@ impl CacheBanStorage {
                     return Ok(());
                 }
             }
-            return Err(StorageError::QueryError(
-                "ban record CAS 重试耗尽（并发冲突过高）".to_string(),
-            ));
+            return Err(StorageError::QueryError(t(
+                "cache-ban-record-cas-retries-exhausted",
+                &[],
+            )));
         }
 
         let raw = self.backend.get(&key).await.map_err(map_error)?;
@@ -312,7 +316,10 @@ impl BanStorage for CacheBanStorage {
                     .map_err(|e| StorageError::QueryError(format!("{e}")))?;
                 let ban_times_u64 = v.get("ban_times").and_then(|n| n.as_u64()).unwrap_or(0);
                 let ban_times = u32::try_from(ban_times_u64).map_err(|e| {
-                    StorageError::QueryError(format!("ban_times 超出 u32 范围: {}", e))
+                    StorageError::QueryError(t(
+                        "cache-ban-times-overflow-u32",
+                        &[("reason", e.to_string())],
+                    ))
                 })?;
                 let ts = v
                     .get("last_banned_at")
@@ -387,9 +394,10 @@ impl BanStorage for CacheBanStorage {
                     return Ok(u64::from(new_times));
                 }
             }
-            return Err(StorageError::QueryError(
-                "ban record CAS 重试耗尽（并发冲突过高）".to_string(),
-            ));
+            return Err(StorageError::QueryError(t(
+                "cache-ban-record-cas-retries-exhausted",
+                &[],
+            )));
         }
 
         // 无原子后端：读计数 → 整条保存（进程内 rw_lock 已串行化）

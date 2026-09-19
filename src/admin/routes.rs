@@ -3,6 +3,7 @@
 //! Route definitions
 
 use ahash::AHashMap;
+use crate::i18n::t;
 use axum::{
     Router,
     body::Body,
@@ -263,9 +264,8 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
                 let operator = operator_mapping.get(&raw_key).cloned().unwrap_or_else(|| {
                     log::warn!(
                         target: "admin-api",
-                        "API key 未配置 operator 映射，回退到默认 'admin-api'；\
-                         建议通过 AdminApiConfig::with_api_key_operator 配置显式映射\
-                         以防止 operator 身份伪造"
+                        "{}",
+                        t("admin-api-key-operator-fallback", &[])
                     );
                     "admin-api".to_string()
                 });
@@ -280,10 +280,15 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
                 if !role_allows(role, req.method()) {
                     log::warn!(
                         target: "admin-api",
-                        "RBAC 拒绝：role={} 无权访问 {} {}",
-                        role.as_str(),
-                        req.method(),
-                        req.uri().path()
+                        "{}",
+                        t(
+                            "admin-rbac-denied",
+                            &[
+                                ("role", role.as_str().to_string()),
+                                ("method", req.method().to_string()),
+                                ("path", req.uri().path().to_string()),
+                            ],
+                        )
                     );
                     let mut resp = axum::response::Response::new(Body::from(
                         "Insufficient role for this operation",

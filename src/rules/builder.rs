@@ -11,6 +11,7 @@
 //! - 时长字符串解析
 
 use crate::config::{FlowControlConfig, LimiterConfig, LimiterTypeName, Matcher as ConfigMatcher};
+use crate::i18n::t;
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::LimiteronError;
 #[cfg(feature = "quota-control")]
@@ -257,16 +258,19 @@ impl RuleBuilder {
                 // Custom 匹配器：未提供注册表的构建路径编译为恒不匹配
                 // 占位（E1 可见性修复：构建期 warn 一次，热路径降 debug）
                 let ConfigMatcher::Custom { name, .. } = matcher else {
-                    unreachable!("base_condition 仅对 Custom 返回 None");
+                    unreachable!("base_condition returns None only for Custom");
                 };
                 log::warn!(
-                    "自定义匹配器 '{}' 未集成 CustomMatcherRegistry，该规则将恒不匹配（其限制不会生效）",
-                    name
+                    "{}",
+                    t("custom-matcher-not-integrated", &[("name", name.clone())])
                 );
                 let name = name.clone();
                 conditions.push(Box::new(MatchCondition::Custom(Arc::new(
                     move |_context| {
-                        log::debug!("自定义匹配器 '{}' 为占位实现，恒不匹配", name);
+                        log::debug!(
+                            "custom matcher '{}' is a placeholder, never matches",
+                            name
+                        );
                         false
                     },
                 ))));
@@ -307,10 +311,16 @@ impl RuleBuilder {
                     continue;
                 }
                 let ConfigMatcher::Custom { name, .. } = matcher else {
-                    unreachable!("base_condition 仅对 Custom 返回 None");
+                    unreachable!("base_condition returns None only for Custom");
                 };
                 if let Some(matcher) = registry.get(name).await {
-                    log::info!("自定义匹配器 '{}' 已从注册表解析并生效", name);
+                    log::info!(
+                        "{}",
+                        t(
+                            "custom-matcher-resolved-from-registry",
+                            &[("name", name.clone())],
+                        )
+                    );
                     let name = name.clone();
                     conditions.push(Box::new(MatchCondition::Custom(Arc::new(
                         move |context: &RequestContext| {
@@ -319,9 +329,11 @@ impl RuleBuilder {
                                 Ok(v) => v,
                                 Err(e) => {
                                     log::warn!(
-                                        "自定义匹配器 '{}' 求值失败，按不匹配处理: {}",
-                                        name,
-                                        e
+                                        "{}",
+                                        t(
+                                            "custom-matcher-eval-failed-no-match",
+                                            &[("name", name.clone()), ("error", e.to_string())],
+                                        )
                                     );
                                     false
                                 }
@@ -330,13 +342,19 @@ impl RuleBuilder {
                     ))));
                 } else {
                     log::warn!(
-                        "自定义匹配器 '{}' 未在注册表中注册，该规则将恒不匹配（其限制不会生效）",
-                        name
+                        "{}",
+                        t(
+                            "custom-matcher-not-registered",
+                            &[("name", name.clone())],
+                        )
                     );
                     let name = name.clone();
                     conditions.push(Box::new(MatchCondition::Custom(Arc::new(
                         move |_context: &RequestContext| {
-                            log::debug!("自定义匹配器 '{}' 为占位实现，恒不匹配", name);
+                            log::debug!(
+                                "custom matcher '{}' is a placeholder, never matches",
+                                name
+                            );
                             false
                         },
                     ))));
@@ -422,7 +440,10 @@ pub(crate) fn drive_lightweight<E>(fut: impl Future<Output = Result<bool, E>>) -
     match pin!(fut).poll(&mut cx) {
         Poll::Ready(out) => out,
         Poll::Pending => {
-            log::error!("自定义匹配器返回 Pending（违反「首次 poll 即 Ready」契约），按不匹配处理");
+            log::error!(
+                "{}",
+                t("custom-matcher-pending-contract-violation", &[])
+            );
             Ok(false)
         }
     }

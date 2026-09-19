@@ -34,6 +34,7 @@
 
 #[cfg(feature = "geo-matching")]
 use crate::error::LimiteronError;
+use crate::i18n::t;
 use maxminddb::{Reader, geoip2};
 use oxcache::Cache;
 use serde::{Deserialize, Serialize};
@@ -282,13 +283,17 @@ impl GeoMatcher {
 
         // 检查文件是否存在
         if !db_path.exists() {
-            return Err(LimiteronError::ConfigError(format!(
-                "GeoLite2数据库文件不存在: {}。请从MaxMind官网下载GeoLite2-City.mmdb文件",
-                db_path.display()
+            return Err(LimiteronError::ConfigError(t(
+                "geo-db-not-found",
+                &[("path", db_path.display().to_string())],
             )));
         }
 
-        log::info!(target: "geo", "加载GeoLite2数据库: {}", db_path.display());
+        log::info!(
+            target: "geo",
+            "{}",
+            t("geo-db-loading", &[("path", db_path.display().to_string())])
+        );
 
         // 获取文件元数据
         let metadata = std::fs::metadata(db_path).map_err(LimiteronError::IoError)?;
@@ -303,16 +308,22 @@ impl GeoMatcher {
         if file_size < TYPICAL_DB_SIZE {
             log::warn!(
                 target: "geo",
-                "GeoLite2数据库文件小于典型全量库大小（{} bytes < {} bytes）——Country/测试/自定义库属正常，损坏文件将由格式解析阶段拒绝",
-                file_size, TYPICAL_DB_SIZE
+                "{}",
+                t(
+                    "geo-db-size-below-typical",
+                    &[
+                        ("size", file_size.to_string()),
+                        ("typical", TYPICAL_DB_SIZE.to_string()),
+                    ]
+                )
             );
         }
 
         if file_size > MAX_DB_SIZE {
             log::warn!(
                 target: "geo",
-                "GeoLite2数据库文件过大（{} bytes），可能不是标准文件",
-                file_size
+                "{}",
+                t("geo-db-size-above-max", &[("size", file_size.to_string())])
             );
         }
 
@@ -321,19 +332,24 @@ impl GeoMatcher {
 
         // 验证文件大小一致性
         if db_content.len() as u64 != file_size {
-            return Err(LimiteronError::ConfigError(
-                "GeoLite2数据库文件读取不完整，可能被截断".to_string(),
-            ));
+            return Err(LimiteronError::ConfigError(t(
+                "geo-db-incomplete-read",
+                &[],
+            )));
         }
 
-        log::info!("GeoLite2数据库加载成功，大小: {} bytes", db_content.len());
+        log::info!(
+            "{}",
+            t("geo-db-loaded", &[("size", db_content.len().to_string())])
+        );
 
         // 验证文件头（MaxMind 数据库文件以特定 magic number 开头）
         // MaxMind DB 格式: 0x00 0x00 0x02 0x00 (v2) 或 0x00 0x00 0x00 0x00 (v1)
         if db_content.len() < 4 {
-            return Err(LimiteronError::ConfigError(
-                "GeoLite2数据库文件过短，无法读取文件头".to_string(),
-            ));
+            return Err(LimiteronError::ConfigError(t(
+                "geo-db-too-short-header",
+                &[],
+            )));
         }
 
         let header = &db_content[0..4];
@@ -343,21 +359,34 @@ impl GeoMatcher {
                               header == [0x00, 0x00, 0x03, 0x00]; // 可能的 v3 格式
 
         if !is_valid_header {
-            log::warn!("GeoLite2数据库文件头格式异常: {:02X?}", header);
+            log::warn!(
+            "{}",
+            t("geo-db-unexpected-header", &[("header", format!("{:02X?}", header))])
+        );
             // 不直接返回错误，因为某些版本可能有不同的文件头
             // 让后续的 Reader::from_source 来验证
         }
 
         // 创建读取器
         let reader = Reader::from_source(db_content)
-            .map_err(|e| LimiteronError::ConfigError(format!("无效的GeoLite2数据库文件: {}", e)))?;
+            .map_err(|e| {
+                LimiteronError::ConfigError(t("geo-db-invalid", &[("reason", e.to_string())]))
+            })?;
 
         // 验证数据库元数据
         log::info!(
-            "GeoLite2数据库元数据: 版本={}, 构建日期={}, 记录数={}",
-            reader.metadata().binary_format_major_version,
-            reader.metadata().build_epoch,
-            reader.metadata().node_count
+            "{}",
+            t(
+                "geo-db-metadata",
+                &[
+                    (
+                        "version",
+                        reader.metadata().binary_format_major_version.to_string(),
+                    ),
+                    ("build_epoch", reader.metadata().build_epoch.to_string()),
+                    ("node_count", reader.metadata().node_count.to_string()),
+                ]
+            )
         );
 
         // 创建缓存（容量由 cache_size_limit 强制执行，见 with_cache_limit 文档）
@@ -366,7 +395,9 @@ impl GeoMatcher {
             .ttl(Duration::from_secs(300))
             .build()
             .await
-            .map_err(|e| LimiteronError::ConfigError(format!("创建缓存失败: {}", e)))?;
+            .map_err(|e| {
+                LimiteronError::ConfigError(t("geo-cache-create-failed", &[("reason", e.to_string())]))
+            })?;
 
         let matcher = Self {
             reader: Arc::new(reader),
@@ -376,7 +407,7 @@ impl GeoMatcher {
             cache_misses: AtomicU64::new(0),
         };
 
-        log::info!("GeoMatcher创建成功");
+        log::info!("{}", t("geo-matcher-created", &[]));
         Ok(matcher)
     }
 
@@ -410,7 +441,7 @@ impl GeoMatcher {
         // 检查缓存
         let ip_str = ip.to_string();
         if let Ok(Some(cached)) = self.cache.get(&ip_str).await {
-            log::debug!("缓存命中: {}", ip);
+            log::debug!("cache hit: {}", ip);
             self.cache_hits.fetch_add(1, Ordering::Relaxed);
             return Ok(cached);
         }
@@ -418,21 +449,21 @@ impl GeoMatcher {
         // 记录缓存未命中
         self.cache_misses.fetch_add(1, Ordering::Relaxed);
 
-        log::debug!("查询IP地理位置: {}", ip);
+        log::debug!("looking up IP geolocation: {}", ip);
 
         // 从数据库查询 - maxminddb 0.27 API
         // lookup 返回 LookupResult，需要使用 decode() 获取解析后的数据
         let lookup_result = self
             .reader
             .lookup(ip)
-            .map_err(|e| LimiteronError::ConfigError(format!("IP查询失败: {}", e)))?;
+            .map_err(|e| LimiteronError::ConfigError(t("geo-ip-lookup-failed", &[("reason", e.to_string())])))?;
 
         // 解码为 City 结构。库中无该 IP 记录（私有 IP / 未知网段）不是错误：
         // 返回 `GeoInfo::empty()`（调用方经 `is_empty()` 判定），并作为负缓存写入，
         // 避免重复穿透数据库。格式损坏仍是 Err。
         let decoded: Option<geoip2::City> = lookup_result
             .decode()
-            .map_err(|e| LimiteronError::ConfigError(format!("IP数据解析失败: {}", e)))?;
+            .map_err(|e| LimiteronError::ConfigError(t("geo-ip-decode-failed", &[("reason", e.to_string())])))?;
         let info = match decoded {
             Some(city) => self.extract_geo_info(&city),
             None => GeoInfo::empty(),
@@ -442,7 +473,7 @@ impl GeoMatcher {
         // 旧实现此处有一段只打日志的「守卫」加死代码，实际的容量
         // 约束现已前移到缓存构造处，无需手工检查
         let _ = self.cache.set(&ip_str, &info).await;
-        log::debug!("IP查询成功: {} -> {}", ip, info.description());
+        log::debug!("IP lookup succeeded: {} -> {}", ip, info.description());
 
         Ok(info)
     }
@@ -546,7 +577,7 @@ impl GeoMatcher {
     pub async fn clear_cache(&self) {
         let size = self.cache.len().await.unwrap_or(0);
         let _ = self.cache.clear().await;
-        log::info!("缓存已清空，移除 {} 条记录", size);
+        log::info!("{}", t("geo-cache-cleared", &[("count", size.to_string())]));
     }
 
     /// 获取缓存统计信息

@@ -5,6 +5,7 @@
 //! 实现实时监控、性能指标收集和智能告警功能。
 
 use super::Tracer;
+use crate::i18n::t;
 use log::{debug, error, info, warn};
 use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
 use std::sync::Arc;
@@ -402,7 +403,11 @@ impl MonitoringSystem {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.update_latency_stats(latency.as_millis() as u64);
 
-        debug!("请求成功: {}，延迟: {}ms", request_id, latency.as_millis());
+        debug!(
+            "request succeeded: {}, latency: {}ms",
+            request_id,
+            latency.as_millis()
+        );
         latency
     }
 
@@ -415,7 +420,7 @@ impl MonitoringSystem {
             .total_requests
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        debug!("请求失败: {}", timer.request_id);
+        debug!("request failed: {}", timer.request_id);
     }
 
     /// 更新延迟统计
@@ -448,7 +453,7 @@ impl MonitoringSystem {
         }
 
         debug!(
-            "更新延迟统计: P95={}ms, P99={}ms",
+            "latency stats updated: P95={}ms, P99={}ms",
             self.metrics
                 .p95_latency_ms
                 .load(std::sync::atomic::Ordering::Relaxed),
@@ -627,13 +632,31 @@ impl MonitoringSystem {
         for level in alerts {
             match level {
                 AlertLevel::Critical => {
-                    error!("发送严重告警: {}", Self::format_alert_level(level));
+                    error!(
+                    "{}",
+                    t(
+                        "alert-sent-critical",
+                        &[("level", Self::format_alert_level(level).to_string())],
+                    )
+                );
                 }
                 AlertLevel::Warning => {
-                    warn!("发送警告告警: {}", Self::format_alert_level(level));
+                    warn!(
+                    "{}",
+                    t(
+                        "alert-sent-warning",
+                        &[("level", Self::format_alert_level(level).to_string())],
+                    )
+                );
                 }
                 AlertLevel::Info => {
-                    info!("发送信息告警: {}", Self::format_alert_level(level));
+                    info!(
+                    "{}",
+                    t(
+                        "alert-sent-info",
+                        &[("level", Self::format_alert_level(level).to_string())],
+                    )
+                );
                 }
             }
         }
@@ -661,7 +684,10 @@ impl RequestTimer {
     pub fn finish(self) -> Duration {
         let duration = self.start_time.elapsed();
 
-        debug!("请求完成: {}，耗时: {:?}", self.request_id, duration);
+        debug!(
+            "request completed: {}, elapsed: {:?}",
+            self.request_id, duration
+        );
 
         duration
     }

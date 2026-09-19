@@ -3,6 +3,7 @@
 //! 限流器相关类型
 
 use super::QuotaType;
+use crate::i18n::t;
 use serde::{Deserialize, Serialize};
 
 /// 透支配置
@@ -140,7 +141,8 @@ impl LimiterConfig {
 pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration, String> {
     let trimmed = window_size.trim();
     if trimmed.is_empty() {
-        return Err("Window size cannot be empty".to_string()); // window-size-empty
+        // T025 MEDIUM-1：错误文案接线 FTL（window-size-*），zh 渲染可达
+        return Err(t("window-size-empty", &[]));
     }
 
     let split_index = trimmed
@@ -151,19 +153,19 @@ pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration
     let unit = unit_part.trim().to_lowercase();
 
     if num_str.is_empty() {
-        return Err("Invalid window size format: missing number part".to_string()); // window-size-missing-number
+        return Err(t("window-size-missing-number", &[]));
     }
 
     if unit.is_empty() {
-        return Err("Invalid window size format: missing unit".to_string()); // window-size-missing-unit
+        return Err(t("window-size-missing-unit", &[]));
     }
 
     let num: u64 = num_str
         .parse()
-        .map_err(|_| format!("Invalid number format: {num_str}"))?; // window-size-invalid-number
+        .map_err(|_| t("window-size-invalid-number", &[("input", num_str.to_string())]))?;
 
     if num == 0 {
-        return Err("Window size must be greater than 0".to_string()); // window-size-must-be-positive
+        return Err(t("window-size-must-be-positive", &[]));
     }
 
     match unit.as_str() {
@@ -172,9 +174,10 @@ pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration
         "m" | "min" | "minute" | "minutes" => mul_secs(num, 60),
         "h" | "hr" | "hour" | "hours" => mul_secs(num, 3600),
         "d" | "day" | "days" => mul_secs(num, 86400),
-        _ => Err(format!(
+        _ => Err(t(
             // window-size-unsupported-unit
-            "Unsupported unit: {unit}. Supported units: ms, s, m, h, d"
+            "window-size-unsupported-unit",
+            &[("unit", unit.clone())],
         )),
     }
 }
@@ -183,7 +186,16 @@ pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration
 fn mul_secs(num: u64, factor: u64) -> Result<std::time::Duration, String> {
     num.checked_mul(factor)
         .map(std::time::Duration::from_secs)
-        .ok_or_else(|| format!("Window size overflow: {num} * {factor} seconds exceeds u64 range")) // window-size-overflow
+        .ok_or_else(|| {
+            t(
+                // window-size-overflow
+                "window-size-overflow",
+                &[
+                    ("number", num.to_string()),
+                    ("factor", factor.to_string()),
+                ],
+            )
+        })
 }
 
 #[cfg(test)]

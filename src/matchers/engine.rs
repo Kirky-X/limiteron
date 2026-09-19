@@ -8,6 +8,7 @@
 use super::traits::RequestContext;
 use crate::config::ConfigMatcher;
 use crate::error::LimiteronError;
+use crate::i18n::t;
 use parking_lot::RwLock;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
@@ -149,34 +150,36 @@ impl FromStr for IpRange {
             // CIDR格式
             let parts: Vec<&str> = s.split('/').collect();
             if parts.len() != 2 {
-                return Err(LimiteronError::ConfigError(format!(
-                    "无效的CIDR格式: {}",
-                    s
+                return Err(LimiteronError::ConfigError(t(
+                    "iprange-invalid-cidr",
+                    &[("input", s.to_string())],
                 )));
             }
 
             let addr: IpAddr = parts[0]
                 .parse()
-                .map_err(|_| LimiteronError::ConfigError(format!("无效的IP地址: {}", parts[0])))?;
+                .map_err(|_|
+                    LimiteronError::ConfigError(t("iprange-invalid-ip", &[("input", parts[0].to_string())])))?;
             let prefix: u8 = parts[1]
                 .parse()
-                .map_err(|_| LimiteronError::ConfigError(format!("无效的前缀: {}", parts[1])))?;
+                .map_err(|_|
+                    LimiteronError::ConfigError(t("iprange-invalid-prefix", &[("input", parts[1].to_string())])))?;
 
             match addr {
                 IpAddr::V4(ipv4) => {
                     if prefix > 32 {
-                        return Err(LimiteronError::ConfigError(format!(
-                            "IPv4前缀不能超过32: {}",
-                            prefix
+                        return Err(LimiteronError::ConfigError(t(
+                            "iprange-v4-prefix-too-large",
+                            &[("input", prefix.to_string())],
                         )));
                     }
                     Ok(IpRange::Ipv4Cidr { addr: ipv4, prefix })
                 }
                 IpAddr::V6(ipv6) => {
                     if prefix > 128 {
-                        return Err(LimiteronError::ConfigError(format!(
-                            "IPv6前缀不能超过128: {}",
-                            prefix
+                        return Err(LimiteronError::ConfigError(t(
+                            "iprange-v6-prefix-too-large",
+                            &[("input", prefix.to_string())],
                         )));
                     }
                     Ok(IpRange::Ipv6Cidr { addr: ipv6, prefix })
@@ -186,23 +189,28 @@ impl FromStr for IpRange {
             // 范围格式
             let parts: Vec<&str> = s.split('-').collect();
             if parts.len() != 2 {
-                return Err(LimiteronError::ConfigError(format!(
-                    "无效的IP范围格式: {}",
-                    s
+                return Err(LimiteronError::ConfigError(t(
+                    "iprange-invalid-range",
+                    &[("input", s.to_string())],
                 )));
             }
 
             let start: Ipv4Addr = parts[0]
                 .parse()
-                .map_err(|_| LimiteronError::ConfigError(format!("无效的起始IP: {}", parts[0])))?;
+                .map_err(|_|
+                    LimiteronError::ConfigError(t("iprange-invalid-start-ip", &[("input", parts[0].to_string())])))?;
             let end: Ipv4Addr = parts[1]
                 .parse()
-                .map_err(|_| LimiteronError::ConfigError(format!("无效的结束IP: {}", parts[1])))?;
+                .map_err(|_|
+                    LimiteronError::ConfigError(t("iprange-invalid-end-ip", &[("input", parts[1].to_string())])))?;
 
             if start > end {
-                return Err(LimiteronError::ConfigError(format!(
-                    "起始IP不能大于结束IP: {} - {}",
-                    parts[0], parts[1]
+                return Err(LimiteronError::ConfigError(t(
+                    "iprange-start-greater-than-end",
+                    &[
+                        ("start", parts[0].to_string()),
+                        ("end", parts[1].to_string()),
+                    ],
                 )));
             }
 
@@ -211,7 +219,8 @@ impl FromStr for IpRange {
             // 单个IP
             let addr: IpAddr = s
                 .parse()
-                .map_err(|_| LimiteronError::ConfigError(format!("无效的IP地址: {}", s)))?;
+                .map_err(|_|
+                LimiteronError::ConfigError(t("iprange-invalid-ip", &[("input", s.to_string())])))?;
             Ok(IpRange::Single(addr))
         }
     }
@@ -660,12 +669,18 @@ impl RuleMatcher {
                     // 的限制不会生效）。在构建期 warn 一次以确保配置错误
                     // 在启动时可见；热路径仅 debug，避免每次求值刷日志。
                     log::warn!(
-                        "自定义匹配器 '{}' 未集成 CustomMatcherRegistry，该规则将恒不匹配（其限制不会生效）",
-                        name
+                        "{}",
+                        t(
+                            "custom-matcher-not-integrated",
+                            &[("name", name.clone())],
+                        )
                     );
                     let name = name.clone();
                     Box::new(MatchCondition::Custom(Arc::new(move |_context| {
-                        log::debug!("自定义匹配器 '{}' 为占位实现，恒不匹配", name);
+                        log::debug!(
+                            "custom matcher '{}' is a placeholder, never matches",
+                            name
+                        );
                         false
                     })))
                 }

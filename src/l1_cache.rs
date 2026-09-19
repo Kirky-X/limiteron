@@ -6,6 +6,7 @@
 //! 使用 oxcache 作为底层缓存引擎，支持 TTL 过期策略。
 
 use crate::error::{BanInfo, Decision, RateLimitMetadata, RejectionMetadata};
+use crate::i18n::t;
 use oxcache::{Cache, OxCacheError};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -431,25 +432,25 @@ impl IslandModeConfig {
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::{Cache, CacheConfig};
+/// use limiteron::{L1Cache, L1CacheConfig};
 /// use std::time::Duration;
 ///
 /// #[tokio::main]
 /// async fn main() {
-///     let config = CacheConfig::new(Duration::from_secs(60), 1000);
-///     let cache: Cache<String> = Cache::with_config(config).await.unwrap();
+///     let config = L1CacheConfig::new(Duration::from_secs(60), 1000);
+///     let cache: L1Cache<String> = L1Cache::with_config(config).await.unwrap();
 ///
 ///     // 设置缓存
-///     cache.set("key".to_string(), "value".to_string()).await;
+///     cache.set("key".to_string(), "value".to_string()).await.unwrap();
 ///
 ///     // 获取缓存
-///     if let Some(value) = cache.get(&"key".to_string()).await.unwrap() {
-///         println!("缓存命中: {}", value);
+///     if let Some(value) = cache.get("key").await.unwrap() {
+///         println!("cache hit: {}", value);
 ///     }
 ///
 ///     // 获取统计信息
 ///     let stats = cache.stats().await;
-///     println!("命中率: {:.2}%", stats.hit_rate());
+///     println!("hit rate: {:.2}%", stats.hit_rate());
 /// }
 /// ```
 pub struct L1Cache<T>
@@ -740,8 +741,11 @@ where
         if was_island == 0 {
             log::warn!(
                 target: "l1_cache",
-                "L1 缓存进入孤岛模式: strategy={:?}",
-                config.fallback_strategy
+                "{}",
+                t(
+                    "l1-cache-island-entered",
+                    &[("strategy", format!("{:?}", config.fallback_strategy))],
+                )
             );
         }
         let mut island_config = self.island_config.write();
@@ -754,7 +758,11 @@ where
     pub fn disable_island_mode(&self) {
         let was_island = self.is_island_mode.swap(0, Ordering::AcqRel);
         if was_island == 1 {
-            log::info!(target: "l1_cache", "L1 缓存退出孤岛模式");
+            log::info!(
+            target: "l1_cache",
+            "{}",
+            t("l1-cache-island-exited", &[])
+        );
         }
         let mut island_config = self.island_config.write();
         *island_config = None;

@@ -28,6 +28,7 @@ use tokio::sync::mpsc::{self, Sender};
 
 #[cfg(feature = "audit-log")]
 use crate::error::LimiteronError;
+use crate::i18n::t;
 
 #[cfg(feature = "audit-log")]
 /// 审计事件类型
@@ -273,9 +274,10 @@ impl AuditLogEntry {
         let stored_signature = match &self.signature {
             Some(sig) => sig,
             None => {
-                return Err(LimiteronError::AuditLogError(
-                    "日志条目缺少签名".to_string(),
-                ));
+                return Err(LimiteronError::AuditLogError(t(
+                    "audit-entry-missing-signature",
+                    &[],
+                )));
             }
         };
 
@@ -286,9 +288,10 @@ impl AuditLogEntry {
         if Self::constant_time_compare(stored_signature, &expected_signature) {
             Ok(true)
         } else {
-            Err(LimiteronError::AuditLogError(
-                "签名验证失败，日志可能被篡改".to_string(),
-            ))
+            Err(LimiteronError::AuditLogError(t(
+                "audit-signature-verification-failed",
+                &[],
+            )))
         }
     }
 
@@ -556,9 +559,14 @@ pub struct AuditLogger {
 impl AuditLogger {
     pub async fn new(config: AuditLogConfig) -> Self {
         info!(
-            "创建审计日志记录器: enabled={}, signing_enabled={}",
-            config.enabled,
-            config.signing_key.is_some()
+            "{}",
+            t(
+                "audit-logger-created",
+                &[
+                    ("enabled", config.enabled.to_string()),
+                    ("signing_enabled", config.signing_key.is_some().to_string()),
+                ],
+            )
         );
 
         let (sender, receiver) = mpsc::channel(config.channel_capacity);
@@ -657,7 +665,7 @@ impl AuditLogger {
             }
         }
 
-        info!("审计日志写入任务结束");
+        info!("{}", t("audit-write-task-ended", &[]));
     }
 
     /// 将一个批次移入阻塞线程池执行写入
@@ -681,7 +689,10 @@ impl AuditLogger {
         {
             Ok(head) => head,
             Err(e) => {
-                error!("审计日志批处理任务异常: {}", e);
+                error!(
+                "{}",
+                t("audit-batch-task-panic", &[("reason", e.to_string())])
+            );
                 None
             }
         }
@@ -718,21 +729,33 @@ impl AuditLogger {
             match serde_json::to_string(&entry) {
                 Ok(json) => {
                     // 使用 info 级别记录日志（生产环境可见）
-                    info!("审计日志: {}", json);
+                    info!("{}", t("audit-entry", &[("json", json.clone())]));
 
                     // 如果配置了输出路径，写入文件
                     if let Some(ref path) = config.output_path {
                         if let Err(e) = Self::write_to_file(path, &json, config) {
                             stats.write_failures.fetch_add(1, Ordering::Relaxed);
-                            error!("写入审计日志文件失败: {}: {}", path, e);
+                            error!(
+                                "{}",
+                                t(
+                                    "audit-file-write-failed",
+                                    &[("path", path.clone()), ("reason", e.to_string())],
+                                )
+                            );
                         } else {
-                            trace!("成功写入审计日志文件: {}", path);
+                            trace!(
+                            "audit log file written successfully: {}",
+                            path
+                        );
                         }
                     }
                 }
                 Err(e) => {
                     stats.write_failures.fetch_add(1, Ordering::Relaxed);
-                    error!("序列化审计日志失败: {}", e);
+                    error!(
+                    "{}",
+                    t("audit-serialize-failed", &[("reason", e.to_string())])
+                );
                 }
             }
         }
@@ -865,7 +888,13 @@ impl AuditLogger {
                                 }
                                 Err(e) => {
                                     stats.verification_failures.fetch_add(1, Ordering::Relaxed);
-                                    warn!("审计日志签名验证失败，丢弃篡改条目: {}", e);
+                                    warn!(
+                                    "{}",
+                                    t(
+                                        "audit-tampered-entry-discarded",
+                                        &[("reason", e.to_string())],
+                                    )
+                                );
                                     // 签名验证失败即视为篡改：丢弃该条目，
                                     // 保证 read_and_verify 返回的条目全部通过验证
                                 }
@@ -879,7 +908,10 @@ impl AuditLogger {
                 }
                 Err(e) => {
                     stats.verification_failures.fetch_add(1, Ordering::Relaxed);
-                    warn!("解析审计日志条目失败: {}", e);
+                    warn!(
+                    "{}",
+                    t("audit-entry-parse-failed", &[("reason", e.to_string())])
+                );
                 }
             }
         }
@@ -929,7 +961,10 @@ impl AuditLogger {
         };
 
         if let Err(e) = self.sender.send(event).await {
-            error!("发送决策事件失败: {}", e);
+            error!(
+                "{}",
+                t("audit-send-decision-event-failed", &[("reason", e.to_string())])
+            );
             self.stats.write_failures.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -954,7 +989,10 @@ impl AuditLogger {
         };
 
         if let Err(e) = self.sender.send(event).await {
-            error!("发送配置变更事件失败: {}", e);
+            error!(
+                "{}",
+                t("audit-send-config-change-failed", &[("reason", e.to_string())])
+            );
             self.stats.write_failures.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -981,7 +1019,10 @@ impl AuditLogger {
         };
 
         if let Err(e) = self.sender.send(event).await {
-            error!("发送封禁操作事件失败: {}", e);
+            error!(
+                "{}",
+                t("audit-send-ban-event-failed", &[("reason", e.to_string())])
+            );
             self.stats.write_failures.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -999,7 +1040,10 @@ impl AuditLogger {
         };
 
         if let Err(e) = self.sender.send(event).await {
-            error!("发送系统事件失败: {}", e);
+            error!(
+                "{}",
+                t("audit-send-system-event-failed", &[("reason", e.to_string())])
+            );
             self.stats.write_failures.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -1022,7 +1066,10 @@ impl AuditLogger {
         };
 
         if let Err(e) = self.sender.send(event).await {
-            error!("发送错误事件失败: {}", e);
+            error!(
+                "{}",
+                t("audit-send-error-event-failed", &[("reason", e.to_string())])
+            );
             self.stats.write_failures.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -1036,7 +1083,7 @@ impl AuditLogger {
     }
 
     pub async fn shutdown(mut self) {
-        info!("停止审计日志记录器");
+        info!("{}", t("audit-logger-stopped", &[]));
         let handle = std::mem::replace(&mut self.write_handle, tokio::spawn(async {}));
         let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
     }

@@ -10,6 +10,7 @@ use crate::constants::{
     DEFAULT_CIRCUIT_BREAKER_TIMEOUT_SECS,
 };
 use crate::error::{CircuitBreakerStats, CircuitState, LimiteronError};
+use crate::i18n::t;
 use log::{info, trace, warn};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -279,8 +280,21 @@ impl CircuitBreaker {
     /// - `clock`: 时钟实现,用于时间注入(测试用)
     pub fn with_clock(config: CircuitBreakerConfig, clock: Arc<dyn Clock>) -> Self {
         info!(
-            "创建熔断器: failure_threshold={}, success_threshold={}, timeout={:?}",
-            config.failure_threshold, config.success_threshold, config.timeout
+            "{}",
+            t(
+                "circuit-created",
+                &[
+                    (
+                        "failure_threshold",
+                        config.failure_threshold.to_string(),
+                    ),
+                    (
+                        "success_threshold",
+                        config.success_threshold.to_string(),
+                    ),
+                    ("timeout", format!("{:?}", config.timeout)),
+                ],
+            )
         );
 
         Self {
@@ -403,18 +417,20 @@ impl CircuitBreaker {
                     } else {
                         // 仍在熔断状态，拒绝请求
                         drop(state);
-                        warn!("熔断器打开，拒绝请求");
-                        return Err(LimiteronError::LimitError(
-                            "熔断器打开，请求被拒绝".to_string(),
-                        ));
+                        warn!("{}", t("circuit-open-rejecting", &[]));
+                        return Err(LimiteronError::LimitError(t(
+                            "circuit-open-request-rejected",
+                            &[],
+                        )));
                     }
                 } else {
                     // 无失败时间戳（不应出现在 Open 态），保守拒绝
                     drop(state);
-                    warn!("熔断器打开，拒绝请求");
-                    return Err(LimiteronError::LimitError(
-                        "熔断器打开，请求被拒绝".to_string(),
-                    ));
+                    warn!("{}", t("circuit-open-rejecting", &[]));
+                    return Err(LimiteronError::LimitError(t(
+                        "circuit-open-request-rejected",
+                        &[],
+                    )));
                 }
             }
             CircuitState::HalfOpen => {
@@ -434,10 +450,11 @@ impl CircuitBreaker {
             loop {
                 let calls = self.half_open_calls.load(Ordering::Relaxed);
                 if calls >= self.config.half_open_max_calls {
-                    warn!("半开状态调用次数已达上限，拒绝请求");
-                    return Err(LimiteronError::LimitError(
-                        "半开状态调用次数已达上限".to_string(),
-                    ));
+                    warn!("{}", t("circuit-half-open-limit-reached", &[]));
+                    return Err(LimiteronError::LimitError(t(
+                        "circuit-half-open-limit-exceeded",
+                        &[],
+                    )));
                 }
                 match self.half_open_calls.compare_exchange(
                     calls,
@@ -483,7 +500,7 @@ impl CircuitBreaker {
                 // 关闭状态下，重置失败计数
                 self.failure_count.store(0, Ordering::Relaxed);
                 self.success_count.fetch_add(1, Ordering::Relaxed);
-                trace!("操作成功（关闭状态）");
+                trace!("operation succeeded (closed state)");
             }
             CircuitState::HalfOpen => {
                 // 半开状态下，增加成功计数
@@ -498,14 +515,14 @@ impl CircuitBreaker {
                     self.transition_to_closed_if_half_open().await;
                 } else {
                     trace!(
-                        "操作成功（半开状态）: {}/{}",
+                        "operation succeeded (half-open state): {}/{}",
                         success_count, self.config.success_threshold
                     );
                 }
             }
             CircuitState::Open => {
                 // 打开状态不应该执行到这里
-                warn!("熔断器打开状态下收到成功响应");
+                warn!("{}", t("circuit-success-while-open", &[]));
             }
         }
     }
@@ -518,7 +535,7 @@ impl CircuitBreaker {
     async fn on_failure_probe_aware(&self, error: &LimiteronError, was_probe: bool) {
         // 使用错误分类器判断是否应该计入失败计数
         if !self.config.error_classifier.is_counted_as_failure(error) {
-            trace!("错误不计入失败计数: {:?}", error);
+            trace!("error not counted as failure: {:?}", error);
             return;
         }
 
@@ -528,7 +545,7 @@ impl CircuitBreaker {
             CircuitState::Closed => {
                 if was_probe {
                     drop(state);
-                    warn!("半开探针失败（期间状态已漂移至 Closed），重新熔断");
+                    warn!("{}", t("circuit-half-open-probe-failed", &[]));
                     self.transition_to_open().await;
                     return;
                 }
@@ -545,7 +562,7 @@ impl CircuitBreaker {
                     self.transition_to_open().await;
                 } else {
                     trace!(
-                        "操作失败（关闭状态）: {}/{}",
+                        "operation failed (closed state): {}/{}",
                         failure_count, self.config.failure_threshold
                     );
                 }
@@ -557,7 +574,7 @@ impl CircuitBreaker {
             }
             CircuitState::Open => {
                 // 打开状态不应该执行到这里
-                warn!("熔断器打开状态下收到失败响应");
+                warn!("{}", t("circuit-failure-while-open", &[]));
             }
         }
     }
@@ -572,7 +589,7 @@ impl CircuitBreaker {
             let total_calls = self.total_calls.load(Ordering::Relaxed);
 
             trace!(
-                "慢调用检测: elapsed={:?}, threshold={:?}, slow_calls={}/{}",
+                "slow call detected: elapsed={:?}, threshold={:?}, slow_calls={}/{}",
                 elapsed, self.config.slow_call_duration_threshold, slow_calls, total_calls
             );
 
@@ -594,9 +611,17 @@ impl CircuitBreaker {
             if *state == CircuitState::Closed {
                 drop(state);
                 warn!(
-                    "慢调用率超过阈值: {:.2}% >= {:.2}%，触发熔断",
-                    slow_call_rate * 100.0,
-                    self.config.slow_call_rate_threshold * 100.0
+                    "{}",
+                    t(
+                        "circuit-slow-call-rate-exceeded",
+                        &[
+                            ("rate", format!("{:.2}", slow_call_rate * 100.0)),
+                            (
+                                "threshold",
+                                format!("{:.2}", self.config.slow_call_rate_threshold * 100.0)
+                            ),
+                        ],
+                    )
                 );
                 self.transition_to_open().await;
             }
@@ -647,9 +672,17 @@ impl CircuitBreaker {
                 self.success_count.store(0, Ordering::Relaxed);
                 self.half_open_calls.store(0, Ordering::Relaxed);
                 warn!(
-                    "熔断器状态变更: {:?} -> Open (failure_count={})",
-                    old_state,
-                    self.failure_count.load(Ordering::Relaxed)
+                    "{}",
+                    t(
+                        "circuit-state-changed-open",
+                        &[
+                            ("old_state", format!("{:?}", old_state)),
+                            (
+                                "failure_count",
+                                self.failure_count.load(Ordering::Relaxed).to_string()
+                            ),
+                        ],
+                    )
                 );
             }
             CircuitState::HalfOpen => {
@@ -657,7 +690,13 @@ impl CircuitBreaker {
                 // 重置半开状态调用计数为 0：所有探针（含本次触发的过渡请求）
                 // 统一经过 execute() 的半开准入检查来计数，受 half_open_max_calls 限制。
                 self.half_open_calls.store(0, Ordering::Relaxed);
-                info!("熔断器状态变更: {:?} -> HalfOpen", old_state);
+                info!(
+                    "{}",
+                    t(
+                        "circuit-state-changed-half-open",
+                        &[("old_state", format!("{:?}", old_state))],
+                    )
+                );
             }
             CircuitState::Closed => {
                 self.failure_count.store(0, Ordering::Relaxed);
@@ -667,7 +706,13 @@ impl CircuitBreaker {
                 // 同步重置 total_calls（B2）：它作为慢调用率分母，跨熔断周期
                 // 单调增长会持续稀释慢调用率，延迟/阻碍慢调用熔断触发
                 self.total_calls.store(0, Ordering::Relaxed);
-                info!("熔断器状态变更: {:?} -> Closed", old_state);
+                info!(
+                    "{}",
+                    t(
+                        "circuit-state-changed-closed",
+                        &[("old_state", format!("{:?}", old_state))],
+                    )
+                );
             }
         }
 
@@ -745,7 +790,7 @@ impl CircuitBreaker {
 
     /// 重置熔断器到关闭状态
     pub async fn reset(&self) {
-        info!("重置熔断器");
+        info!("{}", t("circuit-reset", &[]));
         *self.state.write().await = CircuitState::Closed;
         self.failure_count.store(0, Ordering::Relaxed);
         self.success_count.store(0, Ordering::Relaxed);

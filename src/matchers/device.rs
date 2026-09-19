@@ -33,6 +33,7 @@
 
 #[cfg(feature = "device-matching")]
 use crate::error::LimiteronError;
+use crate::i18n::t;
 use log::{debug, info};
 use oxcache::Cache;
 use serde::{Deserialize, Serialize};
@@ -437,7 +438,7 @@ impl DeviceMatcher {
     /// # 参数
     /// - `cache_capacity`: 查询缓存容量（由 Moka 强制执行）
     pub async fn with_cache_capacity(cache_capacity: usize) -> Result<Self, LimiteronError> {
-        info!(target: "device", "创建DeviceMatcher");
+        info!(target: "device", "{}", t("device-matcher-creating", &[]));
 
         let parser = Parser::new();
         let cache = Cache::builder()
@@ -459,7 +460,7 @@ impl DeviceMatcher {
             compiled_rules,
         };
 
-        info!(target: "device", "DeviceMatcher创建成功");
+        info!(target: "device", "{}", t("device-matcher-created", &[]));
         Ok(matcher)
     }
 
@@ -478,9 +479,11 @@ impl DeviceMatcher {
                 Err(e) => {
                     log::warn!(
                         target: "device",
-                        "自定义规则 '{}' 的正则无效，已跳过: {}",
-                        rule.name,
-                        e
+                        "{}",
+                        t(
+                            "device-custom-rule-invalid-regex-skipped",
+                            &[("name", rule.name.clone()), ("reason", e.to_string())],
+                        )
                     );
                 }
             }
@@ -587,16 +590,16 @@ impl DeviceMatcher {
 
         // 验证 User-Agent 长度
         if user_agent.len() > MAX_USER_AGENT_LENGTH {
-            return Err(LimiteronError::ConfigError(format!(
-                "User-Agent 长度超过限制（最大 {} 字符）",
-                MAX_USER_AGENT_LENGTH
+            return Err(LimiteronError::ConfigError(t(
+                "device-user-agent-too-long",
+                &[("max", MAX_USER_AGENT_LENGTH.to_string())],
             )));
         }
 
         // 检查缓存
         let cache_key = user_agent.to_string();
         if let Ok(Some(cached)) = self.cache.get(&cache_key).await {
-            log::debug!(target: "device", "缓存命中: {}", user_agent);
+            log::debug!(target: "device", "cache hit: {}", user_agent);
             self.cache_hits.fetch_add(1, Ordering::Relaxed);
             return Ok(cached);
         }
@@ -604,7 +607,7 @@ impl DeviceMatcher {
         // 记录缓存未命中
         self.cache_misses.fetch_add(1, Ordering::Relaxed);
 
-        log::debug!(target: "device", "解析User-Agent: {}", user_agent);
+        log::debug!(target: "device", "parsing User-Agent: {}", user_agent);
 
         // 检查自定义规则（使用构造时预编译的正则，E2）
         for (rule, re) in self.custom_rules.iter().zip(&self.compiled_rules) {
@@ -618,7 +621,7 @@ impl DeviceMatcher {
                     user_agent: Some(user_agent.to_string()),
                 };
                 self.update_cache(user_agent, &info).await;
-                log::debug!(target: "device", "自定义规则匹配: {}", rule.name);
+                log::debug!(target: "device", "custom rule matched: {}", rule.name);
                 return Ok(info);
             }
         }
@@ -637,7 +640,7 @@ impl DeviceMatcher {
 
         log::debug!(
             target: "device",
-            "User-Agent解析成功: {} -> {}",
+            "User-Agent parsed: {} -> {}",
             user_agent,
             info.description()
         );
@@ -782,13 +785,21 @@ impl DeviceMatcher {
 
         // 验证正则表达式并同步预编译缓存（与 custom_rules 一一对应）
         let Ok(re) = regex::Regex::new(&rule.pattern) else {
-            log::warn!(target: "device", "无效的正则表达式: {}", pattern);
+            log::warn!(
+            target: "device",
+            "{}",
+            t("device-invalid-regex", &[("pattern", pattern.to_string())])
+        );
             return;
         };
 
         self.custom_rules.push(rule);
         self.compiled_rules.push(re);
-        log::info!(target: "device", "添加自定义规则: {}", name);
+        log::info!(
+            target: "device",
+            "{}",
+            t("device-custom-rule-added", &[("name", name.to_string())])
+        );
     }
 
     /// 移除自定义规则
@@ -819,7 +830,11 @@ impl DeviceMatcher {
         self.custom_rules = kept_rules;
         self.compiled_rules = kept_compiled;
         if removed {
-            log::info!(target: "device", "移除自定义规则: {}", name);
+            log::info!(
+            target: "device",
+            "{}",
+            t("device-custom-rule-removed", &[("name", name.to_string())])
+        );
         }
         removed
     }
@@ -828,7 +843,11 @@ impl DeviceMatcher {
     pub async fn clear_cache(&self) {
         let size = self.cache.len().await.unwrap_or(0);
         let _ = self.cache.clear().await;
-        log::info!(target: "device", "缓存已清空，移除 {} 条记录", size);
+        log::info!(
+            target: "device",
+            "{}",
+            t("device-cache-cleared", &[("count", size.to_string())])
+        );
     }
 
     /// 获取缓存统计信息
@@ -856,7 +875,11 @@ impl DeviceMatcher {
         let cache_len = self.cache.len().await.unwrap_or(0);
         if cache_len >= self.cache_size_limit as u64 {
             let _maybe_first = (0..(self.cache_size_limit / 10)).next();
-            debug!(target: "device", "缓存接近限制 ({}/{})", cache_len, self.cache_size_limit);
+            debug!(
+            target: "device",
+            "cache near limit ({}/{})",
+            cache_len, self.cache_size_limit
+        );
         }
 
         let _ = self.cache.set(&user_agent.to_string(), info).await;

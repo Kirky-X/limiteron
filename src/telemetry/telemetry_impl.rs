@@ -23,8 +23,8 @@ impl Metrics {
     pub fn gather(&self) -> String {
         let _ = METRICS_NOOP_WARNED.get_or_init(|| {
             warn!(
-                "Metrics 处于空对象状态：`monitoring` feature 未启用，本次及后续 gather() \
-                 返回空串，指标数据被丢弃。请在 Cargo.toml 启用 `monitoring` feature 以收集真实指标。"
+                "{}",
+                crate::i18n::t("telemetry-noop-metrics-gather", &[])
             );
         });
         String::new()

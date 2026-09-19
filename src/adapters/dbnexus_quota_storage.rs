@@ -9,6 +9,7 @@ use crate::dbnexus_entities::{
     QuotaColumn, QuotaRecordActiveModel, QuotaRecordModel, create_quota_key,
 };
 use crate::error::{ConsumeResult, StorageError};
+use crate::i18n::t;
 use crate::storage::{QuotaInfo, QuotaStorage};
 use async_trait::async_trait;
 use chrono::{Duration as ChronoDuration, Utc};
@@ -251,9 +252,10 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             // 0 行返回 = 冲突行仍活跃（竞态），循环重试
         }
 
-        Err(StorageError::QueryError(
-            "并发配额初始化冲突重试耗尽，请重试请求".to_string(),
-        ))
+        Err(StorageError::QueryError(t(
+            "quota-init-conflict-retries-exhausted",
+            &[],
+        )))
     }
 
     /// Reset quota

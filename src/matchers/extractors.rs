@@ -7,6 +7,7 @@
 
 use super::traits::{Identifier, IdentifierExtractor, RequestContext};
 use crate::config::TrustedProxyConfig;
+use crate::i18n::t;
 use std::net::IpAddr;
 
 // ============================================================================
@@ -338,9 +339,14 @@ impl IpExtractor {
         // 安全验证: 检查 IP 数量是否超过最大跳数限制
         if ips.len() > self.trusted_proxy_config.max_hops {
             log::warn!(
-                "X-Forwarded-For 包含 {} 个 IP,超过最大限制 {}",
-                ips.len(),
-                self.trusted_proxy_config.max_hops
+                "{}",
+                t(
+                    "xff-exceeds-max-hops",
+                    &[
+                        ("count", ips.len().to_string()),
+                        ("max", self.trusted_proxy_config.max_hops.to_string()),
+                    ],
+                )
             );
             return None;
         }
@@ -468,13 +474,17 @@ impl IdentifierExtractor for IpExtractor {
             if self.trusted_proxy_config.enabled {
                 log::warn!(
                     target: "ip-extractor",
-                    "X-Forwarded-For 头被忽略：直接连接来自 '{}'，不在可信代理列表中（vuln-0003）",
-                    remote_addr.unwrap_or("unknown")
+                    "{}",
+                    t(
+                        "xff-ignored-untrusted-peer",
+                        &[("addr", remote_addr.unwrap_or("unknown").to_string())],
+                    )
                 );
             } else {
                 log::warn!(
                     target: "ip-extractor",
-                    "已配置转发头提取但未启用可信代理模式；为防止 IP 伪造，忽略转发头并使用直接连接 IP（vuln-0003）"
+                    "{}",
+                    t("xff-ignored-trusted-proxy-disabled", &[])
                 );
             }
         }
@@ -709,7 +719,10 @@ impl ApiKeyExtractor {
         prefix: Option<String>,
     ) -> Self {
         if query_param_name.is_some() {
-            log::warn!("出于安全考虑，通过查询参数提取API Key已被禁用");
+            log::warn!(
+            "{}",
+            t("api-key-query-param-disabled", &[])
+        );
         }
         Self {
             header_name,

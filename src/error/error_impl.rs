@@ -96,6 +96,125 @@ impl LocalizedMsg for LimiteronError {
     }
 }
 
+// ============================================================================
+// SafeErrorMessage 及其子枚举的错误双轨（T025）：Display 已是英文规范串，
+// LocalizedMsg 将各变体映射到 FTL 目录 `safe-*` 键；经
+// `i18n::I18nExt::to_localized_string()` 输出本地化文案。
+// ============================================================================
+
+impl LocalizedMsg for SafeErrorMessage {
+    fn message_key(&self) -> &'static str {
+        match self {
+            SafeErrorMessage::ConfigError(_) => "safe-error-config",
+            SafeErrorMessage::StorageError(_) => "safe-error-storage",
+            SafeErrorMessage::LimitError(_) => "safe-error-limit",
+            SafeErrorMessage::BanError(_) => "safe-error-ban",
+            SafeErrorMessage::ValidationError(_) => "safe-error-validation",
+            SafeErrorMessage::General(_) => "safe-error-general",
+        }
+    }
+
+    fn message_args(&self) -> Vec<(&'static str, String)> {
+        // $message 取内层变体经目录渲染的文案（内层均为无参单元变体），
+        // 使 zh 渲染为 "存储错误: 记录不存在" 式完整中文。
+        let inner_key = match self {
+            SafeErrorMessage::ConfigError(inner) => inner.message_key(),
+            SafeErrorMessage::StorageError(inner) => inner.message_key(),
+            SafeErrorMessage::LimitError(inner) => inner.message_key(),
+            SafeErrorMessage::BanError(inner) => inner.message_key(),
+            SafeErrorMessage::ValidationError(inner) => inner.message_key(),
+            SafeErrorMessage::General(inner) => inner.message_key(),
+        };
+        vec![("message", crate::i18n::catalog::translate(inner_key, &[]))]
+    }
+}
+
+impl LocalizedMsg for ConfigSafeError {
+    fn message_key(&self) -> &'static str {
+        match self {
+            ConfigSafeError::InvalidFormat => "config-safe-invalid-format",
+            ConfigSafeError::MissingRequiredField => "config-safe-missing-required-field",
+            ConfigSafeError::DuplicateRuleId => "config-safe-duplicate-rule-id",
+            ConfigSafeError::InvalidStorageType => "config-safe-invalid-storage-type",
+            ConfigSafeError::InvalidCacheType => "config-safe-invalid-cache-type",
+            ConfigSafeError::InvalidMetricsType => "config-safe-invalid-metrics-type",
+            ConfigSafeError::InvalidVersion => "config-safe-invalid-version",
+            ConfigSafeError::RuleNotFound => "config-safe-rule-not-found",
+            ConfigSafeError::InvalidLimiterConfig => "config-safe-invalid-limiter-config",
+            ConfigSafeError::InvalidMatcherConfig => "config-safe-invalid-matcher-config",
+            ConfigSafeError::ValueOutOfRange => "config-safe-value-out-of-range",
+            ConfigSafeError::MalformedPattern => "config-safe-malformed-pattern",
+            ConfigSafeError::SecurityRisk => "config-safe-security-risk",
+        }
+    }
+}
+
+impl LocalizedMsg for StorageSafeError {
+    fn message_key(&self) -> &'static str {
+        match self {
+            StorageSafeError::ConnectionFailed => "storage-safe-connection-failed",
+            StorageSafeError::QueryFailed => "storage-safe-query-failed",
+            StorageSafeError::Timeout => "storage-safe-timeout",
+            StorageSafeError::NotFound => "storage-safe-not-found",
+            StorageSafeError::ConcurrentModification => "storage-safe-concurrent-modification",
+            StorageSafeError::StorageFull => "storage-safe-storage-full",
+            StorageSafeError::InvalidDataFormat => "storage-safe-invalid-data-format",
+        }
+    }
+}
+
+impl LocalizedMsg for LimitSafeError {
+    fn message_key(&self) -> &'static str {
+        match self {
+            LimitSafeError::RateLimitExceeded => "limit-safe-rate-limit-exceeded",
+            LimitSafeError::QuotaExceeded => "limit-safe-quota-exceeded",
+            LimitSafeError::ConcurrencyLimitExceeded => "limit-safe-concurrency-exceeded",
+            LimitSafeError::TokenBucketEmpty => "limit-safe-token-bucket-empty",
+            LimitSafeError::WindowFull => "limit-safe-window-full",
+            LimitSafeError::TooManyRequests => "limit-safe-too-many-requests",
+        }
+    }
+}
+
+impl LocalizedMsg for BanSafeError {
+    fn message_key(&self) -> &'static str {
+        match self {
+            BanSafeError::UserBanned => "ban-safe-user-banned",
+            BanSafeError::IpBanned => "ban-safe-ip-banned",
+            BanSafeError::DeviceBanned => "ban-safe-device-banned",
+            BanSafeError::RateExceeded => "ban-safe-rate-exceeded",
+            BanSafeError::SpamDetected => "ban-safe-spam-detected",
+            BanSafeError::SecurityViolation => "ban-safe-security-violation",
+        }
+    }
+}
+
+impl LocalizedMsg for ValidationSafeError {
+    fn message_key(&self) -> &'static str {
+        match self {
+            ValidationSafeError::InvalidInput => "validation-safe-invalid-input",
+            ValidationSafeError::MalformedData => "validation-safe-malformed-data",
+            ValidationSafeError::SecurityCheckFailed => "validation-safe-security-check-failed",
+            ValidationSafeError::InputTooLong => "validation-safe-input-too-long",
+            ValidationSafeError::InvalidFormat => "validation-safe-invalid-format",
+            ValidationSafeError::SuspiciousPattern => "validation-safe-suspicious-pattern",
+        }
+    }
+}
+
+impl LocalizedMsg for GeneralSafeError {
+    fn message_key(&self) -> &'static str {
+        match self {
+            GeneralSafeError::InternalError => "general-safe-internal-error",
+            GeneralSafeError::ServiceUnavailable => "general-safe-service-unavailable",
+            GeneralSafeError::InvalidRequest => "general-safe-invalid-request",
+            GeneralSafeError::Unauthorized => "general-safe-unauthorized",
+            GeneralSafeError::Forbidden => "general-safe-forbidden",
+            GeneralSafeError::RateLimited => "general-safe-rate-limited",
+        }
+    }
+}
+
 impl StorageError {
     /// 判断是否为临时错误（可重试）
     pub fn is_transient(&self) -> bool {

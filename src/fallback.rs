@@ -12,6 +12,7 @@
 //! - **故障注入**: 支持模拟故障进行测试
 
 use crate::error::{LimiteronError, StorageError};
+use crate::i18n::t;
 use ahash::AHashMap as HashMap;
 use oxcache::Cache;
 use std::sync::Arc;
@@ -171,7 +172,7 @@ impl FallbackManager {
     /// }
     /// ```
     pub fn new(l2_cache: Arc<Cache<String, String>>) -> Self {
-        log::info!("创建降级策略管理器");
+        log::info!("{}", t("fallback-manager-created", &[]));
 
         // 默认策略
         let mut strategies = HashMap::new();
@@ -221,8 +222,14 @@ impl FallbackManager {
     pub async fn set_strategy(&self, component: ComponentType, config: FallbackConfig) {
         log::info!(
             target: "fallback",
-            "设置降级策略: component={:?}, strategy={:?}",
-            component, config.strategy
+            "{}",
+            t(
+                "fallback-strategy-set",
+                &[
+                    ("component", format!("{:?}", component)),
+                    ("strategy", format!("{:?}", config.strategy)),
+                ],
+            )
         );
 
         let mut strategies = self.strategies.write().await;
@@ -311,7 +318,17 @@ impl FallbackManager {
             }
             Err(e) => {
                 // 操作失败，根据策略处理
-                log::warn!(target: "fallback", "组件操作失败: component={:?}, error={}", component, e);
+                log::warn!(
+                target: "fallback",
+                "{}",
+                t(
+                    "fallback-component-op-failed",
+                    &[
+                        ("component", format!("{:?}", component)),
+                        ("error", e.to_string()),
+                    ],
+                )
+            );
 
                 // 标记为故障状态
                 self.set_failure_internal(component.clone()).await;
@@ -336,8 +353,14 @@ impl FallbackManager {
     {
         log::info!(
             target: "fallback",
-            "执行降级策略: component={:?}, strategy={:?}",
-            component, config.strategy
+            "{}",
+            t(
+                "fallback-strategy-executing",
+                &[
+                    ("component", format!("{:?}", component)),
+                    ("strategy", format!("{:?}", config.strategy)),
+                ],
+            )
         );
 
         match config.strategy {
@@ -345,21 +368,33 @@ impl FallbackManager {
                 // 故障开放：显性返回 FallbackError（调用方以
                 // 变体匹配降级语义，而非靠字符串约定；泛型 T 无法合成
                 // 默认值，是否放行由调用方决定）。
-                log::warn!(target: "fallback", "降级策略: FailOpen - 返回降级错误，由调用方决定放行");
-                Err(LimiteronError::FallbackError(
-                    "服务降级（FailOpen）：组件故障，是否放行由调用方决定".to_string(),
-                ))
+                log::warn!(
+                    target: "fallback",
+                    "{}",
+                    t("fallback-fail-open", &[])
+                );
+                Err(LimiteronError::FallbackError(t(
+                    "fallback-fail-open-error",
+                    &[],
+                )))
             }
             FallbackStrategy::FailClosed => {
                 // 故障关闭：拒绝请求
-                log::error!(target: "fallback", "降级策略: FailClosed - 拒绝请求");
+                log::error!(
+                    target: "fallback",
+                    "{}",
+                    t("fallback-fail-closed", &[])
+                );
                 Err(LimiteronError::StorageError(StorageError::ConnectionError(
-                    "服务降级，拒绝请求".to_string(),
+                    t("fallback-fail-closed-error", &[]),
                 )))
             }
             FallbackStrategy::Degraded => {
                 // 降级服务：使用备用方案
-                log::debug!(target: "fallback", "降级策略: Degraded - 使用备用方案");
+                log::debug!(
+                    target: "fallback",
+                    "fallback strategy: Degraded - using fallback operation"
+                );
                 fallback_operation().await
             }
         }
@@ -367,7 +402,11 @@ impl FallbackManager {
 
     /// 标记组件为故障状态（内部使用）
     async fn set_failure_internal(&self, component: ComponentType) {
-        log::warn!(target: "fallback", "组件故障: {:?}", component);
+        log::warn!(
+            target: "fallback",
+            "{}",
+            t("fallback-component-failed", &[("component", format!("{:?}", component))])
+        );
         let mut states = self.failure_states.write().await;
         states.insert(component, true);
     }
@@ -376,12 +415,20 @@ impl FallbackManager {
     async fn clear_failure_internal(&self, component: ComponentType) {
         let mut states = self.failure_states.write().await;
         states.remove(&component);
-        log::info!(target: "fallback", "组件恢复: {:?}", component);
+        log::info!(
+            target: "fallback",
+            "{}",
+            t("fallback-component-recovered", &[("component", format!("{:?}", component))])
+        );
     }
 
     /// 记录组件故障
     pub async fn record_failure(&self, component: ComponentType, _error: &str) {
-        log::warn!(target: "fallback", "组件故障记录: {:?}", component);
+        log::warn!(
+            target: "fallback",
+            "{}",
+            t("fallback-component-failure-recorded", &[("component", format!("{:?}", component))])
+        );
         self.set_failure_internal(component).await;
     }
 
@@ -403,13 +450,21 @@ impl FallbackManager {
 
     /// 手动触发故障（用于测试）
     pub async fn inject_failure(&self, component: ComponentType) {
-        log::warn!(target: "fallback", "注入故障: {:?}", component);
+        log::warn!(
+            target: "fallback",
+            "{}",
+            t("fallback-failure-injected", &[("component", format!("{:?}", component))])
+        );
         self.set_failure_internal(component).await;
     }
 
     /// 手动恢复故障（用于测试）
     pub async fn recover_failure(&self, component: ComponentType) {
-        log::info!(target: "fallback", "恢复故障: {:?}", component);
+        log::info!(
+            target: "fallback",
+            "{}",
+            t("fallback-failure-recovered", &[("component", format!("{:?}", component))])
+        );
         self.clear_failure_internal(component).await;
     }
 
@@ -434,7 +489,11 @@ impl FallbackManager {
     pub async fn register_island_mode_callback(&self, callback: IslandModeCallback) {
         let mut callbacks = self.island_mode_callbacks.write().await;
         callbacks.push(callback);
-        log::info!(target: "fallback", "注册孤岛模式通知回调");
+        log::info!(
+            target: "fallback",
+            "{}",
+            t("fallback-island-callback-registered", &[])
+        );
     }
 
     /// 通知所有回调孤岛模式状态变更
@@ -448,9 +507,17 @@ impl FallbackManager {
             callback(is_island);
         }
         if is_island {
-            log::warn!(target: "fallback", "已通知所有回调：进入孤岛模式");
+            log::warn!(
+                target: "fallback",
+                "{}",
+                t("fallback-island-enter-notified", &[])
+            );
         } else {
-            log::info!(target: "fallback", "已通知所有回调：退出孤岛模式");
+            log::info!(
+                target: "fallback",
+                "{}",
+                t("fallback-island-exit-notified", &[])
+            );
         }
     }
 
@@ -458,14 +525,22 @@ impl FallbackManager {
     ///
     /// 与内部 `set_failure` 不同，此方法会触发孤岛模式通知。
     pub async fn set_failure(&self, component: ComponentType) {
-        log::warn!(target: "fallback", "组件故障: {:?}", component);
+        log::warn!(
+            target: "fallback",
+            "{}",
+            t("fallback-component-failed", &[("component", format!("{:?}", component))])
+        );
         let mut states = self.failure_states.write().await;
         let was_failed = states.values().any(|&f| f);
         states.insert(component.clone(), true);
 
         // 如果这是第一个故障，触发孤岛模式
         if !was_failed {
-            log::error!(target: "fallback", "存储层首次故障，触发孤岛模式");
+            log::error!(
+                target: "fallback",
+                "{}",
+                t("fallback-first-failure-island", &[])
+            );
             self.notify_island_mode_change(true).await;
         }
     }
@@ -481,13 +556,21 @@ impl FallbackManager {
             let mut states = self.failure_states.write().await;
             let had_failures = states.values().any(|&f| f);
             states.remove(&component);
-            log::info!(target: "fallback", "组件恢复: {:?}", component);
+            log::info!(
+            target: "fallback",
+            "{}",
+            t("fallback-component-recovered", &[("component", format!("{:?}", component))])
+        );
             let still_failed = states.values().any(|&f| f);
             had_failures && !still_failed
         };
 
         if should_notify {
-            log::info!(target: "fallback", "所有存储层恢复，退出孤岛模式");
+            log::info!(
+                target: "fallback",
+                "{}",
+                t("fallback-all-recovered-island-exit", &[])
+            );
             self.notify_island_mode_change(false).await;
         }
     }
@@ -709,11 +792,12 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+        // FailClosed 经目录渲染（与 FTL 键 fallback-fail-closed-error 对齐）
         assert!(
             result
                 .unwrap_err()
                 .to_string()
-                .contains("服务降级，拒绝请求")
+                .contains(crate::i18n::translate_en("fallback-fail-closed-error", &[]).as_str())
         );
     }
 

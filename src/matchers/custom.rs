@@ -51,6 +51,7 @@
 //! ```
 
 use crate::error::LimiteronError;
+use crate::i18n::t;
 use crate::matchers::RequestContext;
 use ahash::AHashMap as HashMap;
 use async_trait::async_trait;
@@ -91,14 +92,14 @@ const MAX_ALLOWED_VALUES_COUNT: usize = 100;
 fn validate_matcher_name(name: &str) -> Result<(), LimiteronError> {
     if name.is_empty() {
         return Err(LimiteronError::ConfigError(
-            "匹配器名称不能为空".to_string(),
+            t("matcher-name-empty", &[]),
         ));
     }
 
     if name.len() > MAX_MATCHER_NAME_LENGTH {
-        return Err(LimiteronError::ConfigError(format!(
-            "匹配器名称长度超过限制（最大 {} 字符）",
-            MAX_MATCHER_NAME_LENGTH
+        return Err(LimiteronError::ConfigError(t(
+            "matcher-name-too-long",
+            &[("max", MAX_MATCHER_NAME_LENGTH.to_string())],
         )));
     }
 
@@ -108,7 +109,7 @@ fn validate_matcher_name(name: &str) -> Result<(), LimiteronError> {
         .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
     {
         return Err(LimiteronError::ConfigError(
-            "匹配器名称只能包含字母、数字、下划线和连字符".to_string(),
+            t("matcher-name-invalid-chars", &[]),
         ));
     }
 
@@ -126,21 +127,21 @@ fn validate_matcher_name(name: &str) -> Result<(), LimiteronError> {
 fn validate_header_name(name: &str) -> Result<(), LimiteronError> {
     if name.is_empty() {
         return Err(LimiteronError::ConfigError(
-            "HTTP头名称不能为空".to_string(),
+            t("header-name-empty", &[]),
         ));
     }
 
     if name.len() > MAX_HEADER_NAME_LENGTH {
-        return Err(LimiteronError::ConfigError(format!(
-            "HTTP头名称长度超过限制（最大 {} 字符）",
-            MAX_HEADER_NAME_LENGTH
+        return Err(LimiteronError::ConfigError(t(
+            "header-name-too-long",
+            &[("max", MAX_HEADER_NAME_LENGTH.to_string())],
         )));
     }
 
     // 只允许字母、数字、连字符
     if !name.chars().all(|c| c.is_alphanumeric() || c == '-') {
         return Err(LimiteronError::ConfigError(
-            "HTTP头名称只能包含字母、数字和连字符".to_string(),
+            t("header-name-invalid-chars", &[]),
         ));
     }
 
@@ -157,9 +158,9 @@ fn validate_header_name(name: &str) -> Result<(), LimiteronError> {
 /// - `Err(LimiteronError)`: 验证失败
 fn validate_header_value(value: &str) -> Result<(), LimiteronError> {
     if value.len() > MAX_HEADER_VALUE_LENGTH {
-        return Err(LimiteronError::ConfigError(format!(
-            "HTTP头值长度超过限制（最大 {} 字符）",
-            MAX_HEADER_VALUE_LENGTH
+        return Err(LimiteronError::ConfigError(t(
+            "header-value-too-long",
+            &[("max", MAX_HEADER_VALUE_LENGTH.to_string())],
         )));
     }
 
@@ -291,14 +292,14 @@ impl CustomMatcherRegistry {
         let mut matchers = self.matchers.write().await;
 
         if matchers.contains_key(&name) {
-            let error_msg = format!("匹配器 '{}' 已存在", name);
+            let error_msg = t("matcher-already-exists", &[("name", name.clone())]);
             warn!("{}", error_msg);
             return Err(LimiteronError::ConfigError(error_msg));
         }
 
-        info!("注册自定义匹配器: {}", name);
+        info!("{}", t("matcher-registered", &[("name", name.clone())]));
         matchers.insert(name.clone(), std::sync::Arc::from(matcher));
-        debug!("当前注册的匹配器数量: {}", matchers.len());
+        debug!("registered matcher count: {}", matchers.len());
 
         Ok(())
     }
@@ -328,9 +329,9 @@ impl CustomMatcherRegistry {
         let matchers = self.matchers.read().await;
         let found = matchers.get(name).cloned();
         if found.is_some() {
-            debug!("查询匹配器: {}", name);
+            debug!("query matcher: {}", name);
         } else {
-            debug!("未找到匹配器: {}", name);
+            debug!("matcher not found: {}", name);
         }
         found
     }
@@ -376,14 +377,14 @@ impl CustomMatcherRegistry {
         let mut matchers = self.matchers.write().await;
 
         if !matchers.contains_key(name) {
-            let error_msg = format!("匹配器 '{}' 不存在", name);
+            let error_msg = t("matcher-not-found", &[("name", name.to_string())]);
             warn!("{}", error_msg);
             return Err(LimiteronError::ConfigError(error_msg));
         }
 
-        info!("注销自定义匹配器: {}", name);
+        info!("{}", t("matcher-unregistered", &[("name", name.to_string())]));
         matchers.remove(name);
-        debug!("当前注册的匹配器数量: {}", matchers.len());
+        debug!("registered matcher count: {}", matchers.len());
 
         Ok(())
     }
@@ -421,7 +422,7 @@ impl CustomMatcherRegistry {
     /// ```
     pub async fn clear(&self) {
         let mut matchers = self.matchers.write().await;
-        info!("清空所有自定义匹配器");
+        info!("{}", t("matcher-registry-cleared", &[]));
         matchers.clear();
     }
 
@@ -445,12 +446,12 @@ impl CustomMatcherRegistry {
         let matchers = self.matchers.read().await;
 
         let matcher = matchers.get(name).ok_or_else(|| {
-            let error_msg = format!("匹配器 '{}' 不存在", name);
+            let error_msg = t("matcher-not-found", &[("name", name.to_string())]);
             error!("{}", error_msg);
             LimiteronError::ConfigError(error_msg)
         })?;
 
-        debug!("使用匹配器 '{}' 检查请求", name);
+        debug!("checking request with matcher '{}'", name);
         matcher.matches(context).await
     }
 }
@@ -513,8 +514,8 @@ impl TimeWindowMatcher {
     /// let matcher = TimeWindowMatcher::new(9, 18);
     /// ```
     pub fn new(start_hour: u8, end_hour: u8) -> Self {
-        assert!(start_hour <= 23, "开始小时必须在 0-23 范围内");
-        assert!(end_hour <= 23, "结束小时必须在 0-23 范围内");
+        assert!(start_hour <= 23, "start_hour must be in range 0-23");
+        assert!(end_hour <= 23, "end_hour must be in range 0-23");
 
         Self {
             start_hour,
@@ -579,7 +580,7 @@ impl CustomMatcher for TimeWindowMatcher {
         };
 
         debug!(
-            "时间窗口匹配: 当前时间 {}小时, 窗口 {}-{}小时, 结果: {}",
+            "time window match: current hour {}, window {}-{}, result: {}",
             hour, self.start_hour, self.end_hour, matches
         );
 
@@ -590,23 +591,25 @@ impl CustomMatcher for TimeWindowMatcher {
         // 先获取 start_hour 并验证
         let start_hour_u64 = config["start_hour"]
             .as_u64()
-            .ok_or_else(|| LimiteronError::ConfigError("缺少 start_hour 配置".to_string()))?;
+            .ok_or_else(|| LimiteronError::ConfigError(t("matcher-config-missing", &[("field", "start_hour".to_string())])))?;
         // 先校验范围再转换，避免 `as u8` 截断绕过校验（如 256 截断为 0）
         if start_hour_u64 > 23 {
-            return Err(LimiteronError::ConfigError(
-                "start_hour 必须在 0-23 范围内".to_string(),
-            ));
+            return Err(LimiteronError::ConfigError(t(
+                "matcher-hour-out-of-range",
+                &[("field", "start_hour".to_string())],
+            )));
         }
         let start_hour = start_hour_u64 as u8;
 
         // 然后获取 end_hour 并验证
         let end_hour_u64 = config["end_hour"]
             .as_u64()
-            .ok_or_else(|| LimiteronError::ConfigError("缺少 end_hour 配置".to_string()))?;
+            .ok_or_else(|| LimiteronError::ConfigError(t("matcher-config-missing", &[("field", "end_hour".to_string())])))?;
         if end_hour_u64 > 23 {
-            return Err(LimiteronError::ConfigError(
-                "end_hour 必须在 0-23 范围内".to_string(),
-            ));
+            return Err(LimiteronError::ConfigError(t(
+                "matcher-hour-out-of-range",
+                &[("field", "end_hour".to_string())],
+            )));
         }
         let end_hour = end_hour_u64 as u8;
 
@@ -614,8 +617,14 @@ impl CustomMatcher for TimeWindowMatcher {
         self.end_hour = end_hour;
 
         info!(
-            "加载时间窗口匹配器配置: {}-{}小时",
-            self.start_hour, self.end_hour
+            "{}",
+            t(
+                "matcher-time-window-config-loaded",
+                &[
+                    ("start", self.start_hour.to_string()),
+                    ("end", self.end_hour.to_string()),
+                ]
+            )
         );
 
         Ok(())
@@ -702,9 +711,9 @@ impl HeaderMatcher {
 
         // 验证允许的值数量
         if allowed_values.len() > MAX_ALLOWED_VALUES_COUNT {
-            return Err(LimiteronError::ValidationError(format!(
-                "允许的值数量超过限制（最大 {}）",
-                MAX_ALLOWED_VALUES_COUNT
+            return Err(LimiteronError::ValidationError(t(
+                "matcher-allowed-values-too-many",
+                &[("max", MAX_ALLOWED_VALUES_COUNT.to_string())],
             )));
         }
 
@@ -785,7 +794,7 @@ impl CustomMatcher for HeaderMatcher {
         let header_value = match context.get_header(&self.header_name) {
             Some(value) => value,
             None => {
-                debug!("HTTP头 '{}' 不存在", self.header_name);
+                debug!("HTTP header '{}' not present", self.header_name);
                 return Ok(false);
             }
         };
@@ -800,7 +809,7 @@ impl CustomMatcher for HeaderMatcher {
         };
 
         debug!(
-            "HTTP头匹配: 头='{}', 值='{}', 结果: {}",
+            "HTTP header match: header='{}', value='{}', result: {}",
             self.header_name, header_value, matches
         );
 
@@ -815,9 +824,9 @@ impl CustomMatcher for HeaderMatcher {
 
         if let Some(values) = config["allowed_values"].as_array() {
             if values.len() > MAX_ALLOWED_VALUES_COUNT {
-                return Err(LimiteronError::ConfigError(format!(
-                    "允许的值数量超过限制（最大 {}）",
-                    MAX_ALLOWED_VALUES_COUNT
+                return Err(LimiteronError::ConfigError(t(
+                    "matcher-allowed-values-too-many",
+                    &[("max", MAX_ALLOWED_VALUES_COUNT.to_string())],
                 )));
             }
 
@@ -836,8 +845,15 @@ impl CustomMatcher for HeaderMatcher {
         }
 
         info!(
-            "加载HTTP头匹配器配置: 头='{}', 允许值={:?}, 区分大小写={}",
-            self.header_name, self.allowed_values, self.case_sensitive
+            "{}",
+            t(
+                "matcher-header-config-loaded",
+                &[
+                    ("header", self.header_name.clone()),
+                    ("values", format!("{:?}", self.allowed_values)),
+                    ("case_sensitive", self.case_sensitive.to_string()),
+                ]
+            )
         );
 
         Ok(())
@@ -1080,13 +1096,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "开始小时必须在 0-23 范围内")]
+    #[should_panic(expected = "start_hour must be in range 0-23")]
     fn test_time_window_matcher_invalid_start_hour() {
         TimeWindowMatcher::new(25, 18);
     }
 
     #[test]
-    #[should_panic(expected = "结束小时必须在 0-23 范围内")]
+    #[should_panic(expected = "end_hour must be in range 0-23")]
     fn test_time_window_matcher_invalid_end_hour() {
         TimeWindowMatcher::new(9, 25);
     }

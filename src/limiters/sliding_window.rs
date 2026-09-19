@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 /// - 线程安全
 #[deprecated(
     since = "0.1.1",
-    note = "使用 `ShardedSlidingWindowLimiter` 替代。此实现使用 O(n) 复杂度，高并发场景下性能较差。"
+    note = "Use `ShardedSlidingWindowLimiter` instead. This implementation uses O(n) complexity and performs poorly under high concurrency."
 )]
 pub struct SlidingWindowLimiter {
     /// 窗口大小
@@ -51,7 +51,7 @@ impl SlidingWindowLimiter {
     ///
     /// let limiter = SlidingWindowLimiter::new(Duration::from_secs(60), 100);
     /// ```
-    #[deprecated(since = "0.1.1", note = "使用 `ShardedSlidingWindowLimiter` 替代。")]
+    #[deprecated(since = "0.1.1", note = "Use `ShardedSlidingWindowLimiter` instead.")]
     pub fn new(window_size: Duration, max_requests: u64) -> Self {
         Self {
             window_size,
@@ -63,13 +63,13 @@ impl SlidingWindowLimiter {
     }
 
     /// 获取窗口大小
-    #[deprecated(since = "0.1.1", note = "使用 `ShardedSlidingWindowLimiter` 替代。")]
+    #[deprecated(since = "0.1.1", note = "Use `ShardedSlidingWindowLimiter` instead.")]
     pub fn window_size(&self) -> Duration {
         self.window_size
     }
 
     /// 获取最大请求数
-    #[deprecated(since = "0.1.1", note = "使用 `ShardedSlidingWindowLimiter` 替代。")]
+    #[deprecated(since = "0.1.1", note = "Use `ShardedSlidingWindowLimiter` instead.")]
     pub fn max_requests(&self) -> u64 {
         self.max_requests
     }

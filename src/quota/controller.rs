@@ -28,6 +28,7 @@ pub const DEFAULT_ALERT_CONCURRENCY: usize = 8;
 
 use crate::config::QuotaType;
 use crate::error::{ConsumeResult, LimiteronError};
+use crate::i18n::t;
 use crate::storage::QuotaStorage;
 #[cfg(feature = "webhook")]
 use crate::webhook_validator::validate_webhook_url;
@@ -185,7 +186,7 @@ impl Drop for QuotaController {
     fn drop(&mut self) {
         if self.live_handles.fetch_sub(1, Ordering::SeqCst) == 1 {
             self.cleanup_token.cancel();
-            debug!("QuotaController 已停止后台清理任务");
+            debug!("QuotaController stopped background cleanup task");
         }
     }
 }
@@ -327,7 +328,7 @@ impl QuotaController {
             loop {
                 tokio::select! {
                     _ = token_clone.cancelled() => {
-                        debug!("告警去重缓存清理任务已停止");
+                        debug!("alert dedup cache cleanup task stopped");
                         break;
                     }
                     _ = interval.tick() => {
@@ -340,7 +341,7 @@ impl QuotaController {
                         let after = dedup_clone.len();
                         if before != after {
                             debug!(
-                                "告警去重缓存清理完成: 清理 {} 条记录，剩余 {} 条",
+                                "alert dedup cache cleaned: removed {} entries, {} remaining",
                                 before - after,
                                 after
                             );
@@ -835,12 +836,19 @@ impl QuotaController {
                     Ok(p) => p,
                     Err(_) => {
                         log::warn!(
-                            "告警并发上限已达 {}，跳过本次告警: \
-                            user_id={}, resource={}, threshold={}%",
-                            DEFAULT_ALERT_CONCURRENCY,
-                            alert_info.user_id,
-                            alert_info.resource,
-                            alert_info.threshold
+                            "{}",
+                            t(
+                                "quota-alert-concurrency-limit",
+                                &[
+                                    (
+                                        "max",
+                                        DEFAULT_ALERT_CONCURRENCY.to_string(),
+                                    ),
+                                    ("user_id", alert_info.user_id.clone()),
+                                    ("resource", alert_info.resource.clone()),
+                                    ("threshold", alert_info.threshold.to_string()),
+                                ],
+                            )
                         );
                         return;
                     }
@@ -848,20 +856,34 @@ impl QuotaController {
                 match channel {
                     AlertChannel::Log => {
                         log::warn!(
-                            "配额告警触发: user_id={}, resource={}, quota_type={}, threshold={}%, current_usage={}, limit={}, triggered_at={}",
-                            alert_info.user_id,
-                            alert_info.resource,
-                            alert_info.quota_type.as_str(),
-                            alert_info.threshold,
-                            alert_info.current_usage,
-                            alert_info.limit,
-                            alert_info.triggered_at.format("%Y-%m-%d %H:%M:%S UTC")
+                            "{}",
+                            t(
+                                "quota-alert-triggered",
+                                &[
+                                    ("user_id", alert_info.user_id.clone()),
+                                    ("resource", alert_info.resource.clone()),
+                                    ("quota_type", alert_info.quota_type.as_str().to_string()),
+                                    ("threshold", alert_info.threshold.to_string()),
+                                    ("current_usage", alert_info.current_usage.to_string()),
+                                    ("limit", alert_info.limit.to_string()),
+                                    (
+                                        "triggered_at",
+                                        alert_info
+                                            .triggered_at
+                                            .format("%Y-%m-%d %H:%M:%S UTC")
+                                            .to_string(),
+                                    ),
+                                ],
+                            )
                         );
                     }
                     AlertChannel::Webhook { url } => {
                         // 发送 Webhook 告警
                         if let Err(e) = send_webhook_alert(&url, &alert_info).await {
-                            log::error!("发送 Webhook 告警失败: {}", e);
+                            log::error!(
+                                "{}",
+                                t("quota-alert-webhook-send-failed", &[("reason", e.to_string())])
+                            );
                         }
                     }
                 }
@@ -949,7 +971,11 @@ async fn send_webhook_alert(
     if response.status().is_success() {
         Ok(())
     } else {
-        Err(format!("Webhook 返回错误状态码: {}", response.status()).into())
+        Err(t(
+            "quota-alert-webhook-error-status",
+            &[("status", response.status().to_string())],
+        )
+        .into())
     }
 }
 
@@ -959,7 +985,7 @@ async fn send_webhook_alert(
     _url: &str,
     _alert_info: &AlertInfo,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    Err("Webhook 功能未启用，请启用 'webhook' feature".into())
+    Err(t("quota-alert-webhook-disabled", &[]).into())
 }
 
 // ============================================================================

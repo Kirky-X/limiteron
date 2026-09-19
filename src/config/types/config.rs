@@ -3,6 +3,7 @@
 //! 配置相关类型
 
 use super::actions::{CacheBackend, MetricsBackend};
+use crate::i18n::t;
 use ipnet::IpNet;
 use serde::{Deserialize, Serialize};
 
@@ -111,9 +112,15 @@ impl TrustedProxyConfig {
         }
         for proxy in &self.proxies {
             if let Err(e) = Self::parse_cidr_or_ip(proxy) {
-                // 英文规范串（与 FTL 键 config-invalid-proxy-address 的 en 模式
-                // 对齐，T016；中文渲染面经 i18n::t 同键取用）
-                return Err(format!("Invalid proxy address '{proxy}': {e}"));
+                // T025 MEDIUM-1：错误文案接线 FTL（config-invalid-proxy-address），
+                // t(key, args) 随 locale 渲染，默认/回退为英文规范串
+                return Err(t(
+                    "config-invalid-proxy-address",
+                    &[
+                        ("address", proxy.clone()),
+                        ("reason", e.clone()),
+                    ],
+                ));
             }
         }
         Ok(())

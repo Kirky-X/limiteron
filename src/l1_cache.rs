@@ -759,10 +759,10 @@ where
         let was_island = self.is_island_mode.swap(0, Ordering::AcqRel);
         if was_island == 1 {
             log::info!(
-            target: "l1_cache",
-            "{}",
-            t("l1-cache-island-exited", &[])
-        );
+                target: "l1_cache",
+                "{}",
+                t("l1-cache-island-exited", &[])
+            );
         }
         let mut island_config = self.island_config.write();
         *island_config = None;

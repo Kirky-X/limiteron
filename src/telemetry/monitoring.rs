@@ -633,30 +633,30 @@ impl MonitoringSystem {
             match level {
                 AlertLevel::Critical => {
                     error!(
-                    "{}",
-                    t(
-                        "alert-sent-critical",
-                        &[("level", Self::format_alert_level(level).to_string())],
-                    )
-                );
+                        "{}",
+                        t(
+                            "alert-sent-critical",
+                            &[("level", Self::format_alert_level(level).to_string())],
+                        )
+                    );
                 }
                 AlertLevel::Warning => {
                     warn!(
-                    "{}",
-                    t(
-                        "alert-sent-warning",
-                        &[("level", Self::format_alert_level(level).to_string())],
-                    )
-                );
+                        "{}",
+                        t(
+                            "alert-sent-warning",
+                            &[("level", Self::format_alert_level(level).to_string())],
+                        )
+                    );
                 }
                 AlertLevel::Info => {
                     info!(
-                    "{}",
-                    t(
-                        "alert-sent-info",
-                        &[("level", Self::format_alert_level(level).to_string())],
-                    )
-                );
+                        "{}",
+                        t(
+                            "alert-sent-info",
+                            &[("level", Self::format_alert_level(level).to_string())],
+                        )
+                    );
                 }
             }
         }

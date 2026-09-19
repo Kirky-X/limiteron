@@ -840,10 +840,7 @@ impl QuotaController {
                             t(
                                 "quota-alert-concurrency-limit",
                                 &[
-                                    (
-                                        "max",
-                                        DEFAULT_ALERT_CONCURRENCY.to_string(),
-                                    ),
+                                    ("max", DEFAULT_ALERT_CONCURRENCY.to_string(),),
                                     ("user_id", alert_info.user_id.clone()),
                                     ("resource", alert_info.resource.clone()),
                                     ("threshold", alert_info.threshold.to_string()),
@@ -882,7 +879,10 @@ impl QuotaController {
                         if let Err(e) = send_webhook_alert(&url, &alert_info).await {
                             log::error!(
                                 "{}",
-                                t("quota-alert-webhook-send-failed", &[("reason", e.to_string())])
+                                t(
+                                    "quota-alert-webhook-send-failed",
+                                    &[("reason", e.to_string())]
+                                )
                             );
                         }
                     }

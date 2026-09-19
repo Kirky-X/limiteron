@@ -91,9 +91,7 @@ const MAX_ALLOWED_VALUES_COUNT: usize = 100;
 /// - `Err(LimiteronError)`: 验证失败
 fn validate_matcher_name(name: &str) -> Result<(), LimiteronError> {
     if name.is_empty() {
-        return Err(LimiteronError::ConfigError(
-            t("matcher-name-empty", &[]),
-        ));
+        return Err(LimiteronError::ConfigError(t("matcher-name-empty", &[])));
     }
 
     if name.len() > MAX_MATCHER_NAME_LENGTH {
@@ -108,9 +106,10 @@ fn validate_matcher_name(name: &str) -> Result<(), LimiteronError> {
         .chars()
         .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
     {
-        return Err(LimiteronError::ConfigError(
-            t("matcher-name-invalid-chars", &[]),
-        ));
+        return Err(LimiteronError::ConfigError(t(
+            "matcher-name-invalid-chars",
+            &[],
+        )));
     }
 
     Ok(())
@@ -126,9 +125,7 @@ fn validate_matcher_name(name: &str) -> Result<(), LimiteronError> {
 /// - `Err(LimiteronError)`: 验证失败
 fn validate_header_name(name: &str) -> Result<(), LimiteronError> {
     if name.is_empty() {
-        return Err(LimiteronError::ConfigError(
-            t("header-name-empty", &[]),
-        ));
+        return Err(LimiteronError::ConfigError(t("header-name-empty", &[])));
     }
 
     if name.len() > MAX_HEADER_NAME_LENGTH {
@@ -140,9 +137,10 @@ fn validate_header_name(name: &str) -> Result<(), LimiteronError> {
 
     // 只允许字母、数字、连字符
     if !name.chars().all(|c| c.is_alphanumeric() || c == '-') {
-        return Err(LimiteronError::ConfigError(
-            t("header-name-invalid-chars", &[]),
-        ));
+        return Err(LimiteronError::ConfigError(t(
+            "header-name-invalid-chars",
+            &[],
+        )));
     }
 
     Ok(())
@@ -382,7 +380,10 @@ impl CustomMatcherRegistry {
             return Err(LimiteronError::ConfigError(error_msg));
         }
 
-        info!("{}", t("matcher-unregistered", &[("name", name.to_string())]));
+        info!(
+            "{}",
+            t("matcher-unregistered", &[("name", name.to_string())])
+        );
         matchers.remove(name);
         debug!("registered matcher count: {}", matchers.len());
 
@@ -589,9 +590,12 @@ impl CustomMatcher for TimeWindowMatcher {
 
     fn load_config(&mut self, config: Value) -> Result<(), LimiteronError> {
         // 先获取 start_hour 并验证
-        let start_hour_u64 = config["start_hour"]
-            .as_u64()
-            .ok_or_else(|| LimiteronError::ConfigError(t("matcher-config-missing", &[("field", "start_hour".to_string())])))?;
+        let start_hour_u64 = config["start_hour"].as_u64().ok_or_else(|| {
+            LimiteronError::ConfigError(t(
+                "matcher-config-missing",
+                &[("field", "start_hour".to_string())],
+            ))
+        })?;
         // 先校验范围再转换，避免 `as u8` 截断绕过校验（如 256 截断为 0）
         if start_hour_u64 > 23 {
             return Err(LimiteronError::ConfigError(t(
@@ -602,9 +606,12 @@ impl CustomMatcher for TimeWindowMatcher {
         let start_hour = start_hour_u64 as u8;
 
         // 然后获取 end_hour 并验证
-        let end_hour_u64 = config["end_hour"]
-            .as_u64()
-            .ok_or_else(|| LimiteronError::ConfigError(t("matcher-config-missing", &[("field", "end_hour".to_string())])))?;
+        let end_hour_u64 = config["end_hour"].as_u64().ok_or_else(|| {
+            LimiteronError::ConfigError(t(
+                "matcher-config-missing",
+                &[("field", "end_hour".to_string())],
+            ))
+        })?;
         if end_hour_u64 > 23 {
             return Err(LimiteronError::ConfigError(t(
                 "matcher-hour-out-of-range",

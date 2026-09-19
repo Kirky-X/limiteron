@@ -4,12 +4,12 @@
 
 #[cfg(feature = "ban-manager")]
 use crate::BanManager;
-use crate::i18n::t;
 #[cfg(feature = "circuit-breaker")]
 use crate::CircuitBreaker;
 use crate::Governor;
 #[cfg(feature = "quota-control")]
 use crate::QuotaController;
+use crate::i18n::t;
 
 use super::config::{AdminApiConfig, ConfigError};
 use super::routes;

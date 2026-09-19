@@ -156,14 +156,18 @@ impl FromStr for IpRange {
                 )));
             }
 
-            let addr: IpAddr = parts[0]
-                .parse()
-                .map_err(|_|
-                    LimiteronError::ConfigError(t("iprange-invalid-ip", &[("input", parts[0].to_string())])))?;
-            let prefix: u8 = parts[1]
-                .parse()
-                .map_err(|_|
-                    LimiteronError::ConfigError(t("iprange-invalid-prefix", &[("input", parts[1].to_string())])))?;
+            let addr: IpAddr = parts[0].parse().map_err(|_| {
+                LimiteronError::ConfigError(t(
+                    "iprange-invalid-ip",
+                    &[("input", parts[0].to_string())],
+                ))
+            })?;
+            let prefix: u8 = parts[1].parse().map_err(|_| {
+                LimiteronError::ConfigError(t(
+                    "iprange-invalid-prefix",
+                    &[("input", parts[1].to_string())],
+                ))
+            })?;
 
             match addr {
                 IpAddr::V4(ipv4) => {
@@ -195,14 +199,18 @@ impl FromStr for IpRange {
                 )));
             }
 
-            let start: Ipv4Addr = parts[0]
-                .parse()
-                .map_err(|_|
-                    LimiteronError::ConfigError(t("iprange-invalid-start-ip", &[("input", parts[0].to_string())])))?;
-            let end: Ipv4Addr = parts[1]
-                .parse()
-                .map_err(|_|
-                    LimiteronError::ConfigError(t("iprange-invalid-end-ip", &[("input", parts[1].to_string())])))?;
+            let start: Ipv4Addr = parts[0].parse().map_err(|_| {
+                LimiteronError::ConfigError(t(
+                    "iprange-invalid-start-ip",
+                    &[("input", parts[0].to_string())],
+                ))
+            })?;
+            let end: Ipv4Addr = parts[1].parse().map_err(|_| {
+                LimiteronError::ConfigError(t(
+                    "iprange-invalid-end-ip",
+                    &[("input", parts[1].to_string())],
+                ))
+            })?;
 
             if start > end {
                 return Err(LimiteronError::ConfigError(t(
@@ -217,10 +225,9 @@ impl FromStr for IpRange {
             Ok(IpRange::Ipv4Range { start, end })
         } else {
             // 单个IP
-            let addr: IpAddr = s
-                .parse()
-                .map_err(|_|
-                LimiteronError::ConfigError(t("iprange-invalid-ip", &[("input", s.to_string())])))?;
+            let addr: IpAddr = s.parse().map_err(|_| {
+                LimiteronError::ConfigError(t("iprange-invalid-ip", &[("input", s.to_string())]))
+            })?;
             Ok(IpRange::Single(addr))
         }
     }
@@ -670,17 +677,11 @@ impl RuleMatcher {
                     // 在启动时可见；热路径仅 debug，避免每次求值刷日志。
                     log::warn!(
                         "{}",
-                        t(
-                            "custom-matcher-not-integrated",
-                            &[("name", name.clone())],
-                        )
+                        t("custom-matcher-not-integrated", &[("name", name.clone())],)
                     );
                     let name = name.clone();
                     Box::new(MatchCondition::Custom(Arc::new(move |_context| {
-                        log::debug!(
-                            "custom matcher '{}' is a placeholder, never matches",
-                            name
-                        );
+                        log::debug!("custom matcher '{}' is a placeholder, never matches", name);
                         false
                     })))
                 }

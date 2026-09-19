@@ -29,9 +29,9 @@ pub const DEFAULT_PAGINATION_LIMIT: u64 = 100;
 pub const MAX_PAGINATION_LIMIT: u64 = 1000;
 
 use crate::authorization::AuthorizationProvider;
-use crate::i18n::t;
 use crate::constants::MAX_BAN_REASON_LENGTH;
 use crate::error::{LimiteronError, StorageError};
+use crate::i18n::t;
 use crate::storage::BanTarget;
 use crate::storage::{BanRecord, BanStorage};
 use chrono::{DateTime, Utc};
@@ -421,7 +421,10 @@ impl BanManagerBuilder {
             } else {
                 log::info!(
                     "{}",
-                    t("ban-file-load-complete", &[("count", result.success_count.to_string())])
+                    t(
+                        "ban-file-load-complete",
+                        &[("count", result.success_count.to_string())]
+                    )
                 );
             }
             #[cfg(feature = "config-watcher")]
@@ -456,10 +459,7 @@ fn validate_ban_target(target: &BanTarget) -> Result<(), LimiteronError> {
 /// 使用统一的 validation 模块进行验证。
 fn validate_ban_reason(reason: &str) -> Result<(), LimiteronError> {
     if reason.is_empty() {
-        return Err(LimiteronError::ValidationError(t(
-            "ban-reason-empty",
-            &[],
-        )));
+        return Err(LimiteronError::ValidationError(t("ban-reason-empty", &[])));
     }
 
     if reason.len() > MAX_BAN_REASON_LENGTH {
@@ -606,10 +606,7 @@ impl BanManager {
         // 显式警告：未配置授权 provider 时，所有手动封禁操作将跳过细粒度授权检查
         // （Rule 12: 失败必须显性化 — 禁止静默跳过授权链路）
         if authorization_provider.is_none() {
-            log::warn!(
-                "{}",
-                t("ban-manager-no-authorization-provider", &[])
-            );
+            log::warn!("{}", t("ban-manager-no-authorization-provider", &[]));
         }
 
         let config = Arc::new(RwLock::new(config));
@@ -1127,10 +1124,7 @@ impl BanManager {
                                 t(
                                     "ban-check-timeout-fail-open",
                                     &[
-                                        (
-                                            "timeout",
-                                            format!("{:?}", Self::STORAGE_CHECK_TIMEOUT)
-                                        ),
+                                        ("timeout", format!("{:?}", Self::STORAGE_CHECK_TIMEOUT)),
                                         ("target", format!("{:?}", target)),
                                     ],
                                 )

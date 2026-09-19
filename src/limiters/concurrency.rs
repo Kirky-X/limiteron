@@ -205,13 +205,15 @@ impl ConcurrencyLimiter {
         let permit = match self.timeout {
             Some(timeout) => tokio::time::timeout(timeout, self.semaphore.acquire_many(cost_u32))
                 .await
-                .map_err(|_| LimiteronError::LimitError(t("concurrency-permit-acquire-timeout", &[])))?
+                .map_err(|_| {
+                    LimiteronError::LimitError(t("concurrency-permit-acquire-timeout", &[]))
+                })?
                 .map_err(|_| LimiteronError::LimitError(t("concurrency-semaphore-closed", &[])))?,
-            None => self
-                .semaphore
-                .acquire_many(cost_u32)
-                .await
-                .map_err(|_| LimiteronError::LimitError(t("concurrency-semaphore-closed", &[])))?,
+            None => {
+                self.semaphore.acquire_many(cost_u32).await.map_err(|_| {
+                    LimiteronError::LimitError(t("concurrency-semaphore-closed", &[]))
+                })?
+            }
         };
 
         Ok(permit)

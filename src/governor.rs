@@ -13,10 +13,10 @@
 use crate::config::{ConfigChangeRecord, ConfigHistory, FlowControlConfig};
 use crate::decision_chain::DecisionChain;
 use crate::error::Decision;
-use crate::i18n::t;
 use crate::error::LimiteronError;
 #[cfg(feature = "fallback")]
 use crate::fallback::FallbackManager;
+use crate::i18n::t;
 #[cfg(feature = "fallback")]
 use crate::l1_cache::IslandFallbackStrategy;
 #[cfg(feature = "fallback")]
@@ -497,10 +497,10 @@ impl GovernorBuilder {
             .await;
 
             log::info!(
-            target: "governor",
-            "{}",
-            t("governor-island-callback-registered", &[])
-        );
+                target: "governor",
+                "{}",
+                t("governor-island-callback-registered", &[])
+            );
         }
 
         Ok(Governor {
@@ -1405,8 +1405,7 @@ impl Governor {
                     "governor-user-banned",
                     &[(
                         "user",
-                        crate::logging::redact_user_id(Some(identifier.key().as_ref()))
-                            .to_string(),
+                        crate::logging::redact_user_id(Some(identifier.key().as_ref())).to_string(),
                     )],
                 )
             );
@@ -1565,8 +1564,7 @@ impl Governor {
                     ("namespace", namespace.to_string()),
                     (
                         "key",
-                        crate::logging::redact_user_id(Some(identifier.key().as_str()))
-                            .to_string(),
+                        crate::logging::redact_user_id(Some(identifier.key().as_str())).to_string(),
                     ),
                 ],
             )

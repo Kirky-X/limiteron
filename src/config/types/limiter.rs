@@ -160,9 +160,12 @@ pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration
         return Err(t("window-size-missing-unit", &[]));
     }
 
-    let num: u64 = num_str
-        .parse()
-        .map_err(|_| t("window-size-invalid-number", &[("input", num_str.to_string())]))?;
+    let num: u64 = num_str.parse().map_err(|_| {
+        t(
+            "window-size-invalid-number",
+            &[("input", num_str.to_string())],
+        )
+    })?;
 
     if num == 0 {
         return Err(t("window-size-must-be-positive", &[]));
@@ -190,10 +193,7 @@ fn mul_secs(num: u64, factor: u64) -> Result<std::time::Duration, String> {
             t(
                 // window-size-overflow
                 "window-size-overflow",
-                &[
-                    ("number", num.to_string()),
-                    ("factor", factor.to_string()),
-                ],
+                &[("number", num.to_string()), ("factor", factor.to_string())],
             )
         })
 }

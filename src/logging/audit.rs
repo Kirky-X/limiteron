@@ -690,9 +690,9 @@ impl AuditLogger {
             Ok(head) => head,
             Err(e) => {
                 error!(
-                "{}",
-                t("audit-batch-task-panic", &[("reason", e.to_string())])
-            );
+                    "{}",
+                    t("audit-batch-task-panic", &[("reason", e.to_string())])
+                );
                 None
             }
         }
@@ -743,19 +743,16 @@ impl AuditLogger {
                                 )
                             );
                         } else {
-                            trace!(
-                            "audit log file written successfully: {}",
-                            path
-                        );
+                            trace!("audit log file written successfully: {}", path);
                         }
                     }
                 }
                 Err(e) => {
                     stats.write_failures.fetch_add(1, Ordering::Relaxed);
                     error!(
-                    "{}",
-                    t("audit-serialize-failed", &[("reason", e.to_string())])
-                );
+                        "{}",
+                        t("audit-serialize-failed", &[("reason", e.to_string())])
+                    );
                 }
             }
         }
@@ -889,12 +886,12 @@ impl AuditLogger {
                                 Err(e) => {
                                     stats.verification_failures.fetch_add(1, Ordering::Relaxed);
                                     warn!(
-                                    "{}",
-                                    t(
-                                        "audit-tampered-entry-discarded",
-                                        &[("reason", e.to_string())],
-                                    )
-                                );
+                                        "{}",
+                                        t(
+                                            "audit-tampered-entry-discarded",
+                                            &[("reason", e.to_string())],
+                                        )
+                                    );
                                     // 签名验证失败即视为篡改：丢弃该条目，
                                     // 保证 read_and_verify 返回的条目全部通过验证
                                 }
@@ -909,9 +906,9 @@ impl AuditLogger {
                 Err(e) => {
                     stats.verification_failures.fetch_add(1, Ordering::Relaxed);
                     warn!(
-                    "{}",
-                    t("audit-entry-parse-failed", &[("reason", e.to_string())])
-                );
+                        "{}",
+                        t("audit-entry-parse-failed", &[("reason", e.to_string())])
+                    );
                 }
             }
         }
@@ -963,7 +960,10 @@ impl AuditLogger {
         if let Err(e) = self.sender.send(event).await {
             error!(
                 "{}",
-                t("audit-send-decision-event-failed", &[("reason", e.to_string())])
+                t(
+                    "audit-send-decision-event-failed",
+                    &[("reason", e.to_string())]
+                )
             );
             self.stats.write_failures.fetch_add(1, Ordering::Relaxed);
         }
@@ -991,7 +991,10 @@ impl AuditLogger {
         if let Err(e) = self.sender.send(event).await {
             error!(
                 "{}",
-                t("audit-send-config-change-failed", &[("reason", e.to_string())])
+                t(
+                    "audit-send-config-change-failed",
+                    &[("reason", e.to_string())]
+                )
             );
             self.stats.write_failures.fetch_add(1, Ordering::Relaxed);
         }
@@ -1042,7 +1045,10 @@ impl AuditLogger {
         if let Err(e) = self.sender.send(event).await {
             error!(
                 "{}",
-                t("audit-send-system-event-failed", &[("reason", e.to_string())])
+                t(
+                    "audit-send-system-event-failed",
+                    &[("reason", e.to_string())]
+                )
             );
             self.stats.write_failures.fetch_add(1, Ordering::Relaxed);
         }
@@ -1068,7 +1074,10 @@ impl AuditLogger {
         if let Err(e) = self.sender.send(event).await {
             error!(
                 "{}",
-                t("audit-send-error-event-failed", &[("reason", e.to_string())])
+                t(
+                    "audit-send-error-event-failed",
+                    &[("reason", e.to_string())]
+                )
             );
             self.stats.write_failures.fetch_add(1, Ordering::Relaxed);
         }

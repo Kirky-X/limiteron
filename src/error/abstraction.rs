@@ -642,7 +642,10 @@ mod tests {
             ConfigSafeError::MissingRequiredField.to_string(),
             "Missing required field"
         );
-        assert_eq!(ConfigSafeError::DuplicateRuleId.to_string(), "Duplicate rule ID");
+        assert_eq!(
+            ConfigSafeError::DuplicateRuleId.to_string(),
+            "Duplicate rule ID"
+        );
         assert_eq!(
             ConfigSafeError::InvalidStorageType.to_string(),
             "Invalid storage type"
@@ -655,7 +658,10 @@ mod tests {
             ConfigSafeError::InvalidMetricsType.to_string(),
             "Invalid metrics type"
         );
-        assert_eq!(ConfigSafeError::InvalidVersion.to_string(), "Invalid version");
+        assert_eq!(
+            ConfigSafeError::InvalidVersion.to_string(),
+            "Invalid version"
+        );
         assert_eq!(ConfigSafeError::RuleNotFound.to_string(), "Rule not found");
         assert_eq!(
             ConfigSafeError::InvalidLimiterConfig.to_string(),
@@ -714,7 +720,10 @@ mod tests {
             LimitSafeError::TokenBucketEmpty.to_string(),
             "Tokens exhausted"
         );
-        assert_eq!(LimitSafeError::WindowFull.to_string(), "Time window is full");
+        assert_eq!(
+            LimitSafeError::WindowFull.to_string(),
+            "Time window is full"
+        );
         assert_eq!(
             LimitSafeError::TooManyRequests.to_string(),
             "Too many requests"
@@ -742,7 +751,10 @@ mod tests {
 
     #[test]
     fn test_display_validation_safe_error_all_variants() {
-        assert_eq!(ValidationSafeError::InvalidInput.to_string(), "Invalid input");
+        assert_eq!(
+            ValidationSafeError::InvalidInput.to_string(),
+            "Invalid input"
+        );
         assert_eq!(
             ValidationSafeError::MalformedData.to_string(),
             "Malformed data"
@@ -751,8 +763,14 @@ mod tests {
             ValidationSafeError::SecurityCheckFailed.to_string(),
             "Security check failed"
         );
-        assert_eq!(ValidationSafeError::InputTooLong.to_string(), "Input too long");
-        assert_eq!(ValidationSafeError::InvalidFormat.to_string(), "Invalid format");
+        assert_eq!(
+            ValidationSafeError::InputTooLong.to_string(),
+            "Input too long"
+        );
+        assert_eq!(
+            ValidationSafeError::InvalidFormat.to_string(),
+            "Invalid format"
+        );
         assert_eq!(
             ValidationSafeError::SuspiciousPattern.to_string(),
             "Suspicious pattern detected"
@@ -761,12 +779,18 @@ mod tests {
 
     #[test]
     fn test_display_general_safe_error_all_variants() {
-        assert_eq!(GeneralSafeError::InternalError.to_string(), "Internal error");
+        assert_eq!(
+            GeneralSafeError::InternalError.to_string(),
+            "Internal error"
+        );
         assert_eq!(
             GeneralSafeError::ServiceUnavailable.to_string(),
             "Service unavailable"
         );
-        assert_eq!(GeneralSafeError::InvalidRequest.to_string(), "Invalid request");
+        assert_eq!(
+            GeneralSafeError::InvalidRequest.to_string(),
+            "Invalid request"
+        );
         assert_eq!(GeneralSafeError::Unauthorized.to_string(), "Unauthorized");
         assert_eq!(GeneralSafeError::Forbidden.to_string(), "Forbidden");
         assert_eq!(GeneralSafeError::RateLimited.to_string(), "Rate limited");

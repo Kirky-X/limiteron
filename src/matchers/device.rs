@@ -786,10 +786,10 @@ impl DeviceMatcher {
         // 验证正则表达式并同步预编译缓存（与 custom_rules 一一对应）
         let Ok(re) = regex::Regex::new(&rule.pattern) else {
             log::warn!(
-            target: "device",
-            "{}",
-            t("device-invalid-regex", &[("pattern", pattern.to_string())])
-        );
+                target: "device",
+                "{}",
+                t("device-invalid-regex", &[("pattern", pattern.to_string())])
+            );
             return;
         };
 
@@ -831,10 +831,10 @@ impl DeviceMatcher {
         self.compiled_rules = kept_compiled;
         if removed {
             log::info!(
-            target: "device",
-            "{}",
-            t("device-custom-rule-removed", &[("name", name.to_string())])
-        );
+                target: "device",
+                "{}",
+                t("device-custom-rule-removed", &[("name", name.to_string())])
+            );
         }
         removed
     }
@@ -876,10 +876,10 @@ impl DeviceMatcher {
         if cache_len >= self.cache_size_limit as u64 {
             let _maybe_first = (0..(self.cache_size_limit / 10)).next();
             debug!(
-            target: "device",
-            "cache near limit ({}/{})",
-            cache_len, self.cache_size_limit
-        );
+                target: "device",
+                "cache near limit ({}/{})",
+                cache_len, self.cache_size_limit
+            );
         }
 
         let _ = self.cache.set(&user_agent.to_string(), info).await;

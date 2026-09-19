@@ -319,16 +319,16 @@ impl FallbackManager {
             Err(e) => {
                 // 操作失败，根据策略处理
                 log::warn!(
-                target: "fallback",
-                "{}",
-                t(
-                    "fallback-component-op-failed",
-                    &[
-                        ("component", format!("{:?}", component)),
-                        ("error", e.to_string()),
-                    ],
-                )
-            );
+                    target: "fallback",
+                    "{}",
+                    t(
+                        "fallback-component-op-failed",
+                        &[
+                            ("component", format!("{:?}", component)),
+                            ("error", e.to_string()),
+                        ],
+                    )
+                );
 
                 // 标记为故障状态
                 self.set_failure_internal(component.clone()).await;
@@ -557,10 +557,10 @@ impl FallbackManager {
             let had_failures = states.values().any(|&f| f);
             states.remove(&component);
             log::info!(
-            target: "fallback",
-            "{}",
-            t("fallback-component-recovered", &[("component", format!("{:?}", component))])
-        );
+                target: "fallback",
+                "{}",
+                t("fallback-component-recovered", &[("component", format!("{:?}", component))])
+            );
             let still_failed = states.values().any(|&f| f);
             had_failures && !still_failed
         };

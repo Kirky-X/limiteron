@@ -11,9 +11,9 @@
 //! - 时长字符串解析
 
 use crate::config::{FlowControlConfig, LimiterConfig, LimiterTypeName, Matcher as ConfigMatcher};
-use crate::i18n::t;
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::LimiteronError;
+use crate::i18n::t;
 #[cfg(feature = "quota-control")]
 use crate::limiters::QuotaLimiter;
 use crate::limiters::{
@@ -267,10 +267,7 @@ impl RuleBuilder {
                 let name = name.clone();
                 conditions.push(Box::new(MatchCondition::Custom(Arc::new(
                     move |_context| {
-                        log::debug!(
-                            "custom matcher '{}' is a placeholder, never matches",
-                            name
-                        );
+                        log::debug!("custom matcher '{}' is a placeholder, never matches", name);
                         false
                     },
                 ))));
@@ -343,10 +340,7 @@ impl RuleBuilder {
                 } else {
                     log::warn!(
                         "{}",
-                        t(
-                            "custom-matcher-not-registered",
-                            &[("name", name.clone())],
-                        )
+                        t("custom-matcher-not-registered", &[("name", name.clone())],)
                     );
                     let name = name.clone();
                     conditions.push(Box::new(MatchCondition::Custom(Arc::new(
@@ -440,10 +434,7 @@ pub(crate) fn drive_lightweight<E>(fut: impl Future<Output = Result<bool, E>>) -
     match pin!(fut).poll(&mut cx) {
         Poll::Ready(out) => out,
         Poll::Pending => {
-            log::error!(
-                "{}",
-                t("custom-matcher-pending-contract-violation", &[])
-            );
+            log::error!("{}", t("custom-matcher-pending-contract-violation", &[]));
             Ok(false)
         }
     }

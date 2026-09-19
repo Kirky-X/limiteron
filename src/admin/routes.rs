@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 //! Route definitions
 
-use ahash::AHashMap;
 use crate::i18n::t;
+use ahash::AHashMap;
 use axum::{
     Router,
     body::Body,

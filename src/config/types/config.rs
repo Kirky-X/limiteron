@@ -116,10 +116,7 @@ impl TrustedProxyConfig {
                 // t(key, args) 随 locale 渲染，默认/回退为英文规范串
                 return Err(t(
                     "config-invalid-proxy-address",
-                    &[
-                        ("address", proxy.clone()),
-                        ("reason", e.clone()),
-                    ],
+                    &[("address", proxy.clone()), ("reason", e.clone())],
                 ));
             }
         }

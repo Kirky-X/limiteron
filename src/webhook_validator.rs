@@ -71,28 +71,16 @@ pub(crate) fn validate_webhook_url(url: &str, require_https: bool) -> Result<(),
                 // 否则攻击者可用此格式绕过私有 IP 检查
                 if let Some(v4) = v6.to_ipv4_mapped() {
                     if v4.is_private() {
-                        return Err(t(
-                            "webhook-private-mapped-forbidden",
-                            &[],
-                        )); // webhook-private-mapped-forbidden
+                        return Err(t("webhook-private-mapped-forbidden", &[])); // webhook-private-mapped-forbidden
                     }
                     if v4.is_link_local() {
-                        return Err(t(
-                            "webhook-link-local-mapped-forbidden",
-                            &[],
-                        )); // webhook-link-local-mapped-forbidden
+                        return Err(t("webhook-link-local-mapped-forbidden", &[])); // webhook-link-local-mapped-forbidden
                     }
                     if v4.is_loopback() {
-                        return Err(t(
-                            "webhook-loopback-mapped-forbidden",
-                            &[],
-                        )); // webhook-loopback-mapped-forbidden
+                        return Err(t("webhook-loopback-mapped-forbidden", &[])); // webhook-loopback-mapped-forbidden
                     }
                     if v4.is_unspecified() {
-                        return Err(t(
-                            "webhook-unspecified-mapped-forbidden",
-                            &[],
-                        )); // webhook-unspecified-mapped-forbidden
+                        return Err(t("webhook-unspecified-mapped-forbidden", &[])); // webhook-unspecified-mapped-forbidden
                     }
                 }
                 if v6.is_unique_local() {

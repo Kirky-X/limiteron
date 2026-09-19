@@ -360,18 +360,20 @@ impl GeoMatcher {
 
         if !is_valid_header {
             log::warn!(
-            "{}",
-            t("geo-db-unexpected-header", &[("header", format!("{:02X?}", header))])
-        );
+                "{}",
+                t(
+                    "geo-db-unexpected-header",
+                    &[("header", format!("{:02X?}", header))]
+                )
+            );
             // 不直接返回错误，因为某些版本可能有不同的文件头
             // 让后续的 Reader::from_source 来验证
         }
 
         // 创建读取器
-        let reader = Reader::from_source(db_content)
-            .map_err(|e| {
-                LimiteronError::ConfigError(t("geo-db-invalid", &[("reason", e.to_string())]))
-            })?;
+        let reader = Reader::from_source(db_content).map_err(|e| {
+            LimiteronError::ConfigError(t("geo-db-invalid", &[("reason", e.to_string())]))
+        })?;
 
         // 验证数据库元数据
         log::info!(
@@ -396,7 +398,10 @@ impl GeoMatcher {
             .build()
             .await
             .map_err(|e| {
-                LimiteronError::ConfigError(t("geo-cache-create-failed", &[("reason", e.to_string())]))
+                LimiteronError::ConfigError(t(
+                    "geo-cache-create-failed",
+                    &[("reason", e.to_string())],
+                ))
             })?;
 
         let matcher = Self {
@@ -453,17 +458,16 @@ impl GeoMatcher {
 
         // 从数据库查询 - maxminddb 0.27 API
         // lookup 返回 LookupResult，需要使用 decode() 获取解析后的数据
-        let lookup_result = self
-            .reader
-            .lookup(ip)
-            .map_err(|e| LimiteronError::ConfigError(t("geo-ip-lookup-failed", &[("reason", e.to_string())])))?;
+        let lookup_result = self.reader.lookup(ip).map_err(|e| {
+            LimiteronError::ConfigError(t("geo-ip-lookup-failed", &[("reason", e.to_string())]))
+        })?;
 
         // 解码为 City 结构。库中无该 IP 记录（私有 IP / 未知网段）不是错误：
         // 返回 `GeoInfo::empty()`（调用方经 `is_empty()` 判定），并作为负缓存写入，
         // 避免重复穿透数据库。格式损坏仍是 Err。
-        let decoded: Option<geoip2::City> = lookup_result
-            .decode()
-            .map_err(|e| LimiteronError::ConfigError(t("geo-ip-decode-failed", &[("reason", e.to_string())])))?;
+        let decoded: Option<geoip2::City> = lookup_result.decode().map_err(|e| {
+            LimiteronError::ConfigError(t("geo-ip-decode-failed", &[("reason", e.to_string())]))
+        })?;
         let info = match decoded {
             Some(city) => self.extract_geo_info(&city),
             None => GeoInfo::empty(),

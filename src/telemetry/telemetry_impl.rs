@@ -22,10 +22,7 @@ impl Metrics {
 
     pub fn gather(&self) -> String {
         let _ = METRICS_NOOP_WARNED.get_or_init(|| {
-            warn!(
-                "{}",
-                crate::i18n::t("telemetry-noop-metrics-gather", &[])
-            );
+            warn!("{}", crate::i18n::t("telemetry-noop-metrics-gather", &[]));
         });
         String::new()
     }

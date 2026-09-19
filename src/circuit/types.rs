@@ -284,14 +284,8 @@ impl CircuitBreaker {
             t(
                 "circuit-created",
                 &[
-                    (
-                        "failure_threshold",
-                        config.failure_threshold.to_string(),
-                    ),
-                    (
-                        "success_threshold",
-                        config.success_threshold.to_string(),
-                    ),
+                    ("failure_threshold", config.failure_threshold.to_string(),),
+                    ("success_threshold", config.success_threshold.to_string(),),
                     ("timeout", format!("{:?}", config.timeout)),
                 ],
             )

@@ -719,10 +719,7 @@ impl ApiKeyExtractor {
         prefix: Option<String>,
     ) -> Self {
         if query_param_name.is_some() {
-            log::warn!(
-            "{}",
-            t("api-key-query-param-disabled", &[])
-        );
+            log::warn!("{}", t("api-key-query-param-disabled", &[]));
         }
         Self {
             header_name,

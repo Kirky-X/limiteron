@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Storage 错误注入用例（自 tests/integration/cache_storage.rs 下沉）
 //!

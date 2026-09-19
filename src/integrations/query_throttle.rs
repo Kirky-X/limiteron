@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! dbnexus 查询限流端口（QueryThrottle）语义文档化 + limiteron 实现。
 //!

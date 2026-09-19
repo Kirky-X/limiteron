@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! Webhook 外发签名：HMAC-SHA256 签名头 + 时间戳防重放。
 //!

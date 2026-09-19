@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 #![cfg(feature = "macros")]
 //! `#[flow_control]` 宏 `on_exceed` 模式集成测试

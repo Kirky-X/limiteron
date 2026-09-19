@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 use crate::error::{ConsumeResult, StorageError};
 use crate::storage::{QuotaInfo, QuotaStorage};

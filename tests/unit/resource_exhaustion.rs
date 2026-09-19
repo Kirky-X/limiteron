@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 //! 资源耗尽上限用例（自 tests/security/resource_exhaustion_tests.rs 下沉）
 //!

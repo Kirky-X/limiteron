@@ -356,6 +356,7 @@ bulkhead = []
 quota-control = []
 circuit-breaker = []
 fallback = []
+retry = []
 custom-limiter = []
 cache-service = []
 

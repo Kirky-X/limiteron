@@ -139,6 +139,10 @@ pub mod matchers;
 pub mod oxcache_lua;
 #[cfg(feature = "quota-control")]
 pub mod quota;
+// 带退避的重试原语（指数退避 + 可定制重试判定 + 抖动）：与熔断互补，
+// 消化瞬时抖动（下沉自 alphalloy openai_client 的 backon 用法）
+#[cfg(feature = "retry")]
+pub mod retry;
 // 同步限流原语（tokio-free，std + parking_lot）：供纯同步消费者使用
 #[cfg(feature = "sync")]
 pub mod sync;

@@ -285,7 +285,7 @@ mod tests {
         );
     }
 
-    /// T016 收敛守卫：仅 en/zh 有模板，ja/ko/de/fr/es 等一律回退英文模板
+    /// 收敛守卫：仅 en/zh 有模板，ja/ko/de/fr/es 等一律回退英文模板
     /// （窗口词与计数均与 en 输出一致）。
     #[test]
     fn test_rate_limit_message_unsupported_locales_fall_back_to_en() {

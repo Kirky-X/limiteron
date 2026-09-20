@@ -51,7 +51,7 @@ impl Default for BulkheadConfig {
 /// 舱壁错误
 ///
 /// 双轨：Display 英文规范串 + [`crate::i18n::LocalizedMsg`]（键
-/// `bulkhead-*`，T016 已英文错误对齐补键）。
+/// `bulkhead-*`，已英文错误对齐补键）。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BulkheadError {
     /// 池已满：快速失败（不排队，避免线程/任务堆积）

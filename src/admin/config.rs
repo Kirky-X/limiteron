@@ -9,7 +9,7 @@ use thiserror::Error;
 /// Admin API configuration validation error
 ///
 /// 双轨：Display 英文规范串 + [`crate::i18n::LocalizedMsg`]（键
-/// `admin-config-*`，T016 已英文错误对齐补键）。
+/// `admin-config-*`，已英文错误对齐补键）。
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("API key is required when admin API is enabled")]

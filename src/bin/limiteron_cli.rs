@@ -16,7 +16,7 @@
 
 fn main() {
     // i18n 启动初始化：按检测链 LIMITERON_LANG → LC_ALL → LC_MESSAGES →
-    // LANG → sys-locale → en 固定本次调用的输出语言（T016）。
+    // LANG → sys-locale → en 固定本次调用的输出语言。
     limiteron::i18n::init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let invocation = limiteron::cli::run(args);

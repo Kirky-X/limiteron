@@ -4,7 +4,7 @@
 //!
 //! 防止 SSRF 攻击，确保 webhook URL 指向安全的公网地址。
 //!
-//! 错误文案经 FTL 目录 `webhook-*` 键构造（T025 MEDIUM-1 接线）：
+//! 错误文案经 FTL 目录 `webhook-*` 键构造（接线）
 //! `t(key, args)` 随 locale 渲染，默认/回退为英文规范串。
 
 /// 校验 Webhook URL 是否安全
@@ -32,7 +32,7 @@ pub(crate) fn validate_webhook_url(url: &str, require_https: bool) -> Result<(),
 
     let parsed = url
         .parse::<reqwest::Url>()
-        // T025 MEDIUM-1：错误文案接线 FTL（webhook-invalid-url），zh 渲染可达
+        // 错误文案接线 FTL（webhook-invalid-url），zh 渲染可达
         .map_err(|e| t("webhook-invalid-url", &[("reason", e.to_string())]))?;
 
     if require_https && parsed.scheme() != "https" {
@@ -151,7 +151,10 @@ mod tests {
     #[test]
     fn test_loopback_ipv4_rejected() {
         match validate_webhook_url("http://127.0.0.1/webhook", false) {
-            Err(msg) => assert!(msg.contains("Loopback IP"), "got: {}", msg),
+            Err(msg) => assert!(
+                msg.contains("loopback") || msg.contains("Loopback IP") || msg.contains("回环"),
+                "got: {msg}"
+            ),
             Ok(_) => panic!("expected Err for 127.0.0.1"),
         }
     }
@@ -314,7 +317,10 @@ mod tests {
     #[test]
     fn test_loopback_ipv4_127_0_0_2_rejected() {
         match validate_webhook_url("http://127.0.0.2/webhook", false) {
-            Err(msg) => assert!(msg.contains("Loopback IP"), "got: {}", msg),
+            Err(msg) => assert!(
+                msg.contains("loopback") || msg.contains("Loopback IP") || msg.contains("回环"),
+                "got: {msg}"
+            ),
             Ok(_) => panic!("expected Err for 127.0.0.2"),
         }
     }

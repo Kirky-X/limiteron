@@ -120,7 +120,11 @@ async fn test_circuit_breaker_fast_fails_in_open_state() {
     // 验证错误类型（熔断器打开时返回 LimitError）
     match result {
         Err(LimiteronError::LimitError(msg)) => {
-            assert!(msg.contains("熔断器打开") || msg.contains("请求被拒绝"));
+            // 错误双轨:Display 恒英文规范串(与 locale 无关)
+            assert!(
+                msg.contains("Circuit breaker open") || msg.contains("request rejected"),
+                "got: {msg}"
+            );
         }
         _ => panic!("Expected LimitError when circuit breaker is open"),
     }

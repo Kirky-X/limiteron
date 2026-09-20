@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Kirky.X
+// Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
 
 //! 带退避的重试原语。
@@ -35,6 +35,36 @@
 
 use std::future::Future;
 use std::time::Duration;
+
+/// 计算第 `attempt` 次重试的退避时长（attempt 从 1 起）。
+///
+/// 纯函数：`base = initial × factor^(attempt-1)`，封顶 `max_delay`，
+/// 叠加比例抖动 `[1, 1+jitter]`（线性同余伪随机，仅用于打散重试尖峰，
+/// 非安全用途）。供自管重试循环的消费者按 attempt 号取延迟，与
+/// [`RetryPolicy::execute`] 的内部退避共用同一公式。
+pub fn delay_for_attempt(
+    attempt: u32,
+    initial: Duration,
+    factor: f64,
+    max_delay: Duration,
+    jitter: f64,
+) -> Duration {
+    let base = initial.as_millis() as f64 * factor.powi(attempt as i32 - 1);
+    let jitter = jitter.clamp(0.0, 1.0);
+    let scaled = if jitter > 0.0 {
+        // 线性同余：attempt 与时钟低位混合，产出 [0,1) 伪随机系数
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos() as u64)
+            .unwrap_or(0);
+        let seed = (nanos ^ (u64::from(attempt) * 2_664_035_897)) % 10_000;
+        base * (1.0 + jitter * (seed as f64 / 10_000.0))
+    } else {
+        base
+    };
+    // 封顶是绝对上限：抖动在封顶前施加（否则抖动会突破 max_delay）
+    Duration::from_millis(scaled.min(max_delay.as_millis() as f64) as u64)
+}
 
 /// 重试策略：指数退避 + 封顶。
 ///
@@ -103,23 +133,15 @@ impl RetryPolicy {
         self.max_retries
     }
 
-    /// 第 `attempt` 次重试的等待时长（attempt 从 1 起；线性同余伪抖动，
-    /// 仅用于打散重试尖峰，非安全用途）。
+    /// 第 `attempt` 次重试的等待时长（attempt 从 1 起）。
     fn delay_for(&self, attempt: u32) -> Duration {
-        let base = self.initial_delay.as_millis() as f64 * self.factor.powi(attempt as i32 - 1);
-        let capped = base.min(self.max_delay.as_millis() as f64);
-        let scaled = if self.jitter > 0.0 {
-            // 线性同余：attempt 与时钟低位混合，产出 [0,1) 伪随机系数
-            let nanos = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.subsec_nanos() as u64)
-                .unwrap_or(0);
-            let seed = (nanos ^ (u64::from(attempt) * 2_664_035_897)) % 10_000;
-            capped * (1.0 + self.jitter * (seed as f64 / 10_000.0))
-        } else {
-            capped
-        };
-        Duration::from_millis(scaled as u64)
+        delay_for_attempt(
+            attempt,
+            self.initial_delay,
+            self.factor,
+            self.max_delay,
+            self.jitter,
+        )
     }
 
     /// 执行操作并按策略重试可重试错误。

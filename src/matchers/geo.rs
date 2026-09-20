@@ -1096,7 +1096,7 @@ mod tests {
         );
         let msg = err.to_string();
         assert!(
-            msg.contains("不存在") || msg.contains("not exist"),
+            msg.contains("不存在") || msg.contains("not found") || msg.contains("not exist"),
             "error should mention missing file: {}",
             msg
         );

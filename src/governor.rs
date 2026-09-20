@@ -4429,7 +4429,10 @@ mod governor_feature_gated_tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             LimiteronError::LimitError(msg) => {
-                assert!(msg.contains("L1 缓存未启用"), "unexpected: {}", msg);
+                assert!(
+                    msg.contains("L1 缓存未启用") || msg.contains("L1 cache not enabled"),
+                    "unexpected: {msg}"
+                );
             }
             other => panic!("expected LimitError, got: {:?}", other),
         }
@@ -4505,7 +4508,10 @@ mod governor_feature_gated_tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             LimiteronError::LimitError(msg) => {
-                assert!(msg.contains("降级缓存未命中"), "unexpected: {}", msg);
+                assert!(
+                    msg.contains("降级缓存未命中") || msg.contains("degraded cache miss"),
+                    "unexpected: {msg}"
+                );
             }
             other => panic!("expected LimitError, got: {:?}", other),
         }
@@ -4556,7 +4562,10 @@ mod governor_feature_gated_tests {
         assert!(result.is_err());
         match result.unwrap_err() {
             LimiteronError::LimitError(msg) => {
-                assert!(msg.contains("拒绝请求"), "unexpected: {}", msg);
+                assert!(
+                    msg.contains("拒绝请求") || msg.contains("reject"),
+                    "unexpected: {msg}"
+                );
             }
             other => panic!("expected LimitError, got: {:?}", other),
         }

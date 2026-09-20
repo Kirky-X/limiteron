@@ -112,7 +112,7 @@ impl TrustedProxyConfig {
         }
         for proxy in &self.proxies {
             if let Err(e) = Self::parse_cidr_or_ip(proxy) {
-                // T025 MEDIUM-1：错误文案接线 FTL（config-invalid-proxy-address），
+                // 错误文案接线 FTL（config-invalid-proxy-address），
                 // t(key, args) 随 locale 渲染，默认/回退为英文规范串
                 return Err(t(
                     "config-invalid-proxy-address",

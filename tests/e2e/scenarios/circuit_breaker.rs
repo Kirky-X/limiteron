@@ -111,7 +111,10 @@ async fn e2e_circuit_breaker_fast_fail_when_open() {
     match result {
         Err(LimiteronError::LimitError(msg)) => {
             assert!(
-                msg.contains("熔断器打开") || msg.contains("请求被拒绝"),
+                msg.contains("熔断器打开")
+                    || msg.contains("请求被拒绝")
+                    || msg.contains("Circuit breaker open")
+                    || msg.contains("request rejected"),
                 "Error message should indicate circuit is open: {}",
                 msg
             );

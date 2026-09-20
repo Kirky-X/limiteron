@@ -52,7 +52,7 @@ pub trait I18nExt: LocalizedMsg + std::error::Error {
 impl<E: LocalizedMsg + std::error::Error> I18nExt for E {}
 
 /// [`I18nError`] itself participates in the dual track (the 4 already-English
-/// variants aligned with catalog keys, T016).
+/// variants aligned with catalog keys).
 impl LocalizedMsg for I18nError {
     fn message_key(&self) -> &'static str {
         match self {

@@ -4,7 +4,7 @@
 //!
 //! 集中定义 `make_valid_config` / `make_governor` / `make_state` 等公共构造，
 //! 供 handlers / routes / server 三个子模块的 `#[cfg(test)]` 模块复用，
-//! 避免同一份辅助代码在多处逐字复制（diting HIGH #4）。
+//! 避免同一份辅助代码在多处逐字复制。
 
 use std::sync::Arc;
 

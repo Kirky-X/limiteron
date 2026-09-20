@@ -342,7 +342,7 @@ mod concurrency_limiter {
         let result = limiter.acquire(1).await;
         match result {
             Err(LimiteronError::LimitError(msg)) => {
-                // 错误文案经 FTL 渲染（concurrency-permit-acquire-timeout，T025），
+                // 错误文案经 FTL 渲染（concurrency-permit-acquire-timeout），
                 // 以目录 en 值为期望，locale 无关
                 assert!(
                     msg.contains(
@@ -541,7 +541,7 @@ mod fallback_strategy {
                 msg,
             ))) => {
                 assert!(
-                    msg.contains("拒绝"),
+                    msg.contains("拒绝") || msg.contains("rejected"),
                     "FailClosed message should indicate denied: {}",
                     msg
                 );

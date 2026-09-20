@@ -141,7 +141,7 @@ impl LimiterConfig {
 pub(crate) fn parse_window_size(window_size: &str) -> Result<std::time::Duration, String> {
     let trimmed = window_size.trim();
     if trimmed.is_empty() {
-        // T025 MEDIUM-1：错误文案接线 FTL（window-size-*），zh 渲染可达
+        // 错误文案接线 FTL（window-size-*），zh 渲染可达
         return Err(t("window-size-empty", &[]));
     }
 

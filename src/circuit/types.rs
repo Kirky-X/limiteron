@@ -942,7 +942,9 @@ mod tests {
             .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("熔断器打开"));
+        // 错误双轨:Display 恒英文规范串(与 locale 无关)
+        let rendered = result.unwrap_err().to_string();
+        assert!(rendered.contains("Circuit breaker open"), "got: {rendered}");
     }
 
     #[tokio::test]
@@ -1100,11 +1102,11 @@ mod tests {
             .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_err());
+        // 错误双轨:Display 恒英文规范串(与 locale 无关)
+        let rendered = result.unwrap_err().to_string();
         assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("半开状态调用次数已达上限")
+            rendered.contains("Half-open state call limit exceeded"),
+            "got: {rendered}"
         );
     }
 

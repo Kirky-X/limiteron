@@ -55,35 +55,40 @@ mod storage_adapter_tests {
 
     #[test]
     fn test_storage_error_display() {
+        // 错误双轨:Display 恒英文规范串(to_localized_string 才随 locale)。
+        // 直接断言英文规范文案,与 locale 环境无关。
         let errors = [
-            (StorageError::NotFound("test".to_string()), "未找到: test"),
+            (
+                StorageError::NotFound("test".to_string()),
+                "Not found: test",
+            ),
             (
                 StorageError::QueryError("test".to_string()),
-                "查询错误: test",
+                "Query error: test",
             ),
             (
                 StorageError::ConnectionError("test".to_string()),
-                "连接错误: test",
+                "Connection error: test",
             ),
             (
                 StorageError::TimeoutError("test".to_string()),
-                "超时错误: test",
+                "Timeout error: test",
             ),
             (
                 StorageError::RateLimitError("test".to_string()),
-                "速率限制: test",
+                "Rate limit: test",
             ),
             (
                 StorageError::AuthenticationError("test".to_string()),
-                "认证错误: test",
+                "Authentication error: test",
             ),
             (
                 StorageError::PermissionError("test".to_string()),
-                "权限错误: test",
+                "Permission error: test",
             ),
             (
                 StorageError::InvalidConfig("test".to_string()),
-                "无效配置: test",
+                "Invalid configuration: test",
             ),
         ];
 

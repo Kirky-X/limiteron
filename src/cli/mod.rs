@@ -124,7 +124,7 @@ fn usage_error(command: &str, message: &str) -> CliInvocation {
 /// 解析配置文件；任何失败折叠为一条错误消息（供 JSON 诊断输出）。
 ///
 /// 类型化错误走本地化路径（`i18n::I18nExt::to_localized_string`，当前
-/// locale → en 回退）；`ConfigError` 载荷本身已是英文规范串（T016）。
+/// locale → en 回退）；`ConfigError` 载荷本身已是英文规范串。
 fn load_config(path: &str) -> Result<FlowControlConfig, String> {
     use crate::i18n::I18nExt;
     crate::ConfigLoader::load_from_file(path).map_err(|e| match e {

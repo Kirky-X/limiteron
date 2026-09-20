@@ -97,7 +97,7 @@ impl LocalizedMsg for LimiteronError {
 }
 
 // ============================================================================
-// SafeErrorMessage 及其子枚举的错误双轨（T025）：Display 已是英文规范串，
+// SafeErrorMessage 及其子枚举的错误双轨：Display 已是英文规范串，
 // LocalizedMsg 将各变体映射到 FTL 目录 `safe-*` 键；经
 // `i18n::I18nExt::to_localized_string()` 输出本地化文案。
 // ============================================================================

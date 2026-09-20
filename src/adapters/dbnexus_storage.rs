@@ -52,14 +52,14 @@ impl Storage for DBNexusStorageAdapter {
         match KeyValueEntity::find_by_id(key.to_string()).one(conn).await {
             Ok(Some(model)) => {
                 // Check if expired
-                if let Some(expires_at) = model.expires_at {
-                    if expires_at < Utc::now() {
-                        // Expired - delete and return None
-                        let _ = KeyValueEntity::delete_by_id(key.to_string())
-                            .exec(conn)
-                            .await;
-                        return Ok(None);
-                    }
+                if let Some(expires_at) = model.expires_at
+                    && expires_at < Utc::now()
+                {
+                    // Expired - delete and return None
+                    let _ = KeyValueEntity::delete_by_id(key.to_string())
+                        .exec(conn)
+                        .await;
+                    return Ok(None);
                 }
                 Ok(Some(model.value))
             }

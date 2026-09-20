@@ -256,7 +256,7 @@ impl ConsumeResult {
 
     /// 构造放行结果（`consumed` 为放行后的账本值）
     ///
-    /// 供各存储后端统一结果构造（diting 简化：usage/remaining 推导
+    /// 供各存储后端统一结果构造（简化：usage/remaining 推导
     /// 此前在 cache 与 dbnexus 适配器中各写一份）。
     pub fn allowed(consumed: u64, limit: u64) -> Self {
         Self {

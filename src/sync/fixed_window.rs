@@ -139,6 +139,28 @@ impl SyncFixedWindowLimiter {
         self.admit_at(identifier, self.clock.now())
     }
 
+    /// 非消费查询：返回 `(窗口内已计数, 剩余额度)`；未跟踪标识返回 `None`。
+    ///
+    /// 与 `check` 的"拒绝不消耗预算"语义一致——peek 不创建、不推进任何状态，
+    /// 供限流响应头（RateLimit-Remaining）等展示面使用。
+    pub fn peek(&self, identifier: &str) -> Option<(u64, u64)> {
+        self.peek_at(identifier, self.clock.now())
+    }
+
+    /// [`peek`](Self::peek) 的显式时刻变体（供注入时钟的测试使用）。
+    ///
+    /// 窗口已滚动（自 window_start 起经过 ≥ window）时按新窗口返回 `(0, limit)`。
+    pub fn peek_at(&self, identifier: &str, now: Instant) -> Option<(u64, u64)> {
+        let state = self.state.lock();
+        state.get(identifier).map(|entry| {
+            if now.duration_since(entry.window_start) >= self.window {
+                (0, self.limit)
+            } else {
+                (entry.count, self.limit.saturating_sub(entry.count))
+            }
+        })
+    }
+
     /// 判定指定时刻标识是否放行：窗口滚动则重置计数，预算内放行并消耗一次，
     /// 超限拒绝（计数不增长）。
     pub fn admit_at(&self, identifier: &str, now: Instant) -> Result<(), RateLimitRejection> {
@@ -222,6 +244,24 @@ mod tests {
         assert!(limiter.check("ip1").is_err());
         // 独立标识互不影响
         assert!(limiter.check("ip2").is_ok());
+    }
+
+    #[test]
+    fn test_peek_is_non_consuming() {
+        let limiter = SyncFixedWindowLimiter::new(3, Duration::from_secs(60));
+        assert_eq!(limiter.peek("nope"), None);
+        assert!(limiter.check("a").is_ok());
+        assert!(limiter.check("a").is_ok());
+        assert!(limiter.check("a").is_ok());
+        let err = limiter.check("a").unwrap_err();
+        assert_eq!(err.limit, 3);
+        // 超限后 peek 反映满额状态
+        assert_eq!(limiter.peek("a"), Some((3, 0)));
+        // peek 非消费：连续 peek 结果一致，且不改变后续 check 的拒绝事实
+        assert_eq!(limiter.peek("a"), Some((3, 0)));
+        assert!(limiter.check("a").is_err());
+        // 第三个独立标识不受影响
+        assert_eq!(limiter.peek("b"), None);
     }
 
     #[test]

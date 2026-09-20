@@ -115,7 +115,7 @@ impl BanFileLoader {
         let path = self.path.clone();
         let ban_file: BanFile =
             tokio::task::spawn_blocking(move || -> Result<BanFile, LimiteronError> {
-                // 错误文案经 FTL 键 ban-file-* 构造（T025 MEDIUM-1 接线：
+                // 错误文案经 FTL 键 ban-file-* 构造（接线
                 // t(key, args) 随 locale 渲染，默认/回退为英文规范串）
                 let file_meta = std::fs::metadata(&path).map_err(|e| {
                     LimiteronError::ConfigError(t(

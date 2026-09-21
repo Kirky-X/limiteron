@@ -924,11 +924,6 @@ impl Governor {
     async fn check_internal(&self, context: &RequestContext) -> Result<Decision, LimiteronError> {
         self.stats.increment_total();
 
-        debug!(
-            "request check started: path={}, method={}",
-            context.path, context.method
-        );
-
         // Extracted identifier
         let identifier = self.identifier_extractor.extract(context).ok_or_else(|| {
             LimiteronError::ConfigError("Failed to extract identifier".to_string())

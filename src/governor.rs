@@ -22,7 +22,11 @@ use crate::l1_cache::IslandFallbackStrategy;
 #[cfg(feature = "fallback")]
 use crate::l1_cache::IslandModeConfig;
 use crate::l1_cache::{CacheableDecision, L1Cache, L1CacheConfig, RateLimitCacheKey};
-use crate::logging::{redact_ip, redact_user_id};
+
+/// 日志指纹:仅暴露长度,不含任何标识符内容(CodeQL cleartext-logging 结构性断源)。
+fn log_fingerprint(key: &str) -> String {
+    format!("<{} chars>", key.len())
+}
 use crate::matchers::{IdentifierExtractor, RequestContext, RuleMatcher};
 use crate::rules::{RuleBuilder, StatsManager, StatsSnapshot};
 // storage module removed as part of direct-inheritance refactoring
@@ -922,8 +926,8 @@ impl Governor {
 
         debug!(
             "request check started: user_id={}, ip={}, path={}, method={}",
-            redact_user_id(context.user_id.as_deref()),
-            redact_ip(context.ip.as_deref()),
+            log_fingerprint(context.user_id.as_deref().unwrap_or_default()),
+            log_fingerprint(context.ip.as_deref().unwrap_or_default()),
             context.path,
             context.method
         );
@@ -934,7 +938,7 @@ impl Governor {
         })?;
         trace!(
             "Extracted identifier: {}",
-            crate::logging::redact_user_id(Some(identifier.key().as_str()))
+            log_fingerprint(&identifier.key())
         );
 
         // 多租户贯穿：决策键改写为 tenant+key 复合键。
@@ -976,11 +980,7 @@ impl Governor {
                         t(
                             "governor-request-banned",
                             &[
-                                (
-                                    "user",
-                                    crate::logging::redact_user_id(Some(identifier.key().as_str()))
-                                        .to_string(),
-                                ),
+                                ("user", log_fingerprint(&identifier.key()).to_string(),),
                                 ("reason", info.reason().to_string()),
                             ],
                         )
@@ -1004,14 +1004,14 @@ impl Governor {
                 if !matches!(decision, Decision::Allowed(_)) {
                     trace!(
                         "L1 cache hit (reject decision): key={}",
-                        crate::logging::redact_basic(Some(cache_key.as_str()))
+                        log_fingerprint(&cache_key)
                     );
                     self.update_stats_for_decision(&Result::Ok(decision.clone()));
                     return Ok(decision);
                 }
                 trace!(
                     "L1 cache hit but allow decision, ignoring and re-running full check: key={}",
-                    crate::logging::redact_basic(Some(cache_key.as_str()))
+                    log_fingerprint(&cache_key)
                 );
             }
         }
@@ -1155,7 +1155,7 @@ impl Governor {
             Ok(Some(cached_decision)) => {
                 trace!(
                     "island mode - L1 cache hit: key={}",
-                    crate::logging::redact_basic(Some(cache_key.as_str()))
+                    log_fingerprint(&cache_key)
                 );
                 let decision = cached_decision.to_decision();
                 self.update_stats_for_decision(&Result::Ok(decision.clone()));
@@ -1392,7 +1392,7 @@ impl Governor {
     ) -> Result<(), LimiteronError> {
         debug!(
             "Ban user: {} reason: {}",
-            crate::logging::redact_user_id(Some(identifier.key().as_str())),
+            log_fingerprint(&identifier.key()),
             reason
         );
 
@@ -1434,10 +1434,7 @@ impl Governor {
     /// 取消用户封禁
     #[cfg(feature = "ban-manager")]
     pub async fn unban_identifier(&self, identifier: &Identifier) -> Result<(), LimiteronError> {
-        debug!(
-            "Unban user: {}",
-            crate::logging::redact_user_id(Some(identifier.key().as_str()))
-        );
+        debug!("Unban user: {}", log_fingerprint(&identifier.key()));
 
         let ban_target = identifier.to_ban_target();
 
@@ -1578,10 +1575,7 @@ impl Governor {
                 "governor-tenant-ban-applied",
                 &[
                     ("namespace", namespace.to_string()),
-                    (
-                        "key",
-                        crate::logging::redact_user_id(Some(identifier.key().as_str())).to_string(),
-                    ),
+                    ("key", log_fingerprint(&identifier.key()).to_string(),),
                 ],
             )
         );

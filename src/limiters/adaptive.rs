@@ -10,7 +10,7 @@
 //!   `max_limit`）
 //! - **乘性减**：窗口内错误率+慢调用率达到 `degrade_rate` →
 //!   `current_max = max(current_max × decrease_factor, min_max)`
-//! - **熔断联动**（`circuit-breaker` feature）：注入 [`CircuitBreaker`] 后，
+//! - **熔断联动**（`circuit-breaker` feature）：注入 `CircuitBreaker` 后，
 //!   熔断打开期间直接拒绝（计错误信号），半开/恢复后窗口自然回升
 //!
 //! 与 [`ConcurrencyLimiter`](super::ConcurrencyLimiter) 不同，本限流器

@@ -57,7 +57,7 @@ pub async fn load_config_from_file(path: &str) -> Result<FlowControlConfig, Limi
 
 /// Handle for atomically swapping the Governor's live config.
 ///
-/// Obtained from [`Governor::config_handle`] (or constructed manually).
+/// Obtained from [`crate::Governor::config_handle`] (or constructed manually).
 /// The `watch_and_reload` function uses this to push validated config updates.
 pub type GovernorConfigHandle = Arc<RwLock<FlowControlConfig>>;
 

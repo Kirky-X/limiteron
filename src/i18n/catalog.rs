@@ -5,7 +5,7 @@
 //! FTL resources live on disk at `locales/{en,zh}/messages.ftl` and are
 //! embedded at compile time via [`include_str!`]; the disk/embedded pair is
 //! kept in sync by construction (same file) plus a guard test
-//! ([`test_locales_dir_matches_embedded`]).
+//! `test_locales_dir_matches_embedded`.
 //!
 //! Bundles are `fluent_bundle::concurrent::FluentBundle` (Send + Sync) cached
 //! in [`OnceLock`] statics — safe to share across threads. Lookup chain:

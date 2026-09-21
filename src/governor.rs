@@ -932,7 +932,10 @@ impl Governor {
         let identifier = self.identifier_extractor.extract(context).ok_or_else(|| {
             LimiteronError::ConfigError("Failed to extract identifier".to_string())
         })?;
-        trace!("Extracted identifier: {}", identifier.key());
+        trace!(
+            "Extracted identifier: {}",
+            crate::logging::redact_user_id(Some(identifier.key().as_str()))
+        );
 
         // 多租户贯穿：决策键改写为 tenant+key 复合键。
         // 缓存键、封禁精确匹配键、事件键均以限定后的标识符计算，
@@ -999,13 +1002,16 @@ impl Governor {
             if let Ok(Some(cached_decision)) = self.l1_cache.get(&cache_key).await {
                 let decision = cached_decision.to_decision();
                 if !matches!(decision, Decision::Allowed(_)) {
-                    trace!("L1 cache hit (reject decision): key={}", cache_key);
+                    trace!(
+                        "L1 cache hit (reject decision): key={}",
+                        crate::logging::redact_basic(Some(cache_key.as_str()))
+                    );
                     self.update_stats_for_decision(&Result::Ok(decision.clone()));
                     return Ok(decision);
                 }
                 trace!(
                     "L1 cache hit but allow decision, ignoring and re-running full check: key={}",
-                    cache_key
+                    crate::logging::redact_basic(Some(cache_key.as_str()))
                 );
             }
         }
@@ -1147,7 +1153,10 @@ impl Governor {
 
         match self.l1_cache.get(&cache_key).await {
             Ok(Some(cached_decision)) => {
-                trace!("island mode - L1 cache hit: key={}", cache_key);
+                trace!(
+                    "island mode - L1 cache hit: key={}",
+                    crate::logging::redact_basic(Some(cache_key.as_str()))
+                );
                 let decision = cached_decision.to_decision();
                 self.update_stats_for_decision(&Result::Ok(decision.clone()));
                 Ok(decision)
@@ -1381,7 +1390,11 @@ impl Governor {
         reason: &str,
         source: Option<BanSource>,
     ) -> Result<(), LimiteronError> {
-        debug!("Ban user: {} reason: {}", identifier.key(), reason);
+        debug!(
+            "Ban user: {} reason: {}",
+            crate::logging::redact_user_id(Some(identifier.key().as_str())),
+            reason
+        );
 
         let ban_target = identifier.to_ban_target();
 
@@ -1421,7 +1434,10 @@ impl Governor {
     /// 取消用户封禁
     #[cfg(feature = "ban-manager")]
     pub async fn unban_identifier(&self, identifier: &Identifier) -> Result<(), LimiteronError> {
-        debug!("Unban user: {}", identifier.key());
+        debug!(
+            "Unban user: {}",
+            crate::logging::redact_user_id(Some(identifier.key().as_str()))
+        );
 
         let ban_target = identifier.to_ban_target();
 

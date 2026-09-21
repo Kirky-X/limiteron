@@ -203,7 +203,7 @@ impl SinkBucket {
     }
 }
 
-/// limiteron 实现的 inklog [`SinkRateLimit`] 端口：按 target 分桶的令牌预算限流。
+/// limiteron 实现的 inklog `SinkRateLimit` 端口：按 target 分桶的令牌预算限流。
 ///
 /// 策略（防护性默认，与 inklog 端口契约对齐）：
 /// - **按 target 分桶**：日志洪水通常来自单个失控模块，预算按 target 隔离；

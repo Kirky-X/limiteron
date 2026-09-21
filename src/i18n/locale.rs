@@ -10,7 +10,7 @@
 //!
 //! Only `en` and `zh` are supported: any unsupported/unknown/malformed value
 //! continues down the chain, and the chain always terminates at `en`.
-//! Environment/system reads are funneled through [`detect_from`] so the chain
+//! Environment/system reads are funneled through `detect_from` so the chain
 //! logic is testable as a pure function.
 
 use std::str::FromStr;

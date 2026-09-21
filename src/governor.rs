@@ -925,11 +925,8 @@ impl Governor {
         self.stats.increment_total();
 
         debug!(
-            "request check started: user_id={}, ip={}, path={}, method={}",
-            log_fingerprint(context.user_id.as_deref().unwrap_or_default()),
-            log_fingerprint(context.ip.as_deref().unwrap_or_default()),
-            context.path,
-            context.method
+            "request check started: path={}, method={}",
+            context.path, context.method
         );
 
         // Extracted identifier

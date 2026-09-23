@@ -242,7 +242,8 @@ impl Default for BanManagerConfig {
 
 /// 封禁管理器
 ///
-/// 管理封禁记录的生命周期，提供CRUD接口和指数退避算法。
+/// 管理封禁记录的生命周期，提供CRUD接口和阶梯封禁时长（1m/5m/30m/2h 四档，
+/// 封顶 24h——名为指数退避实为常量阶梯，第 4 次起不再增长）。
 #[derive(Clone)]
 pub struct BanManager {
     /// 封禁存储
@@ -672,7 +673,7 @@ impl BanManager {
         }
     }
 
-    /// 计算封禁时长（指数退避算法）
+    /// 计算封禁时长（四档阶梯，非指数）
     ///
     /// # 参数
     /// - `ban_times`: 封禁次数
@@ -680,12 +681,12 @@ impl BanManager {
     /// # 返回
     /// - 封禁时长（秒）
     ///
-    /// # 指数退避规则
-    /// - 第一次违规：封禁1分钟
-    /// - 第二次违规：封禁5分钟
-    /// - 第三次违规：封禁30分钟
-    /// - 第四次及以上：封禁2小时
-    /// - 最大封禁时长：24小时
+    /// # 阶梯规则
+    /// - 第一次违规：封禁 first_duration（默认 1 分钟）
+    /// - 第二次违规：封禁 second_duration（默认 5 分钟）
+    /// - 第三次违规：封禁 third_duration（默认 30 分钟）
+    /// - 第四次及以上：封禁 fourth_duration（默认 2 小时，不再增长）
+    /// - 各档均可配置，最终不超过 max_duration（默认 24 小时）
     pub async fn calculate_ban_duration(&self, ban_times: u32) -> StdDuration {
         let config = self.config.read().await;
         let duration_secs = match ban_times {

@@ -11,6 +11,8 @@
 <summary>📑 目录</summary>
 
 - [Unreleased](#unreleased)
+- [0.3.0-rc.5](#030-rc5---2026-09-21)
+- [0.3.0-rc.4](#030-rc4---2026-09-14)
 - [0.3.0-rc.3](#030-rc3---2026-09-10)
 - [0.3.0-rc.2](#030-rc2---2026-09-03)
 - [0.2.10](#0210---2026-07-22)
@@ -31,6 +33,51 @@
 ---
 
 ## [Unreleased]
+
+## [0.3.0-rc.5] - 2026-09-21
+
+### 新增
+
+- **重试组件**：`retry` feature——`RetryPolicy`（指数退避，`factor`/`max_delay`/`jitter` 可配）+ `delay_for_attempt` 单次延迟计算
+
+### 变更
+
+- **i18n 整改**：迁移 unify-rust-i18n——生产路径中文字面量清零、日志/错误消息键接线（T016/T025）
+- 版权头统一改写为 2025-2026
+
+### 修复
+
+- **feature 门控与 preset 解耦**：`standard`/`full` preset 去除钉死的 sqlite/postgres 驱动（改为按需叠加）；`ban-sync` 补蕴含 `event-system`（单开不再静默无效）；`validation` 改模块级门控（修复单开 E0432）；`cache-storage` 正名 `cache-redis`（保留向后兼容别名）；删除死 feature `legacy_tests`/`chaos-testing`/`config-security`；`adaptive-limiting` 文档纠偏（rc4 起为真实实现）；新增 docs.rs 元数据（`full` + postgres 单后端）；修复 3 处 intra-doc 断链；删除 governor 不可达 panic 分支
+- 测试确定性修复
+
+### 依赖
+
+- 版本递增至 `0.3.0-rc.5`
+- 跨仓 path 依赖改走 crates.io；path-only 依赖补全 `version` 字段
+
+## [0.3.0-rc.4] - 2026-09-14
+
+### 修复
+
+- **OCR 审查系列**：
+  - **HTB/inklog Sink**：令牌扣减原子化——单临界区内完成刷新+扣减，借用不足整体回滚，消除并发透支
+  - **限流器并发**：自适应/并发/固定窗口/批量预取——release 饱和扣减、注入信号量容量观测、溢出比较、预取校验失败留痕
+  - **事件链路**：webhook 共享 `Client` 与常量头名、outbox 事务语义文档纠偏与损坏 payload 告警、ban-sync 解码失败留痕
+  - **存储与审计**：审计链批写移入阻塞线程池；ban 存储改原子自增 UPDATE 并显性限定 Postgres 方言；存储契约补 TTL 过期断言
+  - **配额控制器**：超限比较去溢出、告警百分比钳制 255、克隆句柄计数防误取消后台任务
+  - **telemetry/存储/CLI**：epoch 时间去 panic、metrics 并发占位原子化、CLI 序列化失败显性报错、`Debug`/`PartialEq` 派生补全、OTLP 测试 Content-Length 下溢防护
+  - **Admin API**：`into_router` 配置校验、status 饱和运算、config `PartialEq`
+
+### 变更
+
+- 死代码清理 15 处；注释卫生清理（52 个文件移除任务追踪 ID 引用 + 复审补漏悬空导航）
+- **文档收敛**：中英双语 README 重写（`Governor::check` 级联决策时序图、21 个示例全量表，舍弃无法核实的覆盖率/性能表述）；docs 套件统一优化（折叠目录、交叉链接网络、架构 mermaid 图）；重复内容收敛至单一 canonical 位置；README 目录统一为 17 章节标准骨架
+- CI 门禁收敛：rustdoc 私有项与断链修复
+
+### 依赖
+
+- 版本递增至 `0.3.0-rc.4`
+- 移除 `[patch.crates-io]`，跨仓依赖改用 crates.io 上游 rc.4：trait-kit → `0.5.0-rc.4`、oxcache → `0.5.0-rc.4`、dbnexus → `0.6.0-rc.4`、inklog → `0.3.0-rc.4`、confers → `0.6.0-rc.4`
 
 ## [0.3.0-rc.3] - 2026-09-10
 

@@ -5,9 +5,11 @@
 //! Implements a simple quota-based limiter that tracks usage per key
 //! with configurable limits and time windows.
 
+use super::traits::RateLimitSnapshot;
 use crate::error::LimiteronError;
 #[cfg(feature = "quota-control")]
 use crate::quota::QuotaConfig;
+use crate::storage::QuotaStorage;
 use async_trait::async_trait;
 use dashmap::DashMap;
 use std::sync::Arc;
@@ -38,6 +40,15 @@ pub struct QuotaLimiter {
     /// 每个并发调用都会执行 O(n) 全表 retain，清理本身反而成为放大器。
     /// CAS 保证同一时刻至多一个清理在执行。
     cleanup_in_progress: AtomicBool,
+    /// 可选共享账本后端。
+    ///
+    /// 注入后 allow/check 经 `QuotaStorage::consume` 原子裁决（cache 路径
+    /// 单 Lua 原子、DB 路径条件 UPDATE，跨实例正确），账本持久化于后端；
+    /// 默认 `None` = 纯内存模式——单实例语义，多实例部署各自计数、
+    /// 进程重启清零，语义差异须由调用方文档标注。
+    storage: Option<Arc<dyn QuotaStorage>>,
+    /// storage 模式的资源标识（共享账本的 resource 维度）
+    resource: String,
 }
 
 /// 链式/无 key 场景（`Limiter::allow` 不提供 key）使用的匿名配额桶键。
@@ -86,6 +97,36 @@ impl QuotaLimiter {
             config,
             usage: Arc::new(DashMap::new()),
             cleanup_in_progress: AtomicBool::new(false),
+            storage: None,
+            resource: String::new(),
+        }
+    }
+
+    /// Creates a storage-backed QuotaLimiter.
+    ///
+    /// 注入 `QuotaStorage` 后，配额裁决委托后端的原子 consume
+    ///（跨实例一致、账本持久化）；`resource` 作为账本维度。
+    /// 默认 `new()` 构造的纯内存模式保持单实例语义不变。
+    ///
+    /// # Panic
+    ///
+    /// 同 `new()`：`config.window_size == 0` 时 panic。
+    pub fn with_storage(
+        config: QuotaConfig,
+        storage: Arc<dyn QuotaStorage>,
+        resource: impl Into<String>,
+    ) -> Self {
+        assert!(
+            config.window_size > 0,
+            "QuotaConfig.window_size must be greater than 0 (audit-L-003); \
+             window_size=0 would cause immediate window expiry, making quota useless"
+        );
+        Self {
+            config,
+            usage: Arc::new(DashMap::new()),
+            cleanup_in_progress: AtomicBool::new(false),
+            storage: Some(storage),
+            resource: resource.into(),
         }
     }
 
@@ -109,15 +150,100 @@ impl QuotaLimiter {
         std::time::Duration::from_secs(self.config.window_size)
     }
 
+    /// 生效配额上限（含透支）
+    ///
+    /// 饱和算术：limit 接近 u64::MAX 时乘/加不得回绕（回绕会使 max_usage
+    /// 反而变小，虽然方向偏保守，但属未定义语义）
+    fn max_usage(&self) -> u64 {
+        if self.config.allow_overdraft {
+            let overdraft_limit = self
+                .config
+                .limit
+                .saturating_mul(self.config.overdraft_limit_percent as u64)
+                / 100;
+            self.config.limit.saturating_add(overdraft_limit)
+        } else {
+            self.config.limit
+        }
+    }
+
+    /// storage 模式裁决路径：委托 `QuotaStorage::consume` 原子扣减
+    async fn consume_via_storage(
+        &self,
+        storage: &Arc<dyn QuotaStorage>,
+        key: &str,
+        cost: u64,
+    ) -> Result<bool, LimiteronError> {
+        // 零成本请求放行且不落账
+        if cost == 0 {
+            return Ok(true);
+        }
+        let result = storage
+            .consume(
+                key,
+                &self.resource,
+                cost,
+                self.max_usage(),
+                Duration::from_secs(self.config.window_size),
+            )
+            .await
+            .map_err(LimiteronError::StorageError)?;
+        if result.allowed {
+            Ok(true)
+        } else {
+            Err(LimiteronError::QuotaExceeded(format!(
+                "Quota exceeded for key '{}': storage ledger rejected (requested {})",
+                key, cost
+            )))
+        }
+    }
+
+    /// 匿名桶只读快照（不落账、不创建记录）
+    ///
+    /// 链式/无 key 场景的余额查询入口：为决策链的限流头
+    /// （RateLimit-Limit / Retry-After）提供真实值，避免落入 limit=0 兜底。
+    fn anonymous_snapshot(&self) -> RateLimitSnapshot {
+        let now = Instant::now();
+        let window_duration = Duration::from_secs(self.config.window_size);
+        let max_usage = self.max_usage();
+
+        // 只读查询：记录不存在或窗口已过期时按满额报告
+        let (usage, elapsed) = match self.usage.get(ANONYMOUS_QUOTA_KEY) {
+            Some(rec) if now.duration_since(rec.window_start) < window_duration => {
+                (rec.usage, now.duration_since(rec.window_start))
+            }
+            _ => (0, Duration::ZERO),
+        };
+
+        let reset_secs = if usage == 0 {
+            0
+        } else {
+            (window_duration - elapsed.min(window_duration)).as_secs()
+        };
+
+        RateLimitSnapshot {
+            limit: max_usage,
+            remaining: max_usage.saturating_sub(usage),
+            reset_secs,
+        }
+    }
+
     /// Checks and consumes quota for the given key.
     ///
     /// # Arguments
     /// * `key` - The identifier key (user ID, API key, etc.)
+    /// * `cost` - 本次请求消耗的额度。历史教训：曾固定每次扣 1，忽略 cost
+    ///   参数——Token/金额类配额语义失效。`cost=0` 放行不落账。
     ///
     /// # Returns
-    /// * `Ok(())` - Quota available, consumption successful
+    /// * `Ok(true)` - Quota available, consumption successful
+    /// * `Ok(false)` - Unused (保留位)
     /// * `Err(LimiteronError)` - Quota exceeded or error
-    async fn check_and_consume(&self, key: &str) -> Result<bool, LimiteronError> {
+    async fn check_and_consume(&self, key: &str, cost: u64) -> Result<bool, LimiteronError> {
+        // 零成本请求放行且不落账
+        if cost == 0 {
+            return Ok(true);
+        }
         let now = Instant::now();
         let window_duration = Duration::from_secs(self.config.window_size);
 
@@ -150,39 +276,40 @@ impl QuotaLimiter {
             record.window_start = now;
         }
 
-        // Check if quota allows overdraft
-        // 饱和算术：limit 接近 u64::MAX 时乘/加不得回绕（回绕会使 max_usage
-        // 反而变小，虽然方向偏保守，但属未定义语义）
-        let max_usage = if self.config.allow_overdraft {
-            let overdraft_limit = self
-                .config
-                .limit
-                .saturating_mul(self.config.overdraft_limit_percent as u64)
-                / 100;
-            self.config.limit.saturating_add(overdraft_limit)
-        } else {
-            self.config.limit
-        };
+        let max_usage = self.max_usage();
 
-        if record.usage >= max_usage {
+        // 按成本判限：usage + cost > max_usage 才拒绝（饱和减法防溢出，
+        // cost ≤ 剩余额度保证后续加法不回绕）
+        if cost > max_usage.saturating_sub(record.usage) {
             return Err(LimiteronError::QuotaExceeded(format!(
-                "Quota exceeded for key '{}': used {}/{}",
-                key, record.usage, max_usage
+                "Quota exceeded for key '{}': used {}/{} (requested {})",
+                key, record.usage, max_usage, cost
             )));
         }
 
-        record.usage += 1;
+        record.usage = record.usage.saturating_add(cost);
         Ok(true)
     }
 }
 
 #[async_trait]
 impl crate::limiters::Limiter for QuotaLimiter {
-    async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
-        // 链式/无 key 场景下无法按用户键跟踪：对内部匿名桶消耗配额，
+    async fn allow(&self, cost: u64) -> Result<bool, LimiteronError> {
+        if let Some(storage) = &self.storage {
+            // allow 契约：拒绝映射为 Ok(false)，而非错误语义冒泡
+            return match self
+                .consume_via_storage(storage, ANONYMOUS_QUOTA_KEY, cost)
+                .await
+            {
+                Ok(ok) => Ok(ok),
+                Err(LimiteronError::QuotaExceeded(_)) => Ok(false),
+                Err(e) => Err(e),
+            };
+        }
+        // 链式/无 key 场景下无法按用户键跟踪：对内部匿名桶按 cost 消耗配额，
         // 使配额规则经决策链挂载时真实生效。
         // 超出限制映射为 Ok(false)（拒绝语义），而非错误语义。
-        match self.check_and_consume(ANONYMOUS_QUOTA_KEY).await {
+        match self.check_and_consume(ANONYMOUS_QUOTA_KEY, cost).await {
             Ok(ok) => Ok(ok),
             Err(LimiteronError::QuotaExceeded(_)) => Ok(false),
             Err(e) => Err(e),
@@ -190,8 +317,22 @@ impl crate::limiters::Limiter for QuotaLimiter {
     }
 
     async fn check(&self, key: &str) -> Result<(), LimiteronError> {
-        self.check_and_consume(key).await?;
-        Ok(())
+        if let Some(storage) = &self.storage {
+            // check() 为单请求语义：固定 cost=1
+            return self.consume_via_storage(storage, key, 1).await.map(|_| ());
+        }
+        // check() 为单请求语义：固定 cost=1
+        self.check_and_consume(key, 1).await.map(|_| ())
+    }
+
+    /// 非消费预检：匿名桶余额快照（不落账）
+    async fn peek(&self, _cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
+        Ok(self.anonymous_snapshot())
+    }
+
+    /// 剩余额度查询（非消费）：匿名桶余额快照
+    async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError> {
+        Ok(self.anonymous_snapshot())
     }
 }
 
@@ -295,17 +436,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_quota_limiter_allow_with_zero_cost() {
-        // cost 参数在配额语义下不影响消耗：与正常调用一致受匿名桶限制
+    async fn test_quota_limiter_cost_semantics() {
+        // cost 语义回归：修复前 allow(_cost) 每次只扣 1，忽略 cost 参数
+        // ——Token/金额类配额语义失效。现按 cost 扣减。
         let config = create_test_config(); // limit = 10
         let limiter = QuotaLimiter::new(config);
 
-        for _ in 0..10 {
-            let result = limiter.allow(0).await;
-            assert!(result.unwrap());
+        assert!(limiter.allow(4).await.unwrap());
+        assert!(limiter.allow(4).await.unwrap());
+        // 剩 2，cost=4 超额拒绝
+        assert!(!limiter.allow(4).await.unwrap());
+        // 剩 2，cost=2 恰好用完
+        assert!(limiter.allow(2).await.unwrap());
+        assert!(!limiter.allow(1).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_quota_limiter_zero_cost_passes_without_consuming() {
+        // cost=0 放行不落账：零成本请求不占额度
+        let config = create_test_config(); // limit = 10
+        let limiter = QuotaLimiter::new(config);
+
+        for _ in 0..50 {
+            assert!(limiter.allow(0).await.unwrap(), "cost=0 应放行且不落账");
         }
-        let result = limiter.allow(0).await;
-        assert!(!result.unwrap());
+        // 账面未被零成本请求侵蚀：正常成本额度完整
+        for _ in 0..10 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+        assert!(!limiter.allow(1).await.unwrap());
     }
 
     #[tokio::test]
@@ -385,6 +544,97 @@ mod tests {
         let mut config = create_test_config();
         config.window_size = 0;
         let _ = QuotaLimiter::new(config);
+    }
+
+    /// 共享账本 mock：跨 QuotaLimiter 实例共享单一账本
+    struct MockSharedLedger {
+        consumed: std::sync::atomic::AtomicU64,
+    }
+
+    #[async_trait]
+    impl crate::storage::QuotaStorage for MockSharedLedger {
+        async fn get_quota(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<Option<crate::storage::QuotaInfo>, crate::error::StorageError> {
+            Ok(None)
+        }
+
+        async fn consume(
+            &self,
+            _: &str,
+            _: &str,
+            cost: u64,
+            limit: u64,
+            _: Duration,
+        ) -> Result<crate::error::ConsumeResult, crate::error::StorageError> {
+            use std::sync::atomic::Ordering;
+            let cur = self.consumed.fetch_add(cost, Ordering::SeqCst) + cost;
+            if cur <= limit {
+                Ok(crate::error::ConsumeResult::allowed(cur, limit))
+            } else {
+                // 超限自回滚（模拟真实后端的原子拒绝）
+                self.consumed.fetch_sub(cost, Ordering::SeqCst);
+                Ok(crate::error::ConsumeResult::rejected(cur - cost, limit))
+            }
+        }
+
+        async fn reset(
+            &self,
+            _: &str,
+            _: &str,
+            _: u64,
+            _: Duration,
+        ) -> Result<(), crate::error::StorageError> {
+            self.consumed.store(0, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_quota_limiter_storage_backed_mode() {
+        // storage-backed 模式：多个实例共享同一账本，跨实例额度可见；
+        // 纯内存实例不受账本影响。
+        let ledger = Arc::new(MockSharedLedger {
+            consumed: std::sync::atomic::AtomicU64::new(0),
+        });
+        let a = QuotaLimiter::with_storage(create_test_config(), ledger.clone(), "api_calls");
+        let b = QuotaLimiter::with_storage(create_test_config(), ledger.clone(), "api_calls");
+
+        assert!(a.allow(6).await.unwrap());
+        assert!(
+            !b.allow(6).await.unwrap(),
+            "共享账本下 B 应看到 A 的消耗(6+6>10)"
+        );
+        assert!(b.allow(4).await.unwrap());
+        assert!(!b.allow(1).await.unwrap(), "账本已满 10/10,应拒绝");
+
+        // 纯内存实例与账本无关
+        let solo = QuotaLimiter::new(create_test_config());
+        assert!(solo.allow(10).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_quota_limiter_remaining_snapshot() {
+        // 快照回归：修复前 remaining/peek 走 trait 默认 Err → 链上拒绝时
+        // 限流头落入 limit=0 兜底（decision_chain 的 Retry-After 语义失真）。
+        use crate::limiters::Limiter;
+        let config = create_test_config(); // limit=10, window=60
+        let limiter = QuotaLimiter::new(config);
+
+        // 未消耗：报告满额
+        let snap = limiter.remaining().await.unwrap();
+        assert_eq!(snap.limit, 10);
+        assert_eq!(snap.remaining, 10);
+
+        // 消耗 3 后：remaining 反映真实余额，peek 不扣减
+        assert!(limiter.allow(3).await.unwrap());
+        let snap = limiter.remaining().await.unwrap();
+        assert_eq!(snap.remaining, 7);
+        assert!(snap.reset_secs <= 60);
+        let peeked = limiter.peek(1).await.unwrap();
+        assert_eq!(peeked.remaining, 7, "peek 不扣减");
     }
 
     #[tokio::test]

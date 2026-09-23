@@ -25,10 +25,7 @@ pub use event_outbox::{
     Entity as EventOutboxEntity, Model as EventOutboxModel,
 };
 pub use key_value::{ActiveModel as KeyValueActiveModel, Entity as KeyValueEntity};
-pub use quota_record::{
-    ActiveModel as QuotaRecordActiveModel, Column as QuotaColumn, Model as QuotaRecordModel,
-    create_quota_key,
-};
+pub use quota_record::{Column as QuotaColumn, Model as QuotaRecordModel, create_quota_key};
 
 // Re-exports for test code only (DDL helpers and unused entity types)
 #[cfg(test)]

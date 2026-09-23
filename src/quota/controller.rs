@@ -656,7 +656,7 @@ impl QuotaController {
 
     /// 检查并重置窗口
     ///
-    /// 实现滑动窗口重置逻辑：如果当前时间超过窗口结束时间，
+    /// 实现固定窗口重置逻辑：如果当前时间超过窗口结束时间，
     /// 则计算新的窗口时间，并按比例保留配额消费量。
     async fn check_and_reset_window(
         &self,
@@ -693,24 +693,13 @@ impl QuotaController {
         let new_window_start = state.window_start + window_duration * safe_windows_passed;
         let new_window_end = new_window_start + window_duration;
 
-        // 滑动窗口重置：根据时间比例保留消费量
-        // 例如：如果窗口已经过去 50%，则保留 50% 的消费量
-        let window_elapsed = now.signed_duration_since(state.window_start);
-        let window_progress = (window_elapsed.num_milliseconds() as f64
-            / window_duration.num_milliseconds() as f64)
-            .min(1.0);
-
-        // 计算应该保留的消费量
-        let retained_consumed = if windows_passed >= 1 {
-            // 如果跨越了至少一个完整窗口，完全重置
-            0
-        } else {
-            // 单个窗口内，按比例保留
-            (state.consumed as f64 * (1.0 - window_progress)) as u64
-        };
-
+        // 固定窗口语义：窗口过期即整窗清零。
+        // 历史教训：此处曾有「按时间比例保留消费量」分支，但在真实后端下
+        // 不可达——cache/DB 的窗口保证 window_end = window_start + window，
+        // `now >= window_end` 蕴含 windows_passed >= 1，retained 恒为 0，
+        // 且计算结果从不落账（死逻辑）。配额窗口为固定窗口，非滑动窗口。
         Ok(QuotaState {
-            consumed: retained_consumed,
+            consumed: 0,
             window_start: new_window_start,
             window_end: new_window_end,
         })

@@ -5,14 +5,12 @@
 //! This adapter provides a complete QuotaStorage trait implementation using DBNexus
 //! for all quota management operations.
 
-use crate::dbnexus_entities::{
-    QuotaColumn, QuotaRecordActiveModel, QuotaRecordModel, create_quota_key,
-};
+use crate::dbnexus_entities::{QuotaColumn, QuotaRecordModel, create_quota_key};
 use crate::error::{ConsumeResult, StorageError};
 use crate::i18n::t;
 use crate::storage::{QuotaInfo, QuotaStorage};
 use async_trait::async_trait;
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::{Duration as ChronoDuration, TimeZone, Utc};
 use dbnexus::{Condition, DbPool, Session};
 use sea_orm::entity::prelude::*;
 use sea_orm::{DatabaseBackend, Statement};
@@ -130,21 +128,35 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
         limit: u64,
         window: StdDuration,
     ) -> Result<ConsumeResult, StorageError> {
+        // 类型边界：cost 超出 i64 表示域时 SQL 参数绑定强转会回绕为负
+        //（consumed + 负数 <= limit 恒真、账本反减）。该量级永远超出任何
+        // limit，直接拒绝。
+        if cost > i64::MAX as u64 {
+            return Ok(ConsumeResult::rejected(0, limit));
+        }
+
         let session = self.get_session().await?;
         let conn = Self::get_conn(&session)?;
         let quota_key = create_quota_key(user_id, resource);
         let now = Utc::now();
         let chrono_window =
             ChronoDuration::from_std(window).unwrap_or_else(|_| ChronoDuration::days(365));
-        let window_end = now + chrono_window;
+        // 窗口锚定 epoch 对齐（与 cache 后端一致）：整窗边界全局一致，
+        // 不随首次消费时刻漂移
+        let window_secs = chrono_window.num_seconds().max(1) as i64;
+        let window_start = Utc
+            .timestamp_opt((now.timestamp().div_euclid(window_secs)) * window_secs, 0)
+            .unwrap();
+        let window_end = window_start + chrono_window;
 
         // 活跃窗口原子累加：命中即允许并返回累加后的 consumed。
-        // 限额取 LEAST(存储列, 调用方参数)：运行期调低
-        // 配额上限时，活跃窗口也按新上限裁决。
+        // 限额取调用方参数（历史教训：曾取 LEAST(存储列, 参数)——列值仅在
+        // 窗口重启时更新，活跃窗口内升额 10→20 不生效，恒按旧小值裁决）。
+        // 参数即传即生效：升额与降额在活跃窗口内均即时生效。
         const CONSUME_SQL: &str = r#"
             UPDATE limiteron_quotas
             SET consumed = consumed + $2, updated_at = $4
-            WHERE quota_key = $1 AND window_end > $4 AND consumed + $2 <= LEAST("limit", $3)
+            WHERE quota_key = $1 AND window_end > $4 AND consumed + $2 <= $3
             RETURNING consumed
         "#;
         // 守卫式插入：仅当冲突行确实过期时以全新窗口覆盖（并发首触时
@@ -167,10 +179,12 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
         // 条件下原子复用（保留行身份与创建时间）
         const RESTART_SQL: &str = r#"
             UPDATE limiteron_quotas
-            SET consumed = $2, "limit" = $3, window_start = $4, window_end = $5, updated_at = $4
+            SET consumed = $2, "limit" = $3, window_start = $4, window_end = $5, updated_at = $6
             WHERE quota_key = $1 AND window_end <= $4 AND $2 <= $3
             RETURNING consumed
         "#;
+        // 注:$4 = 新窗口起点(epoch 对齐),过期判定 window_end <= $4 与
+        // 窗口推进语义一致
 
         // 有界重试：并发首触时败方的 INSERT 冲突由守卫吸收（0 行返回），
         // 回到顶部重跑原子累加即可命中胜方建立的活跃行
@@ -218,8 +232,9 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
                     quota_key.clone().into(),
                     (cost as i64).into(),
                     (limit as i64).into(),
-                    now.into(),
+                    window_start.into(),
                     window_end.into(),
+                    now.into(),
                 ],
             )
             .await?
@@ -240,7 +255,7 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
                     quota_key.clone().into(),
                     (limit as i64).into(),
                     (cost as i64).into(),
-                    now.into(),
+                    window_start.into(),
                     window_end.into(),
                 ],
             )
@@ -259,6 +274,12 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
     }
 
     /// Reset quota
+    ///
+    /// 单语句守卫式 upsert（历史教训：曾是 find→save/insert 两步——
+    /// SELECT 与全行覆盖之间并发 consume 被覆盖（lost update，刚扣的账
+    /// 被抹成 0），并发双 INSERT 撞 quota_key UNIQUE 直接报错）。
+    /// ON CONFLICT 消灭 UNIQUE 冲突；DO UPDATE 不触碰 created_at
+    /// （保留行身份），reset 语义 = 显式清零账本并开新窗口。
     async fn reset(
         &self,
         user_id: &str,
@@ -274,51 +295,73 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             ChronoDuration::from_std(window).unwrap_or_else(|_| ChronoDuration::days(365));
         let window_end = now + chrono_window;
 
-        let model = QuotaRecordModel {
-            id: 0,
-            user_id: user_id.to_string(),
-            resource: resource.to_string(),
-            quota_key: quota_key.clone(),
-            limit: limit as i64,
-            consumed: 0,
-            window_start: now,
-            window_end,
-            created_at: now,
-            updated_at: now,
-        };
+        const RESET_SQL: &str = r#"
+            INSERT INTO limiteron_quotas
+                (user_id, resource, quota_key, "limit", consumed,
+                 window_start, window_end, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, 0, $5, $6, $5, $5)
+            ON CONFLICT (quota_key) DO UPDATE SET
+                consumed = 0,
+                "limit" = EXCLUDED."limit",
+                window_start = EXCLUDED.window_start,
+                window_end = EXCLUDED.window_end,
+                updated_at = EXCLUDED.updated_at
+            RETURNING consumed
+        "#;
 
-        // 先查现有记录：存在则重置并更新（同一 quota_key 直接 insert 会 duplicate 崩溃），
-        // 不存在才插入新记录（主键由 BIGSERIAL 序列生成）。
-        let condition = Condition::all().add(QuotaColumn::QuotaKey.eq(quota_key));
-        let existing = QuotaRecordModel::find_by_condition(&session, condition)
-            .await
-            .map_err(Self::map_err)?
-            .into_iter()
-            .next();
-
-        if let Some(record) = existing {
-            let mut am: QuotaRecordActiveModel = record.into();
-            am.consumed = sea_orm::Set(0);
-            am.limit = sea_orm::Set(limit as i64);
-            am.window_start = sea_orm::Set(now);
-            am.window_end = sea_orm::Set(window_end);
-            am.created_at = sea_orm::Set(now);
-            am.updated_at = sea_orm::Set(now);
-            am.save(conn)
-                .await
-                .map_err(|e| StorageError::QueryError(format!("Failed to reset quota: {}", e)))?;
-            return Ok(());
-        }
-
-        let mut active_model: QuotaRecordActiveModel = model.into();
-        // 主键由 BIGSERIAL 序列生成：显式 Set(0) 会导致重复主键崩溃
-        active_model.id = sea_orm::NotSet;
-        active_model
-            .insert(conn)
-            .await
-            .map_err(|e| StorageError::QueryError(format!("Failed to reset quota: {}", e)))?;
+        let _row = Self::query_optional(
+            conn,
+            RESET_SQL,
+            [
+                user_id.into(),
+                resource.into(),
+                quota_key.into(),
+                (limit as i64).into(),
+                now.into(),
+                window_end.into(),
+            ],
+        )
+        .await?
+        .ok_or_else(|| {
+            StorageError::QueryError("quota reset upsert returned no rows".to_string())
+        })?;
 
         Ok(())
+    }
+    /// 退还配额（业务失败补偿）
+    ///
+    /// 条件原子 UPDATE：`GREATEST(consumed - n, 0)` 钳制账本不为负，
+    /// 仅活跃窗口参与（过期记录 no-op），单条 SQL 消除读改写竞态。
+    async fn refund(
+        &self,
+        user_id: &str,
+        resource: &str,
+        amount: u64,
+        _limit: u64,
+        _window: StdDuration,
+    ) -> Result<u64, StorageError> {
+        let session = self.get_session().await?;
+        let conn = Self::get_conn(&session)?;
+        let quota_key = create_quota_key(user_id, resource);
+        let now = Utc::now();
+
+        const REFUND_SQL: &str = r#"
+            UPDATE limiteron_quotas
+            SET consumed = GREATEST(consumed - $2, 0), updated_at = $3
+            WHERE quota_key = $1 AND window_end > $3
+            RETURNING consumed
+        "#;
+
+        match Self::query_optional(
+            conn,
+            REFUND_SQL,
+            [quota_key.into(), (amount as i64).into(), now.into()],
+        )
+        .await?
+        {
+            Some(row) => Ok(row_consumed(&row)?),
+            None => Ok(0),
+        }
     }
 }
 

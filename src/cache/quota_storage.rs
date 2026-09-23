@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 use crate::error::{ConsumeResult, StorageError};
 use crate::i18n::t;
+#[cfg(feature = "lua-script")]
+use crate::oxcache_lua::QUOTA_CONSUME_SCRIPT;
 use crate::storage::{QuotaInfo, QuotaStorage};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -10,6 +12,58 @@ use oxcache::backend::CacheBackend;
 use oxcache::error::OxCacheError;
 use std::sync::Arc;
 use std::time::Duration;
+
+/// Lua 模式的账本哈希字段（与 QUOTA_CONSUME_SCRIPT 的存储布局一致）
+#[cfg(feature = "lua-script")]
+mod lua_mode {
+    pub const F_CONSUMED: &str = "consumed";
+    pub const F_LIMIT: &str = "limit";
+    pub const F_WINDOW_START: &str = "window_start";
+    pub const F_WINDOW_END: &str = "window_end";
+
+    /// 退还：HINCRBY 归还并钳制不为负，返回归还后的已用量
+    pub const REFUND_SCRIPT: &str = r#"
+local consumed = tonumber(redis.call('HGET', KEYS[1], 'consumed')) or 0
+local nv = math.max(consumed - tonumber(ARGV[1]), 0)
+redis.call('HSET', KEYS[1], 'consumed', nv)
+return nv
+"#;
+
+    /// 重置：删除账本哈希（下次 consume 以新窗口重建）
+    pub const RESET_SCRIPT: &str = r#"
+redis.call('DEL', KEYS[1])
+return 1
+"#;
+
+    /// 读取：返回 {consumed, limit, window_start, window_end}
+    pub const GET_SCRIPT: &str = r#"
+local consumed = tonumber(redis.call('HGET', KEYS[1], 'consumed'))
+if not consumed then
+    return nil
+end
+return {
+    consumed,
+    tonumber(redis.call('HGET', KEYS[1], 'limit')) or 0,
+    tonumber(redis.call('HGET', KEYS[1], 'window_start')) or 0,
+    tonumber(redis.call('HGET', KEYS[1], 'window_end')) or 0,
+}
+"#;
+}
+
+/// 解析 eval_lua 返回的整数值（Int/BulkString 两种形态）
+#[cfg(feature = "lua-script")]
+fn lua_int(v: &redis::Value) -> Result<i64, StorageError> {
+    match v {
+        redis::Value::Int(n) => Ok(*n),
+        redis::Value::BulkString(bytes) => String::from_utf8_lossy(bytes)
+            .trim()
+            .parse::<i64>()
+            .map_err(|e| StorageError::QueryError(format!("Lua int parse: {e}"))),
+        other => Err(StorageError::QueryError(format!(
+            "unexpected Lua response: {other:?}"
+        ))),
+    }
+}
 
 fn map_error(e: OxCacheError) -> StorageError {
     match e {
@@ -42,6 +96,12 @@ pub struct CacheQuotaStorage {
     /// 计数路径，本锁不参与；仅回退 RMW 路径用它保证**单实例内**并发
     /// 不互相覆盖。多实例部署请使用支持原子写的后端。
     rw_lock: tokio::sync::Mutex<()>,
+    /// Lua 执行器（lua-script 特性）：注入后 consume/get_quota/reset/refund
+    /// 走 `QUOTA_CONSUME_SCRIPT` 等单脚本原子路径（跨实例原子），替代
+    /// 「INCR → 判断 → 回滚」三段调用——历史教训：三段路径在 INCR 与
+    /// 回滚之间进程崩溃会泄漏配额。
+    #[cfg(feature = "lua-script")]
+    lua: Option<Arc<dyn oxcache::backend::LuaExecutor>>,
 }
 
 impl CacheQuotaStorage {
@@ -49,7 +109,159 @@ impl CacheQuotaStorage {
         Self {
             backend,
             rw_lock: tokio::sync::Mutex::new(()),
+            #[cfg(feature = "lua-script")]
+            lua: None,
         }
+    }
+
+    /// 注入 Lua 执行器，启用单脚本原子配额路径
+    #[cfg(feature = "lua-script")]
+    pub fn with_lua_executor(
+        backend: Arc<dyn CacheBackend>,
+        lua: Arc<dyn oxcache::backend::LuaExecutor>,
+    ) -> Self {
+        Self {
+            backend,
+            rw_lock: tokio::sync::Mutex::new(()),
+            lua: Some(lua),
+        }
+    }
+
+    /// Lua 模式 consume：QUOTA_CONSUME_SCRIPT 单脚本完成「窗口判活 +
+    /// 限额裁决 + 扣减」，崩溃窗口与并发竞态均由脚本原子性消除
+    #[cfg(feature = "lua-script")]
+    async fn consume_lua(
+        &self,
+        lua: &Arc<dyn oxcache::backend::LuaExecutor>,
+        user_id: &str,
+        resource: &str,
+        cost: u64,
+        limit: u64,
+        window: Duration,
+    ) -> Result<ConsumeResult, StorageError> {
+        // Lua 脚本自带窗口判活（window_start 不匹配即重置），
+        // 账本键无需桶后缀：固定键即可，get/reset/refund 亦由此可定位
+        let key = format!("quota:{user_id}:{resource}:ledger");
+        let now = Utc::now();
+        let bucket_secs = window_secs(window);
+        let bucket = now.timestamp() as u64 / bucket_secs;
+        let overdraft: u64 = 0;
+        let value = lua
+            .eval_lua(
+                QUOTA_CONSUME_SCRIPT,
+                &[&key],
+                &[
+                    &cost.to_string(),
+                    &limit.to_string(),
+                    &overdraft.to_string(),
+                    &(bucket * bucket_secs).to_string(),
+                    &((bucket + 1) * bucket_secs).to_string(),
+                    lua_mode::F_CONSUMED,
+                    lua_mode::F_LIMIT,
+                    lua_mode::F_WINDOW_START,
+                    lua_mode::F_WINDOW_END,
+                ],
+            )
+            .await
+            .map_err(|e| StorageError::QueryError(format!("Lua eval failed: {e}")))?;
+
+        let redis::Value::Array(items) = value else {
+            return Err(StorageError::QueryError(format!(
+                "unexpected quota lua response: {value:?}"
+            )));
+        };
+        if items.len() < 2 {
+            return Err(StorageError::QueryError(
+                "quota lua response too short".to_string(),
+            ));
+        }
+        let allowed = lua_int(&items[0])? == 1;
+        let consumed = lua_int(&items[1])?.max(0) as u64;
+        if allowed {
+            Ok(ConsumeResult::allowed(consumed, limit))
+        } else {
+            Ok(ConsumeResult::rejected(consumed, limit))
+        }
+    }
+
+    /// Lua 模式账本键（固定键：脚本自带窗口判活，无需桶后缀）
+    #[cfg(feature = "lua-script")]
+    fn ledger_key(user_id: &str, resource: &str) -> String {
+        format!("quota:{user_id}:{resource}:ledger")
+    }
+
+    /// Lua 模式 get_quota：读账本哈希
+    #[cfg(feature = "lua-script")]
+    async fn get_quota_lua(
+        &self,
+        lua: &Arc<dyn oxcache::backend::LuaExecutor>,
+        user_id: &str,
+        resource: &str,
+    ) -> Result<Option<QuotaInfo>, StorageError> {
+        let key = Self::ledger_key(user_id, resource);
+        let value = lua
+            .eval_lua(lua_mode::GET_SCRIPT, &[&key], &[])
+            .await
+            .map_err(|e| StorageError::QueryError(format!("Lua eval failed: {e}")))?;
+        let redis::Value::Nil = value else {
+            let redis::Value::Array(items) = value else {
+                return Err(StorageError::QueryError(format!(
+                    "unexpected quota lua response: {value:?}"
+                )));
+            };
+            if items.len() < 4 {
+                return Err(StorageError::QueryError(
+                    "quota lua response too short".to_string(),
+                ));
+            }
+            let consumed = lua_int(&items[0])?.max(0) as u64;
+            let limit = lua_int(&items[1])?.max(0) as u64;
+            let ws = lua_int(&items[2])?;
+            let we = lua_int(&items[3])?;
+            let from_ts = |ts: i64| {
+                chrono::DateTime::from_timestamp(ts, 0)
+                    .ok_or_else(|| StorageError::QueryError("invalid window ts".to_string()))
+            };
+            return Ok(Some(QuotaInfo {
+                consumed,
+                limit,
+                window_start: from_ts(ws)?,
+                window_end: from_ts(we)?,
+            }));
+        };
+        Ok(None)
+    }
+
+    /// Lua 模式 reset：删除账本哈希
+    #[cfg(feature = "lua-script")]
+    async fn reset_lua(
+        &self,
+        lua: &Arc<dyn oxcache::backend::LuaExecutor>,
+        user_id: &str,
+        resource: &str,
+    ) -> Result<(), StorageError> {
+        let key = Self::ledger_key(user_id, resource);
+        lua.eval_lua(lua_mode::RESET_SCRIPT, &[&key], &[])
+            .await
+            .map_err(|e| StorageError::QueryError(format!("Lua eval failed: {e}")))?;
+        Ok(())
+    }
+
+    /// Lua 模式 refund：HINCRBY 归还并钳 0
+    #[cfg(feature = "lua-script")]
+    async fn refund_lua(
+        &self,
+        lua: &Arc<dyn oxcache::backend::LuaExecutor>,
+        user_id: &str,
+        resource: &str,
+        amount: u64,
+    ) -> Result<u64, StorageError> {
+        let key = Self::ledger_key(user_id, resource);
+        let value = lua
+            .eval_lua(lua_mode::REFUND_SCRIPT, &[&key], &[&amount.to_string()])
+            .await
+            .map_err(|e| StorageError::QueryError(format!("Lua eval failed: {e}")))?;
+        Ok(lua_int(&value)?.max(0) as u64)
     }
 
     /// 原子 consume：`INCR` 计数后检查限额，超限即原子回滚。
@@ -140,6 +352,10 @@ impl QuotaStorage for CacheQuotaStorage {
         user_id: &str,
         resource: &str,
     ) -> Result<Option<QuotaInfo>, StorageError> {
+        #[cfg(feature = "lua-script")]
+        if let Some(lua) = &self.lua {
+            return self.get_quota_lua(lua, user_id, resource).await;
+        }
         let meta_key = meta_key(user_id, resource);
         let raw = self.backend.get(&meta_key).await.map_err(map_error)?;
         let Some(data) = raw else {
@@ -202,6 +418,22 @@ impl QuotaStorage for CacheQuotaStorage {
             return Ok(ConsumeResult::allowed(consumed, limit));
         }
 
+        // Lua 模式：单脚本原子完成窗口判活+裁决+扣减（无回滚崩溃窗口）
+        #[cfg(feature = "lua-script")]
+        if let Some(lua) = &self.lua {
+            return self
+                .consume_lua(lua, user_id, resource, cost, limit, window)
+                .await;
+        }
+
+        // 类型边界：cost 超出 i64 表示域时 INCRBY 参数强转会回绕为负
+        //（账本反减、恒真放行）。该量级永远超出任何 limit，直接拒绝。
+        if cost > i64::MAX as u64 {
+            let info = self.get_quota(user_id, resource).await?;
+            let consumed = info.as_ref().map(|i| i.consumed).unwrap_or(0);
+            return Ok(ConsumeResult::rejected(consumed, limit));
+        }
+
         let now = Utc::now();
         let bucket_secs = window_secs(window);
         let bucket = now.timestamp() as u64 / bucket_secs;
@@ -245,6 +477,10 @@ impl QuotaStorage for CacheQuotaStorage {
         limit: u64,
         window: Duration,
     ) -> Result<(), StorageError> {
+        #[cfg(feature = "lua-script")]
+        if let Some(lua) = &self.lua {
+            return self.reset_lua(lua, user_id, resource).await;
+        }
         let _guard = self.rw_lock.lock().await;
         let now = Utc::now();
         let bucket_secs = window_secs(window);
@@ -268,6 +504,51 @@ impl QuotaStorage for CacheQuotaStorage {
             .map_err(map_error)?;
         self.write_counter(&counter_key(user_id, resource, bucket), 0, window)
             .await
+    }
+    /// 退还配额：DECRBY 归还并钳制不为负（多减部分原子加回）。
+    /// 业务失败补偿入口；对不存在/已过期桶为 no-op（返回 0）。
+    async fn refund(
+        &self,
+        user_id: &str,
+        resource: &str,
+        amount: u64,
+        _limit: u64,
+        window: Duration,
+    ) -> Result<u64, StorageError> {
+        #[cfg(feature = "lua-script")]
+        if let Some(lua) = &self.lua {
+            return self.refund_lua(lua, user_id, resource, amount).await;
+        }
+        // 类型边界：amount 超出 i64 表示域时按"全额退还"语义钳制
+        //（DECRBY 到负值后由下方钳 0 逻辑归位）
+        let amount = amount.min(i64::MAX as u64);
+        let now = Utc::now();
+        let bucket_secs = window_secs(window);
+        let bucket = now.timestamp() as u64 / bucket_secs;
+        let key = counter_key(user_id, resource, bucket);
+
+        if let Some(atomic) = self.backend.as_atomic_writer() {
+            let new_total = atomic
+                .incr(&key, -(amount as i64), Some(window))
+                .await
+                .map_err(map_error)?;
+            if new_total < 0 {
+                // 账本不为负：多减部分原子加回
+                let restored = atomic
+                    .incr(&key, -new_total, Some(window))
+                    .await
+                    .map_err(map_error)?;
+                return Ok(restored.max(0) as u64);
+            }
+            return Ok(new_total.max(0) as u64);
+        }
+
+        // 回退路径：进程内锁串行化
+        let _guard = self.rw_lock.lock().await;
+        let current = self.read_counter(&key).await?;
+        let new_total = current.saturating_sub(amount);
+        self.write_counter(&key, new_total, window).await?;
+        Ok(new_total)
     }
 }
 

@@ -102,6 +102,18 @@ impl RuleBuilder {
     pub fn build_rule_chains(
         config: &FlowControlConfig,
     ) -> Result<DashMap<String, DecisionChain>, LimiteronError> {
+        Self::build_rule_chains_with_quota_storage(config, None)
+    }
+
+    /// 构建规则决策链（可选注入共享配额账本）
+    ///
+    /// 注入 `quota_storage` 后，配置中的 Quota 限流器以 storage-backed 模式
+    /// 构建：配额裁决委托后端原子 consume（跨实例一致、账本持久化），
+    /// resource 维度取规则 ID。未注入时保持纯内存 QuotaLimiter（单实例语义）。
+    pub fn build_rule_chains_with_quota_storage(
+        config: &FlowControlConfig,
+        quota_storage: Option<&Arc<dyn crate::storage::QuotaStorage>>,
+    ) -> Result<DashMap<String, DecisionChain>, LimiteronError> {
         let chains = DashMap::new();
 
         for rule in &config.rules {
@@ -172,7 +184,15 @@ impl RuleBuilder {
                                 overdraft_limit_percent: overdraft_percent,
                                 ..crate::quota::QuotaConfig::default()
                             };
-                            (Arc::new(QuotaLimiter::new(config)), LimiterTypeName::Quota)
+                            let quota_limiter = match quota_storage {
+                                Some(st) => Arc::new(QuotaLimiter::with_storage(
+                                    config,
+                                    st.clone(),
+                                    rule.id.clone(),
+                                )) as Arc<dyn Limiter>,
+                                None => Arc::new(QuotaLimiter::new(config)) as Arc<dyn Limiter>,
+                            };
+                            (quota_limiter, LimiterTypeName::Quota)
                         }
                         #[cfg(not(feature = "quota-control"))]
                         {
@@ -652,6 +672,111 @@ mod tests {
         let config = FlowControlConfig::default();
         let rules = RuleBuilder::build_rules(&config).unwrap();
         assert!(rules.is_empty());
+    }
+
+    /// 共享配额账本 mock：跨链构建共享单一账本
+    struct MockSharedLedger {
+        consumed: std::sync::atomic::AtomicU64,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::storage::QuotaStorage for MockSharedLedger {
+        async fn get_quota(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<Option<crate::storage::QuotaInfo>, crate::error::StorageError> {
+            Ok(None)
+        }
+
+        async fn consume(
+            &self,
+            _: &str,
+            _: &str,
+            cost: u64,
+            limit: u64,
+            _: Duration,
+        ) -> Result<crate::error::ConsumeResult, crate::error::StorageError> {
+            use std::sync::atomic::Ordering;
+            let cur = self.consumed.fetch_add(cost, Ordering::SeqCst) + cost;
+            if cur <= limit {
+                Ok(crate::error::ConsumeResult::allowed(cur, limit))
+            } else {
+                self.consumed.fetch_sub(cost, Ordering::SeqCst);
+                Ok(crate::error::ConsumeResult::rejected(cur - cost, limit))
+            }
+        }
+
+        async fn reset(
+            &self,
+            _: &str,
+            _: &str,
+            _: u64,
+            _: Duration,
+        ) -> Result<(), crate::error::StorageError> {
+            self.consumed.store(0, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_build_rule_chains_with_quota_storage() {
+        // storage-backed 接线回归：注入共享账本后，两次构建的 Quota 节点
+        // 经同一账本裁决，跨链实例额度可见。
+        let quota_config = LimiterConfig::Quota {
+            quota_type: QuotaType::Count,
+            limit: 10,
+            window: "60s".to_string(),
+            alert_threshold: None,
+            overdraft: None,
+        };
+        let make_config = || FlowControlConfig {
+            rules: vec![Rule {
+                id: "quota-rule".to_string(),
+                name: "Quota Rule".to_string(),
+                priority: 1,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["user1".to_string()],
+                }],
+                limiters: vec![quota_config.clone()],
+                action: ActionConfig::default(),
+            }],
+            ..Default::default()
+        };
+
+        let ledger = Arc::new(MockSharedLedger {
+            consumed: std::sync::atomic::AtomicU64::new(0),
+        });
+        let chains_a = RuleBuilder::build_rule_chains_with_quota_storage(
+            &make_config(),
+            Some(&(ledger.clone() as Arc<dyn crate::storage::QuotaStorage>)),
+        )
+        .unwrap();
+        let chains_b = RuleBuilder::build_rule_chains_with_quota_storage(
+            &make_config(),
+            Some(&(ledger.clone() as Arc<dyn crate::storage::QuotaStorage>)),
+        )
+        .unwrap();
+
+        let node_a = chains_a.get("quota-rule").unwrap().nodes()[0]
+            .limiter
+            .clone();
+        let node_b = chains_b.get("quota-rule").unwrap().nodes()[0]
+            .limiter
+            .clone();
+
+        assert!(node_a.allow(6).await.unwrap());
+        assert!(
+            !node_b.allow(6).await.unwrap(),
+            "共享账本下链 B 应看到链 A 的消耗"
+        );
+
+        // 未注入时保持纯内存模式：各自独立
+        let solo_chains = RuleBuilder::build_rule_chains(&make_config()).unwrap();
+        let solo_node = solo_chains.get("quota-rule").unwrap().nodes()[0]
+            .limiter
+            .clone();
+        assert!(solo_node.allow(10).await.unwrap());
     }
 
     #[test]

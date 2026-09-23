@@ -395,6 +395,11 @@ impl DecisionChain {
     }
 
     /// 获取节点数量
+    /// 节点只读视图（内省/诊断用）
+    pub fn nodes(&self) -> &[DecisionNode] {
+        &self.nodes
+    }
+
     pub fn node_count(&self) -> usize {
         self.nodes.len()
     }

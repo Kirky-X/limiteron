@@ -74,6 +74,22 @@ pub trait QuotaStorage: Send + Sync {
         limit: u64,
         window: Duration,
     ) -> Result<(), StorageError>;
+
+    /// 退还配额（业务失败补偿）
+    ///
+    /// 归还量钳制不超过当前已消耗量（账本不为负），返回归还后的已用量；
+    /// 对不存在/已过期的记录为 no-op。默认实现为 no-op（返回 0）——
+    /// 生产后端（memory/cache/dbnexus）必须覆盖，测试 mock 可沿用默认。
+    async fn refund(
+        &self,
+        _user_id: &str,
+        _resource: &str,
+        _amount: u64,
+        _limit: u64,
+        _window: Duration,
+    ) -> Result<u64, StorageError> {
+        Ok(0)
+    }
 }
 
 /// 封禁目标类型
@@ -295,6 +311,31 @@ pub struct MemoryBanStorage {
     bans: RwLock<HashMap<BanTarget, BanRecord>>,
     /// Expiration tracking (target -> expires_at timestamp)
     expiration: RwLock<HashMap<BanTarget, i64>>,
+}
+
+/// 进程内配额账本记录（epoch 对齐的固定窗口）
+#[derive(Debug, Clone)]
+pub struct MemoryQuotaRecord {
+    /// 已消耗配额
+    pub consumed: u64,
+    /// 配额上限
+    pub limit: u64,
+    /// 窗口开始
+    pub window_start: DateTime<Utc>,
+    /// 窗口结束
+    pub window_end: DateTime<Utc>,
+}
+
+/// 进程内配额账本（单实例语义）
+///
+/// 以「epoch 对齐窗口桶」为键：同一窗口内的 consume/refund 在
+/// `RwLock` 写临界区内完成读-判-写（单实例原子）；窗口翻滚自然
+/// 换键，过期桶在账本超限时被机会式清理。
+pub struct MemoryQuotaStorage {
+    /// 账本：`{user}:{resource}:{bucket}` -> 记录
+    records: RwLock<HashMap<String, MemoryQuotaRecord>>,
+    /// 账本条目上限（超过即触发机会式过期清理）
+    max_records: usize,
 }
 
 mod storage_impl;

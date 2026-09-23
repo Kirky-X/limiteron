@@ -9,6 +9,151 @@
 
 use super::*;
 
+impl MemoryQuotaStorage {
+    /// 创建进程内配额账本
+    pub fn new() -> Self {
+        Self {
+            records: RwLock::new(HashMap::new()),
+            max_records: 10_000,
+        }
+    }
+
+    /// 创建默认账本实例（`Arc<dyn QuotaStorage>` 直注）
+    pub fn create_memory_quota_storage() -> Arc<dyn QuotaStorage> {
+        Arc::new(Self::new())
+    }
+
+    /// 当前 epoch 对齐窗口桶键
+    fn bucket_key(user_id: &str, resource: &str, window: Duration) -> (String, MemoryQuotaRecord) {
+        let now = Utc::now();
+        let window_secs = window.as_secs().max(1);
+        let bucket = now.timestamp().div_euclid(window_secs as i64) as u64;
+        let start_secs = bucket * window_secs;
+        let key = format!("{user_id}:{resource}:{bucket}");
+        let record = MemoryQuotaRecord {
+            consumed: 0,
+            limit: 0,
+            window_start: DateTime::from_timestamp(start_secs as i64, 0).unwrap_or(now),
+            window_end: DateTime::from_timestamp((start_secs + window_secs) as i64, 0)
+                .unwrap_or(now),
+        };
+        (key, record)
+    }
+
+    /// 机会式清理：账本超过上限时剔除已过期窗口的桶
+    async fn prune_expired(&self, now: DateTime<Utc>) {
+        if self.records.read().await.len() <= self.max_records {
+            return;
+        }
+        self.records
+            .write()
+            .await
+            .retain(|_, rec| rec.window_end > now);
+    }
+}
+
+impl Default for MemoryQuotaStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl QuotaStorage for MemoryQuotaStorage {
+    async fn get_quota(
+        &self,
+        user_id: &str,
+        resource: &str,
+    ) -> Result<Option<QuotaInfo>, StorageError> {
+        // get_quota 不知道窗口宽度：按键前缀扫描当前活跃桶
+        let now = Utc::now();
+        let prefix = format!("{user_id}:{resource}:");
+        let records = self.records.read().await;
+        let found = records
+            .iter()
+            .filter(|(k, rec)| k.starts_with(&prefix) && rec.window_end > now)
+            .map(|(_, rec)| QuotaInfo {
+                consumed: rec.consumed,
+                limit: rec.limit,
+                window_start: rec.window_start,
+                window_end: rec.window_end,
+            })
+            .next();
+        Ok(found)
+    }
+
+    async fn consume(
+        &self,
+        user_id: &str,
+        resource: &str,
+        cost: u64,
+        limit: u64,
+        window: Duration,
+    ) -> Result<ConsumeResult, StorageError> {
+        if cost == 0 {
+            let info = self.get_quota(user_id, resource).await?;
+            let consumed = info.as_ref().map(|i| i.consumed).unwrap_or(0);
+            return Ok(ConsumeResult::allowed(consumed, limit));
+        }
+
+        let now = Utc::now();
+        let (key, fresh) = Self::bucket_key(user_id, resource, window);
+        self.prune_expired(now).await;
+
+        // 写临界区内读-判-写（临界区内无 await）：单实例原子
+        let mut records = self.records.write().await;
+        let rec = records
+            .entry(key)
+            .or_insert_with(|| MemoryQuotaRecord { limit, ..fresh });
+        if rec.window_end <= now {
+            rec.consumed = 0;
+            rec.limit = limit;
+            rec.window_start = fresh.window_start;
+            rec.window_end = fresh.window_end;
+        }
+        if cost > limit {
+            return Ok(ConsumeResult::rejected(rec.consumed, limit));
+        }
+        if rec.consumed + cost > limit {
+            return Ok(ConsumeResult::rejected(rec.consumed, limit));
+        }
+        rec.consumed += cost;
+        Ok(ConsumeResult::allowed(rec.consumed, limit))
+    }
+
+    async fn reset(
+        &self,
+        user_id: &str,
+        resource: &str,
+        _limit: u64,
+        window: Duration,
+    ) -> Result<(), StorageError> {
+        let (key, _) = Self::bucket_key(user_id, resource, window);
+        self.records.write().await.remove(&key);
+        Ok(())
+    }
+
+    async fn refund(
+        &self,
+        user_id: &str,
+        resource: &str,
+        amount: u64,
+        _limit: u64,
+        window: Duration,
+    ) -> Result<u64, StorageError> {
+        let now = Utc::now();
+        let (key, _) = Self::bucket_key(user_id, resource, window);
+        let mut records = self.records.write().await;
+        match records.get_mut(&key) {
+            Some(rec) if rec.window_end > now => {
+                rec.consumed = rec.consumed.saturating_sub(amount.min(rec.consumed));
+                Ok(rec.consumed)
+            }
+            _ => Ok(0),
+        }
+    }
+}
+
 impl MemoryStorage {
     /// Creates a new MemoryStorage instance
     pub fn new() -> Self {
@@ -472,6 +617,32 @@ mod tests {
         };
         map.insert(geo.clone(), 1);
         assert_eq!(map.get(&geo), Some(&1));
+    }
+
+    #[tokio::test]
+    async fn test_memory_quota_storage_consume_refund() {
+        let storage = MemoryQuotaStorage::new();
+        let window = Duration::from_secs(60);
+
+        // consume 6 放行;6+5>10 拒绝
+        let r = storage.consume("u1", "api", 6, 10, window).await.unwrap();
+        assert!(r.allowed);
+        let r = storage.consume("u1", "api", 5, 10, window).await.unwrap();
+        assert!(!r.allowed);
+
+        // refund 3 → consumed=3;超量归还钳 0
+        let consumed = storage.refund("u1", "api", 3, 10, window).await.unwrap();
+        assert_eq!(consumed, 3);
+        let consumed = storage.refund("u1", "api", 99, 10, window).await.unwrap();
+        assert_eq!(consumed, 0, "归还量钳制不得超过已消耗");
+
+        // 额度恢复可用
+        let r = storage.consume("u1", "api", 10, 10, window).await.unwrap();
+        assert!(r.allowed);
+
+        // 对不存在记录 refund 为 no-op
+        let consumed = storage.refund("ghost", "api", 5, 10, window).await.unwrap();
+        assert_eq!(consumed, 0);
     }
 
     struct TestStorage {

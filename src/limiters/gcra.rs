@@ -19,6 +19,7 @@ use super::traits::{Limiter, validate_cost};
 use crate::error::LimiteronError;
 use async_trait::async_trait;
 use parking_lot::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// GCRA rate limiter result
 #[derive(Debug, Clone)]
@@ -69,6 +70,13 @@ pub struct GcraLimiter {
     refill_interval_us: u64,
     /// Theoretical Arrival Time (microseconds since UNIX epoch)
     tat: RwLock<u64>,
+    /// 单调时间守卫：最近一次观测到的墙钟微秒值。
+    ///
+    /// 墙钟（SystemTime）可回拨——回拨后 now_us < EAT 会对所有请求持续拒绝
+    /// 直到墙钟追回（拨到 epoch 之前时 unwrap_or(0) 甚至全量锁死）。
+    /// 观测值取 `max(墙钟, last_now)`：回拨被冻结为"时间停滞"，既不锁死
+    /// 也不产生虚假的突发放行，墙钟追回后自然恢复。
+    last_now: AtomicU64,
 }
 
 impl GcraLimiter {
@@ -87,12 +95,16 @@ impl GcraLimiter {
     /// let limiter = GcraLimiter::new(10, 100_000);
     /// ```
     pub fn new(capacity: u64, refill_interval_us: u64) -> Self {
-        let now_us = Self::now_us();
+        // interval=0 会使 EAT==TAT 恒成立、TAT 永不前进，限流完全失效。
+        // 单点兜底钳制到最小 1µs（1e6 rps 封顶），公开构造器对 0 值宽容。
+        let refill_interval_us = refill_interval_us.max(1);
+        let now_us = Self::wall_us();
 
         Self {
             capacity,
             refill_interval_us,
             tat: RwLock::new(now_us),
+            last_now: AtomicU64::new(now_us),
         }
     }
 
@@ -101,6 +113,9 @@ impl GcraLimiter {
     /// # Arguments
     /// * `capacity` - Maximum burst size
     /// * `requests_per_second` - Sustained request rate
+    ///
+    /// rps=0 时退化为 1s 间隔；rps>1e6 时整除得 0，钳制到 1µs
+    /// （按 1e6 rps 封顶），限流语义始终成立。
     ///
     /// # Example
     ///
@@ -113,17 +128,38 @@ impl GcraLimiter {
     pub fn with_rate(capacity: u64, requests_per_second: u64) -> Self {
         let refill_interval_us = 1_000_000u64
             .checked_div(requests_per_second)
-            .unwrap_or(1_000_000);
+            .unwrap_or(1_000_000)
+            .max(1);
 
         Self::new(capacity, refill_interval_us)
     }
 
-    /// Get current time in microseconds
-    fn now_us() -> u64 {
+    /// 读取墙钟微秒（可回拨、pre-epoch 时为 0 的原始值）
+    fn wall_us() -> u64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_micros() as u64)
             .unwrap_or(0)
+    }
+
+    /// 单调化时间观测：`max(墙钟, 最近观测值)`。
+    ///
+    /// 墙钟回拨时返回冻结的 last_now（时间停滞语义，不锁死不假突放）；
+    /// 墙钟前跳时推进并发布 last_now。拆出 wall 参数便于注入合成时间测试。
+    fn monotonic_now(&self, wall: u64) -> u64 {
+        let last = self.last_now.load(Ordering::Acquire);
+        let now = wall.max(last);
+        if now > last {
+            let _ = self
+                .last_now
+                .compare_exchange(last, now, Ordering::Release, Ordering::Relaxed);
+        }
+        now
+    }
+
+    /// 当前单调观测时间（微秒）
+    fn now_us(&self) -> u64 {
+        self.monotonic_now(Self::wall_us())
     }
 
     /// Get the capacity
@@ -149,7 +185,7 @@ impl GcraLimiter {
     /// # Returns
     /// * `GcraCheckResult` - Check result with remaining capacity and retry time
     pub fn check(&self, cost: u64) -> GcraCheckResult {
-        let now_us = Self::now_us();
+        let now_us = self.now_us();
         let tat = *self.tat.read();
 
         if cost > self.capacity {
@@ -193,7 +229,7 @@ impl GcraLimiter {
 
     /// Get remaining capacity without modifying state
     pub fn remaining(&self) -> u64 {
-        let now_us = Self::now_us();
+        let now_us = self.now_us();
         let tat = *self.tat.read();
 
         // 防御：乘法与 allow/check 一致使用 saturating_mul，防止溢出失真
@@ -227,13 +263,21 @@ impl Limiter for GcraLimiter {
     async fn allow(&self, cost: u64) -> Result<bool, LimiteronError> {
         validate_cost(cost)?;
 
-        let now_us = Self::now_us();
-
         if cost > self.capacity {
             return Ok(false);
         }
 
-        let allowed = {
+        Ok(self.allow_at(cost, self.now_us()))
+    }
+}
+
+impl GcraLimiter {
+    /// 核心判定：给定观测时间（微秒）的允许决策与 TAT 推进。
+    ///
+    /// now 由调用方注入（生产路径传 `self.now_us()`，测试传合成时间），
+    /// 使回拨/突发语义可在无真实时间依赖下确定性验证。
+    fn allow_at(&self, cost: u64, now_us: u64) -> bool {
+        {
             let mut tat = self.tat.write();
 
             // Calculate Earliest Arrival Time (EAT)
@@ -254,9 +298,7 @@ impl Limiter for GcraLimiter {
                 // Request denied
                 false
             }
-        };
-
-        Ok(allowed)
+        }
     }
 }
 
@@ -356,6 +398,39 @@ mod tests {
     }
 
     #[test]
+    fn test_gcra_new_zero_interval_clamped() {
+        // interval=0 会使 EAT==TAT 恒成立、TAT 永不前进（限流失效），必须钳制
+        let limiter = GcraLimiter::new(10, 0);
+        assert_eq!(limiter.refill_interval_us(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_gcra_with_rate_beyond_1m_rps_still_limits() {
+        // rps > 1e6 时整除得 0：修复前 interval=0 → EAT==TAT 恒成立 → 全放行。
+        // 钳制到 1µs 后按 1e6 rps 封顶，限流语义必须成立。
+        let limiter = GcraLimiter::with_rate(100, 2_000_000);
+        assert_eq!(limiter.refill_interval_us(), 1, "interval 应钳制到 1µs");
+
+        // 持续请求：即便突发容量耗尽后 TAT 以 1µs/请求推进，真实时钟
+        // 追不上 TAT 前进时也必须出现拒绝（除非单次调用开销 > 1µs，
+        // 远超 RwLock CAS 路径的现实成本）
+        let mut allowed = 0u64;
+        for _ in 0..10_000 {
+            if limiter.allow(1).await.unwrap() {
+                allowed += 1;
+            }
+        }
+        assert!(
+            allowed < 10_000,
+            "interval=0/1µs 场景下 10_000 次请求全部放行，限流失效"
+        );
+        assert!(
+            allowed >= 100,
+            "突发容量 {{100}} 应至少放行 100 次，实际 {allowed}"
+        );
+    }
+
+    #[test]
     fn test_gcra_check_cost_exceeds_capacity() {
         let limiter = GcraLimiter::new(10, 1000);
         let result = limiter.check(11);
@@ -421,5 +496,49 @@ mod tests {
         assert!(result.allowed);
         assert_eq!(result.remaining, 5);
         assert_eq!(result.retry_after_us, 0);
+    }
+
+    #[test]
+    fn test_gcra_monotonic_guard_freezes_on_rollback() {
+        let limiter = GcraLimiter::new(10, 1_000_000);
+        // 构造时 last_now = 真实墙钟，合成时间必须从基线之上推演
+        let base = limiter.tat();
+
+        // 首次观测建立基线
+        assert_eq!(limiter.monotonic_now(base + 1_000_000), base + 1_000_000);
+        // 墙钟回拨：冻结在最近观测值（时间停滞语义），不跟随回拨
+        assert_eq!(limiter.monotonic_now(base + 500_000), base + 1_000_000);
+        assert_eq!(
+            limiter.monotonic_now(0),
+            base + 1_000_000,
+            "pre-epoch 墙钟不得锁死观测"
+        );
+        // 墙钟追回/前跳：正常推进并发布
+        assert_eq!(limiter.monotonic_now(base + 1_500_000), base + 1_500_000);
+    }
+
+    #[tokio::test]
+    async fn test_gcra_rollback_no_permanent_lockout() {
+        // 修复前：墙钟回拨后 now_us < EAT 持续拒绝；pre-epoch 时 unwrap_or(0)
+        // 使全部请求锁死直到墙钟追回。守卫下时间冻结为"停滞"，
+        // 容量按冻结时间语义维持，恢复后可正常放行。
+        let limiter = GcraLimiter::new(5, 1_000_000); // 1s interval
+        let t0 = limiter.tat();
+
+        // 合成时钟灌满 5 个突发容量
+        for i in 0..5u64 {
+            assert!(
+                limiter.allow_at(1, t0 + i * 1_000),
+                "第 {} 个突发请求应放行",
+                i + 1
+            );
+        }
+        assert!(!limiter.allow_at(1, t0 + 5_000), "突发耗尽后应拒绝");
+
+        // "回拨"到 t0 之前（守卫下观测冻结）：容量为空的语义保持——拒绝但状态不破坏
+        assert!(!limiter.allow_at(1, t0.saturating_sub(10_000_000)));
+
+        // 墙钟恢复并前跳 5s：按 1s 间隔补满 5 个令牌，应放行
+        assert!(limiter.allow_at(1, t0 + 5_000 + 5_000_000));
     }
 }

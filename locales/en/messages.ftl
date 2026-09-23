@@ -331,10 +331,11 @@ cache-ban-record-cas-retries-exhausted = ban record CAS retries exhausted (concu
 cache-ban-times-overflow-u32 = ban_times out of u32 range: { $reason }
 cache-quota-counter-parse-failed = quota counter parse failed
 
-# ---- Concurrency limiter (T025) ----
+# ---- Concurrency limiter ----
 concurrency-permit-acquire-timeout = Timed out acquiring permit
 concurrency-permits-overflow-u32 = Permit count out of u32 range
 concurrency-semaphore-closed = Semaphore closed
+concurrency-no-runtime-lease-skipped = No tokio runtime: chain lease degraded to immediate release; concurrency limiting inactive
 
 # ---- Custom matcher registry integration (T025) ----
 custom-matcher-eval-failed-no-match = Custom matcher '{ $name }' evaluation failed, treated as no match: { $error }
@@ -374,3 +375,5 @@ validation-country-code-uppercase = Country code must be uppercase letters: { $c
 alert-sent-critical = Critical alert sent: { $level }
 alert-sent-info = Info alert sent: { $level }
 alert-sent-warning = Warning alert sent: { $level }
+governor-ban-check-circuit-open = Ban check skipped by circuit breaker: { $error }
+circuit-half-open-escape-timeout = Half-open probes stalled; forcing back to open state

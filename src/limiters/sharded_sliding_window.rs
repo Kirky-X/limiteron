@@ -145,9 +145,15 @@ impl ShardedSlidingWindowLimiter {
     }
 
     /// 计算时间戳对应的分片索引
+    ///
+    /// 索引按分片时长轮转（`timestamp / shard_duration % 60`），而非按墙钟秒
+    /// 轮转。历史教训：曾按 `timestamp % 60` 每秒轮转一格，window > 60s 时
+    /// 分片在数据仍活跃时被覆写，3600s 窗口实际只按最近 ~60s 计数（超发可达
+    /// 数十倍）。按分片时长轮转后，单分片数据存活 60×shard_duration ≥ window，
+    /// 任意窗口长度下计数覆盖整窗。
     #[inline]
     fn get_shard_index(&self, timestamp_secs: u64) -> usize {
-        (timestamp_secs as usize) % DEFAULT_SHARD_COUNT
+        ((timestamp_secs / self.shard_duration_secs) as usize) % DEFAULT_SHARD_COUNT
     }
 
     /// 获取当前分片索引并返回当前时间戳
@@ -244,6 +250,10 @@ impl ShardedSlidingWindowLimiter {
     /// `max_requests`。溢出安全的比较式：`current + cost` 可能回绕，
     /// 改写为 `cost > max || current > max - cost`（先判 `cost > max`
     /// 保证后续减法不下溢，同时保留对超大 cost 的拒绝）。
+    ///
+    /// 清理同样在锁内执行：cleanup 的「CAS 时间戳→清零计数」两步若在锁外
+    /// 与持锁递增交错（CAS 0→expected 并写入 cost 之后，cleanup 的
+    /// `store(0)` 才落地），刚写入的计数会被抹掉造成超发。
     fn try_acquire(&self, cost: u64) -> bool {
         let (shard_index, now_secs) = self.get_current_shard();
 
@@ -258,8 +268,6 @@ impl ShardedSlidingWindowLimiter {
             self.increment_shard(shard_index, now_secs, cost);
             true
         };
-        drop(_guard);
-
         if allowed {
             self.maybe_cleanup(now_secs);
         }
@@ -511,5 +519,73 @@ mod tests {
         assert!(limiter.allow(u64::MAX).await.is_err()); // cost 超 MAX_COST 被验证拒绝
         assert!(limiter.allow(1_000_000).await.unwrap());
         assert_eq!(limiter.get_window_count(), 1_000_001);
+    }
+
+    #[tokio::test]
+    async fn test_sharded_window_longer_than_60s_covers_full_window() {
+        // window > 60s 时计数必须覆盖完整窗口：分片按 shard_duration 轮转，
+        // 单分片存活 60×shard_duration ≥ window。
+        // 修复前索引按墙钟秒 % 60 每秒轮转一格，3600s 窗口实际只按最近
+        // ~60s 计数——跨分钟的流量在分片轮转时被覆写，放行量可达配置的数倍。
+        // 场景：t=0 放 60、t=60s 放 40（累计 100）、t=120s 第 101 个必须拒绝。
+        let mock = Arc::new(MockClock::new());
+        let clock: Arc<dyn Clock> = mock.clone();
+        let limiter =
+            ShardedSlidingWindowLimiter::with_clock(Duration::from_secs(3600), 100, clock);
+
+        for _ in 0..60 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+
+        mock.advance(Duration::from_secs(60));
+        for _ in 0..40 {
+            assert!(limiter.allow(1).await.unwrap(), "t=60s 窗口未满不得误拒");
+        }
+
+        // 3600s 窗口内已满 100，必须拒绝（修复前旧分片被轮转覆写 → 超发放行）
+        mock.advance(Duration::from_secs(60));
+        assert!(
+            !limiter.allow(1).await.unwrap(),
+            "window>60s 静默退化为 ~60s 计数导致超发"
+        );
+
+        // 整窗过期后恢复放行
+        mock.advance(Duration::from_secs(3600));
+        assert!(limiter.allow(1).await.unwrap());
+    }
+
+    /// 清理语义回归：清零只发生在分片整体过期时，活跃计数不得被清。
+    ///
+    /// 修复背景：cleanup 的「CAS 时间戳→0 → store(0) 计数」两步曾与持锁
+    /// 递增并发交错（递增已 CAS 0→expected 并写入 cost，cleanup 的
+    /// store(0) 才落地），活跃计数被抹掉造成超发。修复将清理移入准入锁，
+    /// 所有分片变更串行化；本测试以确定性时序钉住清理的可见语义——
+    /// 窗口内的分片在清理扫描后原样保留，仅过期分片被清零。
+    /// （纳秒级交错窗口的真并行金丝雀因挂死/不稳定风险未纳入，
+    /// 串行化正确性由「清理与递增共用同一 admission lock」构造保证。）
+    #[tokio::test]
+    async fn test_sharded_cleanup_zeroes_only_expired_shards() {
+        let mock = Arc::new(MockClock::new());
+        let clock: Arc<dyn Clock> = mock.clone();
+        let limiter = ShardedSlidingWindowLimiter::with_clock(Duration::from_secs(60), 1000, clock);
+
+        // t0: 首个请求落分片 A；此时 maybe_cleanup 的间隔时钟已满足
+        //（last_cleanup 初始化为构造时刻），下一次 allow 会触发一次扫描
+        assert!(limiter.allow(1).await.unwrap());
+
+        // +1s: 触发清理扫描，窗口内分片必须原样保留
+        mock.advance(Duration::from_secs(1));
+        assert!(limiter.allow(1).await.unwrap());
+        assert_eq!(limiter.get_window_count(), 2, "活跃分片被清理误清");
+
+        // +61s: 头两个分片整体过期，下一次 allow 触发的扫描将其清零，
+        // 同时当前请求正常记账
+        mock.advance(Duration::from_secs(61));
+        assert!(limiter.allow(1).await.unwrap());
+        assert_eq!(
+            limiter.get_window_count(),
+            1,
+            "过期分片未清零或活跃计数被抹"
+        );
     }
 }

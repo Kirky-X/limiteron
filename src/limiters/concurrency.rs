@@ -4,7 +4,7 @@
 //!
 //! 使用信号量实现并发控制。
 
-use super::traits::{Limiter, RateLimitSnapshot};
+use super::traits::{Limiter, RateLimitSnapshot, validate_cost};
 use crate::error::LimiteronError;
 use crate::i18n::t;
 use async_trait::async_trait;
@@ -201,6 +201,8 @@ impl ConcurrencyLimiter {
                 &[],
             )));
         }
+        // 零值校验：acquire_many(0) 会静默成功（零许可），并发限制形同虚设
+        validate_cost(cost)?;
 
         let permit = match self.timeout {
             Some(timeout) => tokio::time::timeout(timeout, self.semaphore.acquire_many(cost_u32))
@@ -235,6 +237,7 @@ impl ConcurrencyLimiter {
                 &[],
             )));
         }
+        validate_cost(cost)?;
 
         self.semaphore
             .try_acquire_many(cost_u32)
@@ -252,6 +255,8 @@ impl Limiter for ConcurrencyLimiter {
                 &[],
             )));
         }
+        // 零值校验：acquire_many(0) 会静默成功（零许可），并发限制形同虚设
+        validate_cost(cost)?;
 
         // 链式 allow() 无法感知请求结束，此前 permit 在本函数
         // 返回即被释放 → 并发限制完全不生效。现改为「租约」语义：获取的 permit 在
@@ -259,12 +264,19 @@ impl Limiter for ConcurrencyLimiter {
         // 精确的请求级并发控制仍由 acquire()/guard API 提供（Drop 即释放）。
         match self.semaphore.clone().try_acquire_many_owned(cost_u32) {
             Ok(permit) => {
-                // 无 tokio 运行时（如非异步单测）时退回即时释放，避免 spawn panic
+                // 无 tokio 运行时（如非异步单测）时退回即时释放，避免 spawn panic；
+                // 该退化使并发限制不生效，必须显性告警而非静默
                 if let Ok(handle) = tokio::runtime::Handle::try_current() {
                     handle.spawn(async move {
                         tokio::time::sleep(CHAIN_LEASE_DURATION).await;
                         drop(permit);
                     });
+                } else {
+                    log::warn!(
+                        target: "limiteron::concurrency",
+                        "{}",
+                        t("concurrency-no-runtime-lease-skipped", &[])
+                    );
                 }
                 Ok(true)
             }
@@ -281,6 +293,7 @@ impl Limiter for ConcurrencyLimiter {
                 &[],
             )));
         }
+        validate_cost(cost)?;
         let _ = cost_u32;
         Ok(self.current_snapshot())
     }
@@ -495,5 +508,18 @@ mod tests {
         let b1 = ConcurrencyLimiterBuilder::new();
         let b2 = ConcurrencyLimiterBuilder::default();
         assert!(b1.max_concurrent.is_none() == b2.max_concurrent.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_zero_cost_rejected() {
+        // 零值校验回归：acquire_many(0) 会静默成功（零许可），
+        // 并发限制形同虚设，所有入口必须显式拒绝零成本。
+        let limiter = ConcurrencyLimiter::new(10);
+        assert!(limiter.acquire(0).await.is_err(), "acquire(0) 应校验拒绝");
+        assert!(limiter.try_acquire(0).is_err(), "try_acquire(0) 应校验拒绝");
+        assert!(limiter.allow(0).await.is_err(), "allow(0) 应校验拒绝");
+        assert!(limiter.peek(0).await.is_err(), "peek(0) 应校验拒绝");
+        // 正常成本不受影响
+        assert!(limiter.allow(1).await.unwrap());
     }
 }

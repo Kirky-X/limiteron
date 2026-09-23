@@ -81,7 +81,15 @@ impl Clock for SystemClock {
 #[cfg(any(test, feature = "test-clock"))]
 pub struct MockClock {
     current_time: parking_lot::RwLock<Instant>,
-    unix_timestamp: parking_lot::RwLock<u64>,
+    /// UNIX 时间（纳秒，u128 防溢出）。单一时钟源：
+    /// `unix_timestamp` 取整秒、`unix_timestamp_nanos` 携带亚秒，
+    /// 二者与 Instant 永远同步推进。
+    ///
+    /// 历史教训：曾用「秒级 RwLock + advance 只加 `as_secs()`」，
+    /// 亚秒前进被丢弃而 Instant 却完整前移——两个内部时钟在亚秒
+    /// 操作后互相发散，且 `unix_timestamp_nanos` 恒为秒×1e9，
+    /// 无法测试令牌桶 1ms 门限等亚秒行为。
+    unix_nanos: parking_lot::RwLock<u128>,
 }
 
 #[cfg(any(test, feature = "test-clock"))]
@@ -89,7 +97,7 @@ impl Clone for MockClock {
     fn clone(&self) -> Self {
         Self {
             current_time: parking_lot::RwLock::new(*self.current_time.read()),
-            unix_timestamp: parking_lot::RwLock::new(*self.unix_timestamp.read()),
+            unix_nanos: parking_lot::RwLock::new(*self.unix_nanos.read()),
         }
     }
 }
@@ -100,10 +108,10 @@ impl MockClock {
     pub fn new() -> Self {
         Self {
             current_time: parking_lot::RwLock::new(Instant::now()),
-            unix_timestamp: parking_lot::RwLock::new(
+            unix_nanos: parking_lot::RwLock::new(
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_secs())
+                    .map(|d| d.as_nanos())
                     .unwrap_or(0),
             ),
         }
@@ -113,27 +121,28 @@ impl MockClock {
     pub fn with_instant(instant: Instant, unix_ts: u64) -> Self {
         Self {
             current_time: parking_lot::RwLock::new(instant),
-            unix_timestamp: parking_lot::RwLock::new(unix_ts),
+            unix_nanos: parking_lot::RwLock::new((unix_ts as u128) * 1_000_000_000),
         }
     }
 
-    /// 将时间前进指定时长
+    /// 将时间前进指定时长（亚秒精度同步推进 Instant 与 UNIX 时钟）
     pub fn advance(&self, duration: Duration) {
-        let mut time = self.current_time.write();
-        *time = time.checked_add(duration).unwrap_or(*time);
-
-        // 同时更新 UNIX 时间戳
-        let mut unix_ts = self.unix_timestamp.write();
-        *unix_ts = unix_ts.saturating_add(duration.as_secs());
+        {
+            let mut time = self.current_time.write();
+            *time = time.checked_add(duration).unwrap_or(*time);
+        }
+        let mut nanos = self.unix_nanos.write();
+        *nanos = nanos.saturating_add(duration.as_nanos());
     }
 
     /// 设置当前时间
     pub fn set_time(&self, instant: Instant, unix_ts: u64) {
-        let mut time = self.current_time.write();
-        *time = instant;
-
-        let mut unix_ts_lock = self.unix_timestamp.write();
-        *unix_ts_lock = unix_ts;
+        {
+            let mut time = self.current_time.write();
+            *time = instant;
+        }
+        let mut nanos = self.unix_nanos.write();
+        *nanos = (unix_ts as u128) * 1_000_000_000;
     }
 
     /// 获取包装为 Arc 的时钟实例
@@ -156,12 +165,12 @@ impl Clock for MockClock {
     }
 
     fn unix_timestamp(&self) -> u64 {
-        *self.unix_timestamp.read()
+        (*self.unix_nanos.read() / 1_000_000_000) as u64
     }
 
     fn unix_timestamp_nanos(&self) -> u64 {
-        // MockClock 使用秒级时间戳,纳秒通过秒转换
-        *self.unix_timestamp.read() * 1_000_000_000
+        // 与 SystemClock 同口径：u64 截断（饱和），纳秒精度
+        u64::try_from(*self.unix_nanos.read()).unwrap_or(u64::MAX)
     }
 }
 
@@ -233,13 +242,16 @@ mod tests {
 
     #[test]
     fn test_mock_clock_unix_timestamp_nanos() {
-        let clock = MockClock::new();
+        // 整秒基座 + 整秒前进：纳秒与秒级时间戳必须精确一致
+        //（亚秒语义由 test_mock_clock_advance_subsecond_consistency 覆盖）
+        let clock = MockClock::with_instant(Instant::now(), 1_700_000_000);
         clock.advance(Duration::from_secs(5));
 
         let ts_secs = clock.unix_timestamp();
         let ts_nanos = clock.unix_timestamp_nanos();
 
-        assert_eq!(ts_nanos, ts_secs * 1_000_000_000);
+        assert_eq!(ts_secs, 1_700_000_005);
+        assert_eq!(ts_nanos, 1_700_000_005_000_000_000);
     }
 
     #[test]
@@ -333,5 +345,46 @@ mod tests {
         clock.advance(Duration::from_secs(5));
         let nanos = clock.unix_timestamp_nanos();
         assert_eq!(nanos, 105 * 1_000_000_000);
+    }
+
+    #[test]
+    fn test_mock_clock_advance_subsecond_consistency() {
+        // 亚秒一致性回归：advance 的亚秒部分曾只作用于 Instant，
+        // UNIX 时间戳丢弃亚秒（as_secs()）且 unix_timestamp_nanos 恒为秒×1e9
+        // ——两钟发散、亚秒行为不可测。
+        let clock = MockClock::with_instant(Instant::now(), 1_000);
+        let start = clock.now();
+
+        clock.advance(Duration::from_millis(900));
+        assert_eq!(clock.unix_timestamp(), 1_000, "亚秒前进不得进位秒");
+        assert_eq!(
+            clock.unix_timestamp_nanos(),
+            1_000 * 1_000_000_000 + 900_000_000,
+            "unix_timestamp_nanos 应携带亚秒部分"
+        );
+
+        clock.advance(Duration::from_millis(600)); // 累计 1.5s
+        assert_eq!(clock.unix_timestamp(), 1_001, "跨秒进位");
+        assert_eq!(
+            clock.unix_timestamp_nanos(),
+            1_000 * 1_000_000_000 + 1_500_000_000
+        );
+
+        // Instant 与 UNIX 时钟必须同步前进（同刻度）
+        assert_eq!(
+            clock.now().duration_since(start),
+            Duration::from_millis(1500)
+        );
+    }
+
+    #[test]
+    fn test_mock_clock_set_time_subsecond_zeroed() {
+        // set_time 以秒为 API 口径，纳秒归零（语义与 with_instant 一致）
+        let clock = MockClock::new();
+        clock.set_time(Instant::now(), 1_700_000_000);
+        assert_eq!(
+            clock.unix_timestamp_nanos(),
+            1_700_000_000u64 * 1_000_000_000
+        );
     }
 }

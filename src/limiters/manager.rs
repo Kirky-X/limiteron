@@ -81,6 +81,15 @@ fn redact_key(key: &str) -> String {
 
 /// 通用 LRU 清理逻辑
 ///
+/// # 语义权衡（高基数 key 场景必读）
+///
+/// LRU 淘汰被移除的限流器实例后，同 key 的新请求会创建**全新实例**——
+/// 窗口计数从零开始。对固定/滑动窗口与配额限流器，这等价于「被淘汰者
+/// 的当前窗口额度重置」：高基数 key 洪峰下（大量一次性 key 挤压活跃
+/// key 出 LRU）可能被用作绕窗口手段。上限 `max_entries` 必须按
+/// 「活跃 key 基数 × 窗口内 turnover」评估并留有余量；安全敏感场景
+/// 建议直接调大上限（见各 `*_max_entries` 配置）以降低淘汰频率。
+///
 /// - 收集 (key, access_time) 到 Vec（持读锁，仅 map 不 collect 大数据）
 /// - 用 `select_nth_unstable_by_key` 找到第 `to_remove` 个最旧的（O(n) 平均，无需全排序）
 /// - 收集待移除 key 到 `HashSet`

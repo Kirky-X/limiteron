@@ -8,9 +8,22 @@ use super::traits::{Limiter, RateLimitSnapshot, validate_cost};
 use crate::clock::{Clock, SystemClock};
 use crate::error::LimiteronError;
 use async_trait::async_trait;
+use parking_lot::Mutex;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+
+/// 窗口状态快照：计数与窗口起点必须成对读写。
+///
+/// 历史教训：二者曾各自为 AtomicU64，窗口翻转分两步发布（先 CAS 起点、
+/// 后清零计数），并发线程可观察到「新起点 + 旧计数」——递增被随后的清零
+/// 吞并导致超发，或读到未清零的大计数导致误拒。现合并为单一临界区状态。
+#[derive(Debug)]
+struct WindowState {
+    /// 当前窗口计数
+    count: u64,
+    /// 当前窗口开始时间（纳秒时间戳）
+    window_start: u64,
+}
 
 /// 固定窗口限流器
 ///
@@ -18,10 +31,9 @@ use std::time::Duration;
 /// 每个窗口独立计数，窗口到期自动重置。
 ///
 /// # 特性
-/// - 使用 AtomicU64 记录计数
-/// - 使用 AtomicU64 记录窗口开始时间
-/// - 窗口到期精确重置
-/// - 并发安全
+/// - 计数与窗口起点在锁内读-判-写，窗口翻转与递增在同一临界区完成（并发安全）
+/// - 窗口翻转保持构造时刻的网格对齐，不随请求漂移
+/// - 窗口边界处的固有临界突刺（前后窗口各放行至多 max）为算法语义，未做平滑
 ///
 /// # 示例
 /// ```rust
@@ -43,10 +55,8 @@ pub struct FixedWindowLimiter {
     window_size: Duration,
     /// 窗口内最大请求数
     max_requests: u64,
-    /// 当前窗口的计数
-    count: AtomicU64,
-    /// 当前窗口的开始时间（纳秒时间戳）
-    window_start: AtomicU64,
+    /// 计数 + 窗口起点组合状态（锁内读-判-写）
+    state: Mutex<WindowState>,
     /// 时钟实例
     clock: Arc<dyn Clock>,
 }
@@ -81,52 +91,42 @@ impl FixedWindowLimiter {
         Self {
             window_size,
             max_requests,
-            count: AtomicU64::new(0),
-            window_start: AtomicU64::new(now),
+            state: Mutex::new(WindowState {
+                count: 0,
+                window_start: now,
+            }),
             clock,
         }
     }
 
-    /// Checks and resets the window if expired.
-    fn check_and_reset_window(&self) {
+    /// 在锁内推进过期的窗口并返回当前计数。
+    ///
+    /// 翻转（清零计数 + 推进起点）与读取在同一临界区完成；
+    /// `windows_passed` 一次跨过多个过期窗口，保持构造时刻的网格对齐不漂移。
+    fn advance_expired_window(&self, state: &mut WindowState) {
         let now = self.clock.unix_timestamp_nanos();
 
-        // 防御：Duration::ZERO 窗口会导致下方 `elapsed / window_size_nanos` 除零 panic。
+        // 防御：Duration::ZERO 窗口会导致除零 panic。
         // 用具名构造器传入 0 窗口时退化到 1ns（每次即被视为新窗口，不崩溃）。
         let window_size_nanos = self.window_size.as_nanos().max(1) as u64;
 
-        loop {
-            let current_start = self.window_start.load(Ordering::Acquire);
-            let window_end = current_start.saturating_add(window_size_nanos);
-
-            if now < window_end {
-                break;
-            }
-
-            let elapsed = now.saturating_sub(current_start);
+        let window_end = state.window_start.saturating_add(window_size_nanos);
+        if now >= window_end {
+            let elapsed = now.saturating_sub(state.window_start);
             let windows_passed = elapsed / window_size_nanos;
-            let new_start = current_start.saturating_add(windows_passed * window_size_nanos);
-
-            match self.window_start.compare_exchange(
-                current_start,
-                new_start,
-                Ordering::Release,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => {
-                    self.count.store(0, Ordering::Release);
-                    break;
-                }
-                Err(_) => continue,
-            }
+            state.window_start = state
+                .window_start
+                .saturating_add(windows_passed.saturating_mul(window_size_nanos));
+            state.count = 0;
         }
     }
 
     /// 获取当前窗口的计数（仅用于测试）
     #[cfg(test)]
     fn get_count(&self) -> u64 {
-        self.check_and_reset_window();
-        self.count.load(Ordering::Acquire)
+        let mut state = self.state.lock();
+        self.advance_expired_window(&mut state);
+        state.count
     }
 }
 
@@ -134,61 +134,52 @@ impl FixedWindowLimiter {
 impl Limiter for FixedWindowLimiter {
     async fn allow(&self, cost: u64) -> Result<bool, LimiteronError> {
         let cost = validate_cost(cost)?;
-        self.check_and_reset_window();
+        let mut state = self.state.lock();
+        self.advance_expired_window(&mut state);
 
-        loop {
-            let current = self.count.load(Ordering::Acquire);
-
-            // 以减法形式比较：current 接近 u64::MAX 时加法会回绕、误放行
-            if cost > self.max_requests.saturating_sub(current) {
-                return Ok(false);
-            }
-
-            match self.count.compare_exchange(
-                current,
-                current + cost,
-                Ordering::Release,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => return Ok(true),
-                Err(_) => continue,
-            }
+        // 以减法形式比较：current 接近 u64::MAX 时加法会回绕、误放行
+        if cost > self.max_requests.saturating_sub(state.count) {
+            return Ok(false);
         }
+        state.count += cost;
+        Ok(true)
     }
 
     /// 非消费预检：读窗口计数，不递增
     async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
         let cost = validate_cost(cost)?;
-        self.check_and_reset_window();
-        let count = self.count.load(Ordering::Acquire);
-        let remaining = self.max_requests.saturating_sub(count);
+        let mut state = self.state.lock();
+        self.advance_expired_window(&mut state);
+        let remaining = self.max_requests.saturating_sub(state.count);
+        let reset_secs = self.window_reset_secs_locked(&state);
         let _ = cost;
         Ok(RateLimitSnapshot {
             limit: self.max_requests,
             remaining,
-            reset_secs: self.window_reset_secs(),
+            reset_secs,
         })
     }
 
     /// 剩余额度查询（非消费）
     async fn remaining(&self) -> Result<RateLimitSnapshot, LimiteronError> {
-        self.check_and_reset_window();
-        let count = self.count.load(Ordering::Acquire);
+        let mut state = self.state.lock();
+        self.advance_expired_window(&mut state);
+        let reset_secs = self.window_reset_secs_locked(&state);
         Ok(RateLimitSnapshot {
             limit: self.max_requests,
-            remaining: self.max_requests.saturating_sub(count),
-            reset_secs: self.window_reset_secs(),
+            remaining: self.max_requests.saturating_sub(state.count),
+            reset_secs,
         })
     }
 }
 
 impl FixedWindowLimiter {
-    /// 距当前窗口翻转的秒数（向上取整，窗口过期重置后为窗口全长）
-    fn window_reset_secs(&self) -> u64 {
+    /// 距当前窗口翻转的秒数（向上取整，窗口过期重置后为窗口全长）。
+    /// 调用方必须已持有状态锁。
+    fn window_reset_secs_locked(&self, state: &WindowState) -> u64 {
         let now_ns = self.clock.unix_timestamp_nanos();
-        let window_start_ns = self.window_start.load(Ordering::Acquire);
         let window_ns = self.window_size.as_nanos() as u64;
-        let window_end_ns = window_start_ns.saturating_add(window_ns);
+        let window_end_ns = state.window_start.saturating_add(window_ns);
         if window_end_ns <= now_ns {
             return 0;
         }
@@ -200,6 +191,7 @@ impl FixedWindowLimiter {
 mod tests {
     use super::*;
     use crate::clock::MockClock;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     #[tokio::test]
     async fn test_fixed_window_basic() {
@@ -240,5 +232,73 @@ mod tests {
 
         // 触发窗口重置,新的请求应该成功
         assert!(limiter.allow(1).await.unwrap());
+    }
+
+    /// 窗口翻转竞态回归：翻转瞬间的并发递增不得被清零吞并（超发），
+    /// 也不得读到未清零的旧计数（误拒）。
+    ///
+    /// 旧实现「先 CAS 起点、后清零计数」分两步发布，64 线程同帧跨窗口时
+    /// 递增会落在清零之前的窗口里被抹掉——放行 64 个但账面只剩零星计数，
+    /// 随后的请求被错误放行。修复后（临界区内读-判-写）每轮账实相符。
+    #[tokio::test]
+    async fn test_fixed_window_no_lost_increments_across_rollover() {
+        const MAX: u64 = 64;
+        const THREADS: usize = 64;
+        const ROUNDS: usize = 25;
+
+        for round in 0..ROUNDS {
+            let mock = Arc::new(MockClock::new());
+            let clock: Arc<dyn Clock> = mock.clone();
+            let limiter = Arc::new(FixedWindowLimiter::with_clock(
+                Duration::from_secs(10),
+                MAX,
+                clock,
+            ));
+
+            // 灌满第一窗口
+            for _ in 0..MAX {
+                assert!(
+                    limiter.allow(1).await.unwrap(),
+                    "round {round} 灌满阶段误拒"
+                );
+            }
+            assert!(!limiter.allow(1).await.unwrap());
+
+            // 翻转窗口，64 线程同帧并发各 allow 一次
+            mock.advance(Duration::from_secs(11));
+            let allowed = Arc::new(AtomicU64::new(0));
+            let barrier = Arc::new(tokio::sync::Barrier::new(THREADS));
+            let mut handles = Vec::with_capacity(THREADS);
+            for _ in 0..THREADS {
+                let limiter = Arc::clone(&limiter);
+                let barrier = Arc::clone(&barrier);
+                let allowed = Arc::clone(&allowed);
+                handles.push(tokio::spawn(async move {
+                    barrier.wait().await;
+                    if limiter.allow(1).await.unwrap() {
+                        allowed.fetch_add(1, Ordering::SeqCst);
+                    }
+                }));
+            }
+            for h in handles {
+                h.await.unwrap();
+            }
+
+            assert_eq!(
+                allowed.load(Ordering::SeqCst),
+                MAX,
+                "round {round} 新窗口放行数偏离"
+            );
+            assert_eq!(
+                limiter.get_count(),
+                MAX,
+                "round {round} 账实不符：递增被翻转清零吞并"
+            );
+            // 窗口已满，下一个必须拒绝（账被吞并时会错误放行）
+            assert!(
+                !limiter.allow(1).await.unwrap(),
+                "round {round} 翻转竞态导致超发"
+            );
+        }
     }
 }

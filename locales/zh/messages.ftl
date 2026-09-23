@@ -330,10 +330,11 @@ cache-ban-record-cas-retries-exhausted = ban record CAS 重试耗尽（并发冲
 cache-ban-times-overflow-u32 = ban_times 超出 u32 范围: { $reason }
 cache-quota-counter-parse-failed = quota counter 解析失败
 
-# ---- 并发限制器（T025） ----
+# ---- 并发限制器 ----
 concurrency-permit-acquire-timeout = 获取许可超时
 concurrency-permits-overflow-u32 = 许可数量超出 u32 范围
 concurrency-semaphore-closed = 信号量已关闭
+concurrency-no-runtime-lease-skipped = 无 tokio 运行时，链式许可租约退化为即时释放，并发限制不生效
 
 # ---- 自定义匹配器注册表集成（T025） ----
 custom-matcher-eval-failed-no-match = 自定义匹配器 '{ $name }' 求值失败，按不匹配处理: { $error }
@@ -373,3 +374,5 @@ validation-country-code-uppercase = 国家代码必须是大写字母: { $code }
 alert-sent-critical = 发送严重告警: { $level }
 alert-sent-info = 发送信息告警: { $level }
 alert-sent-warning = 发送警告告警: { $level }
+governor-ban-check-circuit-open = 封禁检查被熔断跳过: { $error }
+circuit-half-open-escape-timeout = 半开态探针滞留超时，强制回退到打开状态

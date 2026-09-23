@@ -56,9 +56,10 @@ impl SlidingWindowLimiter {
         Self {
             window_size,
             max_requests,
-            requests: Arc::new(Mutex::new(VecDeque::with_capacity(
-                max_requests as usize + 10,
-            ))),
+            // 小容量起步按需增长。历史教训：曾按 `max_requests + 10`
+            // 急切预分配——构造一个 max=10M 的限流器（工厂允许的上限）
+            // 即使窗口全空也立即吃掉 ~160MB 内存。
+            requests: Arc::new(Mutex::new(VecDeque::with_capacity(16))),
         }
     }
 
@@ -214,5 +215,16 @@ mod tests {
         let limiter = SlidingWindowLimiter::new(Duration::from_secs(60), 10);
         // check() default impl calls allow(1)
         assert!(limiter.check("any_key").await.is_ok());
+    }
+
+    #[test]
+    fn test_sliding_window_no_eager_prealloc() {
+        // 修复回归：构造期不得按 max_requests 急切预分配
+        //（max=10M 时曾立即分配 ~160MB，即便窗口全空）
+        let limiter = SlidingWindowLimiter::new(Duration::from_secs(60), 10_000_000);
+        assert!(
+            limiter.requests.lock().capacity() < 1024,
+            "构造期急切预分配 max_requests 容量"
+        );
     }
 }

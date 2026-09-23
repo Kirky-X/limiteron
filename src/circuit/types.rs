@@ -84,6 +84,10 @@ pub struct CircuitBreakerConfig {
     pub timeout: Duration,
     /// 半开状态的最大调用次数
     pub half_open_max_calls: u64,
+    /// 半开态最大滞留时长：全部探针被取消/挂起时，滞留超过此时长
+    /// 强制回 Open 重启冷却（逃逸通道，默认 30s）。无此机制时探针
+    /// 全被取消会使 half_open_calls 满额且无超时——熔断器永久楔死。
+    pub half_open_max_duration: Duration,
     /// 慢调用时长阈值（超过此时长视为慢调用）
     pub slow_call_duration_threshold: Duration,
     /// 慢调用率阈值（慢调用占比超过此值时熔断）
@@ -99,6 +103,7 @@ impl Default for CircuitBreakerConfig {
             success_threshold: DEFAULT_CIRCUIT_BREAKER_SUCCESS_THRESHOLD,
             timeout: Duration::from_secs(DEFAULT_CIRCUIT_BREAKER_TIMEOUT_SECS),
             half_open_max_calls: DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS,
+            half_open_max_duration: Duration::from_secs(30),
             slow_call_duration_threshold: Duration::from_millis(
                 DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_DURATION_MILLIS,
             ),
@@ -115,6 +120,7 @@ impl CircuitBreakerConfig {
             failure_threshold,
             success_threshold,
             timeout,
+            half_open_max_duration: Duration::from_secs(30),
             half_open_max_calls: DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS,
             slow_call_duration_threshold: Duration::from_millis(
                 DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_DURATION_MILLIS,
@@ -163,6 +169,8 @@ pub struct CircuitBreaker {
     slow_call_count: Arc<AtomicU64>,
     /// 最后失败时间
     last_failure_time: Arc<RwLock<Option<Instant>>>,
+    /// 进入半开的时刻（探针滞留超时逃逸用）
+    half_open_entered_at: Arc<RwLock<Option<Instant>>>,
     /// 最后状态变更时间
     last_state_change: Arc<RwLock<Option<Instant>>>,
     /// 最后失败时间（墙钟）
@@ -217,6 +225,11 @@ impl CircuitBreakerBuilder {
     }
 
     /// 设置半开状态的最大调用次数
+    pub fn half_open_max_duration(mut self, duration: Duration) -> Self {
+        self.config.half_open_max_duration = duration;
+        self
+    }
+
     pub fn half_open_max_calls(mut self, max_calls: u64) -> Self {
         self.config.half_open_max_calls = max_calls;
         self
@@ -302,6 +315,7 @@ impl CircuitBreaker {
             last_failure_time_utc: Arc::new(RwLock::new(None)),
             last_state_change_utc: Arc::new(RwLock::new(Some(chrono::Utc::now()))),
             half_open_calls: Arc::new(AtomicU64::new(0)),
+            half_open_entered_at: Arc::new(RwLock::new(None)),
             config,
             clock,
             #[cfg(feature = "event-system")]
@@ -444,6 +458,26 @@ impl CircuitBreaker {
             loop {
                 let calls = self.half_open_calls.load(Ordering::Relaxed);
                 if calls >= self.config.half_open_max_calls {
+                    // 探针滞留逃逸：全部探针被取消/挂起时 half_open_calls
+                    // 满额且永不回落——滞留超过 half_open_max_duration 强制
+                    // 回 Open 重启冷却，避免永久楔死。
+                    let escaped = {
+                        let entered = self.half_open_entered_at.read().await;
+                        matches!(
+                            *entered,
+                            Some(t)
+                                if self.clock.now().duration_since(t)
+                                    >= self.config.half_open_max_duration
+                        )
+                    };
+                    if escaped {
+                        self.transition_to(CircuitState::Open).await;
+                        warn!("{}", t("circuit-half-open-escape-timeout", &[]));
+                        return Err(LimiteronError::CircuitBreakerError(t(
+                            "circuit-half-open-limit-exceeded",
+                            &[],
+                        )));
+                    }
                     warn!("{}", t("circuit-half-open-limit-reached", &[]));
                     return Err(LimiteronError::LimitError(t(
                         "circuit-half-open-limit-exceeded",
@@ -665,6 +699,12 @@ impl CircuitBreaker {
             CircuitState::Open => {
                 self.success_count.store(0, Ordering::Relaxed);
                 self.half_open_calls.store(0, Ordering::Relaxed);
+                // 记录打开时刻：冷却期自打开时刻起算。
+                // 历史教训：last_failure_time 只有失败路径写入——纯慢调用
+                // 触发的熔断 Open 态 last_failure_time=None，恢复判定走
+                // 「无失败时间戳，保守拒绝」分支，熔断器永久卡死在 Open。
+                *self.last_failure_time.write().await = Some(self.clock.now());
+                *self.half_open_entered_at.write().await = None;
                 warn!(
                     "{}",
                     t(
@@ -681,6 +721,9 @@ impl CircuitBreaker {
             }
             CircuitState::HalfOpen => {
                 self.success_count.store(0, Ordering::Relaxed);
+                // 记录进入半开的时刻（探针滞留超时逃逸基准）
+                let mut entered = self.half_open_entered_at.write().await;
+                *entered = Some(self.clock.now());
                 // 重置半开状态调用计数为 0：所有探针（含本次触发的过渡请求）
                 // 统一经过 execute() 的半开准入检查来计数，受 half_open_max_calls 限制。
                 self.half_open_calls.store(0, Ordering::Relaxed);
@@ -697,6 +740,7 @@ impl CircuitBreaker {
                 self.success_count.store(0, Ordering::Relaxed);
                 self.half_open_calls.store(0, Ordering::Relaxed);
                 self.slow_call_count.store(0, Ordering::Relaxed);
+                *self.half_open_entered_at.write().await = None;
                 // 同步重置 total_calls（B2）：它作为慢调用率分母，跨熔断周期
                 // 单调增长会持续稀释慢调用率，延迟/阻碍慢调用熔断触发
                 self.total_calls.store(0, Ordering::Relaxed);
@@ -1468,6 +1512,96 @@ mod tests {
         assert!(
             breaker.is_open().await,
             "Slow call rate should trigger Open state"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_half_open_probe_stall_escape() {
+        // 探针滞留逃逸回归：全部探针被取消（future 被 drop，on_success/
+        // on_failure 永不执行）时 half_open_calls 满额且无超时——熔断器
+        // 永久楔死在 HalfOpen（成功阈值 2 但探针配额 1，永远凑不齐闭合）。
+        // 滞留超过 half_open_max_duration 强制回 Open 重启冷却。
+        let config = CircuitBreakerConfig {
+            slow_call_duration_threshold: Duration::from_secs(3600),
+            half_open_max_calls: 1,
+            half_open_max_duration: Duration::from_millis(100),
+            ..CircuitBreakerConfig::new(1, 2, Duration::from_millis(50))
+        };
+        let breaker = Arc::new(CircuitBreaker::new(config));
+
+        // 一次故障 → Open
+        let _ = breaker
+            .execute(|| async {
+                Err::<(), LimiteronError>(LimiteronError::BanError("boom".into()))
+            })
+            .await;
+        assert!(breaker.is_open().await);
+
+        // 冷却到期 → 进半开；启动慢探针并在准入后中止（模拟取消）
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let probe_breaker = breaker.clone();
+        let probe = tokio::spawn(async move {
+            let _ = probe_breaker
+                .execute(|| async {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    Ok::<(), LimiteronError>(())
+                })
+                .await;
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await; // 已获准入
+        probe.abort(); // 探针被取消：配额永不释放
+        let _ = probe.await;
+
+        // 配额满额（被取消的探针未归还）→ 拒绝
+        let r = breaker
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
+            .await;
+        assert!(r.is_err(), "探针配额被取消占满后应拒绝");
+
+        // 滞留超过 half_open_max_duration → 强制回 Open（逃逸）
+        tokio::time::sleep(Duration::from_millis(120)).await;
+        let r = breaker
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
+            .await;
+        assert!(r.is_err(), "逃逸当次应拒绝");
+        assert!(breaker.is_open().await, "滞留超时应强制回 Open");
+
+        // 新冷却到期后恢复通道重新可用
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let r = breaker
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
+            .await;
+        assert!(r.is_ok(), "逃逸重启冷却后必须能再次进半开放探针");
+    }
+
+    #[tokio::test]
+    async fn test_slow_call_rate_open_recovers_via_half_open() {
+        // 恢复死锁回归：纯慢调用触发的 Open 曾永久卡死——
+        // last_failure_time 只有失败路径写入，慢调用熔断的 Open 态
+        // last_failure_time=None，冷却判定走「保守拒绝」分支。
+        // 修复后 finalize_transition(Open) 记录打开时刻，冷却到期可进半开。
+        let config = CircuitBreakerConfig {
+            slow_call_duration_threshold: Duration::ZERO,
+            slow_call_rate_threshold: 0.5,
+            timeout: Duration::from_millis(100),
+            ..Default::default()
+        };
+        let breaker = CircuitBreaker::new(config);
+
+        // 单个慢成功调用即触发 Open
+        let _ = breaker
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
+            .await;
+        assert!(breaker.is_open().await);
+
+        // 冷却到期后必须能放行探针（修复前此处永久 Err）
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let result = breaker
+            .execute(|| async { Ok::<(), LimiteronError>(()) })
+            .await;
+        assert!(
+            result.is_ok(),
+            "慢调用熔断冷却到期后必须能进半开放探针（恢复通道死锁回归）"
         );
     }
 

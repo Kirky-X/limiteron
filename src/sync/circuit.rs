@@ -195,10 +195,30 @@ impl SyncCircuitBreaker {
         }
     }
 
-    /// 记录成功：任意状态回闭合，失败计数清零。
+    /// 记录成功：仅半开态回闭合，失败计数清零。
+    ///
+    /// 历史教训：曾对任意状态无条件回闭合——`call()` 放行的慢请求在途
+    /// 期间，其他线程把熔断打到 Open；该慢请求成功返回时会把 Open 强行
+    /// 关闭（async 版对此有 B4 防护：Open 态迟到成功只告警不改状态）。
+    /// sync 版补齐同一防护。
     pub fn record_success(&self) {
         let mut state = self.state.lock();
-        *state = State::Closed { failures: 0 };
+        match &*state {
+            State::HalfOpen => {
+                // 半开探针成功：回闭合
+                *state = State::Closed { failures: 0 };
+            }
+            State::Open { .. } => {
+                // Open 态迟到成功：只告警，不关闭熔断
+                log::warn!("sync circuit: late success while Open; state unchanged");
+            }
+            State::Closed { .. } => {
+                // 闭合态：成功重置连续失败计数（既有语义保持）
+                if let State::Closed { failures } = &mut *state {
+                    *failures = 0;
+                }
+            }
+        }
     }
 
     /// 记录失败（[`record_failure_at`](Self::record_failure_at) 的时钟注入版）。
@@ -368,5 +388,21 @@ mod tests {
             "circuit breaker is open"
         );
         assert_eq!(CircuitCallError::Inner("boom").to_string(), "boom");
+    }
+    #[test]
+    fn test_late_success_in_open_does_not_close() {
+        // B4 防护对齐回归：call() 放行的慢请求在途期间熔断被其他线程
+        // 打到 Open；该请求迟到成功不得把 Open 强行关闭。
+        // （async 版已有防护；sync 版曾无条件回闭合。）
+        let circuit = SyncCircuitBreaker::new(1, Duration::from_secs(60));
+        // 一次失败 → Open
+        circuit.record_failure();
+        assert!(matches!(&*circuit.state.lock(), State::Open { .. }));
+        // 迟到成功：状态不变
+        circuit.record_success();
+        assert!(
+            matches!(&*circuit.state.lock(), State::Open { .. }),
+            "Open 态迟到成功不得关闭熔断"
+        );
     }
 }

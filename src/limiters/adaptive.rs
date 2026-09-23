@@ -31,6 +31,7 @@
 //!     increase_step: 1,
 //!     decrease_factor: 0.5,
 //!     degrade_rate: 0.5,
+//!     cooldown_windows: 2,
 //!     slow_threshold: Duration::from_millis(100),
 //! });
 //!
@@ -57,6 +58,9 @@ pub struct AdaptiveConcurrencyConfig {
     pub max_limit: u64,
     /// 调整窗口样本数（每 N 个反馈信号评估一次升降）
     pub window_size: u64,
+    /// 降级事件后的冷却窗口数：冷却期内禁止加性增（抑制阈值附近抖动）。
+    /// 默认 2。
+    pub cooldown_windows: u32,
     /// 加性增步长（无错窗口内增加的并发数）
     pub increase_step: u64,
     /// 乘性减系数（降级窗口内 `current_max × factor`，0 < f < 1）
@@ -78,6 +82,7 @@ impl Default for AdaptiveConcurrencyConfig {
             decrease_factor: 0.5,
             degrade_rate: 0.5,
             slow_threshold: Duration::from_millis(200),
+            cooldown_windows: 2,
         }
     }
 }
@@ -99,6 +104,8 @@ pub struct AdaptiveConcurrencyLimiter {
     in_flight: Arc<AtomicI64>,
     /// 调整窗口信号（Mutex 保护，临界区极短）
     window: parking_lot::Mutex<WindowSignals>,
+    /// 降级冷却：剩余的禁扩窗口数（降级事件后置入，随窗口评估递减）
+    cooldown_windows_left: parking_lot::Mutex<u32>,
     /// 熔断器（可选，联动：打开即拒绝）
     #[cfg(feature = "circuit-breaker")]
     circuit_breaker: Option<Arc<crate::circuit::CircuitBreaker>>,
@@ -133,6 +140,7 @@ impl AdaptiveConcurrencyLimiter {
             current_max: AtomicU64::new(initial),
             in_flight: Arc::new(AtomicI64::new(0)),
             window: parking_lot::Mutex::new(WindowSignals::default()),
+            cooldown_windows_left: parking_lot::Mutex::new(0),
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
         }
@@ -175,6 +183,9 @@ impl AdaptiveConcurrencyLimiter {
     }
 
     /// 窗口评估：达到窗口样本数时按 AIMD 升降（并重置窗口）
+    ///
+    /// 降级冷却：发生乘性减后，此后 `cooldown_windows` 个窗口内禁止加性增
+    ///（抑制错误率在阈值附近时的抖动）；冷却递减独立于升降判定。
     fn maybe_adjust(&self, window: &mut WindowSignals) {
         if window.samples < self.config.window_size {
             return;
@@ -182,16 +193,25 @@ impl AdaptiveConcurrencyLimiter {
         let degrade_rate = window.errors + window.slow;
         let bad_rate = degrade_rate as f64 / window.samples as f64;
         let current = self.current_max.load(Ordering::Relaxed);
-        let next = if bad_rate >= self.config.degrade_rate {
+        let mut cooldown = *self.cooldown_windows_left.lock();
+        let degraded = bad_rate >= self.config.degrade_rate;
+        let next = if degraded {
+            // 降级：重置冷却（降级窗口自身不消耗冷却计数）
+            cooldown = self.config.cooldown_windows;
             // 乘性减：下限保护
             let decreased = (current as f64 * self.config.decrease_factor) as u64;
             decreased.max(self.config.min_max)
-        } else if window.errors == 0 {
-            // 加性增：完全无错才放宽，上限封顶
+        } else if window.errors == 0 && cooldown == 0 {
+            // 加性增：完全无错且不在冷却期才放宽，上限封顶
             (current + self.config.increase_step).min(self.config.max_limit)
         } else {
             current
         };
+        if degraded {
+            *self.cooldown_windows_left.lock() = cooldown;
+        } else if cooldown > 0 {
+            *self.cooldown_windows_left.lock() = cooldown - 1;
+        }
         if next != current {
             self.current_max.store(next, Ordering::Relaxed);
         }
@@ -252,20 +272,21 @@ impl Limiter for AdaptiveConcurrencyLimiter {
             ));
         }
 
-        // 熔断联动：打开即拒绝并计错误信号收紧窗口
+        // 熔断联动：打开即拒绝（不计错误信号——被拒请求属过载反馈，
+        // 与后端故障信号混叠会把窗口压到下限，AIMD 失去自适应依据）
         #[cfg(feature = "circuit-breaker")]
         if let Some(cb) = &self.circuit_breaker
             && cb.is_open().await
         {
-            self.record_error();
             return Ok(false);
         }
 
+        let start = std::time::Instant::now();
         loop {
             let in_flight = self.in_flight.load(Ordering::Relaxed);
             let max = self.current_max.load(Ordering::Relaxed) as i64;
             if in_flight + cost as i64 > max {
-                self.record_error();
+                // 过载拒绝：过载信号，不计入错误窗口
                 return Ok(false);
             }
             match self.in_flight.compare_exchange(
@@ -275,7 +296,9 @@ impl Limiter for AdaptiveConcurrencyLimiter {
                 Ordering::Relaxed,
             ) {
                 Ok(_) => {
-                    self.record_success(Duration::ZERO);
+                    // 记录准入耗时（真实延迟信号，替代恒 0——
+                    // 恒 0 使 slow_threshold 永不触发，慢调用信号失效）
+                    self.record_success(start.elapsed());
                     // 链式租约语义（与 ConcurrencyLimiter 一致）：
                     // 有 tokio 运行时 → 短租约后自动归还；否则立即归还
                     if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -308,6 +331,7 @@ mod tests {
             increase_step: 1,
             decrease_factor: 0.5,
             degrade_rate: 0.5,
+            cooldown_windows: 2,
             slow_threshold: Duration::from_millis(100),
         }
     }
@@ -420,5 +444,41 @@ mod tests {
             .await
             .unwrap();
         assert!(!allowed, "熔断打开期间自适应限流器应拒绝");
+    }
+    #[tokio::test]
+    async fn test_aimd_cooldown_suppresses_growth_after_degrade() {
+        // 冷却期回归：降级（乘性减）后 cooldown_windows 个窗口内禁止加性增；
+        // 冷却期满后恢复。此前无冷却期——错误率在阈值附近时窗口抖动。
+        let config = AdaptiveConcurrencyConfig {
+            initial_max: 16,
+            min_max: 4,
+            max_limit: 64,
+            window_size: 2,
+            increase_step: 2,
+            decrease_factor: 0.5,
+            degrade_rate: 0.5,
+            slow_threshold: Duration::from_secs(3600),
+            cooldown_windows: 2,
+        };
+        let limiter = AdaptiveConcurrencyLimiter::new(config);
+
+        // 窗口 A：全错 → 乘性减 16→8，进入 2 窗口冷却
+        limiter.record_error();
+        limiter.record_error();
+
+        // 窗口 B：全成功（冷却第 1 窗）→ 不扩容
+        limiter.record_success(Duration::ZERO);
+        limiter.record_success(Duration::ZERO);
+        assert_eq!(limiter.current_max(), 8, "冷却期窗口不得扩容");
+
+        // 窗口 C：全成功（冷却第 2 窗）→ 仍不扩容
+        limiter.record_success(Duration::ZERO);
+        limiter.record_success(Duration::ZERO);
+        assert_eq!(limiter.current_max(), 8, "冷却期最后一窗不得扩容");
+
+        // 窗口 D：全成功（冷却结束）→ 恢复加性增 8→10
+        limiter.record_success(Duration::ZERO);
+        limiter.record_success(Duration::ZERO);
+        assert_eq!(limiter.current_max(), 10, "冷却期满应恢复扩容");
     }
 }

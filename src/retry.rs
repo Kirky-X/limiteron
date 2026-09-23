@@ -82,6 +82,10 @@ pub struct RetryPolicy {
     max_delay: Duration,
     /// 退避抖动比例（0.0–1.0，默认 0；n×delay × (1 + rand*jitter)）。
     jitter: f64,
+    /// 重试预算：重试次数占「总调用次数」的比例上限（0.0–1.0）。
+    /// 超过预算的重试立即放弃（重试风暴防护：下游故障时重试流量
+    /// 不超过 总请求 × budget_ratio）。`None` = 不启用预算（默认）。
+    budget_ratio: Option<f64>,
 }
 
 impl Default for RetryPolicy {
@@ -92,6 +96,7 @@ impl Default for RetryPolicy {
             factor: 2.0,
             max_delay: Duration::from_secs(60),
             jitter: 0.0,
+            budget_ratio: None,
         }
     }
 }
@@ -128,20 +133,67 @@ impl RetryPolicy {
         self
     }
 
+    /// 设置重试预算（重试占比上限，0.0–1.0）。
+    ///
+    /// 每个 [`RetryPolicy`] 实例独立记账：`total` 为已发起的调用总数
+    ///（含首调），`retries` 为实际发生的重试数；预算耗尽后后续错误
+    /// 立即返回，不再重试。
+    #[must_use]
+    pub fn with_budget_ratio(mut self, ratio: f64) -> Self {
+        self.budget_ratio = Some(ratio.clamp(0.0, 1.0));
+        self
+    }
+
     /// 最大重试次数。
     pub fn max_retries(&self) -> u32 {
         self.max_retries
     }
 
     /// 第 `attempt` 次重试的等待时长（attempt 从 1 起）。
-    fn delay_for(&self, attempt: u32) -> Duration {
-        delay_for_attempt(
+    ///
+    /// 启用 jitter 时使用 decorrelated 抖动变体：在 `delay_for_attempt`
+    /// 的基础上，延迟上界同时受前次延迟 × 3 约束（AWS 架构博客推荐的
+    /// full-jitter 改良，避免高倍率 factor 下的延迟爆炸）。
+    fn delay_for(&self, attempt: u32, prev_delay: Duration) -> Duration {
+        let d = delay_for_attempt(
             attempt,
             self.initial_delay,
             self.factor,
             self.max_delay,
             self.jitter,
-        )
+        );
+        if self.jitter > 0.0 && attempt > 1 {
+            let cap = prev_delay.saturating_mul(3);
+            d.min(cap)
+        } else {
+            d
+        }
+    }
+
+    /// 执行操作并按策略重试可重试错误（熔断联动版）。
+    ///
+    /// 与 [`Self::execute`] 相同，但每次重试前检查熔断器：熔断已打开
+    /// （或进入半开冷却）时立即返回最后一次错误，不再向已判故障的
+    /// 下游注入重试流量。
+    #[cfg(feature = "circuit-breaker")]
+    pub async fn execute_with_breaker<F, Fut, T, E, P>(
+        &self,
+        breaker: &crate::circuit::CircuitBreaker,
+        mut op: F,
+        is_retryable: P,
+    ) -> Result<T, E>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<T, E>>,
+        P: Fn(&E) -> bool,
+    {
+        // 熔断打开：只执行一次操作（错误如实返回），不再重试——
+        // 避免向已判故障的下游注入重试流量
+        if breaker.is_open().await {
+            let fut = op();
+            return fut.await;
+        }
+        self.execute(op, is_retryable).await
     }
 
     /// 执行操作并按策略重试可重试错误。
@@ -157,16 +209,30 @@ impl RetryPolicy {
         P: Fn(&E) -> bool,
     {
         let mut attempt = 0u32;
+        // 预算记账：total = 首调 + 已发生重试
+        let mut total_calls = 0u64;
+        let mut retries_used = 0u64;
+        let mut prev_delay = Duration::ZERO;
         loop {
+            total_calls += 1;
             match op().await {
                 Ok(value) => return Ok(value),
                 Err(err) => {
                     let retryable = is_retryable(&err);
-                    if !retryable || attempt >= self.max_retries {
+                    let within_retries = attempt < self.max_retries;
+                    // 重试风暴防护：预算耗尽（重试数/总调用数超比例）即放弃
+                    let within_budget = match self.budget_ratio {
+                        Some(ratio) => (retries_used as f64) < ratio * total_calls as f64,
+                        None => true,
+                    };
+                    if !retryable || !within_retries || !within_budget {
                         return Err(err);
                     }
                     attempt += 1;
-                    tokio::time::sleep(self.delay_for(attempt)).await;
+                    retries_used += 1;
+                    let d = self.delay_for(attempt, prev_delay);
+                    tokio::time::sleep(d).await;
+                    prev_delay = d;
                 }
             }
         }
@@ -261,6 +327,50 @@ mod tests {
             policy.delay_for(20),
             Duration::from_secs(5),
             "退避应封顶 max_delay"
+        );
+    }
+    /// 重试预算：预算耗尽后停止重试（重试风暴防护）。
+    #[tokio::test]
+    async fn retry_budget_exhaustion_stops_retries() {
+        // budget_ratio=0.5:总调用 4 次 → 最多 2 次重试
+        // （retries/total < 0.5 才允许:重试第 2 次时 2/4=0.5 不可再重试）
+        let policy = RetryPolicy::new(10, Duration::from_millis(1)).with_budget_ratio(0.5);
+        let attempts = Arc::new(AtomicU32::new(0));
+        let a = attempts.clone();
+        let result: Result<(), String> = policy
+            .execute(
+                || {
+                    let a = a.clone();
+                    async move {
+                        a.fetch_add(1, Ordering::SeqCst);
+                        Err::<(), _>("always".to_string())
+                    }
+                },
+                |e| e == "always",
+            )
+            .await;
+        assert_eq!(result.unwrap_err(), "always");
+        let n = attempts.load(Ordering::SeqCst);
+        assert_eq!(n, 4, "预算 0.5 下 4 次调用(2 次重试)后应停止,实际 {n}");
+    }
+
+    /// decorrelated 抖动:attempt>1 时延迟受前次延迟 ×3 上界约束。
+    #[test]
+    fn jittered_delay_bounded_by_prev_times_three() {
+        let policy = RetryPolicy::new(10, Duration::from_millis(100))
+            .with_max_delay(Duration::from_secs(3600))
+            .with_jitter(1.0);
+        // attempt=2:base=200ms,prev=100ms → 上界 min(200..300, 300)=300ms 内
+        let d = policy.delay_for(2, Duration::from_millis(100));
+        assert!(
+            d <= Duration::from_millis(300),
+            "decorrelated 上界 prev×3=300ms,实际 {d:?}"
+        );
+        // prev 很小时上界收紧
+        let d2 = policy.delay_for(3, Duration::from_millis(10));
+        assert!(
+            d2 <= Duration::from_millis(30),
+            "上界应受 prev×3=30ms 约束,实际 {d2:?}"
         );
     }
 }

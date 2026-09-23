@@ -117,14 +117,45 @@ pub trait IntoRequestContext<B> {
     fn into_request_context(&self, request: &Request<B>) -> RequestContext;
 }
 
+/// 直连对端地址扩展：宿主框架（如 axum `into_make_service_with_connect_info`）
+/// 注入后，可信代理判定与直连 IP 提取才可用。
+#[derive(Debug, Clone, Copy)]
+pub struct PeerAddr(pub std::net::SocketAddr);
+
 /// 默认的 RequestContext 转换器
 ///
 /// 从 HTTP 请求中提取常见的标识符：
 /// - 用户 ID: `X-User-Id` header
-/// - IP 地址: `X-Forwarded-For` 或 `X-Real-IP` header
+/// - IP 地址: `X-Forwarded-For` 或 `X-Real-IP` header（仅可信代理）
 /// - API Key: `X-API-Key` header
+///
+/// # 可信代理
+///
+/// 历史教训：曾无条件采信 X-Forwarded-For/X-Real-IP 首值——
+/// 伪造头可绕过 IP 限流或陷害他人触发封禁。现仅当直连对端 ∈ trusted_proxies
+/// 时采信转发头；默认空列表 = 不采信，IP 以 PeerAddr 扩展为准）
 #[derive(Debug, Clone, Default)]
-pub struct DefaultRequestContextConverter;
+pub struct DefaultRequestContextConverter {
+    /// 可信代理网段；空 = 不采信任何转发头
+    trusted_proxies: Vec<ipnet::IpNet>,
+}
+
+impl DefaultRequestContextConverter {
+    /// 配置可信代理网段（如 ["10.0.0.0/8"]）
+    pub fn with_trusted_proxies(mut self, proxies: Vec<ipnet::IpNet>) -> Self {
+        self.trusted_proxies = proxies;
+        self
+    }
+
+    /// 直连对端是否可信
+    fn peer_trusted(&self, peer: &PeerAddr) -> bool {
+        !self.trusted_proxies.is_empty()
+            && self
+                .trusted_proxies
+                .iter()
+                .any(|net| net.contains(&peer.0.ip()))
+    }
+}
 
 impl<B> IntoRequestContext<B> for DefaultRequestContextConverter {
     fn into_request_context(&self, request: &Request<B>) -> RequestContext {
@@ -139,18 +170,30 @@ impl<B> IntoRequestContext<B> for DefaultRequestContextConverter {
             context = context.with_header("X-User-Id", value);
         }
 
-        // 提取 IP 地址（优先 X-Real-IP，其次 X-Forwarded-For）
-        if let Some(ip) = request.headers().get("x-real-ip") {
-            if let Ok(value) = ip.to_str() {
-                context = context.with_client_ip(value);
+        // 提取 IP 地址：
+        // - 直连对端（PeerAddr 扩展）可信且配置了可信网段 → 采信 X-Real-IP/X-Forwarded-For 首值
+        // - 其余情况（含默认空配置）→ 用对端地址，不采信可伪造的转发头
+        let peer = request.extensions().get::<PeerAddr>().copied();
+        let trust_forwarded = peer.as_ref().map(|p| self.peer_trusted(p)).unwrap_or(false);
+
+        let mut forwarded_ip: Option<String> = None;
+        if trust_forwarded {
+            if let Some(ip) = request.headers().get("x-real-ip")
+                && let Ok(value) = ip.to_str()
+            {
+                forwarded_ip = Some(value.to_string());
+            } else if let Some(forwarded) = request.headers().get("x-forwarded-for")
+                && let Ok(value) = forwarded.to_str()
+                && let Some(first_ip) = value.split(',').next()
+            {
+                forwarded_ip = Some(first_ip.trim().to_string());
             }
-        } else if let Some(forwarded) = request.headers().get("x-forwarded-for")
-            && let Ok(value) = forwarded.to_str()
-        {
-            // X-Forwarded-For 可能包含多个 IP，取第一个
-            if let Some(first_ip) = value.split(',').next() {
-                context = context.with_client_ip(first_ip.trim());
-            }
+        }
+
+        if let Some(ip) = forwarded_ip {
+            context = context.with_client_ip(&ip);
+        } else if let Some(p) = peer {
+            context = context.with_client_ip(&p.0.ip().to_string());
         }
 
         // 提取 API Key
@@ -205,7 +248,7 @@ impl RateLimitLayer {
         Self {
             governor,
             config,
-            context_converter: DefaultRequestContextConverter,
+            context_converter: DefaultRequestContextConverter::default(),
         }
     }
 }
@@ -459,7 +502,7 @@ mod tests {
     fn test_default_request_context_converter() {
         use http::Request;
 
-        let converter = DefaultRequestContextConverter;
+        let converter = DefaultRequestContextConverter::default();
 
         let request = Request::builder()
             .uri("/api/users")
@@ -530,47 +573,57 @@ mod tests {
 
     #[test]
     fn test_default_converter_x_forwarded_for() {
-        let c = DefaultRequestContextConverter;
-        let req = Request::builder()
+        // 可信代理语义：对端 ∈ trusted_proxies 时采信 XFF 首值
+        let c = DefaultRequestContextConverter::default()
+            .with_trusted_proxies(vec!["10.0.0.0/8".parse().unwrap()]);
+        let mut req = Request::builder()
             .uri("/api")
             .method("GET")
             .header("X-Forwarded-For", "10.0.0.1")
             .body(())
             .unwrap();
+        req.extensions_mut()
+            .insert(PeerAddr("10.0.0.254:1000".parse().unwrap()));
         let ctx = c.into_request_context(&req);
         assert_eq!(ctx.client_ip.as_deref(), Some("10.0.0.1"));
     }
 
     #[test]
     fn test_default_converter_x_forwarded_for_multiple_ips() {
-        let c = DefaultRequestContextConverter;
-        let req = Request::builder()
+        let c = DefaultRequestContextConverter::default()
+            .with_trusted_proxies(vec!["10.0.0.0/8".parse().unwrap()]);
+        let mut req = Request::builder()
             .uri("/api")
             .method("GET")
             .header("X-Forwarded-For", "192.168.1.1, 10.0.0.1, 172.16.0.1")
             .body(())
             .unwrap();
+        req.extensions_mut()
+            .insert(PeerAddr("10.0.0.254:1000".parse().unwrap()));
         let ctx = c.into_request_context(&req);
         assert_eq!(ctx.client_ip.as_deref(), Some("192.168.1.1"));
     }
 
     #[test]
     fn test_default_converter_x_real_ip_overrides_forwarded_for() {
-        let c = DefaultRequestContextConverter;
-        let req = Request::builder()
+        let c = DefaultRequestContextConverter::default()
+            .with_trusted_proxies(vec!["10.0.0.0/8".parse().unwrap()]);
+        let mut req = Request::builder()
             .uri("/api")
             .method("GET")
             .header("X-Real-IP", "192.168.1.1")
             .header("X-Forwarded-For", "10.0.0.1")
             .body(())
             .unwrap();
+        req.extensions_mut()
+            .insert(PeerAddr("10.0.0.254:1000".parse().unwrap()));
         let ctx = c.into_request_context(&req);
         assert_eq!(ctx.client_ip.as_deref(), Some("192.168.1.1"));
     }
 
     #[test]
     fn test_default_converter_no_ip_headers() {
-        let c = DefaultRequestContextConverter;
+        let c = DefaultRequestContextConverter::default();
         let req = Request::builder()
             .uri("/api")
             .method("GET")
@@ -582,7 +635,7 @@ mod tests {
 
     #[test]
     fn test_default_converter_headers_iterated() {
-        let c = DefaultRequestContextConverter;
+        let c = DefaultRequestContextConverter::default();
         let req = Request::builder()
             .uri("/api")
             .method("GET")

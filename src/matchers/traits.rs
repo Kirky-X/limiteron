@@ -181,6 +181,11 @@ impl RequestContext {
         self
     }
 
+    /// 客户端 IP（只读内省）
+    pub fn client_ip(&self) -> Option<&str> {
+        self.client_ip.as_deref()
+    }
+
     /// 设置客户端IP
     pub fn with_client_ip(mut self, ip: &str) -> Self {
         self.client_ip = Some(ip.to_string());

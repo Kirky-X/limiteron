@@ -5,7 +5,7 @@
 //! 用于缓存热点限流结果，减少存储层访问。
 //! 使用 oxcache 作为底层缓存引擎，支持 TTL 过期策略。
 
-use crate::error::{BanInfo, Decision, RateLimitMetadata, RejectionMetadata};
+use crate::error::{BanInfo, Decision, LimiteronError, RateLimitMetadata, RejectionMetadata};
 use crate::i18n::t;
 use oxcache::{Cache, OxCacheError};
 use parking_lot::RwLock;
@@ -26,6 +26,19 @@ pub(crate) struct CacheableDecision {
     pub reason: Option<String>,
     /// 封禁信息（仅当 decision_type 为 banned 时）
     pub ban_info: Option<CacheableBanInfo>,
+    /// 限流元数据（保留 limit/remaining/reset/retry_after,负缓存命中时
+    /// 注入真实 429 头。历史教训：序列化往返曾丢弃这些字段——
+    /// 缓存命中注入 Retry-After: 0,教客户端立即重试的错误语义）
+    pub metadata: Option<CacheableRateLimitMeta>,
+}
+
+/// 可缓存的限流元数据
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CacheableRateLimitMeta {
+    pub limit: u64,
+    pub remaining: u64,
+    pub reset_at: u64,
+    pub retry_after: Option<u64>,
 }
 
 /// 可缓存的封禁信息
@@ -47,6 +60,7 @@ impl CacheableDecision {
             decision_type: "allowed".to_string(),
             reason: None,
             ban_info: None,
+            metadata: None,
         }
     }
 
@@ -57,6 +71,7 @@ impl CacheableDecision {
             decision_type: "rejected".to_string(),
             reason: Some(reason.into()),
             ban_info: None,
+            metadata: None,
         }
     }
 
@@ -65,6 +80,7 @@ impl CacheableDecision {
         Self {
             decision_type: "banned".to_string(),
             reason: Some(ban_info.reason().to_string()),
+            metadata: None,
             ban_info: Some(CacheableBanInfo {
                 reason: ban_info.reason().to_string(),
                 banned_until: ban_info.banned_until().to_rfc3339(),
@@ -84,31 +100,71 @@ impl CacheableDecision {
                     Some(metadata.policy.clone())
                 },
                 ban_info: None,
+                metadata: Some(CacheableRateLimitMeta {
+                    limit: metadata.limit,
+                    remaining: metadata.remaining,
+                    reset_at: metadata.reset_at,
+                    retry_after: metadata.retry_after,
+                }),
             },
             Decision::Rejected(metadata) => Self {
                 decision_type: "rejected".to_string(),
                 reason: Some(metadata.reason.clone()),
                 ban_info: None,
+                // RejectionMetadata 无 remaining（拒绝态语义即 0）;
+                // retry_after 为 u64,缓存为 Option（to_decision 端 unwrap_or(0)）
+                metadata: Some(CacheableRateLimitMeta {
+                    limit: metadata.limit,
+                    remaining: 0,
+                    reset_at: metadata.reset_at,
+                    retry_after: Some(metadata.retry_after),
+                }),
             },
             Decision::Banned(info) => Self::banned(info),
         }
     }
 
-    /// 转换为 Decision
+    /// 严格转换：未知 decision_type（缓存损坏/版本失配）返回错误。
+    ///
+    /// 历史教训：`to_decision` 对未知类型默认返回 Allowed——降级路径
+    /// 据此直接放行（缓存损坏 = fail-open）。降级/孤岛路径必须用本方法,
+    /// 让损坏条目走孤岛裁决而非默认放行。
+    pub fn to_decision_strict(&self) -> Result<Decision, LimiteronError> {
+        if !matches!(
+            self.decision_type.as_str(),
+            "allowed" | "rejected" | "banned"
+        ) {
+            return Err(LimiteronError::StorageError(
+                crate::error::StorageError::QueryError(format!(
+                    "corrupted cache entry: unknown decision_type {:?}",
+                    self.decision_type
+                )),
+            ));
+        }
+        Ok(self.to_decision())
+    }
+
+    /// 转换为 Decision（保留序列化前的限流元数据,缺失时退 0）
     pub fn to_decision(&self) -> Decision {
+        let meta = self.metadata.clone().unwrap_or(CacheableRateLimitMeta {
+            limit: 0,
+            remaining: 0,
+            reset_at: 0,
+            retry_after: None,
+        });
         match self.decision_type.as_str() {
             "allowed" => Decision::Allowed(RateLimitMetadata {
-                limit: 0,
-                remaining: 0,
-                reset_at: 0,
-                retry_after: None,
+                limit: meta.limit,
+                remaining: meta.remaining,
+                reset_at: meta.reset_at,
+                retry_after: meta.retry_after,
                 policy: self.reason.clone().unwrap_or_default(),
             }),
             "rejected" => Decision::Rejected(RejectionMetadata {
                 reason: self.reason.clone().unwrap_or_default(),
-                retry_after: 0,
-                limit: 0,
-                reset_at: 0,
+                retry_after: meta.retry_after.unwrap_or(0),
+                limit: meta.limit,
+                reset_at: meta.reset_at,
             }),
             "banned" => {
                 if let Some(info) = &self.ban_info {
@@ -793,6 +849,28 @@ where
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_cacheable_decision_roundtrip_preserves_headers() {
+        // 头字段守恒回归：负缓存往返曾丢失 retry_after/limit/reset——
+        // 缓存命中注入 Retry-After: 0（教客户端立即重试的错误语义）
+        use crate::error::{Decision, RejectionMetadata};
+        let original = Decision::Rejected(RejectionMetadata {
+            reason: "rate limited".to_string(),
+            retry_after: 30,
+            limit: 100,
+            reset_at: 1_800_000_000,
+        });
+        let cached = CacheableDecision::from_decision(&original);
+        match cached.to_decision() {
+            Decision::Rejected(m) => {
+                assert_eq!(m.retry_after, 30, "Retry-After 不得在缓存往返中丢失为 0");
+                assert_eq!(m.limit, 100);
+                assert_eq!(m.reset_at, 1_800_000_000);
+            }
+            other => panic!("unexpected decision: {other:?}"),
+        }
+    }
+
     use super::*;
     use std::time::Duration;
 
@@ -1009,6 +1087,7 @@ mod tests {
             decision_type: "unknown".to_string(),
             reason: None,
             ban_info: None,
+            metadata: None,
         };
         let decision = cd.to_decision();
         assert!(matches!(decision, Decision::Allowed(_)));
@@ -1020,6 +1099,7 @@ mod tests {
             decision_type: "banned".to_string(),
             reason: Some("test".to_string()),
             ban_info: None,
+            metadata: None,
         };
         let decision = cd.to_decision();
         assert!(matches!(decision, Decision::Banned(_)));
@@ -1031,6 +1111,7 @@ mod tests {
         let cd = CacheableDecision {
             decision_type: "banned".to_string(),
             reason: Some("banned".to_string()),
+            metadata: None,
             ban_info: Some(CacheableBanInfo {
                 reason: "policy violation".to_string(),
                 banned_until: "2026-12-31T23:59:59Z".to_string(),
@@ -1053,6 +1134,7 @@ mod tests {
         let cd = CacheableDecision {
             decision_type: "banned".to_string(),
             reason: Some("banned".to_string()),
+            metadata: None,
             ban_info: Some(CacheableBanInfo {
                 reason: "bad date".to_string(),
                 banned_until: "not-a-date".to_string(),

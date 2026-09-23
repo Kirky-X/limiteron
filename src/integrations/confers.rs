@@ -61,7 +61,25 @@ pub async fn load_config_from_file(path: &str) -> Result<FlowControlConfig, Limi
 /// The `watch_and_reload` function uses this to push validated config updates.
 pub type GovernorConfigHandle = Arc<RwLock<FlowControlConfig>>;
 
+/// 配置应用抽象：热更新把新配置交给实现方完整生效。
+///
+/// 历史教训：`watch_and_reload` 只换 config 句柄，不重建 rule_matcher/
+/// rule_chains、不清 L1 缓存——文件热更新对规则**完全不生效**（决策链
+/// 只读构建期快照）。`Governor` 的实现委托 `apply_config`（校验→预构建
+/// →原子换装→缓存失效→历史记录），是热更新的正确入口。
+#[cfg(feature = "config-confers-reload")]
+#[async_trait::async_trait]
+pub trait ConfigApplier: Send + Sync {
+    /// 应用新配置（实现方保证失败时保留旧配置）
+    async fn apply(&self, config: FlowControlConfig) -> Result<(), LimiteronError>;
+}
+
 /// Watch a config file for changes and atomically reload the Governor config.
+///
+/// ⚠️ **局限**：本函数只替换 config 句柄，不重建 rule_matcher/rule_chains、
+/// 不清 L1 缓存——决策链只读构建期快照，规则变更**不会生效**（仅
+/// 限流参数类配置经 `config_handle` 的消费方生效）。需要规则热更新请用
+/// [`watch_and_reload_with_applier`]（`Governor` 实现了 [`ConfigApplier`]）。
 ///
 /// Uses confers' `FsWatcher` to monitor the file. When a change is detected:
 /// 1. Re-read and parse the file into a new [`FlowControlConfig`].
@@ -75,6 +93,85 @@ pub type GovernorConfigHandle = Arc<RwLock<FlowControlConfig>>;
 /// # Errors
 ///
 /// Returns `Err(LimiteronError)` if the watcher cannot be started.
+/// Watch a config file for changes and **fully apply** reloaded configs.
+///
+/// 与 [`watch_and_reload`] 的区别：变更经 [`ConfigApplier`] 交付——
+/// `Governor` 实现会把配置走 `apply_config`（重建 matcher/chains、
+/// 原子换装、清 L1 缓存），热更新对规则真实生效。
+///
+/// # Errors
+///
+/// Returns `Err(LimiteronError)` if the watcher cannot be started.
+#[cfg(feature = "config-confers-reload")]
+pub async fn watch_and_reload_with_applier(
+    path: &str,
+    applier: Arc<dyn ConfigApplier>,
+) -> Result<tokio_util::sync::CancellationToken, LimiteronError> {
+    let path_buf = std::path::PathBuf::from(path);
+
+    let mut watcher = confers::FsWatcher::new(&path_buf, 500)
+        .await
+        .map_err(|e| LimiteronError::ConfigError(format!("failed to create watcher: {}", e)))?;
+
+    let cancel_token = tokio_util::sync::CancellationToken::new();
+    let cancel_clone = cancel_token.clone();
+    let file_path = path.to_string();
+
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = cancel_clone.cancelled() => {
+                    log::info!("confers watcher: cancelled, stopping");
+                    break;
+                }
+                event = watcher.recv() => {
+                    match event {
+                        Some(_changed_path) => {
+                            log::info!("confers watcher: config file changed, reloading");
+                            match load_config_from_file(&file_path).await {
+                                Ok(new_config) => {
+                                    if new_config.rules.is_empty() {
+                                        log::warn!(
+                                            "confers reload: new config has empty rules, rolling back"
+                                        );
+                                        continue;
+                                    }
+                                    // 完整应用：校验→预构建→原子换装→缓存失效
+                                    match applier.apply(new_config).await {
+                                        Ok(()) => {
+                                            log::info!("confers reload: config applied successfully");
+                                        }
+                                        Err(e) => {
+                                            log::error!(
+                                                "confers reload: apply failed, keeping old config: {e}"
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    log::error!(
+                                        "confers reload: failed to parse config, rolling back: {}",
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                        None => {
+                            // 历史教训：watcher 意外退出曾只 warn 后 break——
+                            // 热更新静默失效。保留退出但升级为 error 级别,
+                            // 便于监控告警捕获（自动重启属部署层职责）。
+                            log::error!("confers watcher: watcher stopped unexpectedly; hot-reload inactive");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    Ok(cancel_token)
+}
+
 #[cfg(feature = "config-confers-reload")]
 pub async fn watch_and_reload(
     path: &str,

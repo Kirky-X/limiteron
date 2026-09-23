@@ -15,6 +15,8 @@ use crate::decision_chain::DecisionChain;
 use crate::error::Decision;
 use crate::error::LimiteronError;
 #[cfg(feature = "fallback")]
+use crate::error::RejectionMetadata;
+#[cfg(feature = "fallback")]
 use crate::fallback::FallbackManager;
 use crate::i18n::t;
 #[cfg(feature = "fallback")]
@@ -95,6 +97,32 @@ impl From<StatsSnapshot> for GovernorStats {
 /// Governor 主控制器
 ///
 /// 重构后的 Governor，具有更清晰的职责分离和更好的性能。
+/// 孤岛 ConservativeQuota 的本地固定窗口计数器
+///
+/// 降级期为请求提供有界放行：窗口内至多放行 max_requests 个，
+/// 超出拒绝（带窗口翻转时间作为 retry_after）。纯逻辑可测。
+#[cfg(feature = "fallback")]
+pub(crate) struct ConservativeQuotaCounter {
+    window_start_secs: u64,
+    count: u64,
+}
+
+#[cfg(feature = "fallback")]
+impl ConservativeQuotaCounter {
+    fn try_acquire(&mut self, max_requests: u64, window_secs: u64, now_secs: u64) -> bool {
+        let window_secs = window_secs.max(1);
+        if now_secs >= self.window_start_secs.saturating_add(window_secs) {
+            self.window_start_secs = now_secs;
+            self.count = 0;
+        }
+        if self.count >= max_requests {
+            return false;
+        }
+        self.count += 1;
+        true
+    }
+}
+
 pub struct Governor {
     /// 配置
     config: Arc<RwLock<FlowControlConfig>>,
@@ -104,6 +132,13 @@ pub struct Governor {
 
     /// 封禁存储
     ban_storage: Arc<dyn BanStorage>,
+
+    /// 共享配额账本（storage-backed QuotaLimiter 的可选后端）
+    quota_storage: Option<Arc<dyn crate::storage::QuotaStorage>>,
+
+    /// 孤岛 ConservativeQuota 本地计数器状态（惰性初始化）
+    #[cfg(feature = "fallback")]
+    conservative_quota: parking_lot::Mutex<Option<ConservativeQuotaCounter>>,
 
     /// 封禁管理器
     #[cfg(feature = "ban-manager")]
@@ -206,6 +241,7 @@ pub struct GovernorBuilder {
     config: Option<FlowControlConfig>,
     storage: Option<Arc<dyn Storage>>,
     ban_storage: Option<Arc<dyn BanStorage>>,
+    quota_storage: Option<Arc<dyn crate::storage::QuotaStorage>>,
     identifier_extractor: Option<Arc<dyn crate::matchers::IdentifierExtractor>>,
     #[cfg(feature = "circuit-breaker")]
     circuit_breaker: Option<Arc<CircuitBreaker>>,
@@ -242,6 +278,7 @@ impl GovernorBuilder {
             config: None,
             storage: None,
             ban_storage: None,
+            quota_storage: None,
             identifier_extractor: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
@@ -307,6 +344,18 @@ impl GovernorBuilder {
     /// 设置封禁存储后端
     pub fn with_ban_storage(mut self, ban_storage: Arc<dyn BanStorage>) -> Self {
         self.ban_storage = Some(ban_storage);
+        self
+    }
+
+    /// 设置共享配额账本（storage-backed 配额限流）
+    ///
+    /// 注入后，配置中的 Quota 规则以 `QuotaStorage` 为真账：
+    /// 跨实例额度一致、进程重启不清零。未注入保持纯内存配额（单实例语义）。
+    pub fn with_quota_storage(
+        mut self,
+        quota_storage: Arc<dyn crate::storage::QuotaStorage>,
+    ) -> Self {
+        self.quota_storage = Some(quota_storage);
         self
     }
 
@@ -465,7 +514,10 @@ impl GovernorBuilder {
             .unwrap_or_else(|| Arc::new(tokio::sync::RwLock::new(None)));
 
         // 使用 RuleBuilder 创建规则对应的决策链
-        let rule_chains_map = RuleBuilder::build_rule_chains(&config)?;
+        let rule_chains_map = RuleBuilder::build_rule_chains_with_quota_storage(
+            &config,
+            self.quota_storage.as_ref(),
+        )?;
         let rule_chains = Arc::new(tokio::sync::RwLock::new(rule_chains_map));
 
         // 创建 缓存
@@ -511,6 +563,9 @@ impl GovernorBuilder {
             config: Arc::new(tokio::sync::RwLock::new(config)),
             storage,
             ban_storage,
+            quota_storage: self.quota_storage,
+            #[cfg(feature = "fallback")]
+            conservative_quota: parking_lot::Mutex::new(None),
             #[cfg(feature = "ban-manager")]
             ban_manager,
             #[cfg(feature = "parallel-checker")]
@@ -654,6 +709,11 @@ impl Governor {
             config,
             storage,
             ban_storage,
+            // with_dependencies 直构路径不注入共享配额账本（保持签名兼容），
+            // 需要 storage-backed 配额请走 GovernorBuilder::with_quota_storage
+            quota_storage: None,
+            #[cfg(feature = "fallback")]
+            conservative_quota: parking_lot::Mutex::new(None),
             #[cfg(feature = "ban-manager")]
             ban_manager,
             #[cfg(feature = "parallel-checker")]
@@ -886,6 +946,29 @@ impl Governor {
 
         let result = self.check_inner(context).await;
 
+        // 审计接线：决策终态落审计日志（audit-log 特性；脱敏在 AuditLogger
+        // 内部完成；失败仅告警不阻塞主流程。历史教训：AuditLogger 完整实现
+        // 从未被 check 流程调用——审计能力处于"有实现无接线"状态）
+        #[cfg(feature = "audit-log")]
+        if let Ok(decision) = &result
+            && let Some(logger) = self.audit_logger.read().await.as_ref()
+        {
+            let (kind, reason) = match decision {
+                Decision::Allowed(_) => ("allowed".to_string(), String::new()),
+                Decision::Rejected(m) => ("rejected".to_string(), m.reason.clone()),
+                Decision::Banned(b) => ("banned".to_string(), b.reason().to_string()),
+            };
+            let identifier = self
+                .identifier_extractor
+                .extract(context)
+                .map(|i| i.key())
+                .unwrap_or_default();
+            let logger = logger.clone();
+            tokio::spawn(async move {
+                logger.log_decision(identifier, kind, reason, None).await;
+            });
+        }
+
         // 记录指标（Rule 12：失败必须显性化 — 错误也记录）
         #[cfg(feature = "monitoring")]
         if let Some(ref metrics) = self.metrics {
@@ -939,11 +1022,15 @@ impl Governor {
         #[cfg(feature = "multi-tenant")]
         let identifier = self.tenant_scoped_identifier(context, identifier);
 
-        // 规则匹配 - 只计算一次，贯穿整个检查流程
+        // 规则匹配 - 只计算一次，贯穿整个检查流程。
+        // 换装原子性：matcher 与 chains 的读锁同时获取、贯穿规则解析段
+        //（写侧 apply_config 同序原子持有全部写锁），杜绝「新 matcher +
+        // 旧 chains」的窗口内新规则 ID 查不到节点被静默跳过放行。
+        let matcher_guard = self.rule_matcher.read().await;
+        let chains_guard = self.rule_chains.read().await;
         let matched_rules = {
-            let matcher = self.rule_matcher.read().await;
             #[allow(clippy::disallowed_methods)]
-            matcher
+            matcher_guard
                 .match_all(context)
                 .into_iter()
                 .cloned()
@@ -960,7 +1047,31 @@ impl Governor {
             let ban_target = identifier.to_ban_target();
 
             if let Some(target) = ban_target {
-                // 使用专门的并行封禁检查器
+                // 使用专门的并行封禁检查器。
+                // 熔断接入：外部存储调用经 `execute` 门控——连续故障使
+                // 熔断打开后，Err(CircuitOpen) 被降级为"跳过封禁检查"并
+                // 告警（请求继续走限流/配额裁决，不触碰已故障的存储），
+                // 避免对故障存储的持续冲击雪崩。未启用 circuit-breaker
+                // 特性时行为不变（错误照常传播）。
+                #[cfg(feature = "circuit-breaker")]
+                let ban_info = match self
+                    .circuit_breaker
+                    .execute(|| self.parallel_ban_checker.check_single_target(&target))
+                    .await
+                {
+                    Ok(info) => info,
+                    Err(e) => {
+                        warn!(
+                            "{}",
+                            t(
+                                "governor-ban-check-circuit-open",
+                                &[("error", e.to_string())],
+                            )
+                        );
+                        None
+                    }
+                };
+                #[cfg(not(feature = "circuit-breaker"))]
                 let ban_info = self
                     .parallel_ban_checker
                     .check_single_target(&target)
@@ -1020,7 +1131,8 @@ impl Governor {
 
         // 有匹配的规则，按顺序执行（级联）
         // 只要有一个规则拒绝，请求就被拒绝
-        let rule_chains = self.rule_chains.read().await;
+        // （沿用函数入口取得的 chains 读锁：与 matcher 同一快照）
+        let rule_chains = &*chains_guard;
 
         for rule in &matched_rules {
             if let Some(chain) = rule_chains.get(&rule.id) {
@@ -1125,6 +1237,8 @@ impl Governor {
         let identifier = self.tenant_scoped_identifier(context, identifier);
 
         let matched_rules = {
+            // 降级路径不解析规则链,无 matcher/chains 配对需求;换装窗口内
+            // 缓存键随规则集变化 → 缓存 miss → 走孤岛策略(语义安全)
             let matcher = self.rule_matcher.read().await;
             #[allow(clippy::disallowed_methods)]
             matcher
@@ -1139,123 +1253,151 @@ impl Governor {
             return Ok(Decision::allowed_default());
         }
 
-        // 尝试从 缓存获取第一个规则的决策
-        let first_rule = &matched_rules[0];
-        let cache_key = self.build_cache_key(&identifier, &first_rule.id);
+        // 尝试从 缓存读取决策。
+        // 历史教训：曾用 build_cache_key（仅首条规则）读,而写路径
+        // check_internal 用 build_cache_key_multi（全部规则）——多规则
+        // 匹配场景下降级读永远 miss,孤岛策略退化为事实 AllowAll。
+        let cache_key = self.build_cache_key_multi(&identifier, &matched_rules);
 
-        match self.l1_cache.get(&cache_key).await {
-            Ok(Some(cached_decision)) => {
-                trace!(
-                    "island mode - L1 cache hit: key={}",
-                    log_fingerprint(&cache_key)
-                );
-                let decision = cached_decision.to_decision();
-                self.update_stats_for_decision(&Result::Ok(decision.clone()));
-                Ok(decision)
-            }
-            _ => {
-                // 缓存未命中，根据孤岛模式策略处理。
-                // 各分支均补齐请求级统计：降级路径此前不计数，
-                // 孤岛/降级期间的 allowed/error 指标全部丢失。
-                if self.l1_cache.is_island_mode() {
-                    if let Some(config) = self.l1_cache.island_config() {
-                        match config.fallback_strategy {
-                            IslandFallbackStrategy::AllowAll => {
-                                log::warn!(
-                                    target: "governor",
-                                    "{}",
-                                    t("governor-island-allow-all", &[])
-                                );
-                                let decision = Decision::allowed_default();
-                                self.update_stats_for_decision(&Ok(decision.clone()));
-                                Ok(decision)
-                            }
-                            IslandFallbackStrategy::RejectAll => {
-                                log::warn!(
-                                    target: "governor",
-                                    "{}",
-                                    t("governor-island-reject-all", &[])
-                                );
-                                self.stats.increment_error();
-                                Err(LimiteronError::LimitError(t(
-                                    "governor-island-reject-storage-failure",
-                                    &[],
-                                )))
-                            }
-                            IslandFallbackStrategy::LocalDecision => {
-                                // 已在上面尝试过 缓存，未命中
-                                log::warn!(
-                                    target: "governor",
-                                    "{}",
-                                    t("governor-island-l1-miss-conservative", &[])
-                                );
-                                let decision = Decision::allowed_default();
-                                self.update_stats_for_decision(&Ok(decision.clone()));
-                                Ok(decision)
-                            }
-                            IslandFallbackStrategy::ConservativeQuota {
-                                max_requests,
-                                window_secs,
-                            } => {
-                                // 使用保守配额：简单计数，超出则拒绝
-                                log::warn!(
-                                    target: "governor",
-                                    "{}",
-                                    t(
-                                        "governor-island-conservative-quota",
-                                        &[
-                                            ("max", max_requests.to_string()),
-                                            ("window", window_secs.to_string()),
-                                        ],
-                                    )
-                                );
-                                // 这里可以实现一个简单的本地计数器
-                                // 为简化实现，当前直接允许
-                                let decision = Decision::allowed_default();
-                                self.update_stats_for_decision(&Ok(decision.clone()));
-                                Ok(decision)
-                            }
-                        }
-                    } else {
-                        // 未配置孤岛模式，使用默认策略
-                        let decision = Decision::allowed_default();
-                        self.update_stats_for_decision(&Ok(decision.clone()));
-                        Ok(decision)
-                    }
-                } else {
-                    // 不在孤岛模式，返回错误
+        // 缓存有效命中则直接返回;损坏条目按 miss 走孤岛裁决
+        // （历史教训:旧实现对未知 decision_type 默认返回 Allowed = fail-open）
+        let mut valid_cached: Option<Decision> = None;
+        if let Ok(Some(cached_decision)) = self.l1_cache.get(&cache_key).await {
+            match cached_decision.to_decision_strict() {
+                Ok(decision) => {
+                    trace!(
+                        "island mode - L1 cache hit: key={}",
+                        log_fingerprint(&cache_key)
+                    );
+                    valid_cached = Some(decision);
+                }
+                Err(e) => {
+                    log::warn!(
+                        "island mode - corrupted cache entry: {e}; falling back to island strategy"
+                    );
                     self.stats.increment_error();
-                    Err(LimiteronError::LimitError(t(
-                        "governor-storage-failure-cache-miss",
-                        &[],
-                    )))
                 }
             }
         }
-    }
 
-    /// 构建缓存键
-    ///
-    /// 根据标识符类型和规则 ID 生成缓存键。仅用于降级路径（fallback）的
-    /// `check_l1_cache_only`；常规检查路径统一使用 `build_cache_key_multi`。
-    #[cfg(feature = "fallback")]
-    fn build_cache_key(&self, identifier: &crate::matchers::Identifier, rule_id: &str) -> String {
-        match identifier {
-            crate::matchers::Identifier::UserId(user_id) => {
-                RateLimitCacheKey::user_rate_limit(user_id, rule_id)
+        if let Some(decision) = valid_cached {
+            self.update_stats_for_decision(&Result::Ok(decision.clone()));
+            return Ok(decision);
+        }
+
+        {
+            // 缓存未命中（或损坏），根据孤岛模式策略处理。
+            // 各分支均补齐请求级统计：降级路径此前不计数，
+            // 孤岛/降级期间的 allowed/error 指标全部丢失。
+            if self.l1_cache.is_island_mode() {
+                if let Some(config) = self.l1_cache.island_config() {
+                    match config.fallback_strategy {
+                        IslandFallbackStrategy::AllowAll => {
+                            log::warn!(
+                                target: "governor",
+                                "{}",
+                                t("governor-island-allow-all", &[])
+                            );
+                            let decision = Decision::allowed_default();
+                            self.update_stats_for_decision(&Ok(decision.clone()));
+                            Ok(decision)
+                        }
+                        IslandFallbackStrategy::RejectAll => {
+                            log::warn!(
+                                target: "governor",
+                                "{}",
+                                t("governor-island-reject-all", &[])
+                            );
+                            self.stats.increment_error();
+                            Err(LimiteronError::LimitError(t(
+                                "governor-island-reject-storage-failure",
+                                &[],
+                            )))
+                        }
+                        IslandFallbackStrategy::LocalDecision => {
+                            // 已在上面尝试过 缓存，未命中
+                            log::warn!(
+                                target: "governor",
+                                "{}",
+                                t("governor-island-l1-miss-conservative", &[])
+                            );
+                            let decision = Decision::allowed_default();
+                            self.update_stats_for_decision(&Ok(decision.clone()));
+                            Ok(decision)
+                        }
+                        IslandFallbackStrategy::ConservativeQuota {
+                            max_requests,
+                            window_secs,
+                        } => {
+                            let max_requests = u64::from(max_requests);
+                            // 保守配额真实现：本地固定窗口计数器，
+                            // 窗口内至多放行 max_requests 个，超出拒绝。
+                            // （历史教训：曾为空壳"直接允许"——配置了
+                            // 保守配额等于存储故障期全放行，语义相反。）
+                            log::warn!(
+                                target: "governor",
+                                "{}",
+                                t(
+                                    "governor-island-conservative-quota",
+                                    &[
+                                        ("max", max_requests.to_string()),
+                                        ("window", window_secs.to_string()),
+                                    ],
+                                )
+                            );
+                            let now_secs = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0);
+                            let mut guard = self.conservative_quota.lock();
+                            let counter = guard.get_or_insert_with(|| ConservativeQuotaCounter {
+                                window_start_secs: now_secs,
+                                count: 0,
+                            });
+                            let decision =
+                                if counter.try_acquire(max_requests, window_secs, now_secs) {
+                                    Decision::allowed_default()
+                                } else {
+                                    Decision::Rejected(RejectionMetadata {
+                                        reason: t(
+                                            "governor-island-conservative-quota",
+                                            &[
+                                                ("max", max_requests.to_string()),
+                                                ("window", window_secs.to_string()),
+                                            ],
+                                        ),
+                                        retry_after: window_secs.max(1),
+                                        limit: max_requests,
+                                        reset_at: now_secs + window_secs.max(1),
+                                    })
+                                };
+                            drop(guard);
+                            self.update_stats_for_decision(&Ok(decision.clone()));
+                            Ok(decision)
+                        }
+                    }
+                } else {
+                    // 未配置孤岛模式，使用默认策略
+                    let decision = Decision::allowed_default();
+                    self.update_stats_for_decision(&Ok(decision.clone()));
+                    Ok(decision)
+                }
+            } else {
+                // 不在孤岛模式，返回错误
+                self.stats.increment_error();
+                Err(LimiteronError::LimitError(t(
+                    "governor-storage-failure-cache-miss",
+                    &[],
+                )))
             }
-            crate::matchers::Identifier::Ip(ip) => RateLimitCacheKey::ip_rate_limit(ip, rule_id),
-            crate::matchers::Identifier::ApiKey(api_key) => {
-                RateLimitCacheKey::api_key_rate_limit(api_key, rule_id)
-            }
-            _ => RateLimitCacheKey::generic(&identifier.key(), rule_id),
         }
     }
 
     /// 构建缓存键（基于全部匹配规则）
     ///
-    /// 与 `build_cache_key` 不同，键包含该标识符在本请求中匹配的**全部**规则 ID，
-    /// 避免同一标识符在不同规则集合下复用彼此的缓存条目，产生错误的决策复用。
+    /// 键包含该标识符在本请求中匹配的**全部**规则 ID，避免同一标识符在
+    /// 不同规则集合下复用彼此的缓存条目，产生错误的决策复用。
+    /// 常规检查路径与降级路径（`check_l1_cache_only`）统一使用本方法。
     fn build_cache_key_multi(
         &self,
         identifier: &crate::matchers::Identifier,
@@ -1676,17 +1818,25 @@ impl Governor {
         //    预注册后使用同名字段）。
         let rules = RuleBuilder::build_rules(&new_config)?;
         let new_matcher = RuleMatcher::with_dependencies(rules);
-        let new_chains = RuleBuilder::build_rule_chains(&new_config)?;
+        let new_chains = RuleBuilder::build_rule_chains_with_quota_storage(
+            &new_config,
+            self.quota_storage.as_ref(),
+        )?;
         let new_hash = new_config.compute_hash();
         let new_version = new_config.version.clone();
         let rule_count = new_config.rules.len();
 
-        // 3. 原子换装（三把写锁在同一临界区依次获取；决策路径的读锁窗口
-        //    极短，换装期间在途请求要么走旧配置、要么走新配置，不存在撕裂读）
+        // 3. 原子换装（写侧按 matcher→chains→config 固定序在**同一临界区**
+        //    持有全部写锁直至换装完成；读侧 check_internal 同时持有 matcher+
+        //    chains 读锁贯穿规则解析——历史教训：曾逐语句获取/释放三把写锁，
+        //    窗口期并发请求读到「新 matcher+旧 chains」，新规则 ID 查不到
+        //    节点被静默跳过放行，与"不存在撕裂读"的注释不符）
         let (old_version, old_hash) = {
+            let mut matcher_guard = self.rule_matcher.write().await;
+            let mut chains_guard = self.rule_chains.write().await;
             let mut cfg_guard = self.config.write().await;
-            *self.rule_matcher.write().await = new_matcher;
-            *self.rule_chains.write().await = new_chains;
+            *matcher_guard = new_matcher;
+            *chains_guard = new_chains;
             let old = std::mem::replace(&mut *cfg_guard, new_config);
             let old_hash = old.compute_hash();
             let old_version = old.version;
@@ -3805,24 +3955,33 @@ mod governor_construction_tests {
             .await
             .expect("Governor build should succeed");
 
+        let rule = |id: &str| crate::Rule {
+            id: id.to_string(),
+            name: id.to_string(),
+            priority: 1,
+            condition: Box::new(crate::MatchCondition::User(vec![])),
+            enabled: true,
+        };
+        let rules = vec![rule("rule_1")];
+
         let user_id = crate::matchers::Identifier::UserId("user123".to_string());
-        let key = governor.build_cache_key(&user_id, "rule_1");
+        let key = governor.build_cache_key_multi(&user_id, &rules);
         assert_eq!(key, "rl:user:user123:rule_1");
 
         let ip = crate::matchers::Identifier::Ip("192.168.1.1".to_string());
-        let key = governor.build_cache_key(&ip, "rule_1");
+        let key = governor.build_cache_key_multi(&ip, &rules);
         assert_eq!(key, "rl:ip:192.168.1.1:rule_1");
 
         let api_key = crate::matchers::Identifier::ApiKey("key123".to_string());
-        let key = governor.build_cache_key(&api_key, "rule_1");
+        let key = governor.build_cache_key_multi(&api_key, &rules);
         assert_eq!(key, "rl:apikey:key123:rule_1");
 
         let mac = crate::matchers::Identifier::Mac("AA:BB:CC:DD:EE:FF".to_string());
-        let key = governor.build_cache_key(&mac, "rule_1");
+        let key = governor.build_cache_key_multi(&mac, &rules);
         assert_eq!(key, "rl:generic:mac:AA:BB:CC:DD:EE:FF:rule_1");
 
         let device = crate::matchers::Identifier::DeviceId("device-001".to_string());
-        let key = governor.build_cache_key(&device, "rule_1");
+        let key = governor.build_cache_key_multi(&device, &rules);
         assert_eq!(key, "rl:generic:device_id:device-001:rule_1");
     }
 
@@ -4750,5 +4909,28 @@ mod governor_feature_gated_tests {
             metrics.requests_total.get() > 0.0,
             "metrics should record at least one check via requests_total counter"
         );
+    }
+
+    #[cfg(test)]
+    mod conservative_quota_counter_tests {
+        use super::*;
+
+        #[test]
+        fn test_conservative_quota_counter_bounds_window() {
+            // 保守配额计数器：窗口内有界放行，翻转重置
+            let mut c = ConservativeQuotaCounter {
+                window_start_secs: 100,
+                count: 0,
+            };
+            for i in 0..5u64 {
+                assert!(c.try_acquire(5, 60, 100 + i), "第 {} 个应放行", i + 1);
+            }
+            assert!(!c.try_acquire(5, 60, 105), "窗口内超限应拒绝");
+            // 窗口翻转：重置后恢复放行
+            assert!(c.try_acquire(5, 60, 160), "窗口翻转后应重置放行");
+            // 窗口回拨（时钟异常）：不重置窗口、计数继续有界累计
+            //（window_start 只前推，回拨不产生新窗口容量）
+            assert!(c.try_acquire(5, 60, 120), "回拨不重置窗口，容量仍有界(2/5)");
+        }
     }
 }

@@ -153,6 +153,41 @@ impl BanSyncListenerHandle {
 }
 
 /// 封禁跨实例同步总线
+/// 监听断线重连的退避区间
+#[cfg(feature = "ban-sync")]
+const LISTENER_RECONNECT_MIN: std::time::Duration = std::time::Duration::from_millis(200);
+#[cfg(feature = "ban-sync")]
+const LISTENER_RECONNECT_MAX: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// 断线重连：带指数退避的重订阅，直至成功或停止。
+///
+/// 抽为独立函数以便确定性测试「N 次故障后恢复」——订阅端关闭的
+/// recv()=None 路径在真实传输中无法从外部触发。
+#[cfg(feature = "ban-sync")]
+async fn resubscribe_with_backoff(
+    transport: &Arc<dyn PubSubTransport>,
+    channel: &str,
+    backoff: &mut std::time::Duration,
+    stop_flag: &AtomicBool,
+) -> Option<oxcache::invalidation::SubscriptionReceiver> {
+    loop {
+        tokio::time::sleep(*backoff).await;
+        if stop_flag.load(Ordering::SeqCst) {
+            return None; // 停止信号：退出重连
+        }
+        *backoff = (*backoff * 2).min(LISTENER_RECONNECT_MAX);
+        match transport.subscribe(channel).await {
+            Ok(rx) => {
+                log::info!(target: "limiteron", "ban-sync resubscribed to {channel}");
+                return Some(rx);
+            }
+            Err(e) => {
+                log::warn!(target: "limiteron", "ban-sync resubscribe failed: {e}");
+            }
+        }
+    }
+}
+
 pub struct BanSyncBus {
     transport: Arc<dyn PubSubTransport>,
     config: BanSyncConfig,
@@ -185,7 +220,8 @@ impl BanSyncBus {
         &self,
         applier: Arc<dyn BanSyncApplier>,
     ) -> Result<BanSyncListenerHandle, LimiteronError> {
-        let mut rx = self
+        // 首次订阅失败仍视为致命（调用方需要立即知道配置/网络问题）
+        let first_rx = self
             .transport
             .subscribe(&self.config.channel)
             .await
@@ -193,8 +229,12 @@ impl BanSyncBus {
         let instance_id = self.config.instance_id.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let stop_flag = stop.clone();
+        let transport = self.transport.clone();
+        let channel = self.config.channel.clone();
 
         let join = tokio::spawn(async move {
+            let mut rx = first_rx;
+            let mut backoff = LISTENER_RECONNECT_MIN;
             loop {
                 if stop_flag.load(Ordering::SeqCst) {
                     break;
@@ -205,7 +245,27 @@ impl BanSyncBus {
                         .await
                     {
                         Ok(Some(payload)) => payload,
-                        Ok(None) => break,  // 订阅端关闭
+                        Ok(None) => {
+                            // 历史教训：订阅端关闭曾直接永久退出——之后所有
+                            // 封禁事件静默失步直到重启。现退避重订阅。
+                            log::warn!(
+                                target: "limiteron",
+                                "ban-sync transport closed; resubscribing in {backoff:?}"
+                            );
+                            match resubscribe_with_backoff(
+                                &transport,
+                                &channel,
+                                &mut backoff,
+                                &stop_flag,
+                            )
+                            .await
+                            {
+                                Some(new_rx) => rx = new_rx,
+                                None => break, // 不可达（助手不返回 None），防御性收尾
+                            }
+                            backoff = LISTENER_RECONNECT_MIN;
+                            continue;
+                        }
                         Err(_) => continue, // 超时：回到 stop 检查
                     };
                 let msg = match BanSyncMessage::decode(&payload) {
@@ -237,6 +297,7 @@ mod tests {
     use super::*;
     use oxcache::invalidation::InMemoryPubSubTransport;
     use parking_lot::Mutex;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     /// 记录型 applier：收集收到的消息
     #[derive(Default)]
@@ -369,5 +430,96 @@ mod tests {
         assert_eq!(BanSyncMessage::decode(&wire).unwrap(), msg);
 
         assert!(BanSyncMessage::decode("not json").is_err());
+    }
+    /// 前 N 次订阅返回 Err、随后委托真实传输的 mock：
+    /// 模拟传输层故障（Redis 连接抖动）下的重订阅恢复
+    struct FlakySubscribeTransport {
+        inner: InMemoryPubSubTransport,
+        /// 剩余故障次数：此前 N 次 subscribe 返回 Err
+        remaining: AtomicU64,
+    }
+
+    #[async_trait::async_trait]
+    impl oxcache::invalidation::PubSubTransport for FlakySubscribeTransport {
+        async fn publish(&self, channel: &str, payload: &str) -> oxcache::error::OxCacheResult<()> {
+            self.inner.publish(channel, payload).await
+        }
+
+        async fn subscribe(
+            &self,
+            channel: &str,
+        ) -> oxcache::error::OxCacheResult<oxcache::invalidation::SubscriptionReceiver> {
+            if self.remaining.fetch_sub(1, Ordering::SeqCst) > 0 {
+                return Err(oxcache::error::OxCacheError::Operation(
+                    "flaky transport: simulated subscribe failure".to_string(),
+                ));
+            }
+            self.inner.subscribe(channel).await
+        }
+    }
+
+    #[tokio::test]
+    async fn test_resubscribe_with_backoff_recovers_after_failures() {
+        // 断线重连回归：订阅端关闭曾永久退出监听任务——之后所有封禁
+        // 事件静默失步直到重启。助手在传输故障（此处注入 2 次 Err）下
+        // 指数退避重试，最终恢复订阅通道。
+        let transport = Arc::new(FlakySubscribeTransport {
+            inner: InMemoryPubSubTransport::new(),
+            remaining: AtomicU64::new(2),
+        });
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut backoff = LISTENER_RECONNECT_MIN;
+
+        let rx = resubscribe_with_backoff(
+            &(transport.clone() as Arc<dyn oxcache::invalidation::PubSubTransport>),
+            "ban-sync-reconnect-test",
+            &mut backoff,
+            &stop,
+        )
+        .await;
+        assert!(rx.is_some(), "两次故障后应恢复订阅");
+
+        // 恢复后的通道真实可用：发布即达
+        transport
+            .inner
+            .publish("ban-sync-reconnect-test", "hello")
+            .await
+            .unwrap();
+        let payload = tokio::time::timeout(std::time::Duration::from_secs(1), rx.unwrap().recv())
+            .await
+            .expect("1s 内应收到消息");
+        assert_eq!(payload, Some("hello".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_resubscribe_stops_on_stop_flag() {
+        // 停止信号优先：重连循环必须响应 stop,不得无限重试
+        let transport = Arc::new(FlakySubscribeTransport {
+            inner: InMemoryPubSubTransport::new(),
+            remaining: AtomicU64::new(u64::MAX), // 永远故障
+        });
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop2 = stop.clone();
+        let mut backoff = LISTENER_RECONNECT_MIN;
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let handle = tokio::spawn(async move {
+            resubscribe_with_backoff(
+                &(transport.clone() as Arc<dyn oxcache::invalidation::PubSubTransport>),
+                "ban-sync-stop-test",
+                &mut backoff,
+                &stop2,
+            )
+            .await
+        });
+        // 在首个退避窗口后发出停止
+        tokio::time::sleep(std::time::Duration::from_millis(260)).await;
+        stop.store(true, Ordering::SeqCst);
+
+        let result = tokio::time::timeout(std::time::Duration::from_secs(3), handle)
+            .await
+            .expect("stop 后重连循环必须退出")
+            .unwrap();
+        assert!(result.is_none(), "stop 后应返回 None");
     }
 }

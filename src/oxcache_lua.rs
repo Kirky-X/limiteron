@@ -50,14 +50,21 @@ impl LuaScriptType {
 /// Sliding window Lua script
 ///
 /// Uses Redis Sorted Set for sliding window algorithm
-/// Parameters: KEYS\[1\] - key, ARGV\[1\] - window_size (ms), ARGV\[2\] - max_requests, ARGV\[3\] - current_timestamp
+/// Parameters: KEYS\[1\] - key, KEYS\[2\] - member 序号计数器（同毫秒去重）
+/// ARGV\[1\] - window_size (ms), ARGV\[2\] - max_requests
+/// （历史教训：曾用客户端传入时间戳——多实例时钟漂移会放大窗口；
+/// member 曾直接用时间戳——同毫秒请求互相覆盖导致 ZCARD 少计、限流被绕过）
 /// Returns: (allowed: bool, current_count: int, reset_time: int)
 pub const SLIDING_WINDOW_SCRIPT: &str = r#"
 -- get parameters
 local key = KEYS[1]
+local seq_key = KEYS[2]
 local window_size = tonumber(ARGV[1])
 local max_requests = tonumber(ARGV[2])
-local current_timestamp = tonumber(ARGV[3])
+
+-- 时钟源：Redis 单点时间（TIME），多实例口径一致
+local t = redis.call('TIME')
+local current_timestamp = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
 local window_start = current_timestamp - window_size
 
 -- remove elements outside the window
@@ -71,13 +78,21 @@ local allowed = current_count < max_requests
 
 -- if allowed, add the current request
 if allowed then
-    redis.call('ZADD', key, current_timestamp, current_timestamp)
+    -- member 唯一：时间戳 + 单调序号（同毫秒请求不再互相覆盖）
+    local seq = redis.call('INCR', seq_key)
+    redis.call('EXPIRE', seq_key, math.ceil(window_size / 1000) + 1)
+    redis.call('ZADD', key, current_timestamp, current_timestamp .. ':' .. seq)
     -- set expiry (window size + 1 second)
     redis.call('EXPIRE', key, math.ceil(window_size / 1000) + 1)
 end
 
--- compute reset time (window start + window size)
-local reset_time = window_start + window_size
+-- compute reset time（最早成员 + 窗口长度；空集回退当前时间）
+local reset_time = current_timestamp
+local oldest = redis.call('ZRANGE', key, 0, 0)
+if #oldest > 0 then
+    local oldest_score = redis.call('ZSCORE', key, oldest[1])
+    reset_time = tonumber(oldest_score) + window_size
+end
 
 -- return result
 return {allowed and 1 or 0, current_count, reset_time}
@@ -86,18 +101,22 @@ return {allowed and 1 or 0, current_count, reset_time}
 /// Fixed window Lua script
 ///
 /// Uses Redis String + TTL for fixed window algorithm
-/// Parameters: KEYS\[1\] - key, ARGV\[1\] - window_size (ms), ARGV\[2\] - max_requests, ARGV\[3\] - current_timestamp
+/// Parameters: KEYS\[1\] - key, KEYS\[2\] - window_key（调用方按
+/// `floor(now/window)*window` 派生并显式声明）
+/// ARGV\[1\] - window_size (ms), ARGV\[2\] - max_requests
+/// （历史教训：曾用客户端时间戳在脚本内派生未声明的 window_key——
+/// EVAL key 声明契约破坏，Redis Cluster 下路由错误分片）
 /// Returns: (allowed: bool, current_count: int, reset_time: int)
 pub const FIXED_WINDOW_SCRIPT: &str = r#"
 -- get parameters
 local key = KEYS[1]
+local window_key = KEYS[2]
 local window_size = tonumber(ARGV[1])
 local max_requests = tonumber(ARGV[2])
-local current_timestamp = tonumber(ARGV[3])
 
--- compute the current window
-local current_window = math.floor(current_timestamp / window_size) * window_size
-local window_key = key .. ':' .. current_window
+-- 时钟源：Redis 单点时间（TIME），多实例口径一致
+local t = redis.call('TIME')
+local current_timestamp = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
 
 -- get the current count
 local current_count = tonumber(redis.call('GET', window_key)) or 0
@@ -205,8 +224,15 @@ pub const TOKEN_BUCKET_SCRIPT: &str = r#"
 local key = KEYS[1]
 local capacity = tonumber(ARGV[1])
 local refill_rate = tonumber(ARGV[2])  -- tokens per millisecond
-local current_timestamp = tonumber(ARGV[3])
-local tokens_requested = tonumber(ARGV[4])
+local tokens_requested = tonumber(ARGV[3])
+
+-- 除零守卫：refill_rate=0 时 capacity/refill_rate 与 1/refill_rate 产生 inf
+--（EXPIRE 收到 inf 报错、脚本失败），钳最小正值
+local safe_rate = math.max(refill_rate, 1e-9)
+
+-- 时钟源：Redis 单点时间（TIME），多实例口径一致
+local t = redis.call('TIME')
+local current_timestamp = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
 
 -- get token bucket state
 local tokens = tonumber(redis.call('HGET', key, 'tokens')) or capacity
@@ -231,10 +257,10 @@ end
 
 -- update token bucket state
 redis.call('HMSET', key, 'tokens', tokens, 'last_refill', current_timestamp)
-redis.call('EXPIRE', key, math.ceil(capacity / refill_rate / 1000) + 60)
+redis.call('EXPIRE', key, math.ceil(capacity / safe_rate / 1000) + 60)
 
 -- compute next refill time (time to refill 1 token)
-local refill_time = current_timestamp + math.ceil(1 / refill_rate)
+local refill_time = current_timestamp + math.ceil(1 / safe_rate)
 
 -- return result
 return {allowed and 1 or 0, tokens_remaining, refill_time}

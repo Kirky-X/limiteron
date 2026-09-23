@@ -49,6 +49,10 @@ pub struct InMemoryDistributedLimiter {
     counters: Arc<DashMap<String, u64>>,
     /// 带 TTL 的计数器
     ttl_counters: Arc<DashMap<String, TtlEntry>>,
+    /// allow() 的放行容量上限。
+    /// `new()` 为 u64::MAX（纯计数原语语义，向后兼容）；
+    /// 作为 Limiter 使用（有界限流）请以 `with_capacity` 构造。
+    capacity: u64,
 }
 
 impl InMemoryDistributedLimiter {
@@ -57,6 +61,16 @@ impl InMemoryDistributedLimiter {
         Self {
             counters: Arc::new(DashMap::new()),
             ttl_counters: Arc::new(DashMap::new()),
+            capacity: u64::MAX,
+        }
+    }
+
+    /// 创建有界的内存限流器（作为 Limiter 使用）
+    pub fn with_capacity(capacity: u64) -> Self {
+        Self {
+            counters: Arc::new(DashMap::new()),
+            ttl_counters: Arc::new(DashMap::new()),
+            capacity,
         }
     }
 
@@ -76,10 +90,11 @@ impl Default for InMemoryDistributedLimiter {
 #[async_trait]
 impl Limiter for InMemoryDistributedLimiter {
     async fn allow(&self, cost: u64) -> Result<bool, LimiteronError> {
-        // 使用固定键 "_global" 进行计数，兼容 Limiter trait 接口
-        // 真正的分布式限流应通过 incr + get_count + 阈值判断实现
-        self.incr("_global", cost).await?;
-        Ok(true)
+        // 历史教训：曾无条件 incr 后恒返回 true——计数器只增不减、
+        // 从不比较阈值，作为 Limiter 完全不做限流。现按容量裁决
+        //（new() 构造为无界计数原语；有界限流用 with_capacity）。
+        let new_count = self.incr("_global", cost).await?;
+        Ok(new_count <= self.capacity)
     }
 }
 
@@ -119,14 +134,16 @@ impl DistributedLimiter for InMemoryDistributedLimiter {
         // 清理过期条目
         self.cleanup_expired();
 
+        // 历史教训：曾每次递增都刷新 expires_at——持续流量的 key
+        // 永不过期重置，造成永久封死。TTL 语义=「首递增起算」：
+        // 仅新建或过期重置时设定，未过期累加不续期。
         let new_count = self
             .ttl_counters
             .entry(key.to_string())
             .and_modify(|entry| {
                 if entry.expires_at > now {
-                    // 未过期，累加
+                    // 未过期，累加（不续期）
                     entry.count = entry.count.saturating_add(amount);
-                    entry.expires_at = expires_at;
                 } else {
                     // 已过期，重置
                     entry.count = amount;
@@ -206,6 +223,36 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_incr_with_ttl_no_refresh_on_accumulate() {
+        // TTL「首递增起算」回归：累加不得刷新 TTL
+        //（续期会让持续流量的 key 永不过期重置——永久封死）
+        let limiter = InMemoryDistributedLimiter::new();
+        limiter
+            .incr_with_ttl("k", 1, Duration::from_millis(50))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        limiter
+            .incr_with_ttl("k", 1, Duration::from_millis(50))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(30)).await; // 距首次 60ms > 50ms
+        let c = limiter
+            .incr_with_ttl("k", 1, Duration::from_millis(50))
+            .await
+            .unwrap();
+        assert_eq!(c, 1, "累加刷新了 TTL（应为过期重置）");
+    }
+
+    #[tokio::test]
+    async fn test_inmemory_allow_enforces_capacity() {
+        // allow 恒真回归：有界构造下必须真实比较阈值
+        let limiter = InMemoryDistributedLimiter::with_capacity(1);
+        assert!(limiter.allow(1).await.unwrap());
+        assert!(!limiter.allow(1).await.unwrap(), "超容量应拒绝");
     }
 
     #[tokio::test]
@@ -364,9 +411,13 @@ return val
 /// KEYS\[1\] = key, ARGV\[1\] = amount, ARGV\[2\] = ttl_seconds → 返回递增后的值
 #[cfg(all(feature = "distributed", feature = "lua-script"))]
 const REDIS_INCR_TTL_SCRIPT: &str = r#"
-local val = redis.call('INCRBY', KEYS[1], tonumber(ARGV[1]))
-redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2]))
-return val
+-- TTL 语义=「首递增起算」：仅当递增后计数等于本次增量（key 全新）时
+-- 设置 EXPIRE；续增刷新 TTL 会让持续流量的 key 永不过期重置（永久封死）
+local new_count = redis.call('INCRBY', KEYS[1], tonumber(ARGV[1]))
+if new_count == tonumber(ARGV[1]) then
+    redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2]))
+end
+return new_count
 "#;
 
 /// GET Lua 脚本
@@ -414,7 +465,15 @@ pub struct RedisDistributedLimiter {
     capacity: u64,
     /// 窗口大小（毫秒，用于 allow()）
     window_ms: u64,
+    /// eval 超时（默认 5s，对齐 FallbackConfig 默认值）。
+    /// 历史教训：eval 路径曾无任何超时——Redis 挂起时限流热路径
+    /// 被无限期拖住；oxcache 的 connection_timeout 只覆盖建连。
+    timeout: std::time::Duration,
 }
+
+/// eval 默认超时
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+const EVAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[cfg(all(feature = "distributed", feature = "lua-script"))]
 impl RedisDistributedLimiter {
@@ -429,22 +488,53 @@ impl RedisDistributedLimiter {
             cache,
             capacity,
             window_ms,
+            timeout: EVAL_TIMEOUT,
         }
     }
 
+    /// 自定义 eval 超时（对齐部署侧 FallbackConfig.timeout）
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
     /// 执行 Lua 脚本并解析整数响应
+    /// 统一 eval 通道：所有 Lua 调用经此走超时保护
+    async fn eval_raw(
+        &self,
+        script: &str,
+        keys: &[&str],
+        args: &[&str],
+    ) -> Result<redis::Value, LimiteronError> {
+        let eval = self.cache.eval_lua(script, keys, args);
+        let value = if self.timeout.is_zero() {
+            eval.await
+        } else {
+            tokio::time::timeout(self.timeout, eval)
+                .await
+                .map_err(|_| {
+                    LimiteronError::StorageError(StorageError::TimeoutError(format!(
+                        "Lua eval timed out after {:?}",
+                        self.timeout
+                    )))
+                })?
+        }
+        .map_err(|e| {
+            LimiteronError::StorageError(StorageError::QueryError(format!(
+                "Lua eval failed: {}",
+                e
+            )))
+        })?;
+        Ok(value)
+    }
+
     async fn eval_lua_int(
         &self,
         script: &str,
         keys: &[&str],
         args: &[&str],
     ) -> Result<u64, LimiteronError> {
-        let value = self.cache.eval_lua(script, keys, args).await.map_err(|e| {
-            LimiteronError::StorageError(StorageError::QueryError(format!(
-                "Lua eval failed: {}",
-                e
-            )))
-        })?;
+        let value = self.eval_raw(script, keys, args).await?;
         match value {
             redis::Value::Int(n) => Ok(n as u64),
             redis::Value::BulkString(bytes) => {
@@ -469,12 +559,7 @@ impl RedisDistributedLimiter {
         keys: &[&str],
         args: &[&str],
     ) -> Result<Vec<i64>, LimiteronError> {
-        let value = self.cache.eval_lua(script, keys, args).await.map_err(|e| {
-            LimiteronError::StorageError(StorageError::QueryError(format!(
-                "Lua eval failed: {}",
-                e
-            )))
-        })?;
+        let value = self.eval_raw(script, keys, args).await?;
         match value {
             redis::Value::Array(arr) => arr
                 .iter()
@@ -499,6 +584,156 @@ impl RedisDistributedLimiter {
             ))),
         }
     }
+
+    /// 令牌桶裁决（跨实例原子，消费 TOKEN_BUCKET_SCRIPT）
+    ///
+    /// 脚本布局：哈希键 `key` 持有 tokens/last_refill；
+    /// 返回 [allowed, tokens_remaining, next_refill_ms]。
+    /// `refill_rate_per_sec` 为每秒补充令牌数（脚本按毫秒折算）。
+    pub async fn allow_token_bucket(
+        &self,
+        key: &str,
+        capacity: u64,
+        refill_rate_per_sec: u64,
+        cost: u64,
+    ) -> Result<(bool, i64), LimiteronError> {
+        if key.is_empty() {
+            return Err(LimiteronError::ConfigError(
+                "Key cannot be empty".to_string(),
+            ));
+        }
+        let refill_per_ms = (refill_rate_per_sec.min(1_000_000) as f64) / 1000.0;
+        // 防除零：脚本内 capacity/refill_rate 与 1/refill_rate 在
+        // refill_rate=0 时产生 inf（EXPIRE 报错），钳最小 1e-6
+        let refill_per_ms = refill_per_ms.max(1e-6);
+        let result = self
+            .eval_lua_array(
+                crate::oxcache_lua::TOKEN_BUCKET_SCRIPT,
+                &[key],
+                &[
+                    &capacity.to_string(),
+                    &format!("{refill_per_ms:.6}"),
+                    &cost.to_string(),
+                ],
+            )
+            .await?;
+        match result.as_slice() {
+            [allowed, remaining, _refill] => Ok((*allowed != 0, *remaining)),
+            _ => Err(LimiteronError::StorageError(StorageError::QueryError(
+                "unexpected TOKEN_BUCKET response length".to_string(),
+            ))),
+        }
+    }
+
+    /// 滑动窗口裁决（跨实例原子，消费 SLIDING_WINDOW_SCRIPT）
+    ///
+    /// 返回 [allowed, current_count, reset_time]；单请求语义（每次计 1）。
+    pub async fn allow_sliding_window(
+        &self,
+        key: &str,
+        window_ms: u64,
+        max_requests: u64,
+    ) -> Result<(bool, i64), LimiteronError> {
+        if key.is_empty() {
+            return Err(LimiteronError::ConfigError(
+                "Key cannot be empty".to_string(),
+            ));
+        }
+        let seq_key = format!("{key}:seq");
+        let result = self
+            .eval_lua_array(
+                crate::oxcache_lua::SLIDING_WINDOW_SCRIPT,
+                &[key, &seq_key],
+                &[&window_ms.to_string(), &max_requests.to_string()],
+            )
+            .await?;
+        match result.as_slice() {
+            [allowed, count, _reset] => Ok((*allowed != 0, *count)),
+            _ => Err(LimiteronError::StorageError(StorageError::QueryError(
+                "unexpected SLIDING_WINDOW response length".to_string(),
+            ))),
+        }
+    }
+}
+
+/// Redis 令牌桶适配器：以 `Limiter` 接口桥接 `allow_token_bucket`。
+///
+/// 供 `LimiterFactory::create_with_redis` 路由使用；peek/remaining 走
+/// trait 默认（Redis 侧余额快照可经 `DistributedLimiter` 原子方法补齐）。
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+pub struct RedisTokenBucketLimiter {
+    inner: Arc<RedisDistributedLimiter>,
+    key: String,
+    capacity: u64,
+    refill_rate_per_sec: u64,
+}
+
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+impl RedisTokenBucketLimiter {
+    pub fn new(
+        inner: Arc<RedisDistributedLimiter>,
+        key: impl Into<String>,
+        capacity: u64,
+        refill_rate_per_sec: u64,
+    ) -> Self {
+        Self {
+            inner,
+            key: key.into(),
+            capacity,
+            refill_rate_per_sec,
+        }
+    }
+}
+
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+#[async_trait]
+impl Limiter for RedisTokenBucketLimiter {
+    async fn allow(&self, cost: u64) -> Result<bool, LimiteronError> {
+        Ok(self
+            .inner
+            .allow_token_bucket(&self.key, self.capacity, self.refill_rate_per_sec, cost)
+            .await?
+            .0)
+    }
+}
+
+/// Redis 滑动窗口适配器：以 `Limiter` 接口桥接 `allow_sliding_window`
+///（单请求语义，每次计 1）。
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+pub struct RedisSlidingWindowLimiter {
+    inner: Arc<RedisDistributedLimiter>,
+    key: String,
+    window_ms: u64,
+    max_requests: u64,
+}
+
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+impl RedisSlidingWindowLimiter {
+    pub fn new(
+        inner: Arc<RedisDistributedLimiter>,
+        key: impl Into<String>,
+        window_ms: u64,
+        max_requests: u64,
+    ) -> Self {
+        Self {
+            inner,
+            key: key.into(),
+            window_ms,
+            max_requests,
+        }
+    }
+}
+
+#[cfg(all(feature = "distributed", feature = "lua-script"))]
+#[async_trait]
+impl Limiter for RedisSlidingWindowLimiter {
+    async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
+        Ok(self
+            .inner
+            .allow_sliding_window(&self.key, self.window_ms, self.max_requests)
+            .await?
+            .0)
+    }
 }
 
 #[cfg(all(feature = "distributed", feature = "lua-script"))]
@@ -510,15 +745,15 @@ impl Limiter for RedisDistributedLimiter {
             .unwrap_or_default()
             .as_millis() as u64;
 
+        // window_key 由调用方派生并显式声明为 KEYS[2]
+        //（脚本内派生未声明 key 违反 EVAL 契约,Cluster 下路由错误分片）
+        let current_window = (now_ms / self.window_ms.max(1)) * self.window_ms.max(1);
+        let window_key = format!("_global:{current_window}");
         let result = self
             .eval_lua_array(
                 crate::oxcache_lua::FIXED_WINDOW_SCRIPT,
-                &["_global"],
-                &[
-                    &self.window_ms.to_string(),
-                    &self.capacity.to_string(),
-                    &now_ms.to_string(),
-                ],
+                &["_global", &window_key],
+                &[&self.window_ms.to_string(), &self.capacity.to_string()],
             )
             .await?;
 

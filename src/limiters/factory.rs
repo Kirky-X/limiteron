@@ -109,7 +109,9 @@ impl LimiterFactory {
                 alert_threshold: _,
                 overdraft: _,
             } => {
-                // Quota 类型由QuotaController处理
+                // Quota 配额由 QuotaController（管理面）或
+                // RuleBuilder::build_rule_chains_with_quota_storage（决策链,
+                // 可选 storage-backed）处理;本工厂不直构配额限流器
                 Err(LimiteronError::LimitError(t(
                     "limiter-quota-requires-controller",
                     &[],
@@ -122,6 +124,73 @@ impl LimiterFactory {
                     &[],
                 )))
             }
+        }
+    }
+
+    /// 以 Redis 后端路由创建分布式限流器（backend=redis 的入口）
+    ///
+    /// - `FixedWindow` → `RedisDistributedLimiter`（固定窗口脚本）
+    /// - `TokenBucket` → `RedisTokenBucketLimiter`（令牌桶脚本）
+    /// - `SlidingWindow` → `RedisSlidingWindowLimiter`（滑动窗口脚本）
+    /// - `Quota`/`Custom` 仍由 QuotaController/Registry 处理（返回错误）。
+    ///
+    /// `cache` 必须是 oxcache Redis 后端的 Cache 实例；无 Redis 连接配置
+    /// 时调用方无法构造该实例，自然返回配置错误——限流语义不会静默
+    /// 退化为进程内。
+    #[cfg(all(feature = "distributed", feature = "lua-script"))]
+    pub fn create_with_redis(
+        config: &LimiterConfig,
+        cache: oxcache::Cache<String, String>,
+    ) -> Result<Arc<dyn Limiter>, LimiteronError> {
+        use crate::limiters::distributed::{
+            RedisDistributedLimiter, RedisSlidingWindowLimiter, RedisTokenBucketLimiter,
+        };
+        const DEFAULT_KEY: &str = "_global";
+        match config {
+            LimiterConfig::TokenBucket {
+                capacity,
+                refill_rate,
+            } => {
+                let inner = Arc::new(RedisDistributedLimiter::new(
+                    cache, *capacity,
+                    1000, // 1ms 基准窗口（令牌桶不使用窗口语义,占位）
+                ));
+                Ok(Arc::new(RedisTokenBucketLimiter::new(
+                    inner,
+                    DEFAULT_KEY,
+                    *capacity,
+                    *refill_rate,
+                )))
+            }
+            LimiterConfig::SlidingWindow {
+                window_size,
+                max_requests,
+            } => {
+                let window_ms = Self::parse_window_size(window_size)?.as_millis() as u64;
+                let inner = Arc::new(RedisDistributedLimiter::new(
+                    cache,
+                    *max_requests,
+                    window_ms,
+                ));
+                Ok(Arc::new(RedisSlidingWindowLimiter::new(
+                    inner,
+                    DEFAULT_KEY,
+                    window_ms,
+                    *max_requests,
+                )))
+            }
+            LimiterConfig::FixedWindow {
+                window_size,
+                max_requests,
+            } => {
+                let window_ms = Self::parse_window_size(window_size)?.as_millis() as u64;
+                Ok(Arc::new(RedisDistributedLimiter::new(
+                    cache,
+                    *max_requests,
+                    window_ms,
+                )))
+            }
+            other => Self::create(other),
         }
     }
 

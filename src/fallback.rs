@@ -365,18 +365,18 @@ impl FallbackManager {
 
         match config.strategy {
             FallbackStrategy::FailOpen => {
-                // 故障开放：显性返回 FallbackError（调用方以
-                // 变体匹配降级语义，而非靠字符串约定；泛型 T 无法合成
-                // 默认值，是否放行由调用方决定）。
+                // 故障开放：执行备用操作并返回其结果。
+                // 历史教训：曾直接返回 Err(FallbackError)——泛型 T 无法
+                // 合成默认值是真的，但"显性错误"在全仓没有任何调用方把它
+                // 映射为放行，FailOpen 实际表现为拒绝，名不副实。
+                // 现语义 = 信任调用方传入可放行的降级闭包；备用操作自身
+                // 失败则如实传播其错误。
                 log::warn!(
                     target: "fallback",
                     "{}",
                     t("fallback-fail-open", &[])
                 );
-                Err(LimiteronError::FallbackError(t(
-                    "fallback-fail-open-error",
-                    &[],
-                )))
+                fallback_operation().await
             }
             FallbackStrategy::FailClosed => {
                 // 故障关闭：拒绝请求
@@ -634,6 +634,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_fail_open_returns_fallback_value() {
+        // FailOpen 语义回归：主操作失败时执行备用操作并返回其 Ok 值，
+        // 而非返回 Err(FallbackError)（旧实现名不副实，表现为拒绝）
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let manager = FallbackManager::new(Arc::new(cache));
+        manager
+            .set_strategy(
+                ComponentType::Redis,
+                FallbackConfig {
+                    strategy: FallbackStrategy::FailOpen,
+                    ..FallbackConfig::default()
+                },
+            )
+            .await;
+
+        let result: Result<String, LimiteronError> = manager
+            .execute_with_fallback(
+                ComponentType::Redis,
+                || async {
+                    Err(LimiteronError::StorageError(StorageError::ConnectionError(
+                        "down".into(),
+                    )))
+                },
+                || async { Ok("degraded-value".to_string()) },
+            )
+            .await;
+        assert_eq!(
+            result.unwrap(),
+            "degraded-value",
+            "FailOpen 应返回备用操作的放行值"
+        );
+    }
+
+    #[tokio::test]
     async fn test_fallback_manager_new() {
         let cache: Cache<String, String> = Cache::builder()
             .capacity(10000)
@@ -757,12 +796,10 @@ mod tests {
             )
             .await;
 
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        // 回归：FailOpen 返回专用 FallbackError 变体，
-        // 调用方以变体（而非字符串）识别降级语义
-        assert!(matches!(err, LimiteronError::FallbackError(_)));
-        assert!(err.to_string().contains("FailOpen"));
+        // 语义修正：FailOpen = 执行备用操作并返回其 Ok 值（不再返回
+        // Err(FallbackError)——旧"显性错误"无任何调用方映射为放行，
+        // 实际表现为拒绝，名不副实）
+        assert_eq!(result.unwrap(), "fallback");
     }
 
     #[tokio::test]

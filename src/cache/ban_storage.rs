@@ -431,8 +431,23 @@ impl BanStorage for CacheBanStorage {
     }
 
     async fn cleanup_expired_bans(&self) -> Result<u64, StorageError> {
-        // cache backend handles TTL-based eviction automatically
-        Ok(0)
+        // 历史教训：曾为 no-op（"TTL 驱动自动驱逐"）——记录键确实被 TTL
+        // 驱逐，但 _ban_idx 索引本身无 TTL，条目永久残留、无界增长。
+        // 现扫描索引，剔除已不存在的记录键。
+        let _guard = self.rw_lock.lock().await;
+        let index = self.get_index().await?;
+        let mut alive = Vec::with_capacity(index.len());
+        let mut pruned = 0u64;
+        for key in index {
+            match self.backend.get(&key).await.map_err(map_error)? {
+                Some(_) => alive.push(key),
+                None => pruned += 1,
+            }
+        }
+        if pruned > 0 {
+            self.set_index(&alive).await?;
+        }
+        Ok(pruned)
     }
 
     async fn list_bans(
@@ -731,5 +746,31 @@ mod tests {
             .unwrap();
         let result = bs.get_history(&target).await;
         assert!(result.is_err());
+    }
+    #[tokio::test]
+    async fn test_cleanup_prunes_evicted_index_entries() {
+        // 索引泄漏回归：TTL 驱逐记录后，_ban_idx 条目曾永久残留。
+        let storage = CacheBanStorage::new(Arc::new(DashMapMemoryBackend::new()));
+
+        // 已过期封禁：TTL max(1) 秒 → 存活极短
+        let expired = make_record(
+            BanTarget::Ip("192.0.2.51".to_string()),
+            -1, // 过去时刻 → ttl=1s
+        );
+        storage.save(&expired).await.unwrap();
+        // 长期封禁
+        let alive = make_record(BanTarget::Ip("192.0.2.52".to_string()), 3600);
+        storage.save(&alive).await.unwrap();
+
+        // 等待过期记录被 TTL 驱逐
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        let pruned = storage.cleanup_expired_bans().await.unwrap();
+        assert_eq!(pruned, 1, "应剔除 1 条被 TTL 驱逐的索引条目");
+
+        // 索引收敛：list_bans 不再返回已驱逐记录
+        let listed = storage.list_bans(true, 0, 100).await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert!(matches!(&listed[0].target, BanTarget::Ip(ip) if ip == "192.0.2.52"));
     }
 }

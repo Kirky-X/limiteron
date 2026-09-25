@@ -436,7 +436,6 @@ mod tests {
     // --- CapacityDial evaluate tests ---
 
     #[test]
-    #[test]
     #[should_panic(expected = "recovery_consecutive_healthy must be >= 1")]
     fn dial_zero_recovery_panics() {
         // recovery=0 会使每次健康评估立即降档(防振荡失效),构造期显性失败

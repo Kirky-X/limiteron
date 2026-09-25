@@ -82,6 +82,27 @@ fn redact_key(key: &str) -> String {
     }
 }
 
+/// 构造 quota limiter 参数不一致错误（key 已脱敏）
+///
+/// 供快速路径与慢路径并发插入校验共用，保证两路径消息格式一致。
+#[cfg(feature = "quota-control")]
+fn quota_param_mismatch(
+    key: &str,
+    existing_max: u64,
+    existing_period: std::time::Duration,
+    max: u64,
+    period: std::time::Duration,
+) -> LimiteronError {
+    LimiteronError::ParamMismatch(format!(
+        "LimiterManager: quota limiter key '{}' already exists with different params (existing: max={}, period={:?}; new: max={}, period={:?})",
+        redact_key(key),
+        existing_max,
+        existing_period,
+        max,
+        period
+    ))
+}
+
 /// 通用 LRU 清理逻辑
 ///
 /// # 语义权衡（高基数 key 场景必读）
@@ -310,6 +331,14 @@ impl LimiterManager {
     ///
     /// 同 key 但参数（max / period）不一致时 panic（Rule 12：失败必须显性化）。
     /// panic 消息中 key 已脱敏。
+    ///
+    /// # 已知竞态窗口
+    ///
+    /// get() 未命中到 entry().or_insert_with() 插入之间存在竞态：并发线程
+    /// 可能刚以不同参数插入同 key 实例，慢路径直接复用而不校验，静默返回
+    /// 参数不符的实例。本方法因 panic 路径零改动承诺不含慢路径校验；
+    /// 需要严格校验的调用方使用 [`Self::try_get_quota_limiter`]（慢路径
+    /// 补校验，以 `Err(ParamMismatch)` 上报）。
     #[cfg(feature = "quota-control")]
     pub fn get_quota_limiter(
         &self,
@@ -386,10 +415,12 @@ impl LimiterManager {
     /// # 保证
     ///
     /// - Err 路径不污染缓存：已存在的原实例保持原样，原参数重试仍命中
-    /// - 慢路径（新建/插入/LRU 淘汰）与 `get_quota_limiter` 完全一致
+    /// - 快速路径与慢路径（含并发插入竞态）均做参数一致性校验
     ///
     /// 注意：本方法与 `get_quota_limiter` 保持代码镜像而非委托关系——
-    /// 委托实现需重写 `get_quota_limiter` 的 panic 路径，属破坏性改动。
+    /// 委托实现需重写 `get_quota_limiter` 的 panic 路径，属破坏性改动；
+    /// 因此本方法在慢路径多一道并发插入校验（get_quota_limiter 出于
+    /// panic 路径零改动承诺不含该校验，见其文档的竞态窗口说明）。
     #[cfg(feature = "quota-control")]
     pub fn try_get_quota_limiter(
         &self,
@@ -404,14 +435,13 @@ impl LimiterManager {
             let existing_limiter = existing.value();
             // 参数一致性校验：不一致以 Result 上报，不触发 panic
             if existing_limiter.max() != max || existing_limiter.period() != period {
-                return Err(LimiteronError::ParamMismatch(format!(
-                    "LimiterManager: quota limiter key '{}' already exists with different params (existing: max={}, period={:?}; new: max={}, period={:?})",
-                    redact_key(&key),
+                return Err(quota_param_mismatch(
+                    &key,
                     existing_limiter.max(),
                     existing_limiter.period(),
                     max,
-                    period
-                )));
+                    period,
+                ));
             }
             // 更新访问时间
             if let Some(t) = self.quota_access_times.get(&key) {
@@ -438,6 +468,18 @@ impl LimiterManager {
             .entry(key.clone())
             .or_insert_with(|| Arc::new(QuotaLimiter::new(config)))
             .clone();
+        // 慢路径并发校验：or_insert_with 可能返回并发线程刚以不同参数
+        // 插入的实例（get 未命中与插入之间存在竞态窗口），此处补一致性
+        // 校验——不一致以 Result 上报，缓存保持原实例不覆盖
+        if limiter.max() != max || limiter.period() != period {
+            return Err(quota_param_mismatch(
+                &key,
+                limiter.max(),
+                limiter.period(),
+                max,
+                period,
+            ));
+        }
         self.quota_access_times
             .entry(key.clone())
             .or_insert_with(|| AtomicU64::new(now_nanos()));

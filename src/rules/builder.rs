@@ -674,11 +674,15 @@ mod tests {
         assert!(rules.is_empty());
     }
 
+    // 与被测路径同门控：storage-backed Quota 构建仅在 quota-control 下接线，
+    // mock 与用例缺该门控会在默认 feature 下空链越界/产生死代码
     /// 共享配额账本 mock：跨链构建共享单一账本
+    #[cfg(feature = "quota-control")]
     struct MockSharedLedger {
         consumed: std::sync::atomic::AtomicU64,
     }
 
+    #[cfg(feature = "quota-control")]
     #[async_trait::async_trait]
     impl crate::storage::QuotaStorage for MockSharedLedger {
         async fn get_quota(
@@ -719,6 +723,9 @@ mod tests {
         }
     }
 
+    // 与被测路径同门控：Quota 限流器仅在 quota-control 下真实挂载，
+    // 默认 feature 下该配置产空链，节点索引断言无意义
+    #[cfg(feature = "quota-control")]
     #[tokio::test]
     async fn test_build_rule_chains_with_quota_storage() {
         // storage-backed 接线回归：注入共享账本后，两次构建的 Quota 节点

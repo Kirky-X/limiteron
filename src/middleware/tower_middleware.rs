@@ -322,17 +322,16 @@ impl<C> RateLimitLayer<C> {
     }
 }
 
-impl RateLimitLayer<DefaultRequestContextConverter, IetfHttpResponder> {
-    /// 使用自定义拒绝响应工厂创建 Layer（上下文转换器保持默认类型）
-    pub fn with_responder<R2>(
-        governor: Arc<Governor>,
-        config: RateLimitConfig,
-        responder: R2,
-    ) -> RateLimitLayer<DefaultRequestContextConverter, R2> {
+impl<C, R> RateLimitLayer<C, R> {
+    /// 替换拒绝响应工厂（上下文转换器维度保持不变）
+    ///
+    /// 与 [`Self::with_converter`] 正交可组合：自定义转换器与自定义
+    /// 响应工厂可任意搭配。
+    pub fn with_responder<R2>(self, responder: R2) -> RateLimitLayer<C, R2> {
         RateLimitLayer {
-            governor,
-            config,
-            context_converter: DefaultRequestContextConverter::default(),
+            governor: self.governor,
+            config: self.config,
+            context_converter: self.context_converter,
             responder,
         }
     }
@@ -467,34 +466,62 @@ where
 ///
 /// 返回 `None` 表示请求不携带可用 key：无法按 key 归账，直通不限流
 /// （该取舍由 [`KeyedRateLimitLayer`] 文档声明）。
+///
+/// 返回 [`Cow`] 以允许借用实现（如直接引用头值）避免每请求堆分配；
+/// 需要拼接/规范化 key 的实现可返回 `Cow::Owned`。
 pub trait RequestKey<B> {
     /// 提取限流 key（如用户 ID、API Key、对端地址字符串）
-    fn request_key(&self, request: &Request<B>) -> Option<String>;
+    fn request_key<'a>(&self, request: &'a Request<B>) -> Option<std::borrow::Cow<'a, str>>;
 }
 
-/// Header 提取器：取单个请求头原值作为限流 key
+/// Header 提取器：取单个请求头原值作为限流 key（零堆分配）
 ///
 /// 头缺失或值非可见 ASCII 时返回 `None`（直通）。
+///
+/// # 键长与基数警示
+///
+/// 头值是攻击者完全可控的输入。超长值按 [`Self::max_key_len`] 截断
+/// （截断后不同长 key 可能碰撞到同一桶，属保守方向——共享配额，
+/// 不会绕过限流）；高基数（海量不同取值）头部会放大支持 per-key
+/// 账本的限流器内存占用，务必搭配有界账本限流器使用：
+/// `QuotaLimiter` 带 1 万 key 跟踪上限（超限触发过期清理），
+/// `InMemoryDistributedLimiter` 的计数表无界；而
+/// `TokenBucketLimiter` / `FixedWindowLimiter` / `ConcurrencyLimiter`
+/// 为单实例共享桶，key 不参与记账，无放大面。
 #[derive(Debug, Clone)]
 pub struct HeaderKeyExtractor {
     header: &'static str,
+    max_key_len: usize,
 }
 
 impl HeaderKeyExtractor {
-    /// 以请求头名构造提取器（如 `"x-api-key"`；匹配大小写不敏感）
+    /// 默认最大 key 长度（字节数）
+    pub const DEFAULT_MAX_KEY_LEN: usize = 128;
+
+    /// 以请求头名构造提取器（如 `"x-api-key"`；匹配大小写不敏感），
+    /// 键长上限取 [`Self::DEFAULT_MAX_KEY_LEN`]
     pub fn new(header: &'static str) -> Self {
-        Self { header }
+        Self {
+            header,
+            max_key_len: Self::DEFAULT_MAX_KEY_LEN,
+        }
+    }
+
+    /// 自定义键长上限（字节数；0 视为不限长）
+    pub fn with_max_key_len(mut self, max_key_len: usize) -> Self {
+        self.max_key_len = max_key_len;
+        self
     }
 }
 
 impl<B> RequestKey<B> for HeaderKeyExtractor {
-    fn request_key(&self, request: &Request<B>) -> Option<String> {
-        request
-            .headers()
-            .get(self.header)?
-            .to_str()
-            .ok()
-            .map(|v| v.to_string())
+    fn request_key<'a>(&self, request: &'a Request<B>) -> Option<std::borrow::Cow<'a, str>> {
+        let value = request.headers().get(self.header)?.to_str().ok()?;
+        // to_str() 已保证可见 ASCII（单字节字符），字节截断必在字符边界
+        if self.max_key_len == 0 || value.len() <= self.max_key_len {
+            return Some(std::borrow::Cow::Borrowed(value));
+        }
+        Some(std::borrow::Cow::Borrowed(&value[..self.max_key_len]))
     }
 }
 
@@ -586,26 +613,25 @@ where
     }
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
-        match self.key_extractor.request_key(&req) {
+        let limiter = self.limiter.clone();
+        let responder = self.responder.clone();
+        let key_extractor = self.key_extractor.clone();
+        // 拒绝是本快速路径的常态产出：inner.call 推迟到检查通过后才发起，
+        // 拒绝路径零 inner 开销。key 提取在 block 内完成——Cow 借用 req，
+        // 与 req 同居于此 future，借用免分配且所有权自洽。
+        let mut inner = self.inner.clone();
+        Box::pin(async move {
             // key 缺失：无法按 key 归账，直通不限流
-            None => {
-                let future = self.inner.call(req);
-                Box::pin(async move { future.await.map_err(into_box_error) })
+            let Some(key) = key_extractor.request_key(&req) else {
+                return inner.call(req).await.map_err(into_box_error);
+            };
+            match limiter.check(&key).await {
+                Ok(()) => inner.call(req).await.map_err(into_box_error),
+                // 拒绝与检查错误均经响应工厂上报（快速路径
+                // 不区分错误类别，避免把存储故障渲染为放行）
+                Err(_) => Ok(responder.reject_response(RejectInfo::default())),
             }
-            Some(key) => {
-                let limiter = self.limiter.clone();
-                let responder = self.responder.clone();
-                let inner = self.inner.clone().call(req);
-                Box::pin(async move {
-                    match limiter.check(&key).await {
-                        Ok(()) => inner.await.map_err(into_box_error),
-                        // 拒绝与检查错误均经响应工厂上报（快速路径
-                        // 不区分错误类别，避免把存储故障渲染为放行）
-                        Err(_) => Ok(responder.reject_response(RejectInfo::default())),
-                    }
-                })
-            }
-        }
+        })
     }
 }
 
@@ -1148,14 +1174,11 @@ mod tests {
 
         let (gov, _) = make_governor(gen_config(1, 10), false).await;
         let calls = Arc::new(AtomicUsize::new(0));
-        let mut svc = RateLimitLayer::with_responder(
-            gov,
-            RateLimitConfig::default(),
-            CustomResponder {
+        let mut svc = RateLimitLayer::new(gov, RateLimitConfig::default())
+            .with_responder(CustomResponder {
                 calls: calls.clone(),
-            },
-        )
-        .layer(MockService);
+            })
+            .layer(MockService);
 
         // 第一次:允许 → 不经工厂
         let resp: Response<()> = svc.call(make_req("/api", "u")).await.unwrap();
@@ -1192,14 +1215,11 @@ mod tests {
             return_429_on_reject: false,
             ..RateLimitConfig::default()
         };
-        let mut svc = RateLimitLayer::with_responder(
-            gov,
-            cfg,
-            CountingResponder {
+        let mut svc = RateLimitLayer::new(gov, cfg)
+            .with_responder(CountingResponder {
                 calls: calls.clone(),
-            },
-        )
-        .layer(MockService);
+            })
+            .layer(MockService);
 
         let resp: Response<()> = svc.call(make_req("/api", "u")).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -1314,5 +1334,110 @@ mod tests {
         let resp: Response<()> = svc.call(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    // ========================================================================
+    // HeaderKeyExtractor:键长截断与借用语义
+    // ========================================================================
+
+    #[test]
+    fn test_header_key_extractor_borrows_short_values() {
+        use std::borrow::Cow;
+        let extractor = HeaderKeyExtractor::new("x-api-key");
+        let req = Request::builder()
+            .uri("/api")
+            .method("GET")
+            .header("X-API-Key", "short-key")
+            .body(())
+            .unwrap();
+        let key = extractor.request_key(&req).unwrap();
+        assert!(matches!(key, Cow::Borrowed(_)), "短值应借用零分配");
+        assert_eq!(&*key, "short-key");
+    }
+
+    #[test]
+    fn test_header_key_extractor_truncates_long_values() {
+        let extractor = HeaderKeyExtractor::new("x-api-key");
+        let long = "a".repeat(300);
+        let req = Request::builder()
+            .uri("/api")
+            .method("GET")
+            .header("X-API-Key", &long)
+            .body(())
+            .unwrap();
+        let key = extractor.request_key(&req).unwrap();
+        assert_eq!(key.len(), HeaderKeyExtractor::DEFAULT_MAX_KEY_LEN);
+        assert_eq!(&*key, &long[..HeaderKeyExtractor::DEFAULT_MAX_KEY_LEN]);
+
+        // 上限 0 = 不限长
+        let unlimited = extractor.with_max_key_len(0);
+        let key = unlimited.request_key(&req).unwrap();
+        assert_eq!(key.len(), 300);
+    }
+
+    #[test]
+    fn test_header_key_extractor_non_ascii_value_passes_through() {
+        // HTTP 头值仅允许可见 ASCII:to_str 失败 → None → 直通不限流
+        let extractor = HeaderKeyExtractor::new("x-api-key");
+        let req = Request::builder()
+            .uri("/api")
+            .method("GET")
+            .header(
+                "X-API-Key",
+                http::header::HeaderValue::from_bytes("中文用户".as_bytes()).unwrap(),
+            )
+            .body(())
+            .unwrap();
+        assert!(extractor.request_key(&req).is_none());
+    }
+
+    #[test]
+    fn test_header_key_extractor_missing_header_is_none() {
+        let extractor = HeaderKeyExtractor::new("x-api-key");
+        let req = Request::builder()
+            .uri("/api")
+            .method("GET")
+            .body(())
+            .unwrap();
+        assert!(extractor.request_key(&req).is_none());
+    }
+
+    // ========================================================================
+    // Layer 组合面:自定义转换器与自定义响应工厂正交
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_layer_converter_and_responder_combine() {
+        #[derive(Clone)]
+        struct FixedUserConverter;
+        impl<B> IntoRequestContext<B> for FixedUserConverter {
+            fn into_request_context(&self, _req: &Request<B>) -> RequestContext {
+                RequestContext::new()
+                    .with_path("/api")
+                    .with_method("GET")
+                    .with_header("x-user-id", "combo-user")
+            }
+        }
+        #[derive(Clone)]
+        struct TeapotResponder;
+        impl RejectResponder<()> for TeapotResponder {
+            fn reject_response(&self, _info: RejectInfo) -> Response<()> {
+                let mut resp = Response::new(());
+                *resp.status_mut() = StatusCode::IM_A_TEAPOT;
+                resp
+            }
+        }
+
+        let (gov, _) = make_governor(gen_config(1, 10), false).await;
+        let mut svc =
+            RateLimitLayer::with_converter(gov, RateLimitConfig::default(), FixedUserConverter)
+                .with_responder(TeapotResponder)
+                .layer(MockService);
+
+        // 自定义转换器归账同一用户:第 1 次允许、第 2 次经自定义工厂拒绝
+        let resp: Response<()> = svc.call(make_req("/api", "anyone")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let resp: Response<()> = svc.call(make_req("/api", "anyone")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::IM_A_TEAPOT);
     }
 }

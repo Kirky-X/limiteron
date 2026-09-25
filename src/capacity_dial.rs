@@ -128,6 +128,13 @@ impl std::fmt::Display for DialLevel {
 ///
 /// 每组数组 5 项对应 5 个升档边界（L0→L1 ... L4→L5）。指标达到
 /// （≥）阈值即触发升至该档。
+///
+/// # 契约
+///
+/// 每组数组应按档位**非递减**排列（`t[i] <= t[i+1]`）。字段为公开
+/// 形状（含 serde 反序列化），构造时不强制校验——乱序不产生错误
+/// 行为（evaluate 取各指标触发的最高档），仅使档位-阈值对应关系
+/// 失去直觉，调用方自行保证。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DialThresholds {
     /// Error rate thresholds [0.05, 0.10, 0.20, 0.30, 0.50].
@@ -186,7 +193,19 @@ pub struct CapacityDial {
 // 并发竞争的方向性由 fetch_max / CAS 保证（升档优先），Relaxed 足够。
 impl CapacityDial {
     /// Create a new controller starting at L0 (healthy).
+    ///
+    /// # Panic
+    ///
+    /// `recovery_consecutive_healthy == 0` 时 panic：计数在健康评估时
+    /// 先自增再比较（恒 ≥ 1），0 值会使每次健康评估立即降一档，
+    /// 「连续 N 次健康才降档」的防振荡承诺失效——这是配置 bug，
+    /// 应在构造阶段显性失败。
     pub fn new(thresholds: DialThresholds, recovery_consecutive_healthy: u32) -> Self {
+        assert!(
+            recovery_consecutive_healthy >= 1,
+            "CapacityDial: recovery_consecutive_healthy must be >= 1; \
+             0 would de-escalate on every healthy evaluation (anti-oscillation broken)"
+        );
         Self {
             thresholds,
             recovery_consecutive_healthy,
@@ -415,6 +434,14 @@ mod tests {
     }
 
     // --- CapacityDial evaluate tests ---
+
+    #[test]
+    #[test]
+    #[should_panic(expected = "recovery_consecutive_healthy must be >= 1")]
+    fn dial_zero_recovery_panics() {
+        // recovery=0 会使每次健康评估立即降档(防振荡失效),构造期显性失败
+        let _ = CapacityDial::new(DialThresholds::default(), 0);
+    }
 
     #[test]
     fn dial_starts_at_l0() {

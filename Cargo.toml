@@ -309,6 +309,10 @@ default = []
 # Compatibility features（vecboost 兼容声明）。
 # adaptive-limiting 自 rc4 起为真实实现（AIMD 自适应并发限流器）。
 adaptive-limiting = []
+# 六档容量调光（DialLevel L0-L5 / DialThresholds / CapacityDial）。
+# 独立默认关 feature，与既有模块零耦合，刻意不入任何 preset（含 full）：
+# 调光执行点（指标采集、按 capacity_ratio 放行）由消费方装配。
+capacity-dial = []
 priority-queue = []
 admission-control = []
 

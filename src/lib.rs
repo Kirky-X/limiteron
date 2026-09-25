@@ -108,6 +108,9 @@ pub use adapters::{
 
 #[cfg(feature = "cache-service")]
 pub mod cache;
+// 六档容量调光（独立默认关 feature，与既有模块零耦合）
+#[cfg(feature = "capacity-dial")]
+pub mod capacity_dial;
 pub(crate) mod constants;
 #[cfg(any(feature = "postgres", feature = "sqlite", feature = "mysql"))]
 mod dbnexus_entities;
@@ -224,6 +227,8 @@ pub use events::webhook_signature::{
     global_webhook_signer, set_global_webhook_signer,
 };
 // Error abstraction types
+#[cfg(feature = "capacity-dial")]
+pub use capacity_dial::{CapacityDial, DialLevel, DialThresholds, SystemMetrics};
 pub use error::{
     BanSafeError, ConfigSafeError, ErrorMessageAbstraction, GeneralSafeError, LimitSafeError,
     SafeErrorMessage, StorageSafeError, ValidationSafeError,

@@ -190,10 +190,11 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>mysql</code></td><td>MySQL 存储（dbnexus 服务端驱动）</td><td>❌</td></tr>
 <tr><td><code>cache-redis</code></td><td>Redis 缓存后端（经 oxcache；原 <code>cache-storage</code>，保留为兼容别名）</td><td>❌</td></tr>
 <tr><td><code>lua-script</code></td><td>Redis Lua 脚本执行（经 oxcache <code>eval_lua</code>）</td><td>❌</td></tr>
-<tr><td rowspan="9">核心功能</td><td><code>ban-manager</code></td><td>封禁管理（目标封禁、优先级、文件加载）</td><td>❌</td></tr>
+<tr><td rowspan="10">核心功能</td><td><code>ban-manager</code></td><td>封禁管理（目标封禁、优先级、文件加载）</td><td>❌</td></tr>
 <tr><td><code>bulkhead</code></td><td>舱壁隔离：按资源组分池 + 独立并发预算与隔离指标</td><td>❌</td></tr>
 <tr><td><code>quota-control</code></td><td>配额控制</td><td>❌</td></tr>
 <tr><td><code>manager</code></td><td>限流器管理器（<code>LimiterManager</code> 按 key 缓存；<code>#[flow_control]</code> 宏运行时配套，可独立启用）</td><td>❌</td></tr>
+<tr><td><code>capacity-dial</code></td><td>六档容量调光（<code>DialLevel</code> L0-L5 / <code>DialThresholds</code> / <code>CapacityDial</code>，原子内部可变性；不入任何 preset）</td><td>❌</td></tr>
 <tr><td><code>circuit-breaker</code></td><td>熔断器</td><td>❌</td></tr>
 <tr><td><code>fallback</code></td><td>降级策略（FallbackManager）</td><td>❌</td></tr>
 <tr><td><code>custom-limiter</code></td><td>自定义限流器扩展</td><td>❌</td></tr>

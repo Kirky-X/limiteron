@@ -202,11 +202,36 @@ impl RetryPolicy {
     /// - `is_retryable`：错误分类器；返回 false 的错误立即返回（不重试）
     ///
     /// 返回最后一次的错误（重试耗尽）或首个不可重试错误。
-    pub async fn execute<F, Fut, T, E, P>(&self, mut op: F, is_retryable: P) -> Result<T, E>
+    pub async fn execute<F, Fut, T, E, P>(&self, op: F, is_retryable: P) -> Result<T, E>
     where
         F: FnMut() -> Fut,
         Fut: Future<Output = Result<T, E>>,
         P: Fn(&E) -> bool,
+    {
+        self.execute_notify(op, is_retryable, |_, _| {}).await
+    }
+
+    /// 执行操作并按策略重试可重试错误，每次重试前回调 `on_retry`。
+    ///
+    /// - `op`：每次重试都会重新调用的异步操作工厂
+    /// - `is_retryable`：错误分类器；返回 false 的错误立即返回（不重试）
+    /// - `on_retry(attempt, err)`：在第 `attempt` 次重试的退避等待前回调
+    ///   （`attempt` 从 1 起），`err` 为触发本次重试的错误。仅对实际发生的
+    ///   重试回调——不可重试错误与重试耗尽不回调，错误经返回值上报。
+    ///
+    /// 钩子为方法参数而非策略字段：[`RetryPolicy`] 保持 `derive(Debug, Clone)`
+    /// 派生不变，钩子的记账状态由调用方闭包自行捕获。
+    pub async fn execute_notify<F, Fut, T, E, P, N>(
+        &self,
+        mut op: F,
+        is_retryable: P,
+        on_retry: N,
+    ) -> Result<T, E>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<T, E>>,
+        P: Fn(&E) -> bool,
+        N: Fn(u32, &E),
     {
         let mut attempt = 0u32;
         // 预算记账：total = 首调 + 已发生重试
@@ -230,6 +255,7 @@ impl RetryPolicy {
                     }
                     attempt += 1;
                     retries_used += 1;
+                    on_retry(attempt, &err);
                     let d = self.delay_for(attempt, prev_delay);
                     tokio::time::sleep(d).await;
                     prev_delay = d;
@@ -320,11 +346,20 @@ mod tests {
     fn delay_grows_exponentially_and_caps() {
         let policy =
             RetryPolicy::new(10, Duration::from_millis(100)).with_max_delay(Duration::from_secs(5));
-        assert_eq!(policy.delay_for(1), Duration::from_millis(100));
-        assert_eq!(policy.delay_for(2), Duration::from_millis(200));
-        assert_eq!(policy.delay_for(3), Duration::from_millis(400));
         assert_eq!(
-            policy.delay_for(20),
+            policy.delay_for(1, Duration::ZERO),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            policy.delay_for(2, Duration::ZERO),
+            Duration::from_millis(200)
+        );
+        assert_eq!(
+            policy.delay_for(3, Duration::ZERO),
+            Duration::from_millis(400)
+        );
+        assert_eq!(
+            policy.delay_for(20, Duration::ZERO),
             Duration::from_secs(5),
             "退避应封顶 max_delay"
         );
@@ -332,8 +367,9 @@ mod tests {
     /// 重试预算：预算耗尽后停止重试（重试风暴防护）。
     #[tokio::test]
     async fn retry_budget_exhaustion_stops_retries() {
-        // budget_ratio=0.5:总调用 4 次 → 最多 2 次重试
-        // （retries/total < 0.5 才允许:重试第 2 次时 2/4=0.5 不可再重试）
+        // budget_ratio=0.5,严格小于才允许重试:
+        // 首调后 0/1 < 0.5 → 允许第 1 次重试;判定第 2 次重试时
+        // 1/2 = 0.5 不严格小于 → 停止,共 2 次调用(1 次首调 + 1 次重试)
         let policy = RetryPolicy::new(10, Duration::from_millis(1)).with_budget_ratio(0.5);
         let attempts = Arc::new(AtomicU32::new(0));
         let a = attempts.clone();
@@ -351,7 +387,7 @@ mod tests {
             .await;
         assert_eq!(result.unwrap_err(), "always");
         let n = attempts.load(Ordering::SeqCst);
-        assert_eq!(n, 4, "预算 0.5 下 4 次调用(2 次重试)后应停止,实际 {n}");
+        assert_eq!(n, 2, "预算 0.5 下 2 次调用(1 次重试)后应停止,实际 {n}");
     }
 
     /// decorrelated 抖动:attempt>1 时延迟受前次延迟 ×3 上界约束。
@@ -372,5 +408,123 @@ mod tests {
             d2 <= Duration::from_millis(30),
             "上界应受 prev×3=30ms 约束,实际 {d2:?}"
         );
+    }
+
+    // ========================================================================
+    // execute_notify:重试前回调钩子(方法参数,非策略字段)
+    // ========================================================================
+
+    /// 永久(不可重试)错误:op 只执行一次,on_retry 零次回调。
+    #[tokio::test]
+    async fn execute_notify_permanent_error_single_call_no_hook() {
+        let policy = RetryPolicy::new(5, Duration::from_millis(1));
+        let op_calls = Arc::new(AtomicU32::new(0));
+        let hook_calls = Arc::new(AtomicU32::new(0));
+        let a = op_calls.clone();
+        let h = hook_calls.clone();
+        let result: Result<(), String> = policy
+            .execute_notify(
+                || {
+                    let a = a.clone();
+                    async move {
+                        a.fetch_add(1, Ordering::SeqCst);
+                        Err::<(), _>("permanent".to_string())
+                    }
+                },
+                |e| e != "permanent",
+                |_, _| {
+                    h.fetch_add(1, Ordering::SeqCst);
+                },
+            )
+            .await;
+        assert_eq!(result.unwrap_err(), "permanent");
+        assert_eq!(op_calls.load(Ordering::SeqCst), 1, "永久错误只执行一次");
+        assert_eq!(
+            hook_calls.load(Ordering::SeqCst),
+            0,
+            "未发生重试不应回调 on_retry"
+        );
+    }
+
+    /// 瞬时(可重试)错误持续失败:max_retries=N 时 on_retry 恰回调 N 次。
+    #[tokio::test]
+    async fn execute_notify_transient_error_notifies_once_per_retry() {
+        let policy = RetryPolicy::new(3, Duration::from_millis(1));
+        let op_calls = Arc::new(AtomicU32::new(0));
+        let hook_calls = Arc::new(AtomicU32::new(0));
+        let a = op_calls.clone();
+        let h = hook_calls.clone();
+        let result: Result<(), String> = policy
+            .execute_notify(
+                || {
+                    let a = a.clone();
+                    async move {
+                        a.fetch_add(1, Ordering::SeqCst);
+                        Err::<(), _>("flaky".to_string())
+                    }
+                },
+                |e| e == "flaky",
+                |_, _| {
+                    h.fetch_add(1, Ordering::SeqCst);
+                },
+            )
+            .await;
+        assert_eq!(result.unwrap_err(), "flaky");
+        assert_eq!(op_calls.load(Ordering::SeqCst), 4, "1 次首调 + 3 次重试");
+        assert_eq!(
+            hook_calls.load(Ordering::SeqCst),
+            3,
+            "每次重试前恰好回调一次"
+        );
+    }
+
+    /// 参数序:on_retry 第一参数为重试序号(从 1 起),第二参数为触发错误。
+    #[tokio::test]
+    async fn execute_notify_hook_receives_attempt_then_error() {
+        let policy = RetryPolicy::new(3, Duration::from_millis(1));
+        let attempts_seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let errs_seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let a = attempts_seen.clone();
+        let e = errs_seen.clone();
+        let result: Result<(), String> = policy
+            .execute_notify(
+                || async { Err::<(), _>("boom".to_string()) },
+                |err| err == "boom",
+                move |attempt, err| {
+                    a.lock().unwrap().push(attempt);
+                    e.lock().unwrap().push(err.to_string());
+                },
+            )
+            .await;
+        assert!(result.is_err());
+        assert_eq!(
+            *attempts_seen.lock().unwrap(),
+            vec![1, 2, 3],
+            "attempt 序号应从 1 起逐次递增"
+        );
+        assert_eq!(*errs_seen.lock().unwrap(), vec!["boom", "boom", "boom"]);
+    }
+
+    /// Clone 编译:钩子是方法参数而非字段,策略克隆后仍可直接使用,
+    /// 闭包捕获本地状态无需 'static 约束。
+    #[tokio::test]
+    async fn execute_notify_callable_on_cloned_policy() {
+        let policy = RetryPolicy::new(2, Duration::from_millis(1));
+        let cloned = policy.clone();
+        let hook_calls = Arc::new(AtomicU32::new(0));
+        let h = hook_calls.clone();
+        let result: Result<(), String> = cloned
+            .execute_notify(
+                || async { Err::<(), _>("always".to_string()) },
+                |e| e == "always",
+                |_, _| {
+                    h.fetch_add(1, Ordering::SeqCst);
+                },
+            )
+            .await;
+        assert!(result.is_err());
+        assert_eq!(hook_calls.load(Ordering::SeqCst), 2);
+        // Debug 派生未因钩子引入字段而破坏
+        assert!(format!("{policy:?}").starts_with("RetryPolicy"));
     }
 }

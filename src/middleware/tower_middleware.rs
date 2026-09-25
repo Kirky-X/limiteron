@@ -7,6 +7,7 @@
 
 use crate::error::Decision;
 use crate::governor::Governor;
+use crate::limiters::Limiter;
 use crate::matchers::RequestContext;
 use http::{Request, Response, StatusCode};
 use std::future::Future;
@@ -115,6 +116,60 @@ pub trait IntoRequestContext<B> {
     /// 将 HTTP 请求转换为 RequestContext
     #[allow(clippy::wrong_self_convention)]
     fn into_request_context(&self, request: &Request<B>) -> RequestContext;
+}
+
+/// 拒绝响应的输入快照
+///
+/// 字段缺省（`None`）表示该信息在当前路径不可得：Governor 决策路径
+/// 三项齐全；直驱静态限流器的快速路径（[`KeyedRateLimitLayer`]）无
+/// 决策链元数据，构造缺省值。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RejectInfo {
+    /// 限流上限（RateLimit-Limit）
+    pub limit: Option<u64>,
+    /// 窗口重置时间戳（Unix 秒，RateLimit-Reset）
+    pub reset_at: Option<u64>,
+    /// 重试等待秒数（Retry-After）
+    pub retry_after: Option<u64>,
+}
+
+/// 拒绝响应工厂
+///
+/// 把「拒绝时如何渲染响应」从决策逻辑中解耦：Service 负责判定，
+/// 实现方负责响应形态（状态码/响应体/头部）。
+pub trait RejectResponder<ResBody> {
+    /// 为一次拒绝构造 HTTP 响应
+    fn reject_response(&self, info: RejectInfo) -> Response<ResBody>;
+}
+
+/// 默认拒绝响应工厂：IETF 限流头 + 429
+///
+/// 输出与历史 `RateLimitService` 内联构造逐字节一致：状态 429、
+/// 响应体取默认值、注入 `RateLimit-Limit` / `RateLimit-Remaining=0` /
+/// `RateLimit-Reset` / `Retry-After`（policy 空则不写 `RateLimit-Policy`）。
+/// 信息缺省时不伪造零值头（裸 429）。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct IetfHttpResponder;
+
+impl<ResBody> RejectResponder<ResBody> for IetfHttpResponder
+where
+    ResBody: Default,
+{
+    fn reject_response(&self, info: RejectInfo) -> Response<ResBody> {
+        let mut response = Response::new(ResBody::default());
+        *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+        if let (Some(limit), Some(reset_at)) = (info.limit, info.reset_at) {
+            let header_values = RateLimitHeaderValues {
+                limit,
+                remaining: 0,
+                reset_at,
+                retry_after: info.retry_after,
+                policy: String::new(),
+            };
+            return inject_rate_limit_headers(response, &header_values);
+        }
+        response
+    }
 }
 
 /// 直连对端地址扩展：宿主框架（如 axum `into_make_service_with_connect_info`）
@@ -236,10 +291,11 @@ impl<B> IntoRequestContext<B> for DefaultRequestContextConverter {
 ///     Ok(())
 /// }
 /// ```
-pub struct RateLimitLayer<C = DefaultRequestContextConverter> {
+pub struct RateLimitLayer<C = DefaultRequestContextConverter, R = IetfHttpResponder> {
     governor: Arc<Governor>,
     config: RateLimitConfig,
     context_converter: C,
+    responder: R,
 }
 
 impl RateLimitLayer {
@@ -249,6 +305,7 @@ impl RateLimitLayer {
             governor,
             config,
             context_converter: DefaultRequestContextConverter::default(),
+            responder: IetfHttpResponder,
         }
     }
 }
@@ -260,15 +317,33 @@ impl<C> RateLimitLayer<C> {
             governor,
             config,
             context_converter: converter,
+            responder: IetfHttpResponder,
         }
     }
 }
 
-impl<S, C> Layer<S> for RateLimitLayer<C>
+impl RateLimitLayer<DefaultRequestContextConverter, IetfHttpResponder> {
+    /// 使用自定义拒绝响应工厂创建 Layer（上下文转换器保持默认类型）
+    pub fn with_responder<R2>(
+        governor: Arc<Governor>,
+        config: RateLimitConfig,
+        responder: R2,
+    ) -> RateLimitLayer<DefaultRequestContextConverter, R2> {
+        RateLimitLayer {
+            governor,
+            config,
+            context_converter: DefaultRequestContextConverter::default(),
+            responder,
+        }
+    }
+}
+
+impl<S, C, R> Layer<S> for RateLimitLayer<C, R>
 where
     C: Clone,
+    R: Clone,
 {
-    type Service = RateLimitService<S, C>;
+    type Service = RateLimitService<S, C, R>;
 
     fn layer(&self, inner: S) -> Self::Service {
         RateLimitService {
@@ -276,6 +351,7 @@ where
             inner,
             config: self.config.clone(),
             context_converter: self.context_converter.clone(),
+            responder: self.responder.clone(),
         }
     }
 }
@@ -284,19 +360,21 @@ where
 ///
 /// 实现 Tower 的 Service trait，在调用内部服务之前执行限流检查。
 /// 根据检查结果注入限流响应头或返回错误响应。
-pub struct RateLimitService<S, C = DefaultRequestContextConverter> {
+pub struct RateLimitService<S, C = DefaultRequestContextConverter, R = IetfHttpResponder> {
     governor: Arc<Governor>,
     inner: S,
     config: RateLimitConfig,
     context_converter: C,
+    responder: R,
 }
 
-impl<S, C, ReqBody, ResBody> Service<Request<ReqBody>> for RateLimitService<S, C>
+impl<S, C, R, ReqBody, ResBody> Service<Request<ReqBody>> for RateLimitService<S, C, R>
 where
     S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone + Send + 'static,
     S::Error: Into<Box<dyn std::error::Error + Send + Sync>> + Send,
     S::Future: Send + 'static,
     C: IntoRequestContext<ReqBody> + Send + Sync + Clone + 'static,
+    R: RejectResponder<ResBody> + Send + Sync + Clone + 'static,
     ReqBody: Send + 'static,
     ResBody: Default + Send + 'static,
 {
@@ -316,6 +394,7 @@ where
         let governor = self.governor.clone();
         let config = self.config.clone();
         let context_converter = self.context_converter.clone();
+        let responder = self.responder.clone();
 
         // 检查是否为健康检查路径
         let path = req.uri().path().to_string();
@@ -350,20 +429,14 @@ where
                     Ok(inject_rate_limit_headers(response, &header_values))
                 }
                 Ok(Decision::Rejected(metadata)) => {
-                    // 请求被拒绝，返回 429
+                    // 请求被拒绝，经响应工厂构造响应（默认 IetfHttpResponder
+                    // 的输出与历史内联构造逐字节一致）
                     if config.return_429_on_reject {
-                        let mut response = Response::new(ResBody::default());
-                        *response.status_mut() = StatusCode::TOO_MANY_REQUESTS;
-
-                        let header_values = RateLimitHeaderValues {
-                            limit: metadata.limit,
-                            remaining: 0,
-                            reset_at: metadata.reset_at,
+                        Ok(responder.reject_response(RejectInfo {
+                            limit: Some(metadata.limit),
+                            reset_at: Some(metadata.reset_at),
                             retry_after: Some(metadata.retry_after),
-                            policy: String::new(),
-                        };
-
-                        Ok(inject_rate_limit_headers(response, &header_values))
+                        }))
                     } else {
                         // 如果不返回 429，则继续调用内部服务
                         inner.await.map_err(into_box_error)
@@ -390,6 +463,152 @@ where
     }
 }
 
+/// 从 HTTP 请求提取限流 key
+///
+/// 返回 `None` 表示请求不携带可用 key：无法按 key 归账，直通不限流
+/// （该取舍由 [`KeyedRateLimitLayer`] 文档声明）。
+pub trait RequestKey<B> {
+    /// 提取限流 key（如用户 ID、API Key、对端地址字符串）
+    fn request_key(&self, request: &Request<B>) -> Option<String>;
+}
+
+/// Header 提取器：取单个请求头原值作为限流 key
+///
+/// 头缺失或值非可见 ASCII 时返回 `None`（直通）。
+#[derive(Debug, Clone)]
+pub struct HeaderKeyExtractor {
+    header: &'static str,
+}
+
+impl HeaderKeyExtractor {
+    /// 以请求头名构造提取器（如 `"x-api-key"`；匹配大小写不敏感）
+    pub fn new(header: &'static str) -> Self {
+        Self { header }
+    }
+}
+
+impl<B> RequestKey<B> for HeaderKeyExtractor {
+    fn request_key(&self, request: &Request<B>) -> Option<String> {
+        request
+            .headers()
+            .get(self.header)?
+            .to_str()
+            .ok()
+            .map(|v| v.to_string())
+    }
+}
+
+/// 按 key 直驱静态限流器的轻量 Tower Layer
+///
+/// 库内首条绕过 Governor 的快速路径：不做规则匹配、决策链与存储适配，
+/// 单个静态限流器实例按 key 直驱（如 [`crate::limiters::QuotaLimiter`]、
+/// `ConcurrencyLimiter` 等任何实现 [`Limiter`] 的类型），适合单规则
+/// 热点（API Key 配额、全局限流头直挂）。完整决策能力（多规则匹配、
+/// 封禁、审计）仍以 [`RateLimitLayer`] 的 Governor 路径为准。
+///
+/// 语义：
+/// - key 缺失（[`RequestKey`] 返回 `None`）→ 直通不限流
+/// - `Limiter::check` 通过 → 直通；拒绝/出错 → 经 [`RejectResponder`]
+///   构造响应（[`RejectInfo`] 为缺省值，快速路径不产生决策链元数据）
+pub struct KeyedRateLimitLayer<L, K, R = IetfHttpResponder> {
+    limiter: Arc<L>,
+    key_extractor: K,
+    responder: R,
+}
+
+impl<L, K> KeyedRateLimitLayer<L, K> {
+    /// 创建 keyed 快速路径 Layer（默认 IETF 拒绝响应）
+    pub fn new(limiter: Arc<L>, key_extractor: K) -> Self {
+        Self {
+            limiter,
+            key_extractor,
+            responder: IetfHttpResponder,
+        }
+    }
+}
+
+impl<L, K, R> KeyedRateLimitLayer<L, K, R> {
+    /// 使用自定义拒绝响应工厂创建 keyed 快速路径 Layer
+    pub fn with_responder(limiter: Arc<L>, key_extractor: K, responder: R) -> Self {
+        Self {
+            limiter,
+            key_extractor,
+            responder,
+        }
+    }
+}
+
+impl<S, L, K, R> Layer<S> for KeyedRateLimitLayer<L, K, R>
+where
+    K: Clone,
+    R: Clone,
+{
+    type Service = KeyedRateLimitService<S, L, K, R>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        KeyedRateLimitService {
+            limiter: self.limiter.clone(),
+            inner,
+            key_extractor: self.key_extractor.clone(),
+            responder: self.responder.clone(),
+        }
+    }
+}
+
+/// [`KeyedRateLimitLayer`] 产出的 Tower Service
+pub struct KeyedRateLimitService<S, L, K, R = IetfHttpResponder> {
+    limiter: Arc<L>,
+    inner: S,
+    key_extractor: K,
+    responder: R,
+}
+
+impl<S, L, K, R, ReqBody, ResBody> Service<Request<ReqBody>> for KeyedRateLimitService<S, L, K, R>
+where
+    S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone + Send + 'static,
+    S::Error: Into<Box<dyn std::error::Error + Send + Sync>> + Send,
+    S::Future: Send + 'static,
+    L: Limiter + 'static,
+    K: RequestKey<ReqBody> + Send + Sync + Clone + 'static,
+    R: RejectResponder<ResBody> + Send + Sync + Clone + 'static,
+    ReqBody: Send + 'static,
+    ResBody: Default + Send + 'static,
+{
+    type Response = Response<ResBody>;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner
+            .poll_ready(cx)
+            .map_err(into_box_error)
+            .map_ok(|_| ())
+    }
+
+    fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
+        match self.key_extractor.request_key(&req) {
+            // key 缺失：无法按 key 归账，直通不限流
+            None => {
+                let future = self.inner.call(req);
+                Box::pin(async move { future.await.map_err(into_box_error) })
+            }
+            Some(key) => {
+                let limiter = self.limiter.clone();
+                let responder = self.responder.clone();
+                let inner = self.inner.clone().call(req);
+                Box::pin(async move {
+                    match limiter.check(&key).await {
+                        Ok(()) => inner.await.map_err(into_box_error),
+                        // 拒绝与检查错误均经响应工厂上报（快速路径
+                        // 不区分错误类别，避免把存储故障渲染为放行）
+                        Err(_) => Ok(responder.reject_response(RejectInfo::default())),
+                    }
+                })
+            }
+        }
+    }
+}
+
 // ============================================================================
 // 单元测试
 // ============================================================================
@@ -398,7 +617,9 @@ where
 mod tests {
     use super::*;
     use crate::config::{Action, ActionConfig, FlowControlConfig, LimiterConfig, Matcher, Rule};
+    use crate::error::LimiteronError;
     use crate::storage::{MemoryBanStorage, MemoryStorage};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[derive(Clone)]
     struct MockService;
@@ -842,5 +1063,256 @@ mod tests {
             Poll::Ready(Err(_)) => {}
             _ => panic!("expected Ready(Err)"),
         }
+    }
+
+    // ========================================================================
+    // RejectResponder:拒绝响应工厂(默认 IetfHttpResponder = 历史硬编码构造)
+    // ========================================================================
+
+    #[test]
+    fn test_reject_responder_default_snapshot() {
+        // 默认工厂输出与历史 Service::call 内联构造逐字节一致:
+        // 429 + body 默认 + RateLimit-{Limit,Remaining=0,Reset} + Retry-After,
+        // policy 空 → 无 RateLimit-Policy 头
+        let got: Response<()> = IetfHttpResponder.reject_response(RejectInfo {
+            limit: Some(7),
+            reset_at: Some(1234567890),
+            retry_after: Some(9),
+        });
+
+        // 历史内联构造(照抄原 Service::call Rejected 分支)
+        let mut expected = Response::new(());
+        *expected.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+        let expected = inject_rate_limit_headers(
+            expected,
+            &RateLimitHeaderValues {
+                limit: 7,
+                remaining: 0,
+                reset_at: 1234567890,
+                retry_after: Some(9),
+                policy: String::new(),
+            },
+        );
+
+        assert_eq!(got.status(), expected.status());
+        assert_eq!(got.headers().len(), expected.headers().len());
+        for name in [
+            "RateLimit-Limit",
+            "RateLimit-Remaining",
+            "RateLimit-Reset",
+            "Retry-After",
+            "RateLimit-Policy",
+        ] {
+            assert_eq!(
+                got.headers().get(name),
+                expected.headers().get(name),
+                "header {name} 不一致"
+            );
+        }
+        assert_eq!(got.headers().get("RateLimit-Limit").unwrap(), "7");
+        assert_eq!(got.headers().get("RateLimit-Remaining").unwrap(), "0");
+        assert_eq!(got.headers().get("RateLimit-Reset").unwrap(), "1234567890");
+        assert_eq!(got.headers().get("Retry-After").unwrap(), "9");
+    }
+
+    #[test]
+    fn test_reject_responder_default_sparse_info_bare_429() {
+        // 信息缺省(直驱静态限流器路径)→ 裸 429,不伪造零值头
+        let got: Response<()> = IetfHttpResponder.reject_response(RejectInfo::default());
+        assert_eq!(got.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(got.headers().get("RateLimit-Limit").is_none());
+        assert!(got.headers().get("RateLimit-Remaining").is_none());
+        assert!(got.headers().get("RateLimit-Reset").is_none());
+        assert!(got.headers().get("Retry-After").is_none());
+    }
+
+    /// 自定义拒绝响应工厂:拒绝时走工厂;允许路径不经工厂
+    #[tokio::test]
+    async fn test_service_rejected_uses_custom_responder() {
+        #[derive(Clone)]
+        struct CustomResponder {
+            calls: Arc<AtomicUsize>,
+        }
+        impl RejectResponder<()> for CustomResponder {
+            fn reject_response(&self, _info: RejectInfo) -> Response<()> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                let mut resp = Response::new(());
+                *resp.status_mut() = StatusCode::IM_A_TEAPOT;
+                resp.headers_mut().insert(
+                    "X-Custom-Responder",
+                    http::header::HeaderValue::from_static("yes"),
+                );
+                resp
+            }
+        }
+
+        let (gov, _) = make_governor(gen_config(1, 10), false).await;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut svc = RateLimitLayer::with_responder(
+            gov,
+            RateLimitConfig::default(),
+            CustomResponder {
+                calls: calls.clone(),
+            },
+        )
+        .layer(MockService);
+
+        // 第一次:允许 → 不经工厂
+        let resp: Response<()> = svc.call(make_req("/api", "u")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+        // 第二次:耗尽拒绝 → 自定义工厂生效(默认 IETF 头被替换)
+        {
+            let resp: Response<()> = svc.call(make_req("/api", "u")).await.unwrap();
+            assert_eq!(resp.status(), StatusCode::IM_A_TEAPOT);
+            assert_eq!(resp.headers().get("X-Custom-Responder").unwrap(), "yes");
+            assert!(resp.headers().get("RateLimit-Limit").is_none());
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// return_429_on_reject=false:直通路径不触发工厂
+    #[tokio::test]
+    async fn test_service_responder_not_called_when_429_disabled() {
+        #[derive(Clone)]
+        struct CountingResponder {
+            calls: Arc<AtomicUsize>,
+        }
+        impl RejectResponder<()> for CountingResponder {
+            fn reject_response(&self, _info: RejectInfo) -> Response<()> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Response::new(())
+            }
+        }
+
+        let (gov, _) = make_governor(gen_config(1, 10), false).await;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let cfg = RateLimitConfig {
+            return_429_on_reject: false,
+            ..RateLimitConfig::default()
+        };
+        let mut svc = RateLimitLayer::with_responder(
+            gov,
+            cfg,
+            CountingResponder {
+                calls: calls.clone(),
+            },
+        )
+        .layer(MockService);
+
+        let resp: Response<()> = svc.call(make_req("/api", "u")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "直通路径不应触发工厂");
+    }
+
+    // ========================================================================
+    // KeyedRateLimitLayer:绕过 Governor 的静态限流器直驱快速路径
+    // ========================================================================
+
+    #[derive(Clone)]
+    struct StaticLimiter {
+        allow: Arc<AtomicBool>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::limiters::Limiter for StaticLimiter {
+        async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
+            Ok(self.allow.load(Ordering::SeqCst))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_keyed_layer_allows_then_rejects_via_default_responder() {
+        let limiter = StaticLimiter {
+            allow: Arc::new(AtomicBool::new(true)),
+        };
+        let mut svc = KeyedRateLimitLayer::new(
+            Arc::new(limiter.clone()),
+            HeaderKeyExtractor::new("x-api-key"),
+        )
+        .layer(MockService);
+
+        // 带 key 且允许 → 直通
+        let req = Request::builder()
+            .uri("/api")
+            .method("GET")
+            .header("X-API-Key", "k1")
+            .body(())
+            .unwrap();
+        let resp: Response<()> = svc.call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 限流器拒绝 → 默认工厂 429(信息缺省 → 无 RateLimit 头)
+        limiter.allow.store(false, Ordering::SeqCst);
+        let req = Request::builder()
+            .uri("/api")
+            .method("GET")
+            .header("X-API-Key", "k1")
+            .body(())
+            .unwrap();
+        let resp: Response<()> = svc.call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(resp.headers().get("RateLimit-Limit").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_keyed_layer_passes_through_without_key() {
+        // 无 key 请求无法按 key 归账 → 直通不限流(语义在文档声明)
+        let limiter = StaticLimiter {
+            allow: Arc::new(AtomicBool::new(false)),
+        };
+        let mut svc =
+            KeyedRateLimitLayer::new(Arc::new(limiter), HeaderKeyExtractor::new("x-api-key"))
+                .layer(MockService);
+
+        let req = Request::builder().uri("/api").method("GET").body(());
+        let resp: Response<()> = svc.call(req.unwrap()).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_keyed_layer_custom_responder_with_retry_after() {
+        #[derive(Clone)]
+        struct RetryAfterResponder {
+            calls: Arc<AtomicUsize>,
+        }
+        impl RejectResponder<()> for RetryAfterResponder {
+            fn reject_response(&self, info: RejectInfo) -> Response<()> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                let mut resp = Response::new(());
+                *resp.status_mut() = StatusCode::TOO_MANY_REQUESTS;
+                if let Some(secs) = info.retry_after {
+                    resp.headers_mut().insert(
+                        "Retry-After",
+                        http::header::HeaderValue::from_str(&secs.to_string()).unwrap(),
+                    );
+                }
+                resp
+            }
+        }
+
+        let limiter = StaticLimiter {
+            allow: Arc::new(AtomicBool::new(false)),
+        };
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut svc = KeyedRateLimitLayer::with_responder(
+            Arc::new(limiter),
+            HeaderKeyExtractor::new("x-api-key"),
+            RetryAfterResponder {
+                calls: calls.clone(),
+            },
+        )
+        .layer(MockService);
+
+        let req = Request::builder()
+            .uri("/api")
+            .method("GET")
+            .header("X-API-Key", "k1")
+            .body(())
+            .unwrap();
+        let resp: Response<()> = svc.call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }

@@ -218,7 +218,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td rowspan="2">事件</td><td><code>event-system</code></td><td>事件系统（EventEmitter / Dispatcher / Outbox）</td><td>❌</td></tr>
 <tr><td><code>ban-sync</code></td><td>封禁跨实例同步（oxcache Pub/Sub 广播）</td><td>❌</td></tr>
 <tr><td>多租户</td><td><code>multi-tenant</code></td><td>tenant+key 复合决策键与按租户隔离</td><td>❌</td></tr>
-<tr><td>中间件</td><td><code>tower-middleware</code></td><td>Tower Layer / Service 集成</td><td>❌</td></tr>
+<tr><td>中间件</td><td><code>tower-middleware</code></td><td>Tower Layer / Service 集成（Governor 决策路径 + <code>KeyedRateLimitLayer</code> 静态限流器直驱快速路径，拒绝响应可经 <code>RejectResponder</code> 定制）</td><td>❌</td></tr>
 <tr><td>分布式</td><td><code>distributed</code></td><td><code>DistributedLimiter</code> trait + 内存实现（Redis 实现需另启用 <code>lua-script</code>）</td><td>❌</td></tr>
 <tr><td rowspan="3">限流算法</td><td><code>adaptive-limiting</code></td><td>AIMD 自适应并发限流器（延迟/错误率反馈调窗）</td><td>✅</td></tr>
 <tr><td><code>priority-queue</code></td><td>兼容声明，启用无效果</td><td>❌</td></tr>

@@ -23,6 +23,7 @@ error-validation = 验证错误: { $message }
 error-lock = 锁获取错误: { $message }
 error-time = 时间错误: { $message }
 error-dependency = 依赖缺失: { $message }
+error-param-mismatch = 参数不一致: { $message }
 error-other = 未知错误: { $message }
 
 # ---- StorageError 变体（LimiteronError::StorageError 委托至此） ----

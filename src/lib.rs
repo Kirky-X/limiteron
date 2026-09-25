@@ -238,7 +238,7 @@ pub use l1_cache::{L1Cache, L1CacheConfig, RateLimitCacheKey};
 pub use limiters::Limiter;
 #[cfg(feature = "quota-control")]
 pub use limiters::QuotaLimiter;
-#[cfg(feature = "macros")]
+#[cfg(feature = "manager")]
 pub use limiters::manager::{GLOBAL_LIMITER_MANAGER, LimiterManager};
 #[cfg(feature = "macros")]
 pub use macros::{

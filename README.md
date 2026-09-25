@@ -190,9 +190,10 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>mysql</code></td><td>MySQL 存储（dbnexus 服务端驱动）</td><td>❌</td></tr>
 <tr><td><code>cache-redis</code></td><td>Redis 缓存后端（经 oxcache；原 <code>cache-storage</code>，保留为兼容别名）</td><td>❌</td></tr>
 <tr><td><code>lua-script</code></td><td>Redis Lua 脚本执行（经 oxcache <code>eval_lua</code>）</td><td>❌</td></tr>
-<tr><td rowspan="8">核心功能</td><td><code>ban-manager</code></td><td>封禁管理（目标封禁、优先级、文件加载）</td><td>❌</td></tr>
+<tr><td rowspan="9">核心功能</td><td><code>ban-manager</code></td><td>封禁管理（目标封禁、优先级、文件加载）</td><td>❌</td></tr>
 <tr><td><code>bulkhead</code></td><td>舱壁隔离：按资源组分池 + 独立并发预算与隔离指标</td><td>❌</td></tr>
 <tr><td><code>quota-control</code></td><td>配额控制</td><td>❌</td></tr>
+<tr><td><code>manager</code></td><td>限流器管理器（<code>LimiterManager</code> 按 key 缓存；<code>#[flow_control]</code> 宏运行时配套，可独立启用）</td><td>❌</td></tr>
 <tr><td><code>circuit-breaker</code></td><td>熔断器</td><td>❌</td></tr>
 <tr><td><code>fallback</code></td><td>降级策略（FallbackManager）</td><td>❌</td></tr>
 <tr><td><code>custom-limiter</code></td><td>自定义限流器扩展</td><td>❌</td></tr>
@@ -210,7 +211,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>metrics</code></td><td>Governor allow / reject / ban 三点指标（隐含 <code>monitoring</code>）</td><td>❌</td></tr>
 <tr><td><code>audit-log</code></td><td>审计日志（HMAC-SHA256 链式签名与篡改检测）</td><td>❌</td></tr>
 <tr><td><code>otlp</code></td><td>OTLP/HTTP 追踪导出</td><td>❌</td></tr>
-<tr><td rowspan="3">工具</td><td><code>macros</code></td><td><code>#[flow_control]</code> 声明式宏（limiteron-macros）</td><td>❌</td></tr>
+<tr><td rowspan="3">工具</td><td><code>macros</code></td><td><code>#[flow_control]</code> 声明式宏（limiteron-macros；展开代码依赖 <code>manager</code>，隐含启用）</td><td>❌</td></tr>
 <tr><td><code>config-watcher</code></td><td>配置文件监听与热重载</td><td>❌</td></tr>
 <tr><td><code>webhook</code></td><td>Webhook 外发（HMAC-SHA256 签名头 + 时间戳防重放）</td><td>❌</td></tr>
 <tr><td rowspan="2">事件</td><td><code>event-system</code></td><td>事件系统（EventEmitter / Dispatcher / Outbox）</td><td>❌</td></tr>

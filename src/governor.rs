@@ -4911,7 +4911,9 @@ mod governor_feature_gated_tests {
         );
     }
 
-    #[cfg(test)]
+    // 与被测类型同门控：ConservativeQuotaCounter 仅在 fallback 下编译，
+    // 测试模块缺该门控会使默认 feature 的测试二进制编译失败
+    #[cfg(all(test, feature = "fallback"))]
     mod conservative_quota_counter_tests {
         use super::*;
 

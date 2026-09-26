@@ -23,7 +23,7 @@ pub mod fixed_window;
 #[cfg(feature = "gcra")]
 pub mod gcra;
 pub mod htb;
-#[cfg(feature = "macros")]
+#[cfg(feature = "manager")]
 pub mod manager;
 pub mod sharded_sliding_window;
 #[allow(deprecated)]

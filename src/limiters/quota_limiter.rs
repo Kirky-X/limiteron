@@ -290,6 +290,53 @@ impl QuotaLimiter {
         record.usage = record.usage.saturating_add(cost);
         Ok(true)
     }
+
+    /// 检查并消耗单次请求配额，超限时以窗口剩余秒数上报
+    ///
+    /// 与 [`Limiter::check`](crate::limiters::Limiter::check) 的单请求语义一致
+    /// （cost=1），差异仅在超限上报形态：`check` 返回 `Err(QuotaExceeded)`，
+    /// 本方法返回 `Err(窗口剩余秒数)`，供调用方直接填充 Retry-After 类
+    /// 响应头，免去解析错误串。
+    ///
+    /// # 剩余秒数口径
+    ///
+    /// `window_size - 窗口已流逝时长`，按 `Duration::as_secs()` 向下取整；
+    /// 剩余不足 1 秒时报 0（与 `anonymous_snapshot` 的 reset_secs 截断口径
+    /// 一致）。检查与读表之间窗口被并发翻转时取值偏保守（偏大），
+    /// 不会导致提前重试。
+    ///
+    /// # storage 模式
+    ///
+    /// 共享账本不暴露窗口起点，超限与后端错误统一映射为完整 `window_size`
+    /// （保守值）；后端真实故障无法经 `u64` 通道区分，需调用方监控覆盖。
+    pub async fn check_retry_after(&self, key: &str) -> Result<(), u64> {
+        if let Some(storage) = &self.storage {
+            // 单请求语义：固定 cost=1
+            return self
+                .consume_via_storage(storage, key, 1)
+                .await
+                .map(|_| ())
+                .map_err(|_| self.config.window_size);
+        }
+        match self.check_and_consume(key, 1).await {
+            Ok(_) => Ok(()),
+            Err(LimiteronError::QuotaExceeded(_)) => Err(self.window_remaining_secs(key)),
+            // 当前内存模式仅产出 QuotaExceeded；兜底保守取完整窗口
+            Err(_) => Err(self.config.window_size),
+        }
+    }
+
+    /// key 当前窗口剩余秒数（记录不存在按满窗计算；向下取整）
+    fn window_remaining_secs(&self, key: &str) -> u64 {
+        let now = Instant::now();
+        let window_duration = Duration::from_secs(self.config.window_size);
+        let elapsed = self
+            .usage
+            .get(key)
+            .map(|rec| now.duration_since(rec.window_start))
+            .unwrap_or(Duration::ZERO);
+        (window_duration - elapsed.min(window_duration)).as_secs()
+    }
 }
 
 #[async_trait]
@@ -651,5 +698,76 @@ mod tests {
         }
         // 第 4 个应失败
         assert!(limiter.check("boundary_user").await.is_err());
+    }
+
+    // ========================================================================
+    // check_retry_after：超限以窗口剩余秒数上报（Retry-After 语义）
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_check_retry_after_ok_when_quota_available() {
+        let config = create_test_config(); // limit=10, window=60
+        let limiter = QuotaLimiter::new(config);
+
+        assert!(
+            limiter.check_retry_after("ra_user").await.is_ok(),
+            "配额充足应放行"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_check_retry_after_ok_after_window_reset() {
+        // 过期分支：窗口翻转后配额重置，请求放行
+        let mut config = create_test_config();
+        config.window_size = 1;
+        config.limit = 1;
+        let limiter = QuotaLimiter::new(config);
+
+        assert!(limiter.check_retry_after("ra_reset").await.is_ok());
+        assert!(limiter.check_retry_after("ra_reset").await.is_err());
+        tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+        assert!(
+            limiter.check_retry_after("ra_reset").await.is_ok(),
+            "窗口翻转后应重置放行"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_check_retry_after_err_reports_remaining_secs() {
+        // 未过期分支：超限拒绝，Err 携带窗口剩余秒数（>0，≤完整窗口）
+        let config = create_test_config(); // limit=10, window=60
+        let limiter = QuotaLimiter::new(config);
+
+        for _ in 0..10 {
+            assert!(limiter.check_retry_after("ra_remaining").await.is_ok());
+        }
+        let remaining = limiter
+            .check_retry_after("ra_remaining")
+            .await
+            .expect_err("配额耗尽应返回 Err");
+        assert!(
+            (1..=60).contains(&remaining),
+            "剩余秒数应在 (0, 60] 内，实际 {remaining}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_check_retry_after_zero_remaining_boundary() {
+        // 恰 0 秒边界：剩余不足 1 秒时向下取整为 0（与 anonymous_snapshot
+        // 的 reset_secs 截断口径一致）。不依赖调度时序：sleep 后若窗口
+        // 已翻转（全量并发负载下调度间隔可能超 1s），走「重置放行」
+        // 分支；否则断言 Err(0) 分支。
+        let mut config = create_test_config();
+        config.window_size = 1;
+        config.limit = 1;
+        let limiter = QuotaLimiter::new(config);
+
+        assert!(limiter.check_retry_after("ra_zero").await.is_ok());
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        match limiter.check_retry_after("ra_zero").await {
+            // 窗口已翻转：重置放行，属正确语义的另一分支
+            Ok(()) => {}
+            Err(remaining) => assert_eq!(remaining, 0, "窗口未翻转且剩余 <1s 应截断为 0"),
+        }
     }
 }

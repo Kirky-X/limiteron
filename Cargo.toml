@@ -309,6 +309,10 @@ default = []
 # Compatibility features（vecboost 兼容声明）。
 # adaptive-limiting 自 rc4 起为真实实现（AIMD 自适应并发限流器）。
 adaptive-limiting = []
+# 六档容量调光（DialLevel L0-L5 / DialThresholds / CapacityDial）。
+# 独立默认关 feature，与既有模块零耦合，刻意不入任何 preset（含 full）：
+# 调光执行点（指标采集、按 capacity_ratio 放行）由消费方装配。
+capacity-dial = []
 priority-queue = []
 admission-control = []
 
@@ -350,6 +354,10 @@ lua-script = ["oxcache/lua", "dep:redis"]
 ban-manager = []
 # 舱壁隔离：按资源组分池 + 独立并发预算/熔断/隔离指标
 bulkhead = []
+# 限流器管理器：LimiterManager / GLOBAL_LIMITER_MANAGER（按 key 缓存限流器实例）。
+# #[flow_control] 宏展开代码引用全局管理器，故 macros 组合隐含本 feature，
+# 单开 macros 时展开代码仍可编译；本 feature 亦可不经宏独立启用。
+manager = []
 quota-control = []
 circuit-breaker = []
 fallback = []
@@ -401,7 +409,7 @@ otlp = ["telemetry"]
 # ============================================
 # Tooling Features (工具)
 # ============================================
-macros = ["dep:limiteron-macros"]
+macros = ["dep:limiteron-macros", "manager"]
 config-watcher = ["dep:notify"]
 # webhook 外发（含 HMAC-SHA256 签名头 + 时间戳防重放，签名依赖与 audit-log 共享）
 webhook = ["dep:reqwest", "dep:hmac", "dep:sha2", "dep:hex"]

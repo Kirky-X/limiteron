@@ -24,6 +24,7 @@ error-validation = Validation error: { $message }
 error-lock = Lock acquisition error: { $message }
 error-time = Time error: { $message }
 error-dependency = Missing dependency: { $message }
+error-param-mismatch = Parameter mismatch: { $message }
 error-other = Unknown error: { $message }
 
 # ---- StorageError variants (LimiteronError::StorageError delegates here) ----

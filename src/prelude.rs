@@ -40,7 +40,8 @@ pub use crate::limiters::{DistributedLimiter, InMemoryDistributedLimiter};
 // Tower middleware (feature-gated)
 #[cfg(feature = "tower-middleware")]
 pub use crate::middleware::{
-    IntoRequestContext, RateLimitConfig, RateLimitHeaderValues, RateLimitLayer, RateLimitService,
+    IetfHttpResponder, IntoRequestContext, KeyedRateLimitLayer, RateLimitConfig,
+    RateLimitHeaderValues, RateLimitLayer, RateLimitService, RejectInfo, RejectResponder,
 };
 
 // DbStorage removed as part of direct-inheritance refactoring

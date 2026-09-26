@@ -66,6 +66,7 @@ impl LocalizedMsg for LimiteronError {
             LimiteronError::LockError(_) => "error-lock",
             LimiteronError::TimeError(_) => "error-time",
             LimiteronError::DependencyError(_) => "error-dependency",
+            LimiteronError::ParamMismatch(_) => "error-param-mismatch",
             LimiteronError::Other(_) => "error-other",
         }
     }
@@ -88,6 +89,7 @@ impl LocalizedMsg for LimiteronError {
             | LimiteronError::LockError(message)
             | LimiteronError::TimeError(message)
             | LimiteronError::DependencyError(message)
+            | LimiteronError::ParamMismatch(message)
             | LimiteronError::Other(message) => vec![("message", message.clone())],
             LimiteronError::IoError(err) => vec![("message", err.to_string())],
             LimiteronError::SerdeError(err) => vec![("message", err.to_string())],
@@ -357,6 +359,15 @@ mod tests {
         // 委托：包装变体直接落到内层 StorageError 的键
         let wrapped = LimiteronError::StorageError(StorageError::QueryError("q".into()));
         assert_eq!(wrapped.message_en(), "Query error: q");
+
+        // ParamMismatch 双轨：Display 英文规范串与 FTL 目录键对齐
+        // （并入本用例：locale 全局 override 态在并行测试下存在竞态）
+        let mismatch = LimiteronError::ParamMismatch("k".into());
+        assert_eq!(mismatch.to_string(), "Parameter mismatch: k");
+        assert_eq!(mismatch.message_en(), "Parameter mismatch: k");
+        clear_locale_override();
+        set_locale("zh-CN").expect("zh-CN is valid");
+        assert_eq!(mismatch.to_localized_string(), "参数不一致: k");
 
         clear_locale_override();
     }

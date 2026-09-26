@@ -35,6 +35,9 @@
 
 use crate::limiters::{ConcurrencyLimiter, TokenBucketLimiter};
 use ahash::AHashSet;
+// 与 try_get_quota_limiter 同门控：仅 quota-control 路径消费
+#[cfg(feature = "quota-control")]
+use crate::error::LimiteronError;
 use dashmap::DashMap;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -77,6 +80,27 @@ fn redact_key(key: &str) -> String {
     } else {
         format!("<{} chars>", key.len())
     }
+}
+
+/// 构造 quota limiter 参数不一致错误（key 已脱敏）
+///
+/// 供快速路径与慢路径并发插入校验共用，保证两路径消息格式一致。
+#[cfg(feature = "quota-control")]
+fn quota_param_mismatch(
+    key: &str,
+    existing_max: u64,
+    existing_period: std::time::Duration,
+    max: u64,
+    period: std::time::Duration,
+) -> LimiteronError {
+    LimiteronError::ParamMismatch(format!(
+        "LimiterManager: quota limiter key '{}' already exists with different params (existing: max={}, period={:?}; new: max={}, period={:?})",
+        redact_key(key),
+        existing_max,
+        existing_period,
+        max,
+        period
+    ))
 }
 
 /// 通用 LRU 清理逻辑
@@ -307,6 +331,14 @@ impl LimiterManager {
     ///
     /// 同 key 但参数（max / period）不一致时 panic（Rule 12：失败必须显性化）。
     /// panic 消息中 key 已脱敏。
+    ///
+    /// # 已知竞态窗口
+    ///
+    /// get() 未命中到 entry().or_insert_with() 插入之间存在竞态：并发线程
+    /// 可能刚以不同参数插入同 key 实例，慢路径直接复用而不校验，静默返回
+    /// 参数不符的实例。本方法因 panic 路径零改动承诺不含慢路径校验；
+    /// 需要严格校验的调用方使用 [`Self::try_get_quota_limiter`]（慢路径
+    /// 补校验，以 `Err(ParamMismatch)` 上报）。
     #[cfg(feature = "quota-control")]
     pub fn get_quota_limiter(
         &self,
@@ -371,6 +403,99 @@ impl LimiterManager {
                 .store(false, Ordering::Release);
         }
         limiter
+    }
+
+    /// 获取或创建 quota limiter 的非 panic 版本
+    ///
+    /// 与 [`Self::get_quota_limiter`] 语义一致，差异仅在参数一致性校验：
+    /// 同 key 但 (max / period) 不一致时返回
+    /// [`LimiteronError::ParamMismatch`]（key 已脱敏）而非 panic，
+    /// 供希望以错误上报处理配置漂移的调用方使用。
+    ///
+    /// # 保证
+    ///
+    /// - Err 路径不污染缓存：已存在的原实例保持原样，原参数重试仍命中
+    /// - 快速路径与慢路径（含并发插入竞态）均做参数一致性校验
+    ///
+    /// 注意：本方法与 `get_quota_limiter` 保持代码镜像而非委托关系——
+    /// 委托实现需重写 `get_quota_limiter` 的 panic 路径，属破坏性改动；
+    /// 因此本方法在慢路径多一道并发插入校验（get_quota_limiter 出于
+    /// panic 路径零改动承诺不含该校验，见其文档的竞态窗口说明）。
+    #[cfg(feature = "quota-control")]
+    pub fn try_get_quota_limiter(
+        &self,
+        key: &str,
+        period: std::time::Duration,
+        max: u64,
+    ) -> Result<Arc<QuotaLimiter>, LimiteronError> {
+        let key = key.to_string(); // 缓存一次
+
+        // 快速路径：get() 读锁
+        if let Some(existing) = self.quota_limiters.get(&key) {
+            let existing_limiter = existing.value();
+            // 参数一致性校验：不一致以 Result 上报，不触发 panic
+            if existing_limiter.max() != max || existing_limiter.period() != period {
+                return Err(quota_param_mismatch(
+                    &key,
+                    existing_limiter.max(),
+                    existing_limiter.period(),
+                    max,
+                    period,
+                ));
+            }
+            // 更新访问时间
+            if let Some(t) = self.quota_access_times.get(&key) {
+                t.store(now_nanos(), Ordering::Relaxed);
+            } else {
+                self.quota_access_times
+                    .entry(key.clone())
+                    .or_insert_with(|| AtomicU64::new(now_nanos()));
+            }
+            return Ok(existing_limiter.clone());
+        }
+
+        // 慢路径：entry().or_insert_with().clone()，与 get_quota_limiter 相同
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: max,
+            window_size: period.as_secs(),
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig::default(),
+        };
+        let limiter = self
+            .quota_limiters
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(QuotaLimiter::new(config)))
+            .clone();
+        // 慢路径并发校验：or_insert_with 可能返回并发线程刚以不同参数
+        // 插入的实例（get 未命中与插入之间存在竞态窗口），此处补一致性
+        // 校验——不一致以 Result 上报，缓存保持原实例不覆盖
+        if limiter.max() != max || limiter.period() != period {
+            return Err(quota_param_mismatch(
+                &key,
+                limiter.max(),
+                limiter.period(),
+                max,
+                period,
+            ));
+        }
+        self.quota_access_times
+            .entry(key.clone())
+            .or_insert_with(|| AtomicU64::new(now_nanos()));
+
+        // LRU 检查
+        if self.quota_limiters.len() > CLEANUP_THRESHOLD
+            && self
+                .quota_cleanup_in_progress
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+        {
+            self.cleanup_quota_limiters();
+            self.quota_cleanup_in_progress
+                .store(false, Ordering::Release);
+        }
+        Ok(limiter)
     }
 
     /// 获取或创建 concurrency limiter
@@ -832,6 +957,70 @@ mod tests {
         let _ = manager.get_concurrency_limiter("mismatch_conc", 10);
         // 同 key 不同 max_concurrent 应 panic
         let _ = manager.get_concurrency_limiter("mismatch_conc", 20);
+    }
+
+    // ========================================================================
+    // try_get_quota_limiter:参数不一致以 Result 上报而非 panic
+    // ========================================================================
+
+    #[cfg(feature = "quota-control")]
+    #[test]
+    fn test_try_get_quota_limiter_caches_by_key() {
+        let manager = LimiterManager::new();
+        let l1 = manager
+            .try_get_quota_limiter("try_qkey", std::time::Duration::from_secs(3600), 1000)
+            .expect("首次获取应成功");
+        let l2 = manager
+            .try_get_quota_limiter("try_qkey", std::time::Duration::from_secs(3600), 1000)
+            .expect("同参数重复获取应成功");
+        assert!(Arc::ptr_eq(&l1, &l2));
+        assert_eq!(manager.quota_limiter_count(), 1);
+    }
+
+    #[cfg(feature = "quota-control")]
+    #[test]
+    fn test_try_get_quota_limiter_param_mismatch_returns_err() {
+        let manager = LimiterManager::new();
+        let _ = manager.try_get_quota_limiter(
+            "try_mismatch_quota",
+            std::time::Duration::from_secs(3600),
+            100,
+        );
+        let err = match manager.try_get_quota_limiter(
+            "try_mismatch_quota",
+            std::time::Duration::from_secs(3600),
+            200,
+        ) {
+            Err(e) => e,
+            Ok(_) => panic!("参数不一致应返回 Err 而非 panic"),
+        };
+        match err {
+            crate::error::LimiteronError::ParamMismatch(msg) => {
+                assert!(
+                    msg.contains("already exists with different params"),
+                    "错误消息应描述参数冲突,实际: {msg}"
+                );
+                // key 已脱敏,不应包含原文
+                assert!(!msg.contains("try_mismatch_quota"));
+            }
+            other => panic!("应为 ParamMismatch 变体,实际: {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "quota-control")]
+    #[test]
+    fn test_try_get_quota_limiter_err_keeps_existing_entry() {
+        let manager = LimiterManager::new();
+        let first = manager
+            .try_get_quota_limiter("try_keep", std::time::Duration::from_secs(60), 10)
+            .expect("首次获取应成功");
+        let _ = manager.try_get_quota_limiter("try_keep", std::time::Duration::from_secs(60), 999);
+        // Err 路径不得污染缓存:原参数再次获取应命中同一实例
+        let again = manager
+            .try_get_quota_limiter("try_keep", std::time::Duration::from_secs(60), 10)
+            .expect("原参数再次获取应成功");
+        assert!(Arc::ptr_eq(&first, &again));
+        assert_eq!(manager.quota_limiter_count(), 1);
     }
 
     // ========================================================================

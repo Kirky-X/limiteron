@@ -102,6 +102,12 @@ pub enum LimiteronError {
     #[error("Missing dependency: {0}")]
     DependencyError(String),
 
+    /// 限流器参数不一致：同 key 已存在以不同参数创建的限流器实例
+    /// （如 `LimiterManager::try_get_quota_limiter` 的参数一致性校验以
+    /// Result 上报的路径；`get_*` 系列 panic 路径不变，经本变体镜像上报）
+    #[error("Parameter mismatch: {0}")]
+    ParamMismatch(String),
+
     /// 其他错误
     #[error("Unknown error: {0}")]
     Other(String),

@@ -55,7 +55,7 @@
 
 ### 输入校验与注入防护
 
-- **标识符 key 消毒**（`src/limiters/manager.rs` 的 `sanitize_key_component`）：仅保留 ASCII 字母数字与 `_` `-` `.`，截断至 128 字符，防御 key 注入与 Unicode 同形字符攻击。
+- **标识符消毒**（`src/tenant/config.rs` 的 `sanitize_tenant_id` / `sanitize_environment`）：转义标识符中的 `:`，防止多租户命名空间前缀注入与跨租户前缀冲突。
 - **输入校验**（`src/validation.rs`）：对 IP 地址、用户 ID、MAC 地址等标识符做格式校验。
 - **Admin API 自身限流**（`src/admin/routes.rs`）：按路径、按客户端分桶限流，并设置分桶内存上限（`RATE_BUCKET_MAX_ENTRIES=10000`）与过期窗口清扫，防止攻击者轮换源 IP 造成无界内存增长的 OOM DoS；Mutex 中毒时恢复而非 panic。
 

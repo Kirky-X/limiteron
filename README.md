@@ -405,7 +405,7 @@ cargo bench --features full
 
 **安全设计要点**（均可在源码与[安全文档](docs/SECURITY.md)中对应）：
 
-- **输入防线** — 标识符 key 消毒（ASCII 白名单 + 128 字符截断，防 key 注入与同形字符攻击）；IP / 用户 ID / MAC 格式校验（`src/validation.rs`）
+- **输入防线** — 租户 / 环境标识符消毒（转义 `:` 防命名空间前缀注入，`src/tenant/config.rs`）；IP / 用户 ID / MAC 格式校验（`src/validation.rs`）
 - **算法边界** — 令牌桶时间差与补充使用饱和运算封顶；配额窗口内置时钟回退防护
 - **Admin 自保护** — 管理端点自身限流 + 分桶内存上限 + 多 key 令牌认证与 admin/viewer 角色矩阵（RBAC）
 - **数据保护** — secrecy 保护敏感数据、日志脱敏（`log-redaction`）、审计事件 HMAC-SHA256 链式签名与篡改检测

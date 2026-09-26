@@ -406,7 +406,7 @@ cargo bench --features full
 
 **Security design highlights** (each traceable in the source and the [Security document](docs/SECURITY.md)):
 
-- **Input defenses** — identifier key sanitization (ASCII allowlist + 128-char truncation, defending against key injection and homoglyph attacks); IP / user ID / MAC format validation (`src/validation.rs`)
+- **Input defenses** — tenant/environment identifier sanitization (`src/tenant/config.rs` escapes `:` to prevent namespace-prefix injection); IP / user ID / MAC format validation (`src/validation.rs`)
 - **Algorithm boundaries** — saturating arithmetic and capacity capping in the token bucket; clock-fallback protection in quota windows
 - **Admin self-protection** — per-path/per-client rate limiting on admin endpoints + bucket memory caps + multi-key token authentication with an admin/viewer role matrix (RBAC)
 - **Data protection** — secrecy for sensitive data, log redaction (`log-redaction`), HMAC-SHA256 hash-chained audit events with tamper detection

@@ -100,6 +100,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4716b85f2fac3e324e64fa2810f6b5c3905760a5 # 1.97.1
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Check docs consistency
+        run: ./scripts/check-docs-consistency.sh
       - name: Build documentation
         run: cargo doc --workspace --no-deps --no-default-features --features full,postgres
         env:

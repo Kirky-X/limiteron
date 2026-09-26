@@ -27,6 +27,9 @@ pub use crate::ban::BanManager;
 #[cfg(feature = "circuit-breaker")]
 pub use crate::circuit::CircuitBreaker;
 
+#[cfg(feature = "circuit-breaker")]
+pub use crate::circuit::ManualCircuitBreaker;
+
 #[cfg(feature = "quota-control")]
 pub use crate::quota::QuotaController;
 

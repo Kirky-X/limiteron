@@ -187,6 +187,8 @@ pub use ban::{
 };
 #[cfg(feature = "circuit-breaker")]
 pub use circuit::{CircuitBreaker, CircuitBreakerConfig};
+#[cfg(feature = "circuit-breaker")]
+pub use circuit::{ManualCircuitBreaker, ManualCircuitBreakerConfig};
 #[cfg(feature = "audit-log")]
 pub use logging::audit::{AuditEvent, AuditLogConfig, AuditLogStats, AuditLogger};
 #[cfg(feature = "sync")]

@@ -30,8 +30,10 @@
 //! }
 //! ```
 
+pub mod manual;
 pub mod types;
 
+pub use manual::{ManualCircuitBreaker, ManualCircuitBreakerConfig};
 pub use types::{
     CircuitBreaker, CircuitBreakerBuilder, CircuitBreakerConfig, DefaultErrorClassifier,
     ErrorClassifier,

@@ -110,6 +110,22 @@ pub(crate) const DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_DURATION_MILLIS: u64 = 500;
 /// The circuit breaker transitions to open state when the slow call rate exceeds this value.
 pub(crate) const DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_RATE_THRESHOLD: f64 = 0.5;
 
+/// Default failure ratio threshold for manual circuit breaker (50%).
+///
+/// Ratio-triggered: the breaker opens when failures / total requests reaches this ratio.
+pub(crate) const DEFAULT_MANUAL_CIRCUIT_BREAKER_FAILURE_THRESHOLD: f64 = 0.5;
+
+/// Default minimum requests before evaluating the failure ratio (manual circuit breaker).
+pub(crate) const DEFAULT_MANUAL_CIRCUIT_BREAKER_MIN_REQUESTS: u64 = 10;
+
+/// Default cooldown for manual circuit breaker (30 seconds).
+///
+/// How long the breaker remains open before lazily transitioning to half-open.
+pub(crate) const DEFAULT_MANUAL_CIRCUIT_BREAKER_HALF_OPEN_INTERVAL_SECS: u64 = 30;
+
+/// Default consecutive successes required to close the manual circuit breaker from half-open.
+pub(crate) const DEFAULT_MANUAL_CIRCUIT_BREAKER_HALF_OPEN_MAX_SUCCESSES: u64 = 3;
+
 // ============================================================================
 // Ban Manager Constants
 // ============================================================================

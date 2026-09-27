@@ -2586,7 +2586,7 @@ dependencies = [
 
 [[package]]
 name = "limiteron"
-version = "0.3.0-rc.5"
+version = "0.3.0-rc.6"
 dependencies = [
  "ahash",
  "async-trait",
@@ -2647,7 +2647,7 @@ dependencies = [
 
 [[package]]
 name = "limiteron-examples"
-version = "0.3.0-rc.5"
+version = "0.3.0-rc.6"
 dependencies = [
  "ahash",
  "axum",
@@ -2665,7 +2665,7 @@ dependencies = [
 
 [[package]]
 name = "limiteron-macros"
-version = "0.3.0-rc.5"
+version = "0.3.0-rc.6"
 dependencies = [
  "limiteron",
  "proc-macro2",

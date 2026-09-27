@@ -88,7 +88,7 @@ cargo add limiteron --features macros
 
 ```toml
 [dependencies]
-limiteron = { version = "0.3.0-rc.3", features = ["macros"] }
+limiteron = { version = "0.3.0-rc.6", features = ["macros"] }
 ```
 
 <details>
@@ -98,7 +98,7 @@ limiteron = { version = "0.3.0-rc.3", features = ["macros"] }
 
 ```toml
 [dependencies]
-limiteron = { version = "0.3.0-rc.3", features = ["sqlite", "ban-manager"] }
+limiteron = { version = "0.3.0-rc.6", features = ["sqlite", "ban-manager"] }
 ```
 
 > ⚠️ `postgres` / `sqlite` / `mysql` 三种存储驱动互斥，请勿使用 `--all-features`，应使用显式特性组合。默认特性为空（`default = []`），核心限流零外部存储依赖。

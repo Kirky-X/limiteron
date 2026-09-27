@@ -117,7 +117,7 @@
 
 ```toml
 [dependencies]
-limiteron = { version = "0.3.0-rc.3", features = ["macros"] }
+limiteron = { version = "0.3.0-rc.6", features = ["macros"] }
 ```
 
 或使用 cargo:
@@ -703,7 +703,7 @@ bug 的清晰描述
 ### 环境
 - OS: Ubuntu 22.04
 - Rust version: 1.97.1
-- limiteron version: 0.3.0-rc.3
+- limiteron version: 0.3.0-rc.6
 
 ### 其他上下文
 任何其他相关信息

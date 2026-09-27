@@ -1,6 +1,6 @@
 # 📘 Limiteron API 参考
 
-本文档完整描述 Limiteron 的公开 API，包括限流器、封禁管理、配额控制、熔断器、Governor、匹配器、存储后端、Admin REST API、配置加载与错误类型。所有签名与 `src/` 源码一致（版本 0.3.0-rc.3）。使用方法与场景示例请见 [用户指南](USER_GUIDE.md)。
+本文档完整描述 Limiteron 的公开 API，包括限流器、封禁管理、配额控制、熔断器、Governor、匹配器、存储后端、Admin REST API、配置加载与错误类型。所有签名与 `src/` 源码一致（版本 0.3.0-rc.6）。使用方法与场景示例请见 [用户指南](USER_GUIDE.md)。
 
 [🏠 首页](../README.md) • [📖 用户指南](USER_GUIDE.md) • [❓ 常见问题](FAQ.md)
 

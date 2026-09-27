@@ -11,6 +11,7 @@
 <summary>📑 目录</summary>
 
 - [Unreleased](#unreleased)
+- [0.3.0-rc.6](#030-rc6---2026-09-28)
 - [0.3.0-rc.5](#030-rc5---2026-09-21)
 - [0.3.0-rc.4](#030-rc4---2026-09-14)
 - [0.3.0-rc.3](#030-rc3---2026-09-10)
@@ -33,6 +34,33 @@
 ---
 
 ## [Unreleased]
+
+## [0.3.0-rc.6] - 2026-09-28
+
+### 新增
+
+- **ManualCircuitBreaker 手动记录式熔断**：比例触发 + 半开探测 + 时钟注入；`ManualCircuitBreaker` / `ManualCircuitBreakerConfig` 公开导出并进 prelude
+- **capacity-dial 六档容量调光模块**：独立默认关 feature
+- **tower-middleware 增强**：拒绝响应工厂与 keyed 静态限流器直驱快速路径
+- **RetryPolicy 重试前回调**：`execute_notify` 钩子
+- **QuotaLimiter 超限窗口查询**：`check_retry_after` 返回剩余秒数
+- **manager feature 拆分**：新增 `try_get_quota_limiter` 非 panic 路径
+- **文档一致性门禁脚本**：接入 CI doc job，检出文档漂移
+
+### 修复
+
+- **【安全】CodeQL 明文日志四项收敛**：governor 日志脱敏（6 处标识符）与长度指纹结构性消除 cleartext-logging 污点；check 入口不再记录 user_id/ip 派生字段；移除 check_internal 入口 debug 日志
+- **limiters 算法层**正确性与健壮性修复
+- **quota 配额语义与账本架构归一**
+- **distributed**：Lua 脚本接线与分布式传输健壮性
+- **governor**：换装原子性/降级路径/XFF 可信代理/审计与孤岛落地
+- **resilience**：熔断恢复通道/AIMD 信号/重试风暴防护
+- try_get_quota_limiter 慢路径参数一致性校验、tower-middleware keyed 快速路径键卫生、capacity-dial 构造期校验与 quota 边界去时序依赖、默认 feature 下测试编译与空链越界门控修复
+
+### 变更
+
+- **封禁时长口径修正**：四档阶梯封顶（非指数退避）
+- CI：文档门禁接入 doc job、codeql-action 升 4.38.0、codecov-action 升 7.1.0、patch 组依赖刷新
 
 ## [0.3.0-rc.5] - 2026-09-21
 
@@ -80,6 +108,8 @@
 - 移除 `[patch.crates-io]`，跨仓依赖改用 crates.io 上游 rc.4：trait-kit → `0.5.0-rc.4`、oxcache → `0.5.0-rc.4`、dbnexus → `0.6.0-rc.4`、inklog → `0.3.0-rc.4`、confers → `0.6.0-rc.4`
 
 ## [0.3.0-rc.3] - 2026-09-10
+
+> 注：0.3.0-rc.3 版本号已跳过、未发布（无 tag、未上 crates.io），本节内容随 0.3.0-rc.4 一并发布。
 
 ### 新增
 

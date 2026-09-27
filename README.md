@@ -111,7 +111,7 @@ cargo add limiteron
 
 ```toml
 [dependencies]
-limiteron = { version = "0.3.0-rc.3", features = ["macros"] }
+limiteron = { version = "0.3.0-rc.6", features = ["macros"] }
 ```
 
 ### 💡 最小可运行示例
@@ -329,12 +329,12 @@ Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式
 
 测试策略矩阵（单元 / 集成与端到端 / 属性 / 文档 / 基准五层）与运行命令（与 [CI](.github/workflows/ci.yml) 一致，含覆盖率门禁）见[测试指南](docs/TESTING.md)，分层基线与 E2E 场景定义见[测试场景固化](docs/TEST_SCENARIOS.md)。
 
-**测试规模**（按 `#[test]` / `#[tokio::test]` 属性 grep 统计，截至 v0.3.0-rc.3）：
+**测试规模**（按 `#[test]` / `#[tokio::test]` 属性 grep 统计（`grep -rEc '#\[(tokio::)?test\b' --include='*.rs'`），截至 v0.3.0-rc.6）：
 
 | 统计项 | 数量 |
 |--------|------|
-| 库内测试函数（`src/`） | 2,160（#[test] 1,410 + #[tokio::test] 750） |
-| 外部测试函数（`tests/`） | 599（#[test] 157 + #[tokio::test] 442） |
+| 库内测试函数（`src/`） | 2,295（#[test] 1,495 + #[tokio::test] 800） |
+| 外部测试函数（`tests/`） | 601（#[test] 157 + #[tokio::test] 444） |
 | 属性测试组（proptest） | 4 |
 
 ---
@@ -422,7 +422,7 @@ cargo bench --features full
 <td>核心限流算法、封禁管理、配额控制、熔断器、<code>#[flow_control]</code> 宏、单元与集成测试体系、PostgreSQL / SQLite 存储（经 dbnexus）、Governor 优雅关闭与健康检查、ConfigLoader 环境变量覆盖（v0.2.0）；Tower 中间件完善、事件系统增强、RedisStorage 移除并统一经 oxcache 缓存（v0.2.1）</td>
 </tr>
 <tr>
-<td width="12%" align="center"><b>✅ v0.3.0-rc.3 已交付</b></td>
+<td width="12%" align="center"><b>✅ 已交付（随 0.3.0-rc.4 发布）</b></td>
 <td>多租户贯穿 Governor、CIDR 网段封禁、Admin RBAC、OTLP 追踪导出、MySQL 存储、分布式限流器、<code>limiteron-cli</code> 等新能力（详见<a href="docs/CHANGELOG.md">更新日志</a>）</td>
 </tr>
 <tr>
@@ -489,7 +489,9 @@ Rust 1.97.1（[rust-toolchain.toml](rust-toolchain.toml) 统一锁定）；lefth
 
 完整变更记录见 [CHANGELOG.md](docs/CHANGELOG.md)。近期版本要点：
 
-- **0.3.0-rc.3**（2026-09-10）— 多租户贯穿 Governor、CIDR 网段封禁、Admin RBAC、OTLP 追踪导出、MySQL 存储、HTB 分层令牌桶、舱壁隔离、AIMD 自适应限流、`limiteron-cli`、Webhook 签名、事件 Outbox、封禁跨实例同步
+- **0.3.0-rc.6**（2026-09-28）— ManualCircuitBreaker 手动熔断、capacity-dial 六档容量调光、tower-middleware 拒绝响应工厂与 keyed 快速路径、RetryPolicy 重试前回调、QuotaLimiter 超限窗口查询、manager feature 拆分与非 panic 路径；【安全】CodeQL 明文日志四项收敛（governor 日志脱敏/长度指纹/入口字段降记）；limiters/quota/distributed/governor/resilience 算法与韧性修复；文档一致性门禁
+- **0.3.0-rc.5**（2026-09-21）— 维护性发布：新增 `retry` 组件（`RetryPolicy` 指数退避）与 i18n 整改，无破坏面
+- **0.3.0-rc.4**（2026-09-14，含原 rc.3 批次）— 多租户贯穿 Governor、CIDR 网段封禁、Admin RBAC、OTLP 追踪导出、MySQL 存储、HTB 分层令牌桶、舱壁隔离、AIMD 自适应限流、`limiteron-cli`、Webhook 签名、事件 Outbox、封禁跨实例同步（0.3.0-rc.3 版本号跳过未发布，内容随本版发布）
 - **0.3.0-rc.2**（2026-09-03）— 文档同步至 0.3 线、workspace 依赖路径本地化、`Cargo.lock` 纳入版本控制
 - **0.2.10**（2026-07-22）— 新增 76 个边界与异常场景测试、sea-orm 升级至 2.0 稳定版、清理未使用依赖
 

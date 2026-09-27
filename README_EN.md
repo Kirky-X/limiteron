@@ -114,7 +114,7 @@ Requirements: Rust 1.97.1+ (see [rust-toolchain.toml](rust-toolchain.toml)). The
 
 ```toml
 [dependencies]
-limiteron = { version = "0.3.0-rc.3", features = ["macros"] }
+limiteron = { version = "0.3.0-rc.6", features = ["macros"] }
 ```
 
 ### 💡 Minimal Runnable Example
@@ -330,12 +330,12 @@ Additionally, the `i18n` feature integrates [ICU4X](https://github.com/unicode-o
 
 The testing strategy matrix (unit / integration & E2E / property / doc / benchmark layers) and run commands (identical to [CI](.github/workflows/ci.yml), including the coverage gate) live in the [Testing Guide](docs/TESTING.md); the layer baselines and E2E scenario definitions live in [Test Scenarios](docs/TEST_SCENARIOS.md).
 
-**Test scale** (grep count of `#[test]` / `#[tokio::test]` attributes, as of v0.3.0-rc.3):
+**Test scale** (grep count via `grep -rEc '#\[(tokio::)?test\b' --include='*.rs'`, as of v0.3.0-rc.6):
 
 | Metric | Count |
 |--------|-------|
-| In-library test functions (`src/`) | 2,160 (#[test] 1,410 + #[tokio::test] 750) |
-| External test functions (`tests/`) | 599 (#[test] 157 + #[tokio::test] 442) |
+| In-library test functions (`src/`) | 2,295 (#[test] 1,495 + #[tokio::test] 800) |
+| External test functions (`tests/`) | 601 (#[test] 157 + #[tokio::test] 444) |
 | Property test groups (proptest) | 4 |
 
 ---
@@ -423,7 +423,7 @@ cargo bench --features full
 <td>Core rate limiting algorithms, ban management, quota control, circuit breaker, the <code>#[flow_control]</code> macro, unit and integration test suites, PostgreSQL / SQLite storage via dbnexus, Governor graceful shutdown and health check, ConfigLoader environment variable overrides (v0.2.0); Tower middleware refinement, event system enhancements, RedisStorage removal with caching unified through oxcache (v0.2.1)</td>
 </tr>
 <tr>
-<td width="12%" align="center"><b>✅ Shipped in v0.3.0-rc.3</b></td>
+<td width="12%" align="center"><b>✅ Shipped (released with 0.3.0-rc.4)</b></td>
 <td>Multi-tenancy through Governor, CIDR range bans, Admin RBAC, OTLP tracing export, MySQL storage, distributed limiting, <code>limiteron-cli</code>, and more (see the <a href="docs/CHANGELOG.md">changelog</a>)</td>
 </tr>
 <tr>
@@ -490,7 +490,9 @@ Rust 1.97.1 (pinned in [rust-toolchain.toml](rust-toolchain.toml)); lefthook / p
 
 See [CHANGELOG.md](docs/CHANGELOG.md) for the full history. Recent releases:
 
-- **0.3.0-rc.3** (2026-09-10) — Multi-tenancy through Governor, CIDR range bans, Admin RBAC, OTLP tracing export, MySQL storage, HTB hierarchical token bucket, bulkhead isolation, AIMD adaptive limiting, `limiteron-cli`, webhook signatures, event Outbox, cross-instance ban sync
+- **0.3.0-rc.6** (2026-09-28) — ManualCircuitBreaker manual circuit breaking, capacity-dial six-level capacity dimming, tower-middleware rejection response factory and keyed fast path, RetryPolicy pre-retry callback, QuotaLimiter retry-after window query, manager feature split with non-panic path; [security] four CodeQL cleartext-logging fixes (governor log redaction / length fingerprints / entry-field demotion); algorithm and resilience fixes across limiters/quota/distributed/governor/resilience; documentation consistency gate
+- **0.3.0-rc.5** (2026-09-21) — Maintenance release: new `retry` component (`RetryPolicy` exponential backoff) and i18n overhaul, no breaking surface
+- **0.3.0-rc.4** (2026-09-14, including the original rc.3 batch) — Multi-tenancy through Governor, CIDR range bans, Admin RBAC, OTLP tracing export, MySQL storage, HTB hierarchical token bucket, bulkhead isolation, AIMD adaptive limiting, `limiteron-cli`, webhook signatures, event Outbox, cross-instance ban sync (version 0.3.0-rc.3 was skipped and never published; its content shipped with this release)
 - **0.3.0-rc.2** (2026-09-03) — Documentation synced to the 0.3 line, workspace dependency path localization, `Cargo.lock` committed to version control
 - **0.2.10** (2026-07-22) — Added 76 boundary and edge-case tests, sea-orm upgraded to 2.0 stable, unused dependencies removed
 

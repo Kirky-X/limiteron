@@ -29,12 +29,12 @@
 
 set -euo pipefail
 
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+# 颜色定义（ANSI-C 引用取得真实 ESC 字节；printf %s 不解释文档派生内容中的转义）
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+CYAN=$'\033[0;36m'
+NC=$'\033[0m'
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
@@ -114,20 +114,26 @@ check_paths() {
                 }
             }' "$doc" || true)
 
-        # Markdown 链接（相对目标基于所在文档目录解析）
+        # Markdown 链接（相对目标基于所在文档目录解析）；depth 为目录段数，
+        # 限定允许上跳的层级（docs → depth 1，仓库根 → depth 0）
         slashes="${doc_dir//[^\/]/}"
         depth=${#slashes}
+        [[ "$doc_dir" != "." ]] && depth=$((depth + 1))
         while IFS=$'\t' read -r line target; do
             target="${target%%\#*}"
             target="${target%% *}"
             target="${target%\"}"
             [[ -z "$target" ]] && continue
             [[ "$target" == http:* || "$target" == https:* || "$target" == mailto:* ]] && continue
-            # 越出仓库根的相对链接（如 GitHub 页面的 ../../issues）不属于文件系统路径
+            # 越出仓库根的相对链接（如 GitHub 页面的 ../../issues）不属于文件系统路径，
+            # 记入 SKIP 清单保持跳检面可见
             ups=0
             probe="$target"
             while [[ "$probe" == ../* ]]; do ups=$((ups + 1)); probe="${probe#../}"; done
-            [[ "$ups" -gt "$depth" ]] && continue
+            if [[ "$ups" -gt "$depth" ]]; then
+                printf '%s:%s\t%s\n' "$doc" "$line" "$target" >>"$SKIPPED_REFS"
+                continue
+            fi
             if [[ ! -e "$doc_dir/$target" ]]; then
                 fail "链接目标不存在: $doc:$line → $target"
                 bad=1
@@ -273,7 +279,7 @@ check_examples() {
     if [[ "$premise" -eq 1 ]]; then return 0; fi
 
     local doc_bins actual_bins
-    doc_bins="$(awk 'match($0, /--bin [a-z0-9_]+/) { print substr($0, RSTART + 6, RLENGTH - 6) }' examples/README.md | sort -u)"
+    doc_bins="$(awk 'match($0, /--bin [a-z0-9_-]+/) { print substr($0, RSTART + 6, RLENGTH - 6) }' examples/README.md | sort -u)"
     actual_bins=""
     local count=0
     for f in examples/src/bin/*.rs; do
@@ -355,7 +361,7 @@ check_src_agents() {
 report_skipped_refs() {
     [[ -s "$SKIPPED_REFS" ]] || return 0
     echo ""
-    warn "以下引用因首段不是仓库根真实条目而未做存在性核对（防误报取舍，请人工抽查）："
+    warn "以下引用未做存在性核对（首段非仓库根条目，或越出仓库根的站内相对链接；防误报取舍，请人工抽查）："
     sort -u "$SKIPPED_REFS" | while IFS= read -r entry; do
         printf '      %s\n' "$entry"
     done

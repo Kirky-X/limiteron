@@ -15,6 +15,11 @@ pre-commit:
       run: cargo clippy --all-targets --no-default-features --features full,postgres -- -D warnings
     cargo-deny:
       run: cargo deny check
+    doc-consistency:
+      # 文档一致性门禁（同 scripts/check-docs-consistency.sh，CI doc job 亦跑）。
+      # 无 glob：src/AGENTS.md 模块表漂移可由纯源码文件增删引发，不受 md 变更
+      # 触发限制；该文件不入库，CI 中检查 5 跳过，本地 pre-commit 是其主要执行点。
+      run: ./scripts/check-docs-consistency.sh
     no-private-key:
       run: "! git diff --cached --name-only | xargs -r grep -IlE 'BEGIN (RSA|OPENSSH|PGP|EC|PRIVATE) PRIVATE KEY|sk-[A-Za-z0-9]{20,}'"
 

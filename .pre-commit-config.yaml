@@ -33,6 +33,15 @@ repos:
 
   - repo: local
     hooks:
+      # 文档一致性门禁（同 scripts/check-docs-consistency.sh，CI doc job 亦跑）。
+      # src/AGENTS.md 不入库，CI 中检查 5 跳过，本地钩子是其主要执行点。
+      - id: docs-consistency
+        name: Docs consistency (paths/features/API/examples)
+        description: Verify doc-referenced paths, features, API symbols and example list
+        entry: ./scripts/check-docs-consistency.sh
+        language: system
+        pass_filenames: false
+
       - id: cargo-fmt
         name: Format Rust code
         description: Run rustfmt on Rust files

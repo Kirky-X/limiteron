@@ -112,7 +112,11 @@ impl RuleBuilder {
     /// resource 维度取规则 ID。未注入时保持纯内存 QuotaLimiter（单实例语义）。
     pub fn build_rule_chains_with_quota_storage(
         config: &FlowControlConfig,
-        quota_storage: Option<&Arc<dyn crate::storage::QuotaStorage>>,
+        // 唯一消费点在 quota-control 门控分支内；非 quota-control 子集下
+        // 参数保持签名稳定（未注入语义由 not(quota-control) 分支 warn 并跳过）。
+        #[cfg_attr(not(feature = "quota-control"), allow(unused_variables))] quota_storage: Option<
+            &Arc<dyn crate::storage::QuotaStorage>,
+        >,
     ) -> Result<DashMap<String, DecisionChain>, LimiteronError> {
         let chains = DashMap::new();
 

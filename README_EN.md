@@ -432,7 +432,7 @@ cargo bench --features full
 </tr>
 <tr>
 <td width="12%" align="center"><b>📋 Planned</b></td>
-<td>Governor shutdown full implementation (background task awaiting/state flush/connection release/Drop trait), Lua script enhancements, custom matcher extensions, additional storage backends, Web UI management interface</td>
+<td>Lua script enhancements, custom matcher extensions, additional storage backends, Web UI management interface</td>
 </tr>
 <tr>
 <td width="12%" align="center"><b>💡 Future Ideas</b></td>

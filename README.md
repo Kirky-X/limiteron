@@ -431,7 +431,7 @@ cargo bench --features full
 </tr>
 <tr>
 <td width="12%" align="center"><b>📋 计划中</b></td>
-<td>Governor shutdown 完整实现（后台任务等待/状态落盘/连接释放/Drop trait）、Lua 脚本增强、自定义匹配器扩展、更多存储后端、Web UI 管理界面</td>
+<td>Lua 脚本增强、自定义匹配器扩展、更多存储后端、Web UI 管理界面</td>
 </tr>
 <tr>
 <td width="12%" align="center"><b>💡 未来想法</b></td>

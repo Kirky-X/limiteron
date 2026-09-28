@@ -35,6 +35,17 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **Governor shutdown 完整实现**：五阶段优雅关闭编排——停止配置热重载 watcher（`register_config_watcher_token` 注册、多 watcher 全取消）、取消 shutdown 令牌、统计快照落盘（`GovernorBuilder::with_shutdown_snapshot_dir` 显式启用，JSON 原子写，临时文件 O_EXCL 独占创建 + 0600 权限防符号链接覆写，冲突退避 pid 后缀）、停止 BanManager 自动解封任务（取消信号优雅排空 5s，超时 abort）、审计日志器摘除（尽力 `Arc::try_unwrap` 优雅排空）
+- **`impl Drop for Governor`**：同步兜底无条件取消 shutdown 与已注册 watcher 令牌（幂等）
+- **`BanManager::is_auto_unban_running()`**：自动解封后台任务运行状态观测
+
+### 变更
+
+- `BanManager::stop_auto_unban_task()` 由直接 abort 改为先取消信号等待在途清理完成（5s 超时兜底 abort）
+- 存储连接释放语义文档化：连接池随最后 `Arc` 引用释放由底层驱动关闭，shutdown 负责停止后台任务不再发起新访问
+
 ## [0.3.0-rc.6] - 2026-09-28
 
 ### 新增

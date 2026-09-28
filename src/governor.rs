@@ -42,7 +42,7 @@ use crate::storage::{BanStorage, Storage};
 use dashmap::DashMap;
 #[cfg(feature = "parallel-checker")]
 use log::warn;
-use log::{debug, info, trace};
+use log::{debug, error, info, trace};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -206,6 +206,14 @@ pub struct Governor {
     /// 优雅关闭令牌：取消时通知所有后台任务退出
     shutdown_token: tokio_util::sync::CancellationToken,
 
+    /// 配置热重载 watcher 的取消令牌：集成方经 `register_config_watcher_token`
+    /// 注册（`watch_and_reload` / `watch_and_reload_with_applier` 返回的令牌，
+    /// 支持同时监听多个配置文件），shutdown 统一取消
+    config_watcher_tokens: parking_lot::Mutex<Vec<tokio_util::sync::CancellationToken>>,
+
+    /// 关闭时状态快照落盘目录（None = 不落盘；循仓库 data/ 目录惯例由调用方指定）
+    shutdown_snapshot_dir: Option<std::path::PathBuf>,
+
     /// 是否已关闭（幂等性保证）
     is_shutdown: std::sync::atomic::AtomicBool,
 }
@@ -269,6 +277,8 @@ pub struct GovernorBuilder {
     /// 租户解析器（可选）
     #[cfg(feature = "multi-tenant")]
     tenant_resolver: Option<Arc<dyn crate::tenant::TenantResolver>>,
+    /// 关闭时状态快照落盘目录（可选，默认不落盘）
+    shutdown_snapshot_dir: Option<std::path::PathBuf>,
 }
 
 impl GovernorBuilder {
@@ -299,6 +309,7 @@ impl GovernorBuilder {
             custom_matcher_registry: None,
             #[cfg(feature = "multi-tenant")]
             tenant_resolver: None,
+            shutdown_snapshot_dir: None,
         }
     }
 
@@ -313,6 +324,16 @@ impl GovernorBuilder {
         resolver: Arc<dyn crate::tenant::TenantResolver>,
     ) -> Self {
         self.tenant_resolver = Some(resolver);
+        self
+    }
+
+    /// 设置关闭时状态快照的落盘目录
+    ///
+    /// 快照以 JSON 写入 `<dir>/governor-shutdown-snapshot.json`（原子替换写），
+    /// 循仓库 `data/` 目录惯例由调用方显式指定路径；库默认不落盘，
+    /// 避免未经允许的文件系统副作用（只读文件系统等场景）。
+    pub fn with_shutdown_snapshot_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
+        self.shutdown_snapshot_dir = Some(dir.into());
         self
     }
 
@@ -593,6 +614,8 @@ impl GovernorBuilder {
             #[cfg(feature = "multi-tenant")]
             tenant_resolver: self.tenant_resolver,
             shutdown_token: tokio_util::sync::CancellationToken::new(),
+            config_watcher_tokens: parking_lot::Mutex::new(Vec::new()),
+            shutdown_snapshot_dir: self.shutdown_snapshot_dir.clone(),
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
         })
     }
@@ -743,6 +766,8 @@ impl Governor {
             #[cfg(feature = "multi-tenant")]
             tenant_resolver: None,
             shutdown_token: tokio_util::sync::CancellationToken::new(),
+            config_watcher_tokens: parking_lot::Mutex::new(Vec::new()),
+            shutdown_snapshot_dir: None,
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
         })
     }
@@ -1740,7 +1765,14 @@ impl Governor {
     }
 
     /// 停止配置监视器
+    ///
+    /// 取消 `register_config_watcher_token` 注册的全部热重载令牌（令牌由
+    /// `watch_and_reload` 系列 spawn 的 watcher 任务在 `select!` 分支消费，
+    /// 收到取消即退出）。未注册令牌时为幂等 no-op。
     pub async fn stop_config_watcher(&self) -> Result<(), LimiteronError> {
+        for token in self.config_watcher_tokens.lock().drain(..) {
+            token.cancel();
+        }
         info!("{}", t("governor-config-watcher-stopped", &[]));
 
         Ok(())
@@ -2121,8 +2153,23 @@ impl Governor {
 
     /// 优雅关闭 Governor
     ///
-    /// 取消所有后台任务（通过 CancellationToken），标记 Governor 为已关闭。
-    /// 幂等：多次调用返回相同的 Ok 结果。
+    /// 关闭编排（顺序执行，任一阶段失败仅记录 error 日志并继续后续阶段，
+    /// 最终标记已关闭）：
+    /// 1. 停止配置热重载 watcher（取消 `register_config_watcher_token` 注册的令牌）；
+    /// 2. 取消 shutdown 令牌，通知所有订阅的后台任务退出；
+    /// 3. 统计快照落盘（`with_shutdown_snapshot_dir` 显式启用时；失败仅记录
+    ///    error 级日志，不阻塞停机）；
+    /// 4. 停止内部后台任务：BanManager 自动解封任务（`ban-manager`）、
+    ///    审计日志写入任务尽力优雅等待（`audit-log`，无法取得所有权时由其
+    ///    `Drop` 兜底 abort）；
+    /// 5. 清空 L1 缓存，释放缓存引用。
+    ///
+    /// 存储连接（dbnexus 连接池 / Redis 连接等）由各存储实现的 `Arc` 引用计数
+    /// 管理：Governor 无法独占关闭共享连接，随最后一个持有者释放由底层驱动
+    /// 关闭；shutdown 通过停止后台任务确保不再发起新的存储访问。
+    ///
+    /// 幂等：多次调用返回相同的 Ok 结果。实例被 Drop 时由 `Drop` 实现执行
+    /// 同步兜底（无条件取消令牌），不重复完整编排。
     ///
     /// # 返回
     ///
@@ -2160,19 +2207,119 @@ impl Governor {
 
         info!("{}", t("governor-shutdown-started", &[]));
 
-        // 取消所有后台任务
+        // 阶段 1：停止配置热重载 watcher（取消注册令牌，watcher 随即退出）；
+        // 失败仅记录并继续——is_shutdown 已置位，中断编排会令牌悬空
+        if let Err(e) = self.stop_config_watcher().await {
+            error!("failed to stop config watcher during shutdown: {}", e);
+        }
+
+        // 阶段 2：取消所有订阅 shutdown 令牌的后台任务
         self.shutdown_token.cancel();
 
-        // 当前无后台 JoinHandle 需要等待；未来添加后台任务时在此等待
-        // 例如：if let Some(handle) = &self.background_task_handle {
-        //     let _ = tokio::time::timeout(Duration::from_secs(30), handle).await;
-        // }
+        // 阶段 3：状态快照落盘（趁组件可用时采集；失败不阻塞停机）
+        self.persist_shutdown_snapshot();
 
-        // 清空 缓存
+        // 阶段 4：停止持有 JoinHandle 的内部后台任务
+        #[cfg(feature = "ban-manager")]
+        self.ban_manager.stop_auto_unban_task().await;
+        #[cfg(feature = "audit-log")]
+        self.detach_audit_logger().await;
+
+        // 阶段 5：清空 缓存
         self.clear_l1_cache().await;
 
         info!("{}", t("governor-shutdown-complete", &[]));
         Ok(())
+    }
+
+    /// 将统计快照原子写入配置的落盘目录（`<dir>/governor-shutdown-snapshot.json`）
+    ///
+    /// 先以 `create_new`（O_EXCL）创建同目录临时文件再 rename，避免读取方
+    /// 观察到半写状态；O_EXCL 不跟随已存在的路径（含预置符号链接），临时文件
+    /// 冲突时退避到带 pid 后缀的名字重试，权限收紧为 0600（Unix）。失败记录
+    /// error 日志但不阻塞停机（停机的首要目标是停止后台活动）。
+    ///
+    /// 刻意使用同步 I/O：shutdown 是一次性终态路径，`spawn_blocking` 反而引入
+    /// runtime 上下文依赖（runtime 拆除期不可用），快照为 KB 级小写入。
+    fn persist_shutdown_snapshot(&self) {
+        let Some(dir) = self.shutdown_snapshot_dir.as_ref() else {
+            return;
+        };
+        let snapshot = serde_json::json!({
+            "captured_at": chrono::Utc::now().to_rfc3339(),
+            "stats": GovernorStats::from(self.stats.snapshot()),
+        });
+        let payload = match serde_json::to_vec_pretty(&snapshot) {
+            Ok(payload) => payload,
+            Err(e) => {
+                error!("failed to serialize shutdown snapshot: {}", e);
+                return;
+            }
+        };
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            error!("failed to create snapshot dir {}: {}", dir.display(), e);
+            return;
+        }
+        let target = dir.join("governor-shutdown-snapshot.json");
+        let mut tmp = dir.join("governor-shutdown-snapshot.json.tmp");
+        match Self::create_private_tmp(&tmp, &payload) {
+            Ok(()) => {}
+            Err(first_err) => {
+                // 名字被占用（残留/预置链接等）：退避到带 pid 后缀的独占名字
+                tmp = dir.join(format!(
+                    "governor-shutdown-snapshot.json.tmp.{}",
+                    std::process::id()
+                ));
+                if let Err(e) = Self::create_private_tmp(&tmp, &payload) {
+                    error!(
+                        "failed to write shutdown snapshot to {}: first={} retry={}",
+                        tmp.display(),
+                        first_err,
+                        e
+                    );
+                    return;
+                }
+            }
+        }
+        if let Err(e) = std::fs::rename(&tmp, &target) {
+            error!(
+                "failed to finalize shutdown snapshot at {}: {}",
+                target.display(),
+                e
+            );
+        }
+    }
+
+    /// 以 `create_new`（O_EXCL）独占创建临时文件并写入，Unix 下权限收紧 0600
+    ///
+    /// O_EXCL 语义：路径已存在（包括指向任意目标的符号链接）即失败，不跟随
+    /// 链接写入，杜绝共享目录下的符号链接覆写攻击面。
+    fn create_private_tmp(tmp: &std::path::Path, payload: &[u8]) -> std::io::Result<()> {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(tmp)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        file.write_all(payload)?;
+        file.sync_all().ok();
+        Ok(())
+    }
+
+    /// 摘除审计日志器：取回所有权后尽力优雅等待写入任务排空
+    ///
+    /// `Arc::try_unwrap` 成功（无 in-flight clone）时走 `AuditLogger::shutdown`
+    /// 的 5s 超时等待；失败时丢弃本侧引用，由 `AuditLogger::drop` 的 abort 兜底。
+    #[cfg(feature = "audit-log")]
+    async fn detach_audit_logger(&self) {
+        let logger = self.audit_logger.write().await.take();
+        if let Some(logger) = logger.and_then(|a| Arc::try_unwrap(a).ok()) {
+            logger.shutdown().await;
+        }
     }
 
     /// 获取关闭令牌的引用（用于后台任务订阅取消信号）
@@ -2182,9 +2329,38 @@ impl Governor {
         &self.shutdown_token
     }
 
+    /// 注册配置热重载 watcher 的取消令牌
+    ///
+    /// 集成方将 `watch_and_reload` / `watch_and_reload_with_applier` 返回的
+    /// 令牌注册到 Governor，`shutdown`（经 `stop_config_watcher`）统一取消，
+    /// 避免热重载任务在停机后仍存活。支持多个 watcher（如同时监听多个配置
+    /// 文件）：多次注册的令牌全部保留，shutdown/Drop 全部取消。
+    pub fn register_config_watcher_token(&self, token: tokio_util::sync::CancellationToken) {
+        self.config_watcher_tokens.lock().push(token);
+    }
+
     /// 检查 Governor 是否已关闭
     pub fn is_shutdown(&self) -> bool {
         self.is_shutdown.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl Drop for Governor {
+    /// 同步兜底关闭：无条件取消 shutdown 令牌与已注册的配置 watcher 令牌，
+    /// 防止后台任务在实例销毁后仍存活。
+    ///
+    /// 刻意不检查 `is_shutdown` 早退：显式 shutdown 在置位标志与取消令牌之间
+    /// 存在 panic 窗口，此时 Drop 必须补上取消；`CancellationToken::cancel`
+    /// 幂等，重复取消为 no-op。持有 JoinHandle 的后台任务（auto-unban/审计
+    /// 写入）与存储连接池由各组件自身的 `Drop` 在最后一个 `Arc` 引用释放时
+    /// 兜底，此处不重复处理。
+    fn drop(&mut self) {
+        self.is_shutdown
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.shutdown_token.cancel();
+        for token in self.config_watcher_tokens.lock().drain(..) {
+            token.cancel();
+        }
     }
 }
 
@@ -2679,6 +2855,433 @@ mod governor_construction_tests {
             token.is_cancelled(),
             "token should be cancelled after shutdown"
         );
+    }
+
+    /// 验证 shutdown 将统计快照落盘到指定目录（JSON，含制造的真实计数）
+    #[tokio::test]
+    async fn test_shutdown_persists_stats_snapshot() {
+        let dir = tempfile::tempdir().expect("tempdir should be created");
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .with_shutdown_snapshot_dir(dir.path())
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        // 制造确定性计数（直接驱动 StatsManager，避免依赖规则匹配）
+        governor.stats.increment_total();
+        governor.stats.increment_total();
+        governor.stats.increment_allowed();
+        governor.stats.increment_rejected();
+
+        governor.shutdown().await.unwrap();
+
+        let snapshot_path = dir.path().join("governor-shutdown-snapshot.json");
+        let raw = std::fs::read_to_string(&snapshot_path)
+            .expect("shutdown snapshot should be written to the configured dir");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&raw).expect("snapshot should be valid JSON");
+
+        let stats = &parsed["stats"];
+        assert_eq!(
+            stats["total_requests"].as_u64(),
+            Some(2),
+            "total_requests should be captured in snapshot"
+        );
+        assert_eq!(
+            stats["allowed_requests"].as_u64(),
+            Some(1),
+            "allowed_requests should be captured in snapshot"
+        );
+        assert_eq!(
+            stats["rejected_requests"].as_u64(),
+            Some(1),
+            "rejected_requests should be captured in snapshot"
+        );
+        let captured_at_valid = parsed["captured_at"]
+            .as_str()
+            .is_some_and(|ts| chrono::DateTime::parse_from_rfc3339(ts).is_ok());
+        assert!(
+            captured_at_valid,
+            "captured_at should be a valid RFC3339 timestamp"
+        );
+    }
+
+    /// 验证未配置快照目录时 shutdown 不写任何文件且仍成功
+    #[tokio::test]
+    async fn test_shutdown_without_snapshot_dir_writes_nothing() {
+        let dir = tempfile::tempdir().expect("tempdir should be created");
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        governor.shutdown().await.unwrap();
+
+        assert!(
+            dir.path()
+                .read_dir()
+                .expect("dir should exist")
+                .next()
+                .is_none(),
+            "no snapshot file should be written when snapshot dir is not configured"
+        );
+    }
+
+    /// 验证快照目录不存在时 shutdown 自动创建并落盘
+    #[tokio::test]
+    async fn test_shutdown_creates_missing_snapshot_dir() {
+        let dir = tempfile::tempdir().expect("tempdir should be created");
+        let nested = dir.path().join("metrics").join("snapshots");
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .with_shutdown_snapshot_dir(&nested)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        governor.shutdown().await.unwrap();
+
+        assert!(
+            nested.join("governor-shutdown-snapshot.json").exists(),
+            "missing snapshot dir should be created and snapshot written"
+        );
+    }
+
+    /// 验证临时文件名被占用时退避到带 pid 后缀的独占名字，且不破坏占用文件
+    ///
+    /// 模拟共享目录下的残留/预置冲突：create_new（O_EXCL）对已存在的 .tmp
+    /// 失败后应换名重试，快照仍落盘，原占用文件内容保持原样。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_shutdown_snapshot_tmp_conflict_falls_back() {
+        let dir = tempfile::tempdir().expect("tempdir should be created");
+        let tmp_path = dir.path().join("governor-shutdown-snapshot.json.tmp");
+        std::fs::write(&tmp_path, b"occupied").expect("placeholder should be written");
+
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .with_shutdown_snapshot_dir(dir.path())
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        governor.shutdown().await.unwrap();
+
+        let snapshot_path = dir.path().join("governor-shutdown-snapshot.json");
+        assert!(
+            snapshot_path.exists(),
+            "snapshot should be written via pid-suffixed tmp despite conflict"
+        );
+        let occupied = std::fs::read(&tmp_path).expect("placeholder should remain");
+        assert_eq!(
+            occupied, b"occupied",
+            "conflicting file must not be touched"
+        );
+    }
+
+    /// 验证 shutdown 取消已注册的配置 watcher 令牌
+    #[tokio::test]
+    async fn test_shutdown_cancels_registered_config_watcher() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let watcher_token = tokio_util::sync::CancellationToken::new();
+        governor.register_config_watcher_token(watcher_token.clone());
+
+        governor.shutdown().await.unwrap();
+
+        assert!(
+            watcher_token.is_cancelled(),
+            "registered config watcher token should be cancelled by shutdown"
+        );
+    }
+
+    /// 验证多 watcher 场景：多次注册的令牌在 shutdown 时全部取消，不覆盖丢失
+    #[tokio::test]
+    async fn test_shutdown_cancels_all_registered_watchers() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let first = tokio_util::sync::CancellationToken::new();
+        let second = tokio_util::sync::CancellationToken::new();
+        let third = tokio_util::sync::CancellationToken::new();
+        governor.register_config_watcher_token(first.clone());
+        governor.register_config_watcher_token(second.clone());
+        governor.register_config_watcher_token(third.clone());
+
+        governor.shutdown().await.unwrap();
+
+        assert!(
+            first.is_cancelled(),
+            "first watcher token should be cancelled"
+        );
+        assert!(
+            second.is_cancelled(),
+            "second watcher token should be cancelled"
+        );
+        assert!(
+            third.is_cancelled(),
+            "third watcher token should be cancelled"
+        );
+    }
+
+    /// 验证 Drop 取消全部已注册的 watcher 令牌
+    #[tokio::test]
+    async fn test_drop_cancels_all_registered_watchers() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let first = tokio_util::sync::CancellationToken::new();
+        let second = tokio_util::sync::CancellationToken::new();
+        {
+            let governor = Governor::builder()
+                .with_config(config)
+                .with_storage(storage)
+                .with_ban_storage(ban_storage)
+                .build()
+                .await
+                .expect("Governor build should succeed");
+            governor.register_config_watcher_token(first.clone());
+            governor.register_config_watcher_token(second.clone());
+        }
+
+        assert!(
+            first.is_cancelled(),
+            "first watcher token cancelled on drop"
+        );
+        assert!(
+            second.is_cancelled(),
+            "second watcher token cancelled on drop"
+        );
+    }
+
+    /// 验证 stop_config_watcher 单独调用即取消注册的令牌，且重复调用幂等
+    #[tokio::test]
+    async fn test_stop_config_watcher_cancels_registered_token() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let watcher_token = tokio_util::sync::CancellationToken::new();
+        governor.register_config_watcher_token(watcher_token.clone());
+
+        governor.stop_config_watcher().await.unwrap();
+        assert!(
+            watcher_token.is_cancelled(),
+            "stop_config_watcher should cancel the registered token"
+        );
+
+        // 重复调用：令牌已取走，应幂等返回 Ok
+        governor.stop_config_watcher().await.unwrap();
+    }
+
+    /// 验证 Drop 触发关闭路径：取消 shutdown 令牌与已注册的 watcher 令牌
+    #[tokio::test]
+    async fn test_drop_cancels_shutdown_tokens() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let watcher_token = tokio_util::sync::CancellationToken::new();
+        let shutdown_token;
+        {
+            let governor = Governor::builder()
+                .with_config(config)
+                .with_storage(storage)
+                .with_ban_storage(ban_storage)
+                .build()
+                .await
+                .expect("Governor build should succeed");
+            governor.register_config_watcher_token(watcher_token.clone());
+            shutdown_token = governor.shutdown_token().clone();
+            assert!(!shutdown_token.is_cancelled());
+        }
+        // governor 在此 drop：无显式 shutdown 时应兜底取消所有令牌
+
+        assert!(
+            shutdown_token.is_cancelled(),
+            "shutdown token should be cancelled on drop"
+        );
+        assert!(
+            watcher_token.is_cancelled(),
+            "registered config watcher token should be cancelled on drop"
+        );
+    }
+
+    /// 验证显式 shutdown 后再 Drop 不逆操作、不 panic（幂等兜底）
+    #[tokio::test]
+    async fn test_drop_after_explicit_shutdown_is_noop() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let shutdown_token;
+        {
+            let governor = Governor::builder()
+                .with_config(config)
+                .with_storage(storage)
+                .with_ban_storage(ban_storage)
+                .build()
+                .await
+                .expect("Governor build should succeed");
+            shutdown_token = governor.shutdown_token().clone();
+            governor.shutdown().await.unwrap();
+            assert!(shutdown_token.is_cancelled());
+        }
+
+        assert!(
+            shutdown_token.is_cancelled(),
+            "drop after explicit shutdown should keep token cancelled"
+        );
+    }
+
+    /// 验证 shutdown 停止 BanManager 的自动解封后台任务（feature `ban-manager`）
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_shutdown_stops_auto_unban_task() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        // builder 构造 BanManager 默认启用自动解封（enable_auto_unban=true）
+        assert!(
+            governor.ban_manager.is_auto_unban_running().await,
+            "auto-unban task should be running before shutdown"
+        );
+
+        governor.shutdown().await.unwrap();
+
+        assert!(
+            !governor.ban_manager.is_auto_unban_running().await,
+            "auto-unban task should be stopped after shutdown"
+        );
+    }
+
+    /// 验证 shutdown 摘除审计日志器：尽力优雅等待写入任务，
+    /// 无法取得所有权时依赖 AuditLogger::drop 兜底（feature `audit-log`）
+    #[cfg(feature = "audit-log")]
+    #[tokio::test]
+    async fn test_shutdown_detaches_audit_logger() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let audit_logger = Arc::new(
+            crate::logging::AuditLogger::new(crate::logging::AuditLogConfig::default()).await,
+        );
+
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .with_audit_logger(audit_logger)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        assert!(
+            governor.audit_logger.read().await.is_some(),
+            "audit logger should be attached before shutdown"
+        );
+
+        governor.shutdown().await.unwrap();
+
+        assert!(
+            governor.audit_logger.read().await.is_none(),
+            "audit logger should be detached after shutdown"
+        );
+    }
+
+    /// 验证外部仍持有审计器引用时的摘除分支（Arc::try_unwrap 失败路径）：
+    /// 槽位清空、不 panic，优雅排空不可行时由 AuditLogger::drop 兜底
+    #[cfg(feature = "audit-log")]
+    #[tokio::test]
+    async fn test_shutdown_detaches_audit_logger_with_external_ref() {
+        let config = create_valid_test_config();
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+        let external_ref = Arc::new(
+            crate::logging::AuditLogger::new(crate::logging::AuditLogConfig::default()).await,
+        );
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .with_audit_logger(external_ref.clone())
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        governor.shutdown().await.unwrap();
+
+        assert!(
+            governor.audit_logger.read().await.is_none(),
+            "audit logger slot should be cleared even when ownership is shared"
+        );
+        // 外部引用仍存活：drop 它以触发 AuditLogger 的 abort 兜底（不应 panic）
+        drop(external_ref);
     }
 
     // ========================================================================

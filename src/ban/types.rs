@@ -22,6 +22,9 @@ pub const MAX_BAN_DURATION_SECS: u64 = 86400;
 /// 自动解封检查间隔（1分钟）
 pub const AUTO_UNBAN_INTERVAL_SECS: u64 = 60;
 
+/// 停止自动解封任务时等待在途清理完成的优雅排空上限
+const AUTO_UNBAN_DRAIN_TIMEOUT: StdDuration = StdDuration::from_secs(5);
+
 /// 默认分页限制
 pub const DEFAULT_PAGINATION_LIMIT: u64 = 100;
 
@@ -35,7 +38,7 @@ use crate::i18n::t;
 use crate::storage::BanTarget;
 use crate::storage::{BanRecord, BanStorage};
 use chrono::{DateTime, Utc};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -252,6 +255,8 @@ pub struct BanManager {
     config: Arc<RwLock<BanManagerConfig>>,
     /// 自动解禁任务句柄
     auto_unban_handle: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
+    /// 自动解禁任务的取消令牌：优雅排空用（与 handle 同生共死）
+    auto_unban_cancel: Arc<RwLock<Option<tokio_util::sync::CancellationToken>>>,
     /// 授权提供者（可选）
     authorization_provider: Option<Arc<dyn AuthorizationProvider>>,
     /// 事件发射器（可选，feature-gated）
@@ -616,6 +621,7 @@ impl BanManager {
             storage,
             config,
             auto_unban_handle: Arc::new(RwLock::new(None)),
+            auto_unban_cancel: Arc::new(RwLock::new(None)),
             authorization_provider,
             #[cfg(feature = "event-system")]
             event_emitter,
@@ -645,32 +651,60 @@ impl BanManager {
             return; // 任务已在运行
         }
 
+        let cancel_token = tokio_util::sync::CancellationToken::new();
+        let task_cancel = cancel_token.clone();
         let handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(StdDuration::from_secs(interval_secs));
             loop {
-                interval.tick().await;
-                debug!("Running auto-unban task");
+                tokio::select! {
+                    _ = task_cancel.cancelled() => {
+                        debug!("Auto-unban task received cancellation, exiting");
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        debug!("Running auto-unban task");
 
-                // 清理过期封禁
-                // 注：过期清理需要特定的存储实现
-                // 当前使用BanStorage trait的cleanup_expired_bans方法
-                if let Err(e) = storage.cleanup_expired_bans().await {
-                    error!("Auto-unban task failed: {}", e);
+                        // 清理过期封禁
+                        // 注：过期清理需要特定的存储实现
+                        // 当前使用BanStorage trait的cleanup_expired_bans方法
+                        if let Err(e) = storage.cleanup_expired_bans().await {
+                            error!("Auto-unban task failed: {}", e);
+                        }
+                    }
                 }
             }
         });
 
         *handle_write = Some(handle);
+        *self.auto_unban_cancel.write().await = Some(cancel_token);
         info!("Auto-unban task started (interval: {}s)", interval_secs);
     }
 
     /// 停止自动解封任务
+    ///
+    /// 先发取消信号让在途的 `cleanup_expired_bans` 完成（5s 超时），超时才
+    /// abort——避免清理中途被打断，与审计写入任务的优雅排空语义对齐。
     pub async fn stop_auto_unban_task(&self) {
         let mut handle_guard = self.auto_unban_handle.write().await;
-        if let Some(handle) = handle_guard.take() {
-            handle.abort();
-            info!("Auto-unban task stopped");
+        let Some(mut handle) = handle_guard.take() else {
+            return;
+        };
+        if let Some(token) = self.auto_unban_cancel.write().await.take() {
+            token.cancel();
         }
+        if tokio::time::timeout(AUTO_UNBAN_DRAIN_TIMEOUT, &mut handle)
+            .await
+            .is_err()
+        {
+            handle.abort();
+            warn!("Auto-unban task drain timed out, aborted");
+        }
+        info!("Auto-unban task stopped");
+    }
+
+    /// 自动解封任务是否正在运行
+    pub async fn is_auto_unban_running(&self) -> bool {
+        self.auto_unban_handle.read().await.is_some()
     }
 
     /// 计算封禁时长（四档阶梯，非指数）
@@ -1292,6 +1326,11 @@ impl BanManager {
 /// 注意：BanManager 内部字段均为 `Arc`，可被 clone，Drop 只在最后一个引用被丢弃时触发。
 impl Drop for BanManager {
     fn drop(&mut self) {
+        if let Ok(mut cancel_guard) = self.auto_unban_cancel.try_write()
+            && let Some(token) = cancel_guard.take()
+        {
+            token.cancel();
+        }
         if let Ok(mut handle_guard) = self.auto_unban_handle.try_write()
             && let Some(handle) = handle_guard.take()
         {

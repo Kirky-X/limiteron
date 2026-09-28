@@ -295,7 +295,8 @@ if let Some(record) = ban_manager.is_banned(&target).await? {
 | `list_bans(filter: BanFilter)` | 分页/过滤查询封禁列表 |
 | `calculate_ban_duration(ban_times)` | 按退避算法计算封禁时长 |
 | `get_config()` / `update_config()` | 读取与更新运行时配置 |
-| `stop_auto_unban_task()` | 停止自动解封后台任务 |
+| `stop_auto_unban_task()` | 停止自动解封后台任务（先取消信号优雅排空 5s，超时才 abort） |
+| `is_auto_unban_running()` | 自动解封后台任务是否正在运行 |
 
 ### BanTarget 与 BanSource
 
@@ -532,6 +533,8 @@ pub fn builder() -> GovernorBuilder
 | `with_ban_storage(ban_storage: Arc<dyn BanStorage>)` | 注入封禁存储 |
 | `with_metrics(metrics: Arc<Metrics>)` | 注入指标收集器（`monitoring` 特性） |
 | `with_tracer(tracer: Arc<Tracer>)` | 注入追踪器（`telemetry` 特性） |
+| `with_audit_logger(logger: Arc<AuditLogger>)` | 注入审计日志器（`audit-log` 特性） |
+| `with_shutdown_snapshot_dir(dir)` | 关闭时统计快照落盘目录（JSON；默认不落盘） |
 | `with_l1_cache_enabled(enabled: bool)` | 开关 L1 负缓存 |
 | `with_l1_cache_config(config: L1CacheConfig)` | 自定义 L1 负缓存（TTL 与容量） |
 | `build().await` | 构建 Governor |
@@ -574,7 +577,8 @@ pub async fn check(&self, context: &RequestContext) -> Result<Decision, Limitero
 
 | 方法 | 签名 | 说明 |
 |------|------|------|
-| `shutdown` | `pub async fn shutdown(&self) -> Result<(), LimiteronError>` | 触发优雅关闭，停止后台任务（配额分配、封禁清理等） |
+| `shutdown` | `pub async fn shutdown(&self) -> Result<(), LimiteronError>` | 优雅关闭：停配置热重载 watcher、取消后台任务令牌、可选统计快照落盘、停止 auto-unban 与审计写入任务、清空 L1 缓存（幂等；连接池随最后 `Arc` 引用释放由底层关闭） |
+| `register_config_watcher_token` | `pub fn register_config_watcher_token(&self, token: tokio_util::sync::CancellationToken)` | 注册配置热重载 watcher 令牌（`watch_and_reload` 返回值），shutdown 统一取消 |
 | `shutdown_token` | `pub fn shutdown_token(&self) -> &tokio_util::sync::CancellationToken` | 获取关闭令牌引用，供异步任务监听关闭信号 |
 | `is_shutdown` | `pub fn is_shutdown(&self) -> bool` | 是否已关闭 |
 | `health_check` | `pub async fn health_check(&self) -> Result<(), LimiteronError>` | 执行真实健康检测（存储、封禁存储等依赖） |

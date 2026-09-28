@@ -5,7 +5,10 @@
 //! 用于缓存热点限流结果，减少存储层访问。
 //! 使用 oxcache 作为底层缓存引擎，支持 TTL 过期策略。
 
-use crate::error::{BanInfo, Decision, LimiteronError, RateLimitMetadata, RejectionMetadata};
+use crate::error::{BanInfo, Decision, RateLimitMetadata, RejectionMetadata};
+// 错误类型仅 to_decision_strict（fallback 门控的 fail-closed 防线）使用，随同门控
+#[cfg(feature = "fallback")]
+use crate::error::LimiteronError;
 use crate::i18n::t;
 use oxcache::{Cache, OxCacheError};
 use parking_lot::RwLock;
@@ -129,6 +132,9 @@ impl CacheableDecision {
     /// 历史教训：`to_decision` 对未知类型默认返回 Allowed——降级路径
     /// 据此直接放行（缓存损坏 = fail-open）。降级/孤岛路径必须用本方法,
     /// 让损坏条目走孤岛裁决而非默认放行。
+    // 唯一调用方是 fallback 门控的 check_l1_cache_only；随调用方门控，
+    // 避免 fallback 子集编译时 dead_code 警告（strict 版是 fail-closed 防线，不可删除）。
+    #[cfg(feature = "fallback")]
     pub fn to_decision_strict(&self) -> Result<Decision, LimiteronError> {
         if !matches!(
             self.decision_type.as_str(),

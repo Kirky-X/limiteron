@@ -67,15 +67,10 @@
 //! - **trait-kit integration**: AsyncKit `LimiteronModule` (requires `kit` feature)
 //! - **Internationalization**: Fluent message catalog (en/zh) + locale detection chain + error dual-track (always compiled); ICU4X locale-aware number/date/plural/sort formatting (requires `i18n` feature)
 //! - **inklog logging**: inklog structured logging integration (requires `inklog` feature)
-//!
-//! > **⚠️ 已声明未实现的 no-op features**：以下 feature 仅为下游兼容（vecboost 等）而
-//! > 声明，**启用无任何效果**，不提供对应功能，请勿依赖它们做能力判断：
-//! > `priority-queue`、`admission-control`。若你实际需要其中某项能力，请在 limiteron
-//! > 仓库提出 issue 寻求实现。
-//! >
-//! > `adaptive-limiting` 不在此列：自 rc4 起为真实实现（AIMD 自适应并发限流器，
-//! > 见 `limiters::adaptive` 模块），启用后编译进 `AdaptiveConcurrencyLimiter`
-//! > 及其配置/许可类型。
+//! - **Priority queue**: quota allocation with priority scheduling — per-level reserved
+//!   bands, strict-priority borrowing from lower levels only (requires `priority-queue` feature)
+//! - **Admission control**: concurrency + rate dual-gate admission with per-reason
+//!   rejection counters exposed via `stats()` (requires `admission-control` feature)
 
 pub mod prelude;
 

@@ -345,6 +345,7 @@ custom-matcher-pending-contract-violation = Custom matcher returned Pending (vio
 custom-matcher-resolved-from-registry = Custom matcher '{ $name }' resolved from registry and active
 
 # ---- Limiter factory validation (T025) ----
+limiter-admission-control-feature-disabled = admission-control feature is not enabled; rebuild with the `admission-control` feature to use AdmissionController
 limiter-capacity-must-be-positive = Token bucket capacity must be greater than 0
 limiter-capacity-too-large = Token bucket capacity too large, maximum is { $max }
 limiter-custom-requires-registry = Custom limiter type must be handled by CustomLimiterRegistry
@@ -352,6 +353,7 @@ limiter-max-concurrent-must-be-positive = Concurrency limit must be greater than
 limiter-max-concurrent-too-large = Concurrency limit too large, maximum is { $max }
 limiter-max-requests-must-be-positive = { $limiter_type } max requests must be greater than 0
 limiter-max-requests-too-large = { $limiter_type } max requests too large, maximum is { $max }
+limiter-priority-queue-feature-disabled = priority-queue feature is not enabled; rebuild with the `priority-queue` feature to use PriorityQueue limiters
 limiter-quota-requires-controller = Quota limiter type must be handled by QuotaController
 limiter-refill-rate-must-be-positive = Token bucket refill rate must be greater than 0
 limiter-refill-rate-too-large = Token bucket refill rate too large, maximum is { $max }

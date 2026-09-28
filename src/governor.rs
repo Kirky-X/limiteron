@@ -2510,6 +2510,8 @@ fn limiter_kind(l: &crate::config::LimiterConfig) -> String {
         L::FixedWindow { .. } => "fixed_window".to_string(),
         L::Quota { .. } => "quota".to_string(),
         L::Concurrency { .. } => "concurrency".to_string(),
+        L::PriorityQueue { .. } => "priority_queue".to_string(),
+        L::AdmissionControl { .. } => "admission_control".to_string(),
         L::Custom { name, .. } => format!("custom:{name}"),
     }
 }

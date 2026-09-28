@@ -266,7 +266,7 @@ standard = ["ban-manager", "quota-control", "circuit-breaker"]
 # 源文件在 full 口径下从不参与编译（存在破损而不可知）。
 # 刻意不入 full：metrics（经 dbnexus/metrics 拉入存储栈，违背本 preset 的
 # "无存储后端"承诺）、cli（二进制面，默认不编译，见其定义处注释）、
-# test-clock（测试专用，见注释）、priority-queue/admission-control（no-op）。
+# test-clock（测试专用，见注释）。
 full = [
     "cache-redis",
     "ban-manager",
@@ -300,6 +300,8 @@ full = [
     "config-confers-reload",
     "kit",
     "adaptive-limiting",
+    "priority-queue",
+    "admission-control",
     "distributed",
     "ban-sync",
 ]
@@ -313,7 +315,9 @@ adaptive-limiting = []
 # 独立默认关 feature，与既有模块零耦合，刻意不入任何 preset（含 full）：
 # 调光执行点（指标采集、按 capacity_ratio 放行）由消费方装配。
 capacity-dial = []
+# 优先级队列限流器：按优先级调度的配额分配（保留额 + 严格优先级借用）。
 priority-queue = []
+# 准入控制器：并发 + 速率双门准入与按原因拒绝计数。
 admission-control = []
 
 # ============================================

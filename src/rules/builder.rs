@@ -216,6 +216,68 @@ impl RuleBuilder {
                             LimiterTypeName::Concurrency,
                         )
                     }
+                    LimiterConfig::PriorityQueue {
+                        window_size,
+                        total_per_window,
+                        level_weights,
+                        default_priority,
+                    } => {
+                        // 与 LimiterFactory::create_limiter 同一取舍：
+                        // feature 关闭时配置了该类型即配置错误，显性报错而非静默跳过
+                        #[cfg(not(feature = "priority-queue"))]
+                        {
+                            let _ = (
+                                window_size,
+                                total_per_window,
+                                level_weights,
+                                default_priority,
+                            );
+                            return Err(LimiteronError::LimitError(t(
+                                "limiter-priority-queue-feature-disabled",
+                                &[],
+                            )));
+                        }
+                        #[cfg(feature = "priority-queue")]
+                        {
+                            let window = Self::parse_duration(window_size)?;
+                            let limiter =
+                                crate::limiters::priority_queue::PriorityQueueLimiter::new(
+                                    crate::limiters::priority_queue::PriorityQueueConfig {
+                                        window,
+                                        total_per_window: *total_per_window,
+                                        level_weights: level_weights.clone(),
+                                        default_priority: default_priority.unwrap_or_else(|| {
+                                            level_weights.len().saturating_sub(1)
+                                        }),
+                                    },
+                                )?;
+                            (Arc::new(limiter), LimiterTypeName::PriorityQueue)
+                        }
+                    }
+                    LimiterConfig::AdmissionControl {
+                        max_concurrent,
+                        max_per_second,
+                    } => {
+                        #[cfg(not(feature = "admission-control"))]
+                        {
+                            let _ = (max_concurrent, max_per_second);
+                            return Err(LimiteronError::LimitError(t(
+                                "limiter-admission-control-feature-disabled",
+                                &[],
+                            )));
+                        }
+                        #[cfg(feature = "admission-control")]
+                        {
+                            let limiter =
+                                crate::limiters::admission_control::AdmissionController::new(
+                                    crate::limiters::admission_control::AdmissionControlConfig {
+                                        max_concurrent: *max_concurrent,
+                                        max_per_second: *max_per_second,
+                                    },
+                                );
+                            (Arc::new(limiter), LimiterTypeName::AdmissionControl)
+                        }
+                    }
                     LimiterConfig::Custom { name, config: _ } => {
                         // CustomLimiter integration requires custom-limiter feature and
                         // manual registration via CustomLimiterRegistry

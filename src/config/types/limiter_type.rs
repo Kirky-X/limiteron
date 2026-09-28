@@ -23,6 +23,10 @@ pub enum LimiterTypeName {
     Concurrency,
     /// 配额限制
     Quota,
+    /// 优先级队列（feature `priority-queue`）
+    PriorityQueue,
+    /// 准入控制（feature `admission-control`）
+    AdmissionControl,
     /// 自定义限流器
     Custom,
 }
@@ -37,6 +41,8 @@ impl LimiterTypeName {
             "FixedWindow" => Some(Self::FixedWindow),
             "Concurrency" => Some(Self::Concurrency),
             "Quota" => Some(Self::Quota),
+            "PriorityQueue" => Some(Self::PriorityQueue),
+            "AdmissionControl" => Some(Self::AdmissionControl),
             "Custom" => Some(Self::Custom),
             _ => None,
         }
@@ -50,6 +56,8 @@ impl LimiterTypeName {
             Self::FixedWindow => "FixedWindow",
             Self::Concurrency => "Concurrency",
             Self::Quota => "Quota",
+            Self::PriorityQueue => "PriorityQueue",
+            Self::AdmissionControl => "AdmissionControl",
             Self::Custom => "Custom",
         }
     }
@@ -109,6 +117,11 @@ mod tests {
         assert_eq!(LimiterTypeName::SlidingWindow.as_str(), "SlidingWindow");
         assert_eq!(LimiterTypeName::FixedWindow.as_str(), "FixedWindow");
         assert_eq!(LimiterTypeName::Concurrency.as_str(), "Concurrency");
+        assert_eq!(LimiterTypeName::PriorityQueue.as_str(), "PriorityQueue");
+        assert_eq!(
+            LimiterTypeName::AdmissionControl.as_str(),
+            "AdmissionControl"
+        );
     }
 
     #[test]

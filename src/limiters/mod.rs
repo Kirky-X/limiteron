@@ -35,6 +35,14 @@ pub mod traits;
 #[cfg(feature = "adaptive-limiting")]
 pub mod adaptive;
 
+// 优先级队列限流器（按优先级调度的配额分配；此前 no-op feature 的真实实现）
+#[cfg(feature = "priority-queue")]
+pub mod priority_queue;
+
+// 准入控制器（并发 + 速率双门；此前 no-op feature 的真实实现）
+#[cfg(feature = "admission-control")]
+pub mod admission_control;
+
 // Quota limiter (feature-gated)
 #[cfg(feature = "quota-control")]
 pub mod quota_limiter;
@@ -56,6 +64,14 @@ pub use traits::{Limiter, RateLimitSnapshot};
 
 #[cfg(feature = "adaptive-limiting")]
 pub use adaptive::{AdaptiveConcurrencyConfig, AdaptiveConcurrencyLimiter, AdaptivePermit};
+
+#[cfg(feature = "priority-queue")]
+pub use priority_queue::{PriorityQueueConfig, PriorityQueueLimiter};
+
+#[cfg(feature = "admission-control")]
+pub use admission_control::{
+    AdmissionControlConfig, AdmissionController, AdmissionPermit, AdmissionStats,
+};
 
 #[cfg(feature = "quota-control")]
 pub use quota_limiter::QuotaLimiter;

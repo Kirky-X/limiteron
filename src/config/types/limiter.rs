@@ -51,6 +51,25 @@ pub enum LimiterConfig {
     Concurrency {
         max_concurrent: u64,
     },
+    /// 优先级队列（feature `priority-queue`）：按优先级调度的配额分配
+    PriorityQueue {
+        /// 配额窗口（如 "1s"/"1m"）
+        window_size: String,
+        /// 每窗口总配额
+        total_per_window: u64,
+        /// 各优先级档位权重（下标 0 为最高优先级）
+        level_weights: Vec<u64>,
+        /// [`Limiter`](crate::limiters::Limiter) 无优先级语义使用的默认档位
+        #[serde(default)]
+        default_priority: Option<usize>,
+    },
+    /// 准入控制（feature `admission-control`）：并发 + 速率双门准入
+    AdmissionControl {
+        /// 并发门：最大在途占用
+        max_concurrent: u64,
+        /// 速率门：每秒最大准入数
+        max_per_second: u64,
+    },
     /// 自定义限流器
     Custom {
         /// 限流器名称
@@ -117,6 +136,42 @@ impl LimiterConfig {
             LimiterConfig::Concurrency { max_concurrent } => {
                 if *max_concurrent == 0 {
                     return Err("Max concurrency cannot be 0".to_string());
+                }
+            }
+            LimiterConfig::PriorityQueue {
+                window_size,
+                total_per_window,
+                level_weights,
+                default_priority,
+            } => {
+                if *total_per_window == 0 {
+                    return Err("Priority queue total_per_window cannot be 0".to_string());
+                }
+                Self::validate_window_size(window_size)?;
+                if level_weights.is_empty() || level_weights.contains(&0) {
+                    return Err(
+                        "Priority queue level_weights must be non-empty and non-zero".to_string(),
+                    );
+                }
+                if let Some(default_priority) = default_priority
+                    && *default_priority >= level_weights.len()
+                {
+                    return Err(format!(
+                        "Priority queue default_priority {} out of range (levels: {})",
+                        default_priority,
+                        level_weights.len()
+                    ));
+                }
+            }
+            LimiterConfig::AdmissionControl {
+                max_concurrent,
+                max_per_second,
+            } => {
+                if *max_concurrent == 0 {
+                    return Err("Admission control max_concurrent cannot be 0".to_string());
+                }
+                if *max_per_second == 0 {
+                    return Err("Admission control max_per_second cannot be 0".to_string());
                 }
             }
             LimiterConfig::Custom { name, config } => {

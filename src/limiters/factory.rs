@@ -102,6 +102,46 @@ impl LimiterFactory {
             LimiterConfig::Concurrency { max_concurrent } => {
                 Ok(Arc::new(ConcurrencyLimiter::new(*max_concurrent)))
             }
+            #[cfg(feature = "priority-queue")]
+            LimiterConfig::PriorityQueue {
+                window_size,
+                total_per_window,
+                level_weights,
+                default_priority,
+            } => {
+                let window = Self::parse_window_size(window_size)?;
+                Ok(Arc::new(super::priority_queue::PriorityQueueLimiter::new(
+                    super::priority_queue::PriorityQueueConfig {
+                        window,
+                        total_per_window: *total_per_window,
+                        level_weights: level_weights.clone(),
+                        default_priority: default_priority
+                            .unwrap_or_else(|| level_weights.len().saturating_sub(1)),
+                    },
+                )?))
+            }
+            #[cfg(not(feature = "priority-queue"))]
+            LimiterConfig::PriorityQueue { .. } => Err(LimiteronError::LimitError(t(
+                "limiter-priority-queue-feature-disabled",
+                &[],
+            ))),
+            #[cfg(feature = "admission-control")]
+            LimiterConfig::AdmissionControl {
+                max_concurrent,
+                max_per_second,
+            } => Ok(Arc::new(
+                super::admission_control::AdmissionController::new(
+                    super::admission_control::AdmissionControlConfig {
+                        max_concurrent: *max_concurrent,
+                        max_per_second: *max_per_second,
+                    },
+                ),
+            )),
+            #[cfg(not(feature = "admission-control"))]
+            LimiterConfig::AdmissionControl { .. } => Err(LimiteronError::LimitError(t(
+                "limiter-admission-control-feature-disabled",
+                &[],
+            ))),
             LimiterConfig::Quota {
                 quota_type: _,
                 limit: _limit,
@@ -365,6 +405,11 @@ impl LimiterFactory {
                         &[("max", MAX_CONCURRENT_REQUESTS.to_string())],
                     )));
                 }
+            }
+            LimiterConfig::PriorityQueue { .. } | LimiterConfig::AdmissionControl { .. } => {
+                // 数值合法性规则与配置层校验（LimiterConfig::validate）完全一致，
+                // 直接复用以免同一规则两处维护
+                config.validate().map_err(LimiteronError::ConfigError)?;
             }
             LimiterConfig::Quota { .. } => {
                 // Quota 类型由QuotaController处理

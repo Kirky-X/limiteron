@@ -344,6 +344,7 @@ custom-matcher-pending-contract-violation = 自定义匹配器返回 Pending（�
 custom-matcher-resolved-from-registry = 自定义匹配器 '{ $name }' 已从注册表解析并生效
 
 # ---- 限流器工厂校验（T025） ----
+limiter-admission-control-feature-disabled = admission-control feature 未启用；请以 `admission-control` feature 重新构建以使用 AdmissionController
 limiter-capacity-must-be-positive = 令牌桶容量必须大于0
 limiter-capacity-too-large = 令牌桶容量过大，最大值为{ $max }
 limiter-custom-requires-registry = Custom 限流器类型需要由CustomLimiterRegistry处理
@@ -351,6 +352,7 @@ limiter-max-concurrent-must-be-positive = 并发限制数必须大于0
 limiter-max-concurrent-too-large = 并发限制数过大，最大值为{ $max }
 limiter-max-requests-must-be-positive = { $limiter_type }最大请求数必须大于0
 limiter-max-requests-too-large = { $limiter_type }最大请求数过大，最大值为{ $max }
+limiter-priority-queue-feature-disabled = priority-queue feature 未启用；请以 `priority-queue` feature 重新构建以使用 PriorityQueue 限流器
 limiter-quota-requires-controller = Quota 限流器类型需要由QuotaController处理
 limiter-refill-rate-must-be-positive = 令牌桶补充速率必须大于0
 limiter-refill-rate-too-large = 令牌桶补充速率过大，最大值为{ $max }

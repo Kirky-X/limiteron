@@ -143,7 +143,7 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             ChronoDuration::from_std(window).unwrap_or_else(|_| ChronoDuration::days(365));
         // 窗口锚定 epoch 对齐（与 cache 后端一致）：整窗边界全局一致，
         // 不随首次消费时刻漂移
-        let window_secs = chrono_window.num_seconds().max(1) as i64;
+        let window_secs = chrono_window.num_seconds().max(1);
         let window_start = Utc
             .timestamp_opt((now.timestamp().div_euclid(window_secs)) * window_secs, 0)
             .unwrap();

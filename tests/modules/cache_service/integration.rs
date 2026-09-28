@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! 缓存服务模块集成测试
 //!
-//! 测试缓存服务 trait 和 oxcache 集成
+//! 测试缓存服务 trait（产品 MemoryCache 实现）
 
 use limiteron::error::StorageError;
 use std::time::Duration;
@@ -10,7 +10,7 @@ use std::time::Duration;
 // NOTE: 以下 API 在源码中不存在，相关测试已移除：
 // - `CacheKey::rate_limit/ban/quota/custom`（CacheKey 是 trait，非 struct，无这些方法）
 // - `Cacheable` trait（cache_key/to_cache_bytes/from_cache_bytes 方法）
-// - `Cache::new_memory(100)` 构造函数（oxcache 0.3.2 无此方法）
+// - `Cache::new_memory(100)` 构造函数（oxcache 无此方法）
 // 待定：是补源码 API 还是保持移除。
 
 // ============================================================================
@@ -18,7 +18,7 @@ use std::time::Duration;
 // ============================================================================
 
 // ============================================================================
-// Cache (oxcache) Tests — 已移除（Cache::new_memory 不存在于 oxcache 0.3.2）
+// Cache (oxcache) Tests — 已移除（Cache::new_memory 不存在于 oxcache）
 // ============================================================================
 
 // ============================================================================

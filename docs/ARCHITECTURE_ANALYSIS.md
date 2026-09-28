@@ -196,9 +196,9 @@ Limiteron 的扩展点覆盖自定义限流算法（`Limiter` trait）、自定�
 
 Limiteron 使用完善的 Cargo features 体系实现功能模块的按需编译。预定义组合 features 包括 minimal（即默认空特性，核心限流无外部存储依赖）、standard（核心功能 + SQLite 持久化）和 full（主要功能全集）。独立 features 覆盖存储后端、核心功能、安全、性能、高级匹配、可观测性和工具等类别。
 
-核心运行时依赖包括 tokio 1.53（异步运行时）、parking_lot 0.12（高性能同步原语）、dashmap 6.2（并发哈希表）、ahash 0.8（高性能哈希算法）。数据序列化依赖包括 serde 1.0、serde_json 1.0、serde_yaml_ng 0.10、toml 1.1、chrono 0.4、uuid 1.23。数据库依赖包括 dbnexus（workspace 本地路径）与 sea-orm 2.0。监控依赖包括 tracing 0.1、prometheus 0.14。
+核心运行时依赖包括 tokio 1.53（异步运行时）、parking_lot 0.12（高性能同步原语）、dashmap 6.2（并发哈希表）、ahash 0.8（高性能哈希算法）。数据序列化依赖包括 serde 1.0、serde_json 1.0、serde_yaml_ng 0.10、toml 1.1、chrono 0.4、uuid 1.26。数据库依赖包括 dbnexus（crates.io registry）与 sea-orm 2.0。监控依赖包括 tracing 0.1、prometheus 0.14。
 
-本地路径依赖用于工作区内定制化组件：oxcache 用于缓存实现，dbnexus 用于数据库抽象，confers 用于配置加载，limiteron-macros 用于过程宏。这种依赖管理策略既保证了灵活性，又避免了外部依赖版本冲突。代码质量配置通过 `clippy.toml` 设定复杂度阈值等 lint 参数；仓库惯例禁止 `std::collections::HashMap`/`HashSet`，统一使用 ahash 与 DashMap 的并发安全替代方案。
+跨仓定制化组件经 crates.io registry 引入：oxcache 用于缓存实现，dbnexus 用于数据库抽象，confers 用于配置加载，trait-kit 用于 AsyncKit 模块集成，inklog 用于结构化日志；limiteron-macros 作为 workspace 成员以 path+version 双写引入。registry 化保证 crate 可发布且下游无需访问本地路径。代码质量配置通过 `clippy.toml` 设定复杂度阈值等 lint 参数；仓库惯例禁止 `std::collections::HashMap`/`HashSet`，统一使用 ahash 与 DashMap 的并发安全替代方案。
 
 ## 📝 总结
 

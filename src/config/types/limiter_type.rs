@@ -21,6 +21,10 @@ pub enum LimiterTypeName {
     FixedWindow,
     /// 并发控制
     Concurrency,
+    /// 漏桶算法（恒定流出整形）
+    LeakyBucket,
+    /// 滑动窗口日志算法（精确滑动窗口）
+    SlidingWindowLog,
     /// 配额限制
     Quota,
     /// 优先级队列（feature `priority-queue`）
@@ -40,6 +44,8 @@ impl LimiterTypeName {
             "SlidingWindow" => Some(Self::SlidingWindow),
             "FixedWindow" => Some(Self::FixedWindow),
             "Concurrency" => Some(Self::Concurrency),
+            "LeakyBucket" => Some(Self::LeakyBucket),
+            "SlidingWindowLog" => Some(Self::SlidingWindowLog),
             "Quota" => Some(Self::Quota),
             "PriorityQueue" => Some(Self::PriorityQueue),
             "AdmissionControl" => Some(Self::AdmissionControl),
@@ -55,6 +61,8 @@ impl LimiterTypeName {
             Self::SlidingWindow => "SlidingWindow",
             Self::FixedWindow => "FixedWindow",
             Self::Concurrency => "Concurrency",
+            Self::LeakyBucket => "LeakyBucket",
+            Self::SlidingWindowLog => "SlidingWindowLog",
             Self::Quota => "Quota",
             Self::PriorityQueue => "PriorityQueue",
             Self::AdmissionControl => "AdmissionControl",
@@ -106,6 +114,22 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_leaky_bucket() {
+        assert_eq!(
+            LimiterTypeName::parse("LeakyBucket"),
+            Some(LimiterTypeName::LeakyBucket)
+        );
+    }
+
+    #[test]
+    fn test_parse_sliding_window_log() {
+        assert_eq!(
+            LimiterTypeName::parse("SlidingWindowLog"),
+            Some(LimiterTypeName::SlidingWindowLog)
+        );
+    }
+
+    #[test]
     fn test_parse_invalid() {
         assert_eq!(LimiterTypeName::parse("Invalid"), None);
         assert_eq!(LimiterTypeName::parse(""), None);
@@ -117,6 +141,11 @@ mod tests {
         assert_eq!(LimiterTypeName::SlidingWindow.as_str(), "SlidingWindow");
         assert_eq!(LimiterTypeName::FixedWindow.as_str(), "FixedWindow");
         assert_eq!(LimiterTypeName::Concurrency.as_str(), "Concurrency");
+        assert_eq!(LimiterTypeName::LeakyBucket.as_str(), "LeakyBucket");
+        assert_eq!(
+            LimiterTypeName::SlidingWindowLog.as_str(),
+            "SlidingWindowLog"
+        );
         assert_eq!(LimiterTypeName::PriorityQueue.as_str(), "PriorityQueue");
         assert_eq!(
             LimiterTypeName::AdmissionControl.as_str(),

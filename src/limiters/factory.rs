@@ -19,21 +19,13 @@ use crate::config::LimiterConfig;
 #[cfg(test)]
 use crate::config::QuotaType;
 use crate::config::parse_window_size;
+use crate::constants::{
+    MAX_CONCURRENT_REQUESTS, MAX_SLIDING_LOG_REQUESTS, MAX_TOKEN_BUCKET_CAPACITY,
+    MAX_TOKEN_BUCKET_REFILL_RATE, MAX_WINDOW_REQUESTS,
+};
 use crate::error::LimiteronError;
 use crate::i18n::t;
 use std::sync::Arc;
-
-/// 配置限制常量
-///
-/// 这些限制值基于以下考虑：
-/// - MAX_TOKEN_BUCKET_CAPACITY: 防止内存过度消耗，假设每个令牌占用1字节，10M令牌约10MB内存
-/// - MAX_TOKEN_BUCKET_REFILL_RATE: 防止CPU过度消耗，每秒100万次补充操作可能导致性能问题
-/// - MAX_WINDOW_REQUESTS: 防止窗口数据结构过大，影响内存和性能
-/// - MAX_CONCURRENT_REQUESTS: 防止并发控制结构过大，影响系统稳定性
-const MAX_TOKEN_BUCKET_CAPACITY: u64 = 10_000_000;
-const MAX_TOKEN_BUCKET_REFILL_RATE: u64 = 1_000_000;
-const MAX_WINDOW_REQUESTS: u64 = 10_000_000;
-const MAX_CONCURRENT_REQUESTS: u64 = 100_000;
 
 /// 限流器工厂
 ///
@@ -101,6 +93,24 @@ impl LimiterFactory {
             }
             LimiterConfig::Concurrency { max_concurrent } => {
                 Ok(Arc::new(ConcurrencyLimiter::new(*max_concurrent)))
+            }
+            LimiterConfig::LeakyBucket {
+                capacity,
+                leak_rate,
+            } => Ok(Arc::new(super::leaky_bucket::LeakyBucketLimiter::new(
+                *capacity, *leak_rate,
+            )?)),
+            LimiterConfig::SlidingWindowLog {
+                window_size,
+                max_requests,
+            } => {
+                let duration = Self::parse_window_size(window_size)?;
+                Ok(Arc::new(
+                    super::sliding_window_log::SlidingWindowLogLimiter::new(
+                        *max_requests,
+                        duration,
+                    )?,
+                ))
             }
             #[cfg(feature = "priority-queue")]
             LimiterConfig::PriorityQueue {
@@ -173,6 +183,9 @@ impl LimiterFactory {
     /// - `TokenBucket` → `RedisTokenBucketLimiter`（令牌桶脚本）
     /// - `SlidingWindow` → `RedisSlidingWindowLimiter`（滑动窗口脚本）
     /// - `Quota`/`Custom` 仍由 QuotaController/Registry 处理（返回错误）。
+    /// - `LeakyBucket`/`SlidingWindowLog`/`Concurrency` 等**当前仅进程内**：
+    ///   落入兜底 `Self::create` 成为本地限流，多实例部署下实际全局放行量
+    ///   = 配置值 × 实例数，分布式部署请慎用这些类型。
     ///
     /// `cache` 必须是 oxcache Redis 后端的 Cache 实例；无 Redis 连接配置
     /// 时调用方无法构造该实例，自然返回配置错误——限流语义不会静默
@@ -230,7 +243,18 @@ impl LimiterFactory {
                     window_ms,
                 )))
             }
-            other => Self::create(other),
+            other => {
+                // 仅进程内类型（LeakyBucket/SlidingWindowLog/Concurrency 等）
+                // 走兜底降级：保留进程内语义（存量行为），但降级必须显性化
+                // ——多实例部署下全局放行量 = 配置值 × 实例数，静默降级会让
+                // 该偏差不可观测（fail-open 方向）
+                tracing::warn!(
+                    config = ?other,
+                    "redis backend: limiter type has no distributed script, \
+                     falling back to in-process limiter"
+                );
+                Self::create(other)
+            }
         }
     }
 
@@ -325,10 +349,15 @@ impl LimiterFactory {
     /// LimiterFactory::validate_config(&config).unwrap();
     /// ```
     /// 验证窗口配置（适用于滑动窗口和固定窗口）
+    ///
+    /// `max_limit` 由调用方按算法传入：计数器型窗口用
+    /// `MAX_WINDOW_REQUESTS`，日志型滑动窗口用更严的
+    /// `MAX_SLIDING_LOG_REQUESTS`（条目内存随配额线性增长）。
     fn validate_window_config(
         window_size: &str,
         max_requests: u64,
         limiter_type: &str,
+        max_limit: u64,
     ) -> Result<(), LimiteronError> {
         Self::parse_window_size(window_size)?;
         if max_requests == 0 {
@@ -337,12 +366,12 @@ impl LimiterFactory {
                 &[("limiter_type", limiter_type.to_string())],
             )));
         }
-        if max_requests > MAX_WINDOW_REQUESTS {
+        if max_requests > max_limit {
             return Err(LimiteronError::ConfigError(t(
                 "limiter-max-requests-too-large",
                 &[
                     ("limiter_type", limiter_type.to_string()),
-                    ("max", MAX_WINDOW_REQUESTS.to_string()),
+                    ("max", max_limit.to_string()),
                 ],
             )));
         }
@@ -384,13 +413,23 @@ impl LimiterFactory {
                 window_size,
                 max_requests,
             } => {
-                Self::validate_window_config(window_size, *max_requests, "sliding window")?;
+                Self::validate_window_config(
+                    window_size,
+                    *max_requests,
+                    "sliding window",
+                    MAX_WINDOW_REQUESTS,
+                )?;
             }
             LimiterConfig::FixedWindow {
                 window_size,
                 max_requests,
             } => {
-                Self::validate_window_config(window_size, *max_requests, "fixed window")?;
+                Self::validate_window_config(
+                    window_size,
+                    *max_requests,
+                    "fixed window",
+                    MAX_WINDOW_REQUESTS,
+                )?;
             }
             LimiterConfig::Concurrency { max_concurrent } => {
                 if *max_concurrent == 0 {
@@ -410,6 +449,46 @@ impl LimiterFactory {
                 // 数值合法性规则与配置层校验（LimiterConfig::validate）完全一致，
                 // 直接复用以免同一规则两处维护
                 config.validate().map_err(LimiteronError::ConfigError)?;
+            }
+            LimiterConfig::LeakyBucket {
+                capacity,
+                leak_rate,
+            } => {
+                if *capacity == 0 {
+                    return Err(LimiteronError::ConfigError(t(
+                        "limiter-leaky-capacity-must-be-positive",
+                        &[],
+                    )));
+                }
+                if *leak_rate == 0 {
+                    return Err(LimiteronError::ConfigError(t(
+                        "limiter-leak-rate-must-be-positive",
+                        &[],
+                    )));
+                }
+                if *capacity > MAX_TOKEN_BUCKET_CAPACITY {
+                    return Err(LimiteronError::ConfigError(t(
+                        "limiter-leaky-capacity-too-large",
+                        &[("max", MAX_TOKEN_BUCKET_CAPACITY.to_string())],
+                    )));
+                }
+                if *leak_rate > MAX_TOKEN_BUCKET_REFILL_RATE {
+                    return Err(LimiteronError::ConfigError(t(
+                        "limiter-leak-rate-too-large",
+                        &[("max", MAX_TOKEN_BUCKET_REFILL_RATE.to_string())],
+                    )));
+                }
+            }
+            LimiterConfig::SlidingWindowLog {
+                window_size,
+                max_requests,
+            } => {
+                Self::validate_window_config(
+                    window_size,
+                    *max_requests,
+                    "sliding window log",
+                    MAX_SLIDING_LOG_REQUESTS,
+                )?;
             }
             LimiterConfig::Quota { .. } => {
                 // Quota 类型由QuotaController处理
@@ -479,6 +558,38 @@ mod tests {
 
         let limiter = LimiterFactory::create(&config);
         assert!(limiter.is_ok());
+    }
+
+    #[test]
+    fn test_create_leaky_bucket() {
+        let config = LimiterConfig::LeakyBucket {
+            capacity: 100,
+            leak_rate: 10,
+        };
+
+        let limiter = LimiterFactory::create(&config);
+        assert!(limiter.is_ok());
+    }
+
+    #[test]
+    fn test_create_sliding_window_log() {
+        let config = LimiterConfig::SlidingWindowLog {
+            window_size: "30s".to_string(),
+            max_requests: 100,
+        };
+
+        let limiter = LimiterFactory::create(&config);
+        assert!(limiter.is_ok());
+
+        // 工厂产物的判定行为与直构一致（放行直至配额耗尽）
+        let limiter = limiter.unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            for _ in 0..100 {
+                assert!(Limiter::allow(limiter.as_ref(), 1).await.unwrap());
+            }
+            assert!(!Limiter::allow(limiter.as_ref(), 1).await.unwrap());
+        });
     }
 
     #[test]
@@ -592,24 +703,119 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_leaky_bucket() {
+        assert!(
+            LimiterFactory::validate_config(&LimiterConfig::LeakyBucket {
+                capacity: 100,
+                leak_rate: 10,
+            })
+            .is_ok()
+        );
+        // 容量/漏速为零、超上限均拒绝
+        assert!(
+            LimiterFactory::validate_config(&LimiterConfig::LeakyBucket {
+                capacity: 0,
+                leak_rate: 10,
+            })
+            .is_err()
+        );
+        assert!(
+            LimiterFactory::validate_config(&LimiterConfig::LeakyBucket {
+                capacity: 100,
+                leak_rate: 0,
+            })
+            .is_err()
+        );
+        assert!(
+            LimiterFactory::validate_config(&LimiterConfig::LeakyBucket {
+                capacity: MAX_TOKEN_BUCKET_CAPACITY + 1,
+                leak_rate: 10,
+            })
+            .is_err()
+        );
+        assert!(
+            LimiterFactory::validate_config(&LimiterConfig::LeakyBucket {
+                capacity: 100,
+                leak_rate: MAX_TOKEN_BUCKET_REFILL_RATE + 1,
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_validate_sliding_window_log() {
+        assert!(
+            LimiterFactory::validate_config(&LimiterConfig::SlidingWindowLog {
+                window_size: "1m".to_string(),
+                max_requests: 100,
+            })
+            .is_ok()
+        );
+        assert!(
+            LimiterFactory::validate_config(&LimiterConfig::SlidingWindowLog {
+                window_size: "bogus".to_string(),
+                max_requests: 100,
+            })
+            .is_err()
+        );
+        assert!(
+            LimiterFactory::validate_config(&LimiterConfig::SlidingWindowLog {
+                window_size: "1m".to_string(),
+                max_requests: 0,
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
     fn test_validate_window_config_valid() {
-        assert!(LimiterFactory::validate_window_config("1m", 100, "test").is_ok());
-        assert!(LimiterFactory::validate_window_config("1h", 1000, "test").is_ok());
+        assert!(
+            LimiterFactory::validate_window_config("1m", 100, "test", MAX_WINDOW_REQUESTS).is_ok()
+        );
+        assert!(
+            LimiterFactory::validate_window_config("1h", 1000, "test", MAX_WINDOW_REQUESTS).is_ok()
+        );
     }
 
     #[test]
     fn test_validate_window_config_invalid_size() {
-        assert!(LimiterFactory::validate_window_config("", 100, "test").is_err());
+        assert!(
+            LimiterFactory::validate_window_config("", 100, "test", MAX_WINDOW_REQUESTS).is_err()
+        );
     }
 
     #[test]
     fn test_validate_window_config_invalid_requests() {
-        assert!(LimiterFactory::validate_window_config("1m", 0, "test").is_err());
+        assert!(
+            LimiterFactory::validate_window_config("1m", 0, "test", MAX_WINDOW_REQUESTS).is_err()
+        );
     }
 
     #[test]
     fn test_validate_window_config_requests_exceeded() {
-        assert!(LimiterFactory::validate_window_config("1m", 10_000_001, "test").is_err());
+        assert!(
+            LimiterFactory::validate_window_config("1m", 10_000_001, "test", MAX_WINDOW_REQUESTS)
+                .is_err()
+        );
+        // 日志型窗口的独立更严上界：MAX_WINDOW_REQUESTS 内的值也可能超界
+        assert!(
+            LimiterFactory::validate_window_config(
+                "1m",
+                MAX_WINDOW_REQUESTS,
+                "sliding window log",
+                MAX_SLIDING_LOG_REQUESTS
+            )
+            .is_err()
+        );
+        assert!(
+            LimiterFactory::validate_window_config(
+                "1m",
+                MAX_SLIDING_LOG_REQUESTS,
+                "sliding window log",
+                MAX_SLIDING_LOG_REQUESTS
+            )
+            .is_ok()
+        );
     }
 
     #[test]

@@ -21,7 +21,7 @@
 One Governor entrypoint where multi-algorithm limiting and layered control decide together:
 
 <table style="width:100%; border-collapse: collapse">
-<tr><td align="center" width="25%" style="padding: 12px">🚦<br><b>Multi-Algorithm Limiting</b><br><span style="color:#64748B">token bucket, sliding/fixed window, concurrency, GCRA, HTB</span></td><td align="center" width="25%" style="padding: 12px">🛡️<br><b>Layered Control</b><br><span style="color:#64748B">bans, quotas, circuit breaking, fallback on one decision chain</span></td><td align="center" width="25%" style="padding: 12px">🔌<br><b>Pluggable Foundation</b><br><span style="color:#64748B">in-memory out of the box; persistence via dbnexus, cache via oxcache</span></td><td align="center" width="25%" style="padding: 12px">📈<br><b>Production Observability</b><br><span style="color:#64748B">Prometheus metrics, OTLP tracing export, HMAC audit chain</span></td></tr>
+<tr><td align="center" width="25%" style="padding: 12px">🚦<br><b>Multi-Algorithm Limiting</b><br><span style="color:#64748B">token bucket, sliding/fixed window, leaky bucket, sliding window log, concurrency, GCRA, HTB</span></td><td align="center" width="25%" style="padding: 12px">🛡️<br><b>Layered Control</b><br><span style="color:#64748B">bans, quotas, circuit breaking, fallback on one decision chain</span></td><td align="center" width="25%" style="padding: 12px">🔌<br><b>Pluggable Foundation</b><br><span style="color:#64748B">in-memory out of the box; persistence via dbnexus, cache via oxcache</span></td><td align="center" width="25%" style="padding: 12px">📈<br><b>Production Observability</b><br><span style="color:#64748B">Prometheus metrics, OTLP tracing export, HMAC audit chain</span></td></tr>
 </table>
 
 </div>
@@ -62,7 +62,7 @@ One Governor entrypoint where multi-algorithm limiting and layered control decid
 
 ### 🎯 Traffic Governance
 
-- ✅ **Multiple Rate Limiting Algorithms** — Token bucket, sliding window, sharded sliding window, fixed window, concurrency control, GCRA, HTB hierarchical token bucket (`src/limiters/`)
+- ✅ **Multiple Rate Limiting Algorithms** — Token bucket, sliding window, sharded sliding window, sliding window log (exact sliding window), fixed window, leaky bucket (water-level meter, dual of token bucket), concurrency control, GCRA, HTB hierarchical token bucket (`src/limiters/`)
 - ✅ **Ban Management** — IP / User / MAC / Geo targets, CIDR range bans, priority system, YAML bulk loading with hot reload, cross-instance sync (`ban-sync`)
 - ✅ **Quota Control** — Periodic quota allocation, quota alerts, quota overdraw (`src/quota/`)
 - ✅ **Circuit Breaking & Fallback** — Automatic failover, state recovery, fallback strategies (`src/circuit/`, `src/fallback.rs`)
@@ -436,7 +436,7 @@ cargo bench --features full
 </tr>
 <tr>
 <td width="12%" align="center"><b>💡 Future Ideas</b></td>
-<td>Machine learning-driven rate limiting, additional rate limiting algorithms, community plugin system</td>
+<td>Machine learning-driven rate limiting, community plugin system</td>
 </tr>
 </table>
 

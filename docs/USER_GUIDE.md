@@ -199,8 +199,10 @@ limiter.check("user123").await?;
 | 算法 | 类型 | 适用场景 |
 |------|------|---------|
 | 令牌桶 | `TokenBucketLimiter` | 允许一定突发，长期速率受控 |
+| 漏桶 | `LeakyBucketLimiter` | 突发容量 + 持续漏出速率的水位记账，判定与令牌桶对偶（水位 = 容量 − 令牌），锁保护单点串行，高争用优先令牌桶 |
 | 滑动窗口 | `SlidingWindowLimiter`（已弃用导出） | 精确窗口计数 |
 | 分片滑动窗口 | `ShardedSlidingWindowLimiter` | 高并发下的精确窗口计数 |
+| 滑动窗口日志 | `SlidingWindowLogLimiter` | 精确滑动窗口、无边界突刺；以 O(窗口内请求数) 内存为代价（每条目 16B，上限 100K 条），大配额长窗口优先分片滑动窗口 |
 | 固定窗口 | `FixedWindowLimiter` | 实现最简单、吞吐最高 |
 | 并发控制 | `ConcurrencyLimiter` | 限制同时处理的请求数 |
 | GCRA | `GcraLimiter`（`gcra` 特性） | 信元速率算法、平滑限流 |

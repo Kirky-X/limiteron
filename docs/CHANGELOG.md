@@ -37,14 +37,18 @@
 
 ### 新增
 
+- **LeakyBucketLimiter 漏桶限流器**：任意速率入桶、恒定速率漏出的水位计型（meter）限流，判定语义与令牌桶严格对偶（水位 = 容量 − 令牌），无请求排队/延迟放行；漏出积分守恒（亚单位时间滞留累计，与令牌桶补充对称）、漏空时积压积分丢弃、`peek`/`remaining` 纯读虚拟推演；状态为 Mutex 单点串行（高争用场景选无锁 TokenBucketLimiter）；`LimiterConfig::LeakyBucket` 配置变体接入工厂/决策链/自省
+- **SlidingWindowLogLimiter 滑动窗口日志限流器**：逐条记录窗口内放行（时间戳 + 成本队列）的精确滑动窗口，无固定窗口边界突刺；过期条目在 allow 路径惰性逐出（摊还 O(1)，空闲期已过期条目驻留队列、队空时收缩缓冲），内存随窗口内请求数线性增长（16 字节/条目，配置上界 `MAX_SLIDING_LOG_REQUESTS`=100K 条 ≈1.6MB/实例，计数器型大配额窗口优先分片滑动窗口）；判定/读路径经单调确认游标摊还 O(1)，拒绝热路径无重复扫描；`LimiterConfig::SlidingWindowLog` 配置变体接入工厂/决策链/自省
 - **Governor shutdown 完整实现**：五阶段优雅关闭编排——停止配置热重载 watcher（`register_config_watcher_token` 注册、多 watcher 全取消）、取消 shutdown 令牌、统计快照落盘（`GovernorBuilder::with_shutdown_snapshot_dir` 显式启用，JSON 原子写，临时文件 O_EXCL 独占创建 + 0600 权限防符号链接覆写，冲突退避 pid 后缀）、停止 BanManager 自动解封任务（取消信号优雅排空 5s，超时 abort）、审计日志器摘除（尽力 `Arc::try_unwrap` 优雅排空）
 - **`impl Drop for Governor`**：同步兜底无条件取消 shutdown 与已注册 watcher 令牌（幂等）
 - **`BanManager::is_auto_unban_running()`**：自动解封后台任务运行状态观测
 
 ### 变更
 
+- **存量限流类型配置校验收紧（升级注意）**：`LimiterConfig::validate`（配置加载生效校验点）新增上限——TokenBucket/LeakyBucket 容量 ≤10M、补充/漏出速率 ≤1M/s，SlidingWindow/FixedWindow max_requests ≤10M，SlidingWindowLog max_requests ≤100K（日志型独立更严上界），Concurrency ≤100K；超限配置此前可加载（仅工厂层校验未接入生产路径），升级后将在配置加载/规则构建期被拒绝（fail-closed）。迁移检查：升级前扫描现有 YAML/TOML 配置中各限流器数值是否超限，超限项按业务真实需求下调或反馈 issue 评估上限调整
 - `BanManager::stop_auto_unban_task()` 由直接 abort 改为先取消信号等待在途清理完成（5s 超时兜底 abort）
 - 存储连接释放语义文档化：连接池随最后 `Arc` 引用释放由底层驱动关闭，shutdown 负责停止后台任务不再发起新访问
+- `LimiterFactory::create_with_redis`（`distributed` + `lua-script`）对无分布式脚本的类型（LeakyBucket/SlidingWindowLog/Concurrency 等）降级为进程内限流时输出 `tracing::warn` 带配置详情——多实例部署下全局放行量 = 配置值 × 实例数，降级不再静默
 
 ## [0.3.0-rc.6] - 2026-09-28
 

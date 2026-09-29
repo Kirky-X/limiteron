@@ -357,6 +357,10 @@ limiter-priority-queue-feature-disabled = priority-queue feature is not enabled;
 limiter-quota-requires-controller = Quota limiter type must be handled by QuotaController
 limiter-refill-rate-must-be-positive = Token bucket refill rate must be greater than 0
 limiter-refill-rate-too-large = Token bucket refill rate too large, maximum is { $max }
+limiter-leak-rate-must-be-positive = Leaky bucket leak rate must be greater than 0
+limiter-leak-rate-too-large = Leaky bucket leak rate too large, maximum is { $max }
+limiter-leaky-capacity-must-be-positive = Leaky bucket capacity must be greater than 0
+limiter-leaky-capacity-too-large = Leaky bucket capacity too large, maximum is { $max }
 
 # ---- Quota alerts (T025) ----
 quota-alert-concurrency-limit = Alert concurrency limit of { $max } reached, skipping this alert: user_id={ $user_id }, resource={ $resource }, threshold={ $threshold }%

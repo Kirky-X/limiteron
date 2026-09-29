@@ -216,6 +216,30 @@ impl RuleBuilder {
                             LimiterTypeName::Concurrency,
                         )
                     }
+                    LimiterConfig::LeakyBucket {
+                        capacity,
+                        leak_rate,
+                    } => (
+                        Arc::new(crate::limiters::leaky_bucket::LeakyBucketLimiter::new(
+                            *capacity, *leak_rate,
+                        )?),
+                        LimiterTypeName::LeakyBucket,
+                    ),
+                    LimiterConfig::SlidingWindowLog {
+                        window_size,
+                        max_requests,
+                    } => {
+                        let duration = Self::parse_duration(window_size)?;
+                        (
+                            Arc::new(
+                                crate::limiters::sliding_window_log::SlidingWindowLogLimiter::new(
+                                    *max_requests,
+                                    duration,
+                                )?,
+                            ),
+                            LimiterTypeName::SlidingWindowLog,
+                        )
+                    }
                     LimiterConfig::PriorityQueue {
                         window_size,
                         total_per_window,

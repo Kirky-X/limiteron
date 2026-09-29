@@ -356,6 +356,10 @@ limiter-priority-queue-feature-disabled = priority-queue feature 未启用；请
 limiter-quota-requires-controller = Quota 限流器类型需要由QuotaController处理
 limiter-refill-rate-must-be-positive = 令牌桶补充速率必须大于0
 limiter-refill-rate-too-large = 令牌桶补充速率过大，最大值为{ $max }
+limiter-leak-rate-must-be-positive = 漏桶漏出速率必须大于0
+limiter-leak-rate-too-large = 漏桶漏出速率过大，最大值为{ $max }
+limiter-leaky-capacity-must-be-positive = 漏桶容量必须大于0
+limiter-leaky-capacity-too-large = 漏桶容量过大，最大值为{ $max }
 
 # ---- 配额告警（T025） ----
 quota-alert-concurrency-limit = 告警并发上限已达 { $max }，跳过本次告警: user_id={ $user_id }, resource={ $resource }, threshold={ $threshold }%

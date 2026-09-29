@@ -3,6 +3,10 @@
 //! 限流器相关类型
 
 use super::QuotaType;
+use crate::constants::{
+    MAX_CONCURRENT_REQUESTS, MAX_SLIDING_LOG_REQUESTS, MAX_TOKEN_BUCKET_CAPACITY,
+    MAX_TOKEN_BUCKET_REFILL_RATE, MAX_WINDOW_REQUESTS,
+};
 use crate::i18n::t;
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +55,20 @@ pub enum LimiterConfig {
     Concurrency {
         max_concurrent: u64,
     },
+    /// 漏桶（恒定流出整形）：任意速率入桶，桶以恒定速率漏出，桶满即拒
+    LeakyBucket {
+        /// 桶容量（突发上限）
+        capacity: u64,
+        /// 每秒恒定漏出量
+        leak_rate: u64,
+    },
+    /// 滑动窗口日志（精确滑动窗口）：逐条记录窗口内放行，无固定窗口边界突刺
+    SlidingWindowLog {
+        /// 窗口长度（如 "1s"/"1m"）
+        window_size: String,
+        /// 窗口内最大放行总量
+        max_requests: u64,
+    },
     /// 优先级队列（feature `priority-queue`）：按优先级调度的配额分配
     PriorityQueue {
         /// 配额窗口（如 "1s"/"1m"）
@@ -93,6 +111,16 @@ impl LimiterConfig {
                 if *refill_rate == 0 {
                     return Err("Refill rate cannot be 0".to_string());
                 }
+                if *capacity > MAX_TOKEN_BUCKET_CAPACITY {
+                    return Err(format!(
+                        "Token bucket capacity cannot exceed {MAX_TOKEN_BUCKET_CAPACITY}"
+                    ));
+                }
+                if *refill_rate > MAX_TOKEN_BUCKET_REFILL_RATE {
+                    return Err(format!(
+                        "Token bucket refill rate cannot exceed {MAX_TOKEN_BUCKET_REFILL_RATE}"
+                    ));
+                }
             }
             LimiterConfig::SlidingWindow {
                 window_size,
@@ -100,6 +128,9 @@ impl LimiterConfig {
             } => {
                 if *max_requests == 0 {
                     return Err("Max requests cannot be 0".to_string());
+                }
+                if *max_requests > MAX_WINDOW_REQUESTS {
+                    return Err(format!("Max requests cannot exceed {MAX_WINDOW_REQUESTS}"));
                 }
                 Self::validate_window_size(window_size)?;
             }
@@ -109,6 +140,9 @@ impl LimiterConfig {
             } => {
                 if *max_requests == 0 {
                     return Err("Max requests cannot be 0".to_string());
+                }
+                if *max_requests > MAX_WINDOW_REQUESTS {
+                    return Err(format!("Max requests cannot exceed {MAX_WINDOW_REQUESTS}"));
                 }
                 Self::validate_window_size(window_size)?;
             }
@@ -137,6 +171,47 @@ impl LimiterConfig {
                 if *max_concurrent == 0 {
                     return Err("Max concurrency cannot be 0".to_string());
                 }
+                if *max_concurrent > MAX_CONCURRENT_REQUESTS {
+                    return Err(format!(
+                        "Max concurrency cannot exceed {MAX_CONCURRENT_REQUESTS}"
+                    ));
+                }
+            }
+            LimiterConfig::LeakyBucket {
+                capacity,
+                leak_rate,
+            } => {
+                if *capacity == 0 {
+                    return Err("Leaky bucket capacity cannot be 0".to_string());
+                }
+                if *leak_rate == 0 {
+                    return Err("Leaky bucket leak_rate cannot be 0".to_string());
+                }
+                if *capacity > MAX_TOKEN_BUCKET_CAPACITY {
+                    return Err(format!(
+                        "Leaky bucket capacity cannot exceed {MAX_TOKEN_BUCKET_CAPACITY}"
+                    ));
+                }
+                if *leak_rate > MAX_TOKEN_BUCKET_REFILL_RATE {
+                    return Err(format!(
+                        "Leaky bucket leak_rate cannot exceed {MAX_TOKEN_BUCKET_REFILL_RATE}"
+                    ));
+                }
+            }
+            LimiterConfig::SlidingWindowLog {
+                window_size,
+                max_requests,
+            } => {
+                if *max_requests == 0 {
+                    return Err("Sliding window log max_requests cannot be 0".to_string());
+                }
+                // 日志型窗口内存随配额线性增长（16B/条目），上界比计数器型更严
+                if *max_requests > MAX_SLIDING_LOG_REQUESTS {
+                    return Err(format!(
+                        "Sliding window log max_requests cannot exceed {MAX_SLIDING_LOG_REQUESTS}"
+                    ));
+                }
+                Self::validate_window_size(window_size)?;
             }
             LimiterConfig::PriorityQueue {
                 window_size,
@@ -359,6 +434,70 @@ mod tests {
         let config = LimiterConfig::TokenBucket {
             capacity: 100,
             refill_rate: 0,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_leaky_bucket_valid() {
+        let config = LimiterConfig::LeakyBucket {
+            capacity: 100,
+            leak_rate: 10,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_leaky_bucket_zero_capacity() {
+        let config = LimiterConfig::LeakyBucket {
+            capacity: 0,
+            leak_rate: 10,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_leaky_bucket_zero_leak_rate() {
+        let config = LimiterConfig::LeakyBucket {
+            capacity: 100,
+            leak_rate: 0,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_sliding_window_log_valid() {
+        let config = LimiterConfig::SlidingWindowLog {
+            window_size: "60s".into(),
+            max_requests: 100,
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_sliding_window_log_zero_requests() {
+        let config = LimiterConfig::SlidingWindowLog {
+            window_size: "60s".into(),
+            max_requests: 0,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_sliding_window_log_invalid_window() {
+        let config = LimiterConfig::SlidingWindowLog {
+            window_size: "".into(),
+            max_requests: 100,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_sliding_window_log_requests_over_log_ceiling() {
+        // 日志型窗口的独立更严上界：计数器型上限内的值也必须被拒
+        let config = LimiterConfig::SlidingWindowLog {
+            window_size: "60s".into(),
+            max_requests: MAX_WINDOW_REQUESTS,
         };
         assert!(config.validate().is_err());
     }

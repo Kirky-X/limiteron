@@ -99,7 +99,7 @@ sequenceDiagram
 | 模块 | 路径 | 职责 |
 |------|------|------|
 | Governor | `src/governor.rs` | 主控制器：标识符提取、规则匹配、级联决策、统计与自省 |
-| Limiters | `src/limiters/` | 令牌桶、滑动/分片滑动/固定窗口、并发、GCRA、HTB、AIMD 自适应、配额限流器、批量令牌预取 |
+| Limiters | `src/limiters/` | 令牌桶、漏桶、滑动/分片滑动/滑动窗口日志/固定窗口、并发、GCRA、HTB、AIMD 自适应、配额限流器、批量令牌预取 |
 | Matchers | `src/matchers/` | 标识符提取器、规则匹配引擎、自定义匹配器注册表 |
 | DecisionChain | `src/decision_chain/` | 按优先级级联的责任链与链级统计 |
 | Ban | `src/ban/` | 封禁类型、YAML 文件加载与热重载 |

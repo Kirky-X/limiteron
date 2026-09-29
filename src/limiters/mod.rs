@@ -12,6 +12,8 @@
 //! - `sharded_sliding_window`: 分片滑动窗口限流器（推荐）
 //! - `fixed_window`: 固定窗口限流器
 //! - `concurrency`: 并发控制器
+//! - `leaky_bucket`: 漏桶限流器（恒定流出整形）
+//! - `sliding_window_log`: 滑动窗口日志限流器（精确滑动窗口）
 //! - `factory`: 限流器工厂
 //! - `manager`: 全局限流器管理器（供 `#[flow_control]` 宏使用）
 
@@ -23,11 +25,13 @@ pub mod fixed_window;
 #[cfg(feature = "gcra")]
 pub mod gcra;
 pub mod htb;
+pub mod leaky_bucket;
 #[cfg(feature = "manager")]
 pub mod manager;
 pub mod sharded_sliding_window;
 #[allow(deprecated)]
 pub mod sliding_window;
+pub mod sliding_window_log;
 pub mod token_bucket;
 pub mod traits;
 
@@ -56,9 +60,11 @@ pub use batch_prefetch::{BatchTokenPrefetcher, PrefetchResult};
 pub use concurrency::ConcurrencyLimiter;
 pub use fixed_window::FixedWindowLimiter;
 pub use htb::HierarchicalTokenBucket;
+pub use leaky_bucket::LeakyBucketLimiter;
 pub use sharded_sliding_window::ShardedSlidingWindowLimiter;
 #[allow(deprecated)]
 pub use sliding_window::SlidingWindowLimiter;
+pub use sliding_window_log::SlidingWindowLogLimiter;
 pub use token_bucket::TokenBucketLimiter;
 pub use traits::{Limiter, RateLimitSnapshot};
 

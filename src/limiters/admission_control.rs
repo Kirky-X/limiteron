@@ -15,6 +15,7 @@
 //!
 //! ```rust
 //! use limiteron::limiters::admission_control::{AdmissionControlConfig, AdmissionController};
+//! # use std::sync::Arc;
 //!
 //! let controller = Arc::new(AdmissionController::new(AdmissionControlConfig {
 //!     max_concurrent: 10,

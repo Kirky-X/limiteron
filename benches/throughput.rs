@@ -12,8 +12,8 @@ use criterion::{
     criterion_main,
 };
 use limiteron::limiters::{
-    FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, SlidingWindowLimiter,
-    TokenBucketLimiter,
+    FixedWindowLimiter, LeakyBucketLimiter, Limiter, ShardedSlidingWindowLimiter,
+    SlidingWindowLimiter, SlidingWindowLogLimiter, TokenBucketLimiter,
 };
 use limiteron::oxcache::Cache;
 use limiteron::tokio::runtime::Runtime;
@@ -133,6 +133,74 @@ fn bench_fixed_window_single_thread_throughput(c: &mut Criterion) {
             b.iter_batched(
                 || (),
                 |_| {
+                    rt.block_on(async {
+                        for _ in 0..size {
+                            let _ = black_box(limiter.allow(1).await);
+                        }
+                    });
+                },
+                BatchSize::PerIteration,
+            );
+        });
+    }
+
+    group.finish();
+}
+
+/// 基准测试：LeakyBucketLimiter 单线程吞吐量
+///
+/// 每测量迭代重建全新实例（未计时 setup）：空桶注入 ≤ 容量的 size 单位
+/// 全程走放行路径，预算耗尽后转入拒绝稳态的共享实例口径不可用（容量
+/// 会在采样中途打满，测到的将变成拒绝判定而非注入记账）。漏速 1M/s 下
+/// 毫秒级迭代漏出可忽略，测得的是纯判定路径（锁 + 记账）吞吐。
+fn bench_leaky_bucket_single_thread_throughput(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+
+    let mut group = c.benchmark_group("leaky_bucket_single_thread_throughput");
+    group.sampling_mode(SamplingMode::Auto);
+
+    for size in [100, 1_000, 10_000].iter() {
+        group.throughput(Throughput::Elements(*size as u64));
+        group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
+            b.iter_batched(
+                || Arc::new(LeakyBucketLimiter::new(10_000_000, 1_000_000).unwrap()),
+                |limiter| {
+                    rt.block_on(async {
+                        for _ in 0..size {
+                            let _ = black_box(limiter.allow(1).await);
+                        }
+                    });
+                },
+                BatchSize::PerIteration,
+            );
+        });
+    }
+
+    group.finish();
+}
+
+/// 基准测试：SlidingWindowLogLimiter 单线程吞吐量
+///
+/// max_requests 受日志型上限 100K 约束（内存随条目线性增长）。
+/// 每测量迭代重建全新实例（未计时 setup）：共享实例的预算会在数十个
+/// 采样迭代内耗尽（size=10_000 时约 10 迭代即满），此后稳态为纯拒绝
+/// 路径；重建后空窗口追加 size 条全程走放行路径（过期确认 + 追加记账）。
+fn bench_sliding_window_log_single_thread_throughput(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+
+    let mut group = c.benchmark_group("sliding_window_log_single_thread_throughput");
+    group.sampling_mode(SamplingMode::Auto);
+
+    for size in [100, 1_000, 10_000].iter() {
+        group.throughput(Throughput::Elements(*size as u64));
+        group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
+            b.iter_batched(
+                || {
+                    Arc::new(
+                        SlidingWindowLogLimiter::new(100_000, Duration::from_secs(3600)).unwrap(),
+                    )
+                },
+                |limiter| {
                     rt.block_on(async {
                         for _ in 0..size {
                             let _ = black_box(limiter.allow(1).await);
@@ -292,6 +360,99 @@ fn bench_sliding_window_concurrent_throughput(c: &mut Criterion) {
     group.finish();
 }
 
+/// 基准测试：LeakyBucketLimiter 并发吞吐量（Mutex 串行点争用曲线）
+fn bench_leaky_bucket_concurrent_throughput(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+
+    let mut group = c.benchmark_group("leaky_bucket_concurrent_throughput");
+    group.sampling_mode(SamplingMode::Auto);
+
+    for concurrency in [1, 2, 4, 8, 16, 32].iter() {
+        let requests_per_task = 1000;
+        group.throughput(Throughput::Elements(
+            (requests_per_task * concurrency) as u64,
+        ));
+        group.bench_with_input(
+            BenchmarkId::new("threads", concurrency),
+            concurrency,
+            |b, &concurrency| {
+                b.iter_batched(
+                    // 每迭代全新实例：总注入 32K ≤ 容量 10M，全程放行路径
+                    || Arc::new(LeakyBucketLimiter::new(10_000_000, 1_000_000).unwrap()),
+                    |limiter| {
+                        rt.block_on(async {
+                            let mut handles = vec![];
+                            for _ in 0..concurrency {
+                                let limiter = limiter.clone();
+                                handles.push(async move {
+                                    for _ in 0..requests_per_task {
+                                        let _ = black_box(limiter.allow(1).await);
+                                    }
+                                });
+                            }
+                            for handle in handles {
+                                let _ = handle.await;
+                            }
+                        });
+                    },
+                    BatchSize::PerIteration,
+                );
+            },
+        );
+    }
+
+    group.finish();
+}
+
+/// 基准测试：SlidingWindowLogLimiter 并发吞吐量（状态锁争用曲线）
+fn bench_sliding_window_log_concurrent_throughput(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+
+    let mut group = c.benchmark_group("sliding_window_log_concurrent_throughput");
+    group.sampling_mode(SamplingMode::Auto);
+
+    for concurrency in [1, 2, 4, 8, 16, 32].iter() {
+        let requests_per_task = 1000;
+        group.throughput(Throughput::Elements(
+            (requests_per_task * concurrency) as u64,
+        ));
+        group.bench_with_input(
+            BenchmarkId::new("threads", concurrency),
+            concurrency,
+            |b, &concurrency| {
+                b.iter_batched(
+                    // 每迭代全新实例：总注入 32K ≤ 上限 100K，全程放行路径
+                    || {
+                        Arc::new(
+                            SlidingWindowLogLimiter::new(100_000, Duration::from_secs(3600))
+                                .unwrap(),
+                        )
+                    },
+                    |limiter| {
+                        rt.block_on(async {
+                            let mut handles = vec![];
+                            for _ in 0..concurrency {
+                                let limiter = limiter.clone();
+                                handles.push(async move {
+                                    for _ in 0..requests_per_task {
+                                        let _ = black_box(limiter.allow(1).await);
+                                    }
+                                });
+                            }
+                            for handle in handles {
+                                let _ = handle.await;
+                            }
+                        });
+                    },
+                    BatchSize::PerIteration,
+                );
+            },
+        );
+    }
+
+    group.finish();
+}
+
 // ============================================================================
 // 吞吐量扩展曲线测试
 // ============================================================================
@@ -395,65 +556,117 @@ fn bench_limiter_throughput_comparison(c: &mut Criterion) {
     let size = 10_000;
     group.throughput(Throughput::Elements(size));
 
+    // 口径说明：全体成员每测量迭代重建全新实例（iter_batched 未计时
+    // setup），统一为「fresh 实例 × size 次放行」口径。共享实例 + 大预算
+    // 的旧口径在 criterion Auto 采样下预算会中途耗尽（滑动日志 size=10_000
+    // 时约 10 迭代即满），放行/拒绝两种测量路径混入同组使跨算法对比失真；
+    // 重建成本（结构体初始化，ns 级）相对 size 次判定（µs~ms 级）可忽略。
+    // 历史基线数据（如 README 令牌桶 12M ops/s）为旧口径测得，对比时注意。
+
     // TokenBucket
-    let token_bucket = Arc::new(TokenBucketLimiter::new(100_000_000, 10_000_000));
     group.bench_function("token_bucket", |b| {
-        let limiter = token_bucket.clone();
-        b.iter(|| {
-            rt.block_on(async {
-                for _ in 0..size {
-                    let _ = black_box(limiter.allow(1).await);
-                }
-            });
-        });
+        b.iter_batched(
+            || Arc::new(TokenBucketLimiter::new(100_000_000, 10_000_000)),
+            |limiter| {
+                rt.block_on(async {
+                    for _ in 0..size {
+                        let _ = black_box(limiter.allow(1).await);
+                    }
+                });
+            },
+            BatchSize::PerIteration,
+        );
     });
 
     // SlidingWindow
-    let sliding_window = Arc::new(SlidingWindowLimiter::new(
-        Duration::from_secs(60),
-        100_000_000,
-    ));
     group.bench_function("sliding_window", |b| {
-        let limiter = sliding_window.clone();
-        b.iter(|| {
-            rt.block_on(async {
-                for _ in 0..size {
-                    let _ = black_box(limiter.allow(1).await);
-                }
-            });
-        });
+        b.iter_batched(
+            || {
+                Arc::new(SlidingWindowLimiter::new(
+                    Duration::from_secs(60),
+                    100_000_000,
+                ))
+            },
+            |limiter| {
+                rt.block_on(async {
+                    for _ in 0..size {
+                        let _ = black_box(limiter.allow(1).await);
+                    }
+                });
+            },
+            BatchSize::PerIteration,
+        );
     });
 
     // ShardedSlidingWindow
-    let sharded = Arc::new(ShardedSlidingWindowLimiter::new(
-        Duration::from_secs(60),
-        100_000_000,
-    ));
     group.bench_function("sharded_sliding_window", |b| {
-        let limiter = sharded.clone();
-        b.iter(|| {
-            rt.block_on(async {
-                for _ in 0..size {
-                    let _ = black_box(limiter.allow(1).await);
-                }
-            });
-        });
+        b.iter_batched(
+            || {
+                Arc::new(ShardedSlidingWindowLimiter::new(
+                    Duration::from_secs(60),
+                    100_000_000,
+                ))
+            },
+            |limiter| {
+                rt.block_on(async {
+                    for _ in 0..size {
+                        let _ = black_box(limiter.allow(1).await);
+                    }
+                });
+            },
+            BatchSize::PerIteration,
+        );
     });
 
     // FixedWindow
-    let fixed_window = Arc::new(FixedWindowLimiter::new(
-        Duration::from_secs(60),
-        100_000_000,
-    ));
     group.bench_function("fixed_window", |b| {
-        let limiter = fixed_window.clone();
-        b.iter(|| {
-            rt.block_on(async {
-                for _ in 0..size {
-                    let _ = black_box(limiter.allow(1).await);
-                }
-            });
-        });
+        b.iter_batched(
+            || {
+                Arc::new(FixedWindowLimiter::new(
+                    Duration::from_secs(60),
+                    100_000_000,
+                ))
+            },
+            |limiter| {
+                rt.block_on(async {
+                    for _ in 0..size {
+                        let _ = black_box(limiter.allow(1).await);
+                    }
+                });
+            },
+            BatchSize::PerIteration,
+        );
+    });
+
+    // LeakyBucket（fresh 空桶注入 size ≤ 容量上限，全程放行记账路径）
+    group.bench_function("leaky_bucket", |b| {
+        b.iter_batched(
+            || Arc::new(LeakyBucketLimiter::new(10_000_000, 1_000_000).unwrap()),
+            |limiter| {
+                rt.block_on(async {
+                    for _ in 0..size {
+                        let _ = black_box(limiter.allow(1).await);
+                    }
+                });
+            },
+            BatchSize::PerIteration,
+        );
+    });
+
+    // SlidingWindowLog（fresh 空窗口追加 size ≤ 上限 100K，全程放行路径；
+    // 容量口径受日志型上限约束与其余算法不同构，见 USER_GUIDE 内存换算说明）
+    group.bench_function("sliding_window_log", |b| {
+        b.iter_batched(
+            || Arc::new(SlidingWindowLogLimiter::new(100_000, Duration::from_secs(3600)).unwrap()),
+            |limiter| {
+                rt.block_on(async {
+                    for _ in 0..size {
+                        let _ = black_box(limiter.allow(1).await);
+                    }
+                });
+            },
+            BatchSize::PerIteration,
+        );
     });
 
     group.finish();
@@ -642,7 +855,9 @@ criterion_group! {
         bench_token_bucket_single_thread_throughput,
         bench_sliding_window_single_thread_throughput,
         bench_sharded_sliding_window_single_thread_throughput,
-        bench_fixed_window_single_thread_throughput
+        bench_fixed_window_single_thread_throughput,
+        bench_leaky_bucket_single_thread_throughput,
+        bench_sliding_window_log_single_thread_throughput
 }
 
 criterion_group! {
@@ -651,7 +866,9 @@ criterion_group! {
     targets =
         bench_token_bucket_concurrent_throughput,
         bench_sharded_sliding_window_concurrent_throughput,
-        bench_sliding_window_concurrent_throughput
+        bench_sliding_window_concurrent_throughput,
+        bench_leaky_bucket_concurrent_throughput,
+        bench_sliding_window_log_concurrent_throughput
 }
 
 criterion_group! {

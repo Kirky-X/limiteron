@@ -311,6 +311,22 @@ impl RuleBuilder {
         self
     }
 
+    pub fn leaky_bucket(mut self, capacity: u64, leak_rate: u64) -> Self {
+        self.limiters.push(LimiterConfig::LeakyBucket {
+            capacity,
+            leak_rate,
+        });
+        self
+    }
+
+    pub fn sliding_window_log(mut self, window_size: impl Into<String>, max_requests: u64) -> Self {
+        self.limiters.push(LimiterConfig::SlidingWindowLog {
+            window_size: window_size.into(),
+            max_requests,
+        });
+        self
+    }
+
     pub fn on_reject(mut self) -> Self {
         self.action.on_exceed = Action::Reject;
         self

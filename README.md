@@ -21,7 +21,7 @@
 一个 Governor 入口，多维限流与纵深管控协同决策：
 
 <table style="width:100%; border-collapse: collapse">
-<tr><td align="center" width="25%" style="padding: 12px">🚦<br><b>多维限流</b><br><span style="color:#64748B">令牌桶、滑动/固定窗口、并发控制、GCRA、HTB 分层令牌桶</span></td><td align="center" width="25%" style="padding: 12px">🛡️<br><b>纵深管控</b><br><span style="color:#64748B">封禁、配额、熔断、降级沿一条决策链协同执行</span></td><td align="center" width="25%" style="padding: 12px">🔌<br><b>可插拔底座</b><br><span style="color:#64748B">内存存储开箱即用，经 dbnexus 与 oxcache 接入持久化与分布式缓存</span></td><td align="center" width="25%" style="padding: 12px">📈<br><b>生产可观测</b><br><span style="color:#64748B">Prometheus 指标、OTLP 追踪导出、HMAC 链式审计日志</span></td></tr>
+<tr><td align="center" width="25%" style="padding: 12px">🚦<br><b>多维限流</b><br><span style="color:#64748B">令牌桶、滑动/固定窗口、漏桶、滑动窗口日志、并发控制、GCRA、HTB 分层令牌桶</span></td><td align="center" width="25%" style="padding: 12px">🛡️<br><b>纵深管控</b><br><span style="color:#64748B">封禁、配额、熔断、降级沿一条决策链协同执行</span></td><td align="center" width="25%" style="padding: 12px">🔌<br><b>可插拔底座</b><br><span style="color:#64748B">内存存储开箱即用，经 dbnexus 与 oxcache 接入持久化与分布式缓存</span></td><td align="center" width="25%" style="padding: 12px">📈<br><b>生产可观测</b><br><span style="color:#64748B">Prometheus 指标、OTLP 追踪导出、HMAC 链式审计日志</span></td></tr>
 </table>
 
 </div>
@@ -58,7 +58,7 @@
 
 <table style="width:100%; border-collapse: collapse">
 <tr>
-<td width="50%" style="vertical-align:top; padding: 12px">🎯 <b>限流算法矩阵</b><br><span style="color:#64748B">令牌桶（Token Bucket）、滑动窗口、分片滑动窗口、固定窗口、并发控制、GCRA、HTB 分层令牌桶（<code>src/limiters/</code>）</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🎯 <b>限流算法矩阵</b><br><span style="color:#64748B">令牌桶（Token Bucket）、滑动窗口、分片滑动窗口、滑动窗口日志（精确滑动窗口）、固定窗口、漏桶（Leaky Bucket 水位记账，判定与令牌桶对偶）、并发控制、GCRA、HTB 分层令牌桶（<code>src/limiters/</code>）</span></td>
 <td width="50%" style="vertical-align:top; padding: 12px">🚫 <b>封禁管理</b><br><span style="color:#64748B">IP / 用户 / MAC / Geo 目标封禁、CIDR 网段封禁、优先级体系、YAML 批量加载与热重载、跨实例同步（<code>ban-sync</code>）</span></td>
 </tr>
 <tr>
@@ -435,7 +435,7 @@ cargo bench --features full
 </tr>
 <tr>
 <td width="12%" align="center"><b>💡 未来想法</b></td>
-<td>机器学习驱动的限流、更多限流算法、社区插件系统</td>
+<td>机器学习驱动的限流、社区插件系统</td>
 </tr>
 </table>
 

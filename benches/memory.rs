@@ -14,8 +14,8 @@
 use criterion::{BenchmarkId, Criterion, SamplingMode, black_box, criterion_group, criterion_main};
 use dashmap::DashMap;
 use limiteron::limiters::{
-    FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, SlidingWindowLimiter,
-    TokenBucketLimiter,
+    FixedWindowLimiter, LeakyBucketLimiter, Limiter, ShardedSlidingWindowLimiter,
+    SlidingWindowLimiter, SlidingWindowLogLimiter, TokenBucketLimiter,
 };
 use limiteron::matchers::{ConditionEvaluator, MatchCondition, RequestContext, Rule, RuleMatcher};
 use limiteron::oxcache::Cache;
@@ -261,6 +261,97 @@ fn bench_fixed_window_memory_usage(c: &mut Criterion) {
 // ============================================================================
 // 数据结构内存对比
 // ============================================================================
+
+/// 基准测试：SlidingWindowLog 按条目数线性内存增长
+///
+/// 单实例预填充 `entries` 条放行记录（每条 `(u64, u64)` 16 字节），
+/// 暴露日志型窗口与计数器型窗口的内存量级差：1M 配额 ≈ 16MB/实例
+/// （受 `MAX_SLIDING_LOG_REQUESTS`=100K 上限约束后 ≈1.6MB）。
+fn bench_sliding_window_log_entry_growth(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+
+    let mut group = c.benchmark_group("sliding_window_log_entry_growth");
+    group.sampling_mode(SamplingMode::Auto);
+
+    for entries in [1_000, 10_000, 100_000].iter() {
+        ALLOCATOR.reset();
+        let before = get_memory_usage();
+
+        let limiter =
+            Arc::new(SlidingWindowLogLimiter::new(*entries, Duration::from_secs(3600)).unwrap());
+        rt.block_on(async {
+            for _ in 0..*entries {
+                limiter.allow(1).await.unwrap();
+            }
+        });
+
+        let after = get_memory_usage();
+        let used = after.saturating_sub(before);
+
+        group.bench_with_input(BenchmarkId::new("entries", entries), entries, |b, _| {
+            b.iter(|| {
+                rt.block_on(async {
+                    // 读路径 O(1)（无新增过期）：观测读不随条目数线性变慢
+                    let _ = black_box(limiter.remaining().await.unwrap());
+                });
+            });
+        });
+
+        println!(
+            "SlidingWindowLog: {} 条目，内存增量: {} bytes ({:.2} MB), 平均每条目: {} bytes",
+            entries,
+            used,
+            used as f64 / 1024.0 / 1024.0,
+            used / (*entries as usize)
+        );
+
+        black_box(limiter);
+    }
+
+    group.finish();
+}
+
+/// 基准测试：LeakyBucket 内存占用
+fn bench_leaky_bucket_memory_usage(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+
+    let mut group = c.benchmark_group("leaky_bucket_memory_usage");
+    group.sampling_mode(SamplingMode::Auto);
+
+    for count in [100, 1_000, 10_000, 100_000].iter() {
+        ALLOCATOR.reset();
+        let before = get_memory_usage();
+
+        let limiters: Vec<Arc<LeakyBucketLimiter>> = (0..*count)
+            .map(|_| Arc::new(LeakyBucketLimiter::new(1000, 100).unwrap()))
+            .collect();
+
+        let after = get_memory_usage();
+        let used = after.saturating_sub(before);
+
+        group.bench_with_input(BenchmarkId::new("instances", count), count, |b, _| {
+            b.iter(|| {
+                rt.block_on(async {
+                    for limiter in &limiters {
+                        let _ = black_box(limiter.allow(1).await);
+                    }
+                });
+            });
+        });
+
+        println!(
+            "LeakyBucket: {} 个实例，内存占用: {} bytes ({:.2} MB), 平均每实例: {} bytes",
+            count,
+            used,
+            used as f64 / 1024.0 / 1024.0,
+            used / count
+        );
+
+        black_box(limiters);
+    }
+
+    group.finish();
+}
 
 /// 基准测试：DashMap 内存占用
 fn bench_dashmap_memory_usage(c: &mut Criterion) {
@@ -754,7 +845,9 @@ criterion_group! {
         bench_token_bucket_memory_usage,
         bench_sliding_window_memory_usage,
         bench_sharded_sliding_window_memory_usage,
-        bench_fixed_window_memory_usage
+        bench_fixed_window_memory_usage,
+        bench_sliding_window_log_entry_growth,
+        bench_leaky_bucket_memory_usage
 }
 
 criterion_group! {

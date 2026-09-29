@@ -229,6 +229,38 @@ pub(crate) const DEFAULT_FIXED_WINDOW_MAX_REQUESTS: u64 = 1000;
 /// Standard concurrency limit for concurrent access control.
 pub(crate) const DEFAULT_CONCURRENCY_LIMIT: u64 = 50;
 
+/// Maximum token bucket capacity (10M tokens).
+///
+/// Prevents excessive memory consumption (≈10MB per limiter instance at
+/// 1 byte/token assumption); shared by config validation, the factory and
+/// direct construction.
+pub(crate) const MAX_TOKEN_BUCKET_CAPACITY: u64 = 10_000_000;
+
+/// Maximum token refill rate per second (1M/s).
+///
+/// Prevents CPU over-consumption from high-frequency refill operations;
+/// also reused as the leak-rate ceiling for leaky bucket limiters.
+pub(crate) const MAX_TOKEN_BUCKET_REFILL_RATE: u64 = 1_000_000;
+
+/// Maximum window request budget (10M).
+///
+/// Prevents oversized window bookkeeping; counter-based window limiters
+/// (sharded sliding window / fixed window) scale O(1) with this value.
+pub(crate) const MAX_WINDOW_REQUESTS: u64 = 10_000_000;
+
+/// Maximum sliding window log entries (100K).
+///
+/// Each logged entry costs 16 bytes (`(u64, u64)`), so the ceiling bounds a
+/// single instance at ≈1.6MB — six orders of magnitude tighter than the
+/// counter-based window budget. Exact counting trades memory for precision;
+/// larger budgets should use the sharded sliding window.
+pub(crate) const MAX_SLIDING_LOG_REQUESTS: u64 = 100_000;
+
+/// Maximum concurrency limit (100K).
+///
+/// Prevents oversized concurrency control structures.
+pub(crate) const MAX_CONCURRENT_REQUESTS: u64 = 100_000;
+
 // ============================================================================
 // Retry and Backoff Constants
 // ============================================================================

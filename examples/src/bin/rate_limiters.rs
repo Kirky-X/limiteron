@@ -7,6 +7,8 @@
 //! - Sliding Window
 //! - Fixed Window
 //! - Concurrency Limiter
+//! - Leaky Bucket (water-level meter, dual of token bucket)
+//! - Sliding Window Log (exact sliding window)
 //! - GCRA (Generic Cell Rate Algorithm)
 //!
 //! Run: cargo run --bin rate_limiters
@@ -15,8 +17,8 @@ use limiteron::error::LimiteronError;
 #[cfg(feature = "gcra")]
 use limiteron::limiters::GcraLimiter;
 use limiteron::limiters::{
-    ConcurrencyLimiter, FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter,
-    TokenBucketLimiter,
+    ConcurrencyLimiter, FixedWindowLimiter, LeakyBucketLimiter, Limiter,
+    ShardedSlidingWindowLimiter, SlidingWindowLogLimiter, TokenBucketLimiter,
 };
 use std::time::Duration;
 
@@ -28,6 +30,8 @@ async fn main() -> Result<(), LimiteronError> {
     demo_sliding_window().await?;
     demo_fixed_window().await?;
     demo_concurrency().await?;
+    demo_leaky_bucket().await?;
+    demo_sliding_window_log().await?;
     #[cfg(feature = "gcra")]
     demo_gcra().await?;
 
@@ -140,6 +144,69 @@ async fn demo_concurrency() -> Result<(), LimiteronError> {
     drop(permit_one);
     drop(permit_two);
     println!("  Released both permits\n");
+
+    Ok(())
+}
+
+async fn demo_leaky_bucket() -> Result<(), LimiteronError> {
+    println!("--- Leaky Bucket Limiter ---");
+    println!("Capacity: 3, Leak rate: 10 units/sec (water-level meter)\n");
+
+    let limiter = LeakyBucketLimiter::new(3, 10)?;
+
+    // 空桶注入 3 单位即满：第 4 笔被拒（判定与令牌桶对偶：水位 = 容量 − 令牌）
+    let results: Vec<_> = futures::future::join_all(vec![
+        limiter.allow(1),
+        limiter.allow(1),
+        limiter.allow(1),
+        limiter.allow(1),
+    ])
+    .await
+    .into_iter()
+    .map(|r| r.unwrap())
+    .collect();
+
+    println!(
+        "  Requests 1-4: [{}, {}, {}, {}]",
+        results[0], results[1], results[2], results[3]
+    );
+    println!("  (First 3 fill the bucket, 4th rejected - bucket full)\n");
+
+    println!("  Waiting 300ms for drain (10/s → ~3 units leaked)...");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    println!("  Water level after drain: {}", limiter.water_level().await);
+    let after_drain = limiter.allow(1).await?;
+    println!("  After drain: allowed={}\n", after_drain);
+
+    Ok(())
+}
+
+async fn demo_sliding_window_log() -> Result<(), LimiteronError> {
+    println!("--- Sliding Window Log Limiter ---");
+    println!("Window: 200ms, Max requests: 2 (exact sliding window)\n");
+
+    let limiter = SlidingWindowLogLimiter::new(2, Duration::from_millis(200))?;
+
+    let first = limiter.allow(1).await?;
+    let second = limiter.allow(1).await?;
+    let third = limiter.allow(1).await?;
+
+    println!("  Request 1: allowed={}", first);
+    println!("  Request 2: allowed={}", second);
+    println!("  Request 3: allowed={} (window full)", third);
+    println!(
+        "  Window count: {}, logged entries: {}",
+        limiter.window_count().await,
+        limiter.logged_entries().await
+    );
+
+    println!("  Waiting 220ms for full window slide...");
+    tokio::time::sleep(Duration::from_millis(220)).await;
+
+    let after_window = limiter.allow(2).await?;
+    println!("  After slide (cost=2): allowed={}", after_window);
+    println!("  (Exact counting: no boundary burst like fixed windows)\n");
 
     Ok(())
 }

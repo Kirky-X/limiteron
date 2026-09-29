@@ -189,6 +189,8 @@ if result.allowed {
 
 | 类型 | 构造 | 所需特性 | 说明 |
 |------|------|---------|------|
+| `LeakyBucketLimiter` | `new(capacity: u64, leak_rate: u64) -> Result<_>` | 无 | 漏桶水位记账（判定与令牌桶对偶），标准 `Limiter` 接口，快照报告剩余可入桶空间与漏空时间 |
+| `SlidingWindowLogLimiter` | `new(max_requests: u64, window: Duration) -> Result<_>` | 无 | 精确滑动窗口日志，无边界突刺；内存随窗口内请求数线性增长（上限 100K 条） |
 | `FixedWindowLimiter` | `new(window_size: Duration, max_requests: u64)` | 无 | 固定窗口计数 |
 | `ShardedSlidingWindowLimiter` | `new(window_size: Duration, max_requests: u64)` | 无 | 分片滑动窗口，高并发友好 |
 | `ConcurrencyLimiter` | `new(max_concurrent: u64)` | 无 | 并发许可控制 |

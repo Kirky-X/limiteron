@@ -155,6 +155,12 @@ fn validate_header_name(name: &str) -> Result<(), LimiteronError> {
 /// - `Ok(())`: 验证通过
 /// - `Err(LimiteronError)`: 验证失败
 fn validate_header_value(value: &str) -> Result<(), LimiteronError> {
+    // 空串在 Prefix 模式下语义翻转为通配符（`starts_with("")` 恒真，
+    // 匹配所有携带该头的请求），Exact 模式下几乎不可能是有意配置——
+    // 两入口（new/load_config）统一显性拒绝
+    if value.is_empty() {
+        return Err(LimiteronError::ConfigError(t("header-value-empty", &[])));
+    }
     if value.len() > MAX_HEADER_VALUE_LENGTH {
         return Err(LimiteronError::ConfigError(t(
             "header-value-too-long",
@@ -163,6 +169,48 @@ fn validate_header_value(value: &str) -> Result<(), LimiteronError> {
     }
 
     Ok(())
+}
+
+/// 校验 HTTP 方法名的合法性（非空 + RFC 9110 token 字符集）
+///
+/// 方法名为 ASCII token：`!#$%&'*+-.^_`|~` 与字母数字；空串与含分隔符
+/// （空格、`()/@:;,"` 等）的伪方法名永不命中，显性拒绝防止配置静默失效。
+fn validate_method(method: &str) -> Result<(), LimiteronError> {
+    if method.is_empty() {
+        return Err(LimiteronError::ConfigError(t(
+            "matcher-method-invalid",
+            &[("value", method.to_string())],
+        )));
+    }
+    if !method.bytes().all(is_token_byte) {
+        return Err(LimiteronError::ConfigError(t(
+            "matcher-method-invalid",
+            &[("value", method.to_string())],
+        )));
+    }
+    Ok(())
+}
+
+/// RFC 9110 token 字符集判定
+fn is_token_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric()
+        || matches!(
+            b,
+            b'!' | b'#'
+                | b'$'
+                | b'%'
+                | b'&'
+                | b'\''
+                | b'*'
+                | b'+'
+                | b'-'
+                | b'.'
+                | b'^'
+                | b'_'
+                | b'`'
+                | b'|'
+                | b'~'
+        )
 }
 
 // ============================================================================
@@ -675,7 +723,8 @@ impl TimeWindowMatcherBuilder {
 
 /// HTTP头匹配器
 ///
-/// 根据HTTP头的值来匹配请求。
+/// 根据HTTP头的值来匹配请求：值列表**相等**或**前缀**两种模式
+/// （[`HeaderMatchMode`]，默认精确相等）。
 ///
 /// # 示例
 /// ```rust
@@ -687,10 +736,34 @@ impl TimeWindowMatcherBuilder {
 pub struct HeaderMatcher {
     /// HTTP头名称
     header_name: String,
-    /// 允许的值列表
+    /// 允许的值列表（原始值，供观测/访问器）
     allowed_values: Vec<String>,
+    /// 允许的值列表的小写副本（构造期归一化，热路径零逐项分配）
+    allowed_values_normalized: Vec<String>,
+    /// 允许值是否全 ASCII：全 ASCII 时头值亦为 ASCII 的请求可走零分配
+    /// ASCII 折叠快路径（纯 ASCII 输入的 Unicode 折叠与 ASCII 折叠一致，
+    /// 语义严格等价）；允许值含非 ASCII 时必须走 Unicode to_lowercase
+    /// 原路径（'ſ'→'s' 等非 ASCII 折叠产物无法用 ASCII 折叠覆盖）
+    values_ascii_only: bool,
     /// 是否区分大小写
     case_sensitive: bool,
+    /// 匹配模式（相等/前缀，默认相等）
+    match_mode: HeaderMatchMode,
+}
+
+/// HTTP头值匹配模式
+///
+/// - [`HeaderMatchMode::Exact`]：头值与允许值列表中的某项完全相等（默认，
+///   向后兼容既有语义）
+/// - [`HeaderMatchMode::Prefix`]：头值以允许值列表中的某项为前缀
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HeaderMatchMode {
+    /// 相等匹配（默认）
+    #[default]
+    Exact,
+    /// 前缀匹配
+    Prefix,
 }
 
 impl HeaderMatcher {
@@ -729,11 +802,30 @@ impl HeaderMatcher {
             validate_header_value(value)?;
         }
 
+        let allowed_values_normalized = allowed_values.iter().map(|v| v.to_lowercase()).collect();
+        let values_ascii_only = allowed_values.iter().all(|v| v.is_ascii());
         Ok(Self {
             header_name: header_name.to_lowercase(),
             allowed_values,
+            allowed_values_normalized,
+            values_ascii_only,
             case_sensitive: false,
+            match_mode: HeaderMatchMode::Exact,
         })
+    }
+
+    /// 设置匹配模式（相等/前缀，默认相等）
+    ///
+    /// # 参数
+    /// - `match_mode`: 匹配模式
+    pub fn with_match_mode(mut self, match_mode: HeaderMatchMode) -> Self {
+        self.match_mode = match_mode;
+        self
+    }
+
+    /// 获取匹配模式
+    pub fn match_mode(&self) -> HeaderMatchMode {
+        self.match_mode
     }
 
     /// 设置是否区分大小写
@@ -806,13 +898,45 @@ impl CustomMatcher for HeaderMatcher {
             }
         };
 
-        let matches = if self.case_sensitive {
-            self.allowed_values.contains(header_value)
-        } else {
-            let lower_value = header_value.to_lowercase();
-            self.allowed_values
-                .iter()
-                .any(|v| v.to_lowercase() == lower_value)
+        // 大小写敏感路径零分配（直接与原始值比较）。不敏感路径分两级：
+        // 允许值与头值均为 ASCII 时走零分配 ASCII 折叠快路径（纯 ASCII
+        // 输入的 Unicode 折叠与 ASCII 折叠一致，语义严格等价）；否则
+        // to_lowercase 一次后与构造期归一化副本比较（allowed_values 是
+        // 构造期静态配置，逐项 to_lowercase 的每请求分配在 matches 热
+        // 路径上不可接受）
+        let ascii_fast = self.values_ascii_only && header_value.is_ascii();
+        let matches = match self.match_mode {
+            HeaderMatchMode::Exact => {
+                if self.case_sensitive {
+                    self.allowed_values.contains(header_value)
+                } else if ascii_fast {
+                    self.allowed_values_normalized
+                        .iter()
+                        .any(|v| v.eq_ignore_ascii_case(header_value))
+                } else {
+                    let lower_value = header_value.to_lowercase();
+                    self.allowed_values_normalized.contains(&lower_value)
+                }
+            }
+            HeaderMatchMode::Prefix => {
+                if self.case_sensitive {
+                    self.allowed_values
+                        .iter()
+                        .any(|v| header_value.starts_with(v))
+                } else if ascii_fast {
+                    let header_bytes = header_value.as_bytes();
+                    self.allowed_values_normalized.iter().any(|v| {
+                        let v_bytes = v.as_bytes();
+                        header_bytes.len() >= v_bytes.len()
+                            && header_bytes[..v_bytes.len()].eq_ignore_ascii_case(v_bytes)
+                    })
+                } else {
+                    let lower_value = header_value.to_lowercase();
+                    self.allowed_values_normalized
+                        .iter()
+                        .any(|v| lower_value.starts_with(v))
+                }
+            }
         };
 
         debug!(
@@ -845,10 +969,26 @@ impl CustomMatcher for HeaderMatcher {
                     Ok(s.to_string())
                 })
                 .collect::<Result<Vec<_>, LimiteronError>>()?;
+            self.allowed_values_normalized = self
+                .allowed_values
+                .iter()
+                .map(|v| v.to_lowercase())
+                .collect();
+            self.values_ascii_only = self.allowed_values.iter().all(|v| v.is_ascii());
         }
 
         if let Some(case_sensitive) = config["case_sensitive"].as_bool() {
             self.case_sensitive = case_sensitive;
+        }
+
+        if let Some(mode) = config["match_mode"].as_str() {
+            self.match_mode =
+                serde_json::from_value(Value::String(mode.to_string())).map_err(|e| {
+                    LimiteronError::ConfigError(t(
+                        "matcher-header-match-mode-invalid",
+                        &[("mode", mode.to_string()), ("error", e.to_string())],
+                    ))
+                })?;
         }
 
         info!(
@@ -873,6 +1013,7 @@ pub struct HeaderMatcherBuilder {
     header_name: Option<String>,
     allowed_values: Vec<String>,
     case_sensitive: bool,
+    match_mode: HeaderMatchMode,
 }
 
 impl HeaderMatcherBuilder {
@@ -905,6 +1046,12 @@ impl HeaderMatcherBuilder {
         self
     }
 
+    /// 设置匹配模式（相等/前缀，默认相等）
+    pub fn match_mode(mut self, match_mode: HeaderMatchMode) -> Self {
+        self.match_mode = match_mode;
+        self
+    }
+
     /// 构建HeaderMatcher
     pub fn build(self) -> Result<HeaderMatcher, LimiteronError> {
         HeaderMatcher::new(
@@ -913,8 +1060,287 @@ impl HeaderMatcherBuilder {
         )
         .map(|mut m| {
             m.case_sensitive = self.case_sensitive;
+            m.match_mode = self.match_mode;
             m
         })
+    }
+}
+
+// ============================================================================
+// MethodMatcher（请求方法匹配）
+// ============================================================================
+
+/// 请求方法匹配器
+///
+/// 按 HTTP 方法匹配请求（GET/POST/...）；方法名在构造与匹配时统一
+/// 大写规范化，对调用方传入大小写不敏感。
+#[derive(Debug, Clone)]
+pub struct MethodMatcher {
+    /// 允许的请求方法（大写规范化）
+    methods: Vec<String>,
+}
+
+impl MethodMatcher {
+    /// 创建请求方法匹配器
+    ///
+    /// # 参数
+    /// - `methods`: 允许的请求方法列表（如 `["GET", "POST"]`，大小写不敏感）
+    ///
+    /// # 错误
+    /// - 列表为空或超过 [`MAX_ALLOWED_VALUES_COUNT`]
+    pub fn new(methods: Vec<String>) -> Result<Self, LimiteronError> {
+        if methods.is_empty() {
+            return Err(LimiteronError::ConfigError(t("matcher-methods-empty", &[])));
+        }
+        if methods.len() > MAX_ALLOWED_VALUES_COUNT {
+            return Err(LimiteronError::ValidationError(t(
+                "matcher-allowed-values-too-many",
+                &[("max", MAX_ALLOWED_VALUES_COUNT.to_string())],
+            )));
+        }
+        // 逐项校验（非空 + RFC 9110 token 字符集）：空串与含分隔符的
+        // 伪方法名永不命中，静默接受会让配置失效不可知；ASCII 大写
+        // 归一化（非 ASCII 方法串不命中，防御纵深）
+        let methods = methods
+            .iter()
+            .map(|m| validate_method(m).map(|_| m.to_ascii_uppercase()))
+            .collect::<Result<Vec<_>, LimiteronError>>()?;
+        Ok(Self { methods })
+    }
+
+    /// 获取允许的请求方法（大写规范化后）
+    pub fn methods(&self) -> &[String] {
+        &self.methods
+    }
+
+    /// 创建设置器
+    pub fn builder() -> MethodMatcherBuilder {
+        MethodMatcherBuilder::new()
+    }
+}
+
+#[async_trait]
+impl CustomMatcher for MethodMatcher {
+    fn name(&self) -> &str {
+        "method"
+    }
+
+    async fn matches(&self, context: &RequestContext) -> Result<bool, LimiteronError> {
+        // 方法名大写规范化后比对（与构造期一致，大小写不敏感）
+        // ASCII 大小写折叠比较：零分配热路径；非 ASCII 方法串不命中
+        //（RFC 9110 方法为 ASCII token，与构造期 to_ascii_uppercase 对齐）
+        let matches = self
+            .methods
+            .iter()
+            .any(|m| m.eq_ignore_ascii_case(&context.method));
+        debug!(
+            "HTTP method match: method='{}', result: {}",
+            context.method, matches
+        );
+        Ok(matches)
+    }
+
+    fn load_config(&mut self, config: Value) -> Result<(), LimiteronError> {
+        if let Some(methods) = config["methods"].as_array() {
+            if methods.len() > MAX_ALLOWED_VALUES_COUNT {
+                return Err(LimiteronError::ConfigError(t(
+                    "matcher-allowed-values-too-many",
+                    &[("max", MAX_ALLOWED_VALUES_COUNT.to_string())],
+                )));
+            }
+            // 显性遍历：非字符串项报错而非 filter_map 静默丢弃（跳过会让
+            // 匹配范围静默变化且不可观测）
+            let parsed: Vec<String> = methods
+                .iter()
+                .map(|v| {
+                    let str_value = v.as_str().ok_or_else(|| {
+                        LimiteronError::ConfigError(t(
+                            "matcher-method-invalid",
+                            &[("value", v.to_string())],
+                        ))
+                    })?;
+                    validate_method(str_value).map(|_| str_value.to_ascii_uppercase())
+                })
+                .collect::<Result<Vec<_>, LimiteronError>>()?;
+            if parsed.is_empty() {
+                return Err(LimiteronError::ConfigError(t("matcher-methods-empty", &[])));
+            }
+            self.methods = parsed;
+        }
+
+        info!(
+            "{}",
+            t(
+                "matcher-method-config-loaded",
+                &[("methods", format!("{:?}", self.methods))]
+            )
+        );
+        Ok(())
+    }
+}
+
+/// 请求方法匹配器设置器
+#[derive(Debug, Clone, Default)]
+pub struct MethodMatcherBuilder {
+    methods: Vec<String>,
+}
+
+impl MethodMatcherBuilder {
+    /// 创建新的设置器
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置允许的方法列表
+    pub fn methods(mut self, methods: Vec<String>) -> Self {
+        self.methods = methods;
+        self
+    }
+
+    /// 添加允许的方法
+    pub fn add_method(mut self, method: &str) -> Self {
+        self.methods.push(method.to_string());
+        self
+    }
+
+    /// 构建MethodMatcher
+    pub fn build(self) -> Result<MethodMatcher, LimiteronError> {
+        MethodMatcher::new(self.methods)
+    }
+}
+
+// ============================================================================
+// RegexPathMatcher（路径正则匹配，feature `regex-matching`）
+// ============================================================================
+
+/// 路径正则匹配器（feature `regex-matching`）
+///
+/// 以正则表达式匹配请求路径（`RequestContext::path`）。模式在构造与
+/// `load_config` 时编译，非法模式显性报错；匹配语义与 `regex` crate
+/// 一致（`is_match`：模式命中路径任意子串即匹配，锚定用 `^`/`$`）。
+#[cfg(feature = "regex-matching")]
+#[derive(Debug, Clone)]
+pub struct RegexPathMatcher {
+    /// 编译后的路径模式
+    pattern: regex::Regex,
+    /// 原始模式串（load_config 与观测用）
+    source: String,
+    /// 是否大小写不敏感（构造时以 `(?i)` 语义编译）
+    case_insensitive: bool,
+}
+
+#[cfg(feature = "regex-matching")]
+impl RegexPathMatcher {
+    /// 创建路径正则匹配器
+    ///
+    /// # 参数
+    /// - `pattern`: 正则表达式（非锚定 `is_match` 语义）
+    /// - `case_insensitive`: 是否大小写不敏感
+    ///
+    /// # 错误
+    /// - 模式非法（编译失败）
+    pub fn new(pattern: &str, case_insensitive: bool) -> Result<Self, LimiteronError> {
+        if pattern.is_empty() {
+            return Err(LimiteronError::ConfigError(t(
+                "matcher-regex-pattern-empty",
+                &[],
+            )));
+        }
+        let source = if case_insensitive {
+            format!("(?i){pattern}")
+        } else {
+            pattern.to_string()
+        };
+        let pattern = regex::Regex::new(&source).map_err(|e| {
+            LimiteronError::ConfigError(t(
+                "matcher-regex-pattern-invalid",
+                &[("error", e.to_string())],
+            ))
+        })?;
+        Ok(Self {
+            pattern,
+            source,
+            case_insensitive,
+        })
+    }
+
+    /// 原始模式串（含大小写内联旗标）
+    pub fn pattern(&self) -> &str {
+        &self.source
+    }
+
+    /// 是否大小写不敏感
+    pub fn case_insensitive(&self) -> bool {
+        self.case_insensitive
+    }
+}
+
+#[cfg(feature = "regex-matching")]
+#[async_trait]
+impl CustomMatcher for RegexPathMatcher {
+    fn name(&self) -> &str {
+        "regex_path"
+    }
+
+    async fn matches(&self, context: &RequestContext) -> Result<bool, LimiteronError> {
+        let matches = self.pattern.is_match(&context.path);
+        debug!(
+            "regex path match: path='{}', result: {}",
+            context.path, matches
+        );
+        Ok(matches)
+    }
+
+    fn load_config(&mut self, config: Value) -> Result<(), LimiteronError> {
+        // case_insensitive 独立读取（与 HeaderMatcher::load_config 的
+        // case_sensitive 对齐）：仅传旗标不传 pattern 时切换语义并按现有
+        // 模式串重编译，而非静默忽略
+        if let Some(case_insensitive) = config["case_insensitive"].as_bool()
+            && case_insensitive != self.case_insensitive
+        {
+            self.case_insensitive = case_insensitive;
+            let base = self.source.strip_prefix("(?i)").unwrap_or(&self.source);
+            self.source = if case_insensitive {
+                format!("(?i){base}")
+            } else {
+                base.to_string()
+            };
+            self.pattern = regex::Regex::new(&self.source).map_err(|e| {
+                LimiteronError::ConfigError(t(
+                    "matcher-regex-pattern-invalid",
+                    &[("error", e.to_string())],
+                ))
+            })?;
+        }
+
+        if let Some(pattern) = config["pattern"].as_str() {
+            if pattern.is_empty() {
+                return Err(LimiteronError::ConfigError(t(
+                    "matcher-regex-pattern-empty",
+                    &[],
+                )));
+            }
+            self.source = if self.case_insensitive {
+                format!("(?i){pattern}")
+            } else {
+                pattern.to_string()
+            };
+            self.pattern = regex::Regex::new(&self.source).map_err(|e| {
+                LimiteronError::ConfigError(t(
+                    "matcher-regex-pattern-invalid",
+                    &[("error", e.to_string())],
+                ))
+            })?;
+        }
+
+        info!(
+            "{}",
+            t(
+                "matcher-regex-config-loaded",
+                &[("pattern", self.source.clone())]
+            )
+        );
+        Ok(())
     }
 }
 
@@ -1302,7 +1728,10 @@ mod tests {
         let result = validate_header_value(&long_value);
         assert!(result.is_err());
 
-        assert!(validate_header_value("").is_ok());
+        assert!(
+            validate_header_value("").is_err(),
+            "空值在 Prefix 模式下语义翻转为通配符，应拒绝"
+        );
         assert!(validate_header_value("valid-value").is_ok());
     }
 
@@ -1559,5 +1988,477 @@ mod tests {
         assert_eq!(matcher.allowed_values().len(), 3);
         assert_eq!(matcher.allowed_values()[0], "v1");
         assert_eq!(matcher.allowed_values()[2], "v3");
+    }
+
+    // ==================== HeaderMatcher 前缀/相等模式 ====================
+
+    fn ctx_with_header(name: &str, value: &str) -> RequestContext {
+        RequestContext::new().with_header(name, value)
+    }
+
+    #[tokio::test]
+    async fn test_header_matcher_prefix_mode() {
+        let matcher =
+            HeaderMatcher::new("X-Tenant", vec!["team-a".to_string(), "team-b".to_string()])
+                .unwrap()
+                .with_match_mode(HeaderMatchMode::Prefix);
+
+        // 前缀命中（team-a-prod 以 team-a 开头）
+        assert!(
+            matcher
+                .matches(&ctx_with_header("X-Tenant", "team-a-prod"))
+                .await
+                .unwrap()
+        );
+        // 非前缀拒绝（前缀不对）
+        assert!(
+            !matcher
+                .matches(&ctx_with_header("X-Tenant", "team-c-prod"))
+                .await
+                .unwrap()
+        );
+        // 头缺失拒绝
+        assert!(!matcher.matches(&RequestContext::new()).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_header_matcher_exact_mode_rejects_superstring() {
+        // 相等模式（默认）不接受超串：team-a-prod != team-a
+        let matcher = HeaderMatcher::new("X-Tenant", vec!["team-a".to_string()]).unwrap();
+        assert!(
+            !matcher
+                .matches(&ctx_with_header("X-Tenant", "team-a-prod"))
+                .await
+                .unwrap(),
+            "默认相等模式不得因前缀命中而放行超串"
+        );
+        assert!(
+            matcher
+                .matches(&ctx_with_header("X-Tenant", "team-a"))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_header_matcher_prefix_mode_case_insensitive() {
+        let matcher = HeaderMatcher::new("X-Tenant", vec!["Team-A".to_string()])
+            .unwrap()
+            .with_match_mode(HeaderMatchMode::Prefix);
+        assert!(
+            matcher
+                .matches(&ctx_with_header("X-Tenant", "TEAM-A-prod"))
+                .await
+                .unwrap(),
+            "默认不区分大小写：前缀比较应忽略大小写"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_header_matcher_prefix_mode_case_sensitive() {
+        let matcher = HeaderMatcher::new("X-Tenant", vec!["Team-A".to_string()])
+            .unwrap()
+            .with_case_sensitive(true)
+            .with_match_mode(HeaderMatchMode::Prefix);
+        assert!(
+            !matcher
+                .matches(&ctx_with_header("X-Tenant", "team-a-prod"))
+                .await
+                .unwrap(),
+            "区分大小写模式下前缀必须逐字符一致"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_header_matcher_ascii_fast_path_semantics_equivalence() {
+        // ASCII 快路径与 Unicode 折叠原路径语义等价：纯 ASCII 输入的
+        // Unicode 折叠与 ASCII 折叠一致（大写头值、混合大小写、miss 均验证）
+        let matcher = HeaderMatcher::new("X-Tenant", vec!["team-a".to_string()])
+            .unwrap()
+            .with_match_mode(HeaderMatchMode::Prefix);
+        assert!(
+            matcher
+                .matches(&ctx_with_header("X-Tenant", "TEAM-A-prod"))
+                .await
+                .unwrap(),
+            "ASCII 大写头值应经零分配快路径命中"
+        );
+        assert!(
+            !matcher
+                .matches(&ctx_with_header("X-Tenant", "zzz-miss"))
+                .await
+                .unwrap()
+        );
+        let exact = HeaderMatcher::new("X-Tenant", vec!["team-a".to_string()]).unwrap();
+        assert!(
+            exact
+                .matches(&ctx_with_header("X-Tenant", "TEAM-A"))
+                .await
+                .unwrap(),
+            "Exact ASCII 大写头值应经快路径命中"
+        );
+        assert!(
+            !exact
+                .matches(&ctx_with_header("X-Tenant", "team-a-prod"))
+                .await
+                .unwrap(),
+            "Exact 快路径不得因前缀命中放行超串"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_header_matcher_non_ascii_values_fall_back_to_unicode_fold() {
+        // 允许值含非 ASCII 时必须走 Unicode to_lowercase 原路径：
+        // 'ſ'(U+017F) 折叠为 's'，ASCII 折叠快路径无法覆盖该语义
+        let matcher = HeaderMatcher::new("X-Tenant", vec!["ſpecial".to_string()])
+            .unwrap()
+            .with_match_mode(HeaderMatchMode::Prefix);
+        assert!(
+            !matcher.values_ascii_only,
+            "含非 ASCII 允许值应禁用 ASCII 快路径"
+        );
+        assert!(
+            matcher
+                .matches(&ctx_with_header("X-Tenant", "ſpecial-offer"))
+                .await
+                .unwrap()
+        );
+        // 头值含非 ASCII（允许值同含非 ASCII）：走原路径 Unicode 折叠，
+        // 大写非 ASCII 前缀照常命中；且 "team-ä" 不因形似 "team-a" 误命中
+        let unicode_values = HeaderMatcher::new("X-Tenant", vec!["mä-team".to_string()])
+            .unwrap()
+            .with_match_mode(HeaderMatchMode::Prefix);
+        assert!(
+            unicode_values
+                .matches(&ctx_with_header("X-Tenant", "MÄ-TEAM-prod"))
+                .await
+                .unwrap(),
+            "非 ASCII 头值经 to_lowercase 原路径折叠命中"
+        );
+        let lookalike = HeaderMatcher::new("X-Tenant", vec!["team-a".to_string()])
+            .unwrap()
+            .with_match_mode(HeaderMatchMode::Prefix);
+        assert!(
+            !lookalike
+                .matches(&ctx_with_header("X-Tenant", "team-ä-prod"))
+                .await
+                .unwrap(),
+            "ä ≠ a：Unicode 折叠后仍不命中，不得误放"
+        );
+    }
+
+    #[test]
+    fn test_header_matcher_default_mode_is_exact() {
+        let matcher = HeaderMatcher::new("X-Tenant", vec!["a".to_string()]).unwrap();
+        assert_eq!(matcher.match_mode(), HeaderMatchMode::Exact);
+    }
+
+    #[tokio::test]
+    async fn test_header_matcher_load_config_match_mode() {
+        let mut matcher = HeaderMatcher::new("X-Tenant", vec!["team".to_string()]).unwrap();
+        matcher
+            .load_config(serde_json::json!({"match_mode": "prefix"}))
+            .unwrap();
+        assert_eq!(matcher.match_mode(), HeaderMatchMode::Prefix);
+        assert!(
+            matcher
+                .matches(&ctx_with_header("X-Tenant", "team-42"))
+                .await
+                .unwrap(),
+            "load_config 换装前缀模式后应生效"
+        );
+    }
+
+    #[test]
+    fn test_header_matcher_load_config_invalid_match_mode() {
+        let mut matcher = HeaderMatcher::new("X-Tenant", vec!["a".to_string()]).unwrap();
+        let result = matcher.load_config(serde_json::json!({"match_mode": "fuzzy"}));
+        assert!(result.is_err(), "非法 match_mode 应显性报错");
+    }
+
+    #[test]
+    fn test_header_matcher_builder_match_mode() {
+        let matcher = HeaderMatcher::builder()
+            .header_name("X-Tenant")
+            .add_allowed_value("team")
+            .match_mode(HeaderMatchMode::Prefix)
+            .build()
+            .unwrap();
+        assert_eq!(matcher.match_mode(), HeaderMatchMode::Prefix);
+    }
+
+    // ==================== MethodMatcher ====================
+
+    #[test]
+    fn test_method_matcher_new_normalizes_case() {
+        let matcher = MethodMatcher::new(vec!["get".to_string(), "Post".to_string()]).unwrap();
+        assert_eq!(matcher.methods(), ["GET", "POST"]);
+    }
+
+    #[test]
+    fn test_method_matcher_empty_rejected() {
+        assert!(MethodMatcher::new(vec![]).is_err(), "空方法列表应拒绝");
+    }
+
+    #[test]
+    fn test_method_matcher_too_many_rejected() {
+        let methods: Vec<String> = (0..=MAX_ALLOWED_VALUES_COUNT)
+            .map(|i| format!("M{i}"))
+            .collect();
+        assert!(MethodMatcher::new(methods).is_err(), "超上限应拒绝");
+    }
+
+    #[tokio::test]
+    async fn test_method_matcher_matches() {
+        let matcher = MethodMatcher::new(vec!["GET".to_string(), "POST".to_string()]).unwrap();
+        assert!(
+            matcher
+                .matches(&RequestContext::new().with_method("GET"))
+                .await
+                .unwrap()
+        );
+        // 大小写规范化：context 传小写同样命中
+        assert!(
+            matcher
+                .matches(&RequestContext::new().with_method("post"))
+                .await
+                .unwrap()
+        );
+        assert!(
+            !matcher
+                .matches(&RequestContext::new().with_method("DELETE"))
+                .await
+                .unwrap()
+        );
+        // 方法缺失（空串）不命中
+        assert!(!matcher.matches(&RequestContext::new()).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_method_matcher_load_config() {
+        let mut matcher = MethodMatcher::new(vec!["GET".to_string()]).unwrap();
+        matcher
+            .load_config(serde_json::json!({"methods": ["PUT", "delete"]}))
+            .unwrap();
+        assert_eq!(matcher.methods(), ["PUT", "DELETE"]);
+        assert!(
+            matcher
+                .matches(&RequestContext::new().with_method("DELETE"))
+                .await
+                .unwrap()
+        );
+        assert!(
+            !matcher
+                .matches(&RequestContext::new().with_method("GET"))
+                .await
+                .unwrap(),
+            "load_config 应整体替换方法列表"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_method_matcher_registry_roundtrip() {
+        let registry = CustomMatcherRegistry::new();
+        registry
+            .register(
+                "method".to_string(),
+                Box::new(MethodMatcher::new(vec!["GET".to_string()]).unwrap()),
+            )
+            .await
+            .unwrap();
+        assert!(registry.contains("method").await);
+
+        let ctx = RequestContext::new().with_method("GET");
+        assert!(registry.match_with("method", &ctx).await.unwrap());
+
+        registry.unregister("method").await.unwrap();
+        assert!(!registry.contains("method").await);
+        let result = registry.match_with("method", &ctx).await;
+        assert!(result.is_err(), "注销后 match_with 应显性报错");
+    }
+
+    // ==================== RegexPathMatcher（regex-matching feature） ====================
+
+    #[cfg(feature = "regex-matching")]
+    #[tokio::test]
+    async fn test_regex_path_matcher_matches() {
+        let matcher = RegexPathMatcher::new("^/api/v[0-9]+/users", false).unwrap();
+        assert!(
+            matcher
+                .matches(&RequestContext::new().with_path("/api/v2/users/42"))
+                .await
+                .unwrap()
+        );
+        assert!(
+            !matcher
+                .matches(&RequestContext::new().with_path("/web/users"))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[cfg(feature = "regex-matching")]
+    #[tokio::test]
+    async fn test_regex_path_matcher_case_insensitive() {
+        let sensitive = RegexPathMatcher::new("^/Admin", false).unwrap();
+        let insensitive = RegexPathMatcher::new("^/Admin", true).unwrap();
+        let ctx = RequestContext::new().with_path("/admin/dashboard");
+        assert!(!sensitive.matches(&ctx).await.unwrap());
+        assert!(insensitive.matches(&ctx).await.unwrap());
+        assert_eq!(insensitive.pattern(), "(?i)^/Admin");
+    }
+
+    #[cfg(feature = "regex-matching")]
+    #[test]
+    fn test_regex_path_matcher_invalid_pattern_rejected() {
+        assert!(RegexPathMatcher::new("(unclosed", false).is_err());
+        assert!(RegexPathMatcher::new("", false).is_err(), "空模式应拒绝");
+    }
+
+    #[cfg(feature = "regex-matching")]
+    #[tokio::test]
+    async fn test_regex_path_matcher_load_config() {
+        let mut matcher = RegexPathMatcher::new("^/old", false).unwrap();
+        matcher
+            .load_config(serde_json::json!({"pattern": "^/new", "case_insensitive": true}))
+            .unwrap();
+        assert_eq!(matcher.pattern(), "(?i)^/new");
+        assert!(
+            matcher
+                .matches(&RequestContext::new().with_path("/NEW/path"))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[cfg(feature = "regex-matching")]
+    #[tokio::test]
+    async fn test_regex_path_matcher_registry_roundtrip() {
+        let registry = CustomMatcherRegistry::new();
+        registry
+            .register(
+                "api_paths".to_string(),
+                Box::new(RegexPathMatcher::new("^/api/", false).unwrap()),
+            )
+            .await
+            .unwrap();
+        let ctx = RequestContext::new().with_path("/api/health");
+        assert!(registry.match_with("api_paths", &ctx).await.unwrap());
+        registry.unregister("api_paths").await.unwrap();
+        assert!(registry.match_with("api_paths", &ctx).await.is_err());
+    }
+
+    // ==================== 三 matcher 注册表注册/注销集成 ====================
+
+    #[tokio::test]
+    async fn test_registry_register_duplicate_rejected() {
+        let registry = CustomMatcherRegistry::new();
+        registry
+            .register(
+                "dup".to_string(),
+                Box::new(MethodMatcher::new(vec!["GET".to_string()]).unwrap()),
+            )
+            .await
+            .unwrap();
+        let second = registry
+            .register(
+                "dup".to_string(),
+                Box::new(MethodMatcher::new(vec!["POST".to_string()]).unwrap()),
+            )
+            .await;
+        assert!(second.is_err(), "重名注册应拒绝");
+        // 原注册不受影响
+        assert!(
+            registry
+                .match_with("dup", &RequestContext::new().with_method("GET"))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_registry_unregister_missing_rejected() {
+        let registry = CustomMatcherRegistry::new();
+        let result = registry.unregister("nonexistent").await;
+        assert!(result.is_err(), "注销不存在的匹配器应显性报错");
+    }
+
+    #[test]
+    fn test_header_matcher_empty_value_rejected() {
+        // 空值在 Prefix 模式下语义翻转为通配符（starts_with("") 恒真），
+        // Exact 模式下也无意义，构造与 load_config 均显性拒绝
+        assert!(HeaderMatcher::new("X-Tenant", vec![String::new()]).is_err());
+        let mut matcher = HeaderMatcher::new("X-Tenant", vec!["a".to_string()]).unwrap();
+        assert!(
+            matcher
+                .load_config(serde_json::json!({"allowed_values": [""]}))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_method_matcher_invalid_entries_rejected() {
+        // 逐项校验：空串、含分隔符、非 ASCII 均显性报错
+        assert!(MethodMatcher::new(vec![String::new()]).is_err());
+        assert!(MethodMatcher::new(vec!["GET POST".to_string()]).is_err());
+        assert!(MethodMatcher::new(vec!["GËT".to_string()]).is_err());
+        // 合法 token 字符集（RFC 9110）放行
+        assert!(MethodMatcher::new(vec!["CUSTOM-METHOD_1".to_string()]).is_ok());
+        // load_config 非字符串项显性报错而非静默丢弃
+        let mut matcher = MethodMatcher::new(vec!["GET".to_string()]).unwrap();
+        assert!(
+            matcher
+                .load_config(serde_json::json!({"methods": ["GET", 42]}))
+                .is_err()
+        );
+        // load_config 逐项校验同样生效
+        assert!(
+            matcher
+                .load_config(serde_json::json!({"methods": [""]}))
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_method_matcher_non_ascii_never_matches() {
+        let matcher = MethodMatcher::new(vec!["GET".to_string()]).unwrap();
+        // 'ſ'(U+017F) 经 Unicode 大写折叠会变 'S'——ASCII token 语义下
+        // 非 ASCII 输入必须不命中
+        assert!(
+            !matcher
+                .matches(&RequestContext::new().with_method("ſet"))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[cfg(feature = "regex-matching")]
+    #[tokio::test]
+    async fn test_regex_path_matcher_ci_flag_independent_update() {
+        // 仅传 case_insensitive 不传 pattern：切换语义并按现有模式重编译，
+        // 而非静默忽略
+        let mut matcher = RegexPathMatcher::new("^/Admin", false).unwrap();
+        matcher
+            .load_config(serde_json::json!({"case_insensitive": true}))
+            .unwrap();
+        assert!(matcher.case_insensitive());
+        assert_eq!(matcher.pattern(), "(?i)^/Admin");
+        assert!(
+            matcher
+                .matches(&RequestContext::new().with_path("/admin/x"))
+                .await
+                .unwrap()
+        );
+        // 切回敏感
+        matcher
+            .load_config(serde_json::json!({"case_insensitive": false}))
+            .unwrap();
+        assert_eq!(matcher.pattern(), "^/Admin");
+        assert!(
+            !matcher
+                .matches(&RequestContext::new().with_path("/admin/x"))
+                .await
+                .unwrap()
+        );
     }
 }

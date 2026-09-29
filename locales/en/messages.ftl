@@ -158,7 +158,17 @@ header-name-empty = HTTP header name cannot be empty
 header-name-too-long = HTTP header name exceeds length limit (max { $max } characters)
 header-name-invalid-chars = HTTP header name may only contain letters, digits and hyphens
 header-value-too-long = HTTP header value exceeds length limit (max { $max } characters)
+header-value-empty = Header value cannot be empty
+matcher-method-invalid = '{ $value }' is not a valid HTTP method token
+matcher-regex-pattern-invalid = Invalid regex pattern: { $error }
+matcher-header-match-mode-invalid = Invalid header match_mode '{ $mode }': { $error }
 matcher-already-exists = Matcher '{ $name }' already exists
+matcher-methods-empty = Method matcher requires at least one HTTP method
+matcher-header-values-empty = Header matcher requires at least one allowed value
+matcher-value-invalid = '{ $value }' is not a valid header value string
+matcher-method-config-loaded = Method matcher config loaded: methods = { $methods }
+matcher-regex-config-loaded = Regex path matcher config loaded: pattern = { $pattern }
+matcher-regex-pattern-empty = Regex path matcher requires a non-empty pattern
 matcher-not-found = Matcher '{ $name }' does not exist
 matcher-registered = Custom matcher registered: { $name }
 matcher-unregistered = Custom matcher unregistered: { $name }

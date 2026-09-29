@@ -22,6 +22,13 @@
 //! 墙钟回拨时过期判定用回拨后的 `now`（少逐出，计数偏保守、多拒不放行，
 //! fail-closed）；条目时间戳对队尾取 max 保持升序不变式，杜绝乱序条目
 //! 滞留导致的计数虚高。
+//!
+//! **回拨例外（permissive）**：单调确认游标使已确认的过期前缀「不可逆」
+//! ——若某条目在时刻 T1 被任何读/判定路径确认过期，时钟回拨到 T0 < T1
+//! 后该条目仍计为已过期（放行方向）。因此 peek/remaining 等观测调用在
+//! 回拨场景下可能改变后续判定（比无观测时更放行）：游标缓存的是可推导
+//! 信息这一性质仅在时钟单调时成立。回拨本身属尽力而为场景，该例外是
+//! 单调确认换 O(1) 读路径的已知代价。
 
 use super::traits::{Limiter, RateLimitSnapshot, validate_cost};
 use crate::clock::{Clock, SystemClock};
@@ -46,9 +53,10 @@ use std::time::Duration;
 ///   空闲期已过期条目仍驻留队列（确认游标推进、容量不回收，队列
 ///   清空时收缩缓冲）——观测读数与判定均基于虚拟逐出后的有效值，
 ///   不受驻留影响
-/// - [`Limiter::peek`]/[`Limiter::remaining`] 不改变有效限流状态
-///   （不弹出条目、不追加日志；过期确认游标为单调缓存，推进与否
-///   不影响任何判定结果）
+/// - [`Limiter::peek`]/[`Limiter::remaining`] 不弹出条目、不追加日志；
+///   时钟单调时游标推进仅缓存可推导信息，不影响判定；**时钟回拨例外**：
+///   此前在更高时刻确认的过期前缀不再计入（permissive，见模块文档
+///   「时钟回拨」节）
 pub struct SlidingWindowLogLimiter {
     /// 窗口内最大放行总量
     max_requests: u64,
@@ -70,10 +78,11 @@ struct LogState {
     expired_cost: u64,
     /// 已确认过期的前缀长度（单调推进的确认游标）
     ///
-    /// 时间只前进：条目一经确认过期永不过期回来，故每个条目一生只被
-    /// 扫描一次——allow 的逐出与 peek 的读数都从该游标续扫，无新增
-    /// 过期时为 O(1)。游标推进只是缓存可推导信息：有效计数
-    /// （`total_count - expired_cost`）与判定结果不因推进而改变。
+    /// 时钟单调时条目一经确认过期永不过期回来，每个条目一生只被扫描
+    /// 一次——allow 的逐出与 peek 的读数都从该游标续扫，无新增过期时为
+    /// O(1)。游标推进缓存的是可推导信息（有效计数 =
+    /// `total_count - expired_cost`）；时钟回拨时已确认前缀不可逆，
+    /// 判定转为 permissive（见模块文档「时钟回拨」节）。
     scanned: usize,
 }
 
@@ -520,6 +529,55 @@ mod tests {
                 "回拨期新条目应对齐队尾时间戳"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_sliding_log_peek_before_rollback_is_permissive() {
+        // 回拨 × 观测语义回归：单调确认游标的 permissive
+        // 例外——条目在高时刻 T1 被 peek 确认过期后，时钟回拨到 T0 < T1
+        // 时该条目仍计为已过期（放行）；若无那次 peek，T0 判定下未过期
+        // （拒绝）。固化该偏差方向，防止未来重构无意改变语义。
+        let mock_clock = Arc::new(MockClock::with_instant(std::time::Instant::now(), 10));
+        let clock: Arc<dyn Clock> = mock_clock.clone();
+        let limiter =
+            SlidingWindowLogLimiter::with_clock(4, Duration::from_millis(500), clock).unwrap();
+
+        // t=10s 放满 4 条
+        for _ in 0..4 {
+            assert!(limiter.allow(1).await.unwrap());
+        }
+        // t=10.6s：全部条目过期（ts + 0.5s ≤ 10.6s），peek 确认游标推进
+        mock_clock.advance(Duration::from_millis(600));
+        assert_eq!(limiter.peek(1).await.unwrap().remaining, 4);
+
+        // 回拨到 t=10.2s（条目过期时刻 = ts + window = 10.5s：按回拨后的
+        // now 判定条目未过期）——但游标已在 10.6s 确认过期，仍计为已过期
+        // （permissive 放行）；无观测调用时此处应拒绝（对照组见下）
+        mock_clock.set_time(std::time::Instant::now(), 10);
+        mock_clock.advance(Duration::from_millis(200));
+        {
+            let state = limiter.state.lock();
+            assert_eq!(state.scanned, 4, "游标不可逆：已确认前缀不因回拨回退");
+        }
+        assert!(
+            limiter.allow(4).await.unwrap(),
+            "已确认过期的前缀在回拨后仍计为已过期（permissive）"
+        );
+
+        // 对照组：无 peek 的同场景在回拨后保持保守判定
+        let mock_clock2 = Arc::new(MockClock::with_instant(std::time::Instant::now(), 10));
+        let clock2: Arc<dyn Clock> = mock_clock2.clone();
+        let limiter2 =
+            SlidingWindowLogLimiter::with_clock(4, Duration::from_millis(500), clock2).unwrap();
+        for _ in 0..4 {
+            assert!(limiter2.allow(1).await.unwrap());
+        }
+        mock_clock2.set_time(std::time::Instant::now(), 10);
+        mock_clock2.advance(Duration::from_millis(200));
+        assert!(
+            !limiter2.allow(4).await.unwrap(),
+            "无观测调用时回拨判定保守：条目未过期应拒绝"
+        );
     }
 
     #[tokio::test]

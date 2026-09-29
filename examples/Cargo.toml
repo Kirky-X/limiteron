@@ -155,6 +155,8 @@ tower-middleware = ["limiteron/tower-middleware"]
 # 高级匹配
 device-matching = ["limiteron/device-matching"]
 geo-matching = ["limiteron/geo-matching"]
+# 路径正则匹配（custom_matchers 示例的 RegexPathMatcher 段）
+regex-matching = ["limiteron/regex-matching"]
 # 验证（含 ban-manager workaround：validate_ban_target 需要 ban-manager feature）
 validation = ["limiteron/validation", "limiteron/ban-manager"]
 # 事件系统

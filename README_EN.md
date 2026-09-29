@@ -192,7 +192,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td><code>sqlite</code></td><td>SQLite storage (dbnexus embedded driver, default local backend)</td><td>❌</td></tr>
 <tr><td><code>mysql</code></td><td>MySQL storage (dbnexus server-side driver)</td><td>❌</td></tr>
 <tr><td><code>cache-redis</code></td><td>Redis cache backend (via oxcache; formerly <code>cache-storage</code>, kept as a compatibility alias)</td><td>❌</td></tr>
-<tr><td><code>lua-script</code></td><td>Redis Lua script execution (via oxcache <code>eval_lua</code>)</td><td>❌</td></tr>
+<tr><td><code>lua-script</code></td><td>Redis Lua script execution (via oxcache <code>eval_lua</code>): sliding window / sliding window log (cost-weighted) / fixed window / token bucket / burst-overdraft token bucket / quota consume &amp; reset — seven scripts</td><td>❌</td></tr>
 <tr><td rowspan="8">Core</td><td><code>ban-manager</code></td><td>Ban management (target bans, priorities, file loading)</td><td>❌</td></tr>
 <tr><td><code>bulkhead</code></td><td>Bulkhead isolation: per-resource-group pools + independent concurrency budgets and isolation metrics</td><td>❌</td></tr>
 <tr><td><code>quota-control</code></td><td>Quota control</td><td>❌</td></tr>
@@ -206,6 +206,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td>Performance</td><td><code>parallel-checker</code></td><td>Parallel ban checking</td><td>❌</td></tr>
 <tr><td rowspan="2">Advanced Matching</td><td><code>geo-matching</code></td><td>Geographic matching (MaxMindDB)</td><td>❌</td></tr>
 <tr><td><code>device-matching</code></td><td>Device matching (woothee User-Agent parsing)</td><td>❌</td></tr>
+<tr><td><code>regex-matching</code></td><td>Regex path matcher (RegexPathMatcher)</td><td>❌</td></tr>
 <tr><td rowspan="2">Control Plane</td><td><code>admin-api</code></td><td>Admin REST API (axum, with RBAC and self rate-limit protection)</td><td>❌</td></tr>
 <tr><td><code>cli</code></td><td><code>limiteron-cli</code> binary: rule file validation / export / apply dry-run</td><td>❌</td></tr>
 <tr><td rowspan="5">Observability</td><td><code>telemetry</code></td><td>Tracing initialization (tracing-subscriber)</td><td>❌</td></tr>
@@ -276,7 +277,7 @@ cargo run -p limiteron-examples --features "ban-manager,admin-api" --bin ban_htt
 | `governor_demo` | Three Governor construction modes, request checks, decision parsing, and statistics |
 | `matchers_demo` | Complete flow of identifier extractors, request contexts, and rule matchers |
 | `decision_chain` | Responsibility-chain decisions: composing limiters, priority execution, short-circuiting |
-| `custom_matchers` | Custom matcher trait implementation, registry, and built-in Header / TimeWindow matchers |
+| `custom_matchers` | Custom matcher trait implementation, registry, and built-in Header (prefix/exact) / Method / TimeWindow / RegexPath (`regex-matching` feature) matchers |
 | `authorization_demo` | Implementing the authorization provider trait and the built-in `SimpleAuthorizationProvider` |
 | `graceful_shutdown` | Listening for Ctrl+C and invoking the idempotent `Governor::shutdown()` |
 | `circuit_breaker` | Circuit breaker: failure detection, opening, half-open probing, and timeout recovery |
@@ -432,7 +433,7 @@ cargo bench --features full
 </tr>
 <tr>
 <td width="12%" align="center"><b>📋 Planned</b></td>
-<td>Lua script enhancements, custom matcher extensions, additional storage backends, Web UI management interface</td>
+<td>Additional storage backends, Web UI management interface</td>
 </tr>
 <tr>
 <td width="12%" align="center"><b>💡 Future Ideas</b></td>

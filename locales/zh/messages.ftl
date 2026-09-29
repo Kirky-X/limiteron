@@ -157,7 +157,17 @@ header-name-empty = HTTP头名称不能为空
 header-name-too-long = HTTP头名称长度超过限制（最大 { $max } 字符）
 header-name-invalid-chars = HTTP头名称只能包含字母、数字和连字符
 header-value-too-long = HTTP头值长度超过限制（最大 { $max } 字符）
+header-value-empty = HTTP 头值不能为空
+matcher-method-invalid = '{ $value }' 不是合法的 HTTP 方法 token
+matcher-regex-pattern-invalid = 非法正则模式：{ $error }
+matcher-header-match-mode-invalid = 非法的头匹配模式 '{ $mode }'：{ $error }
 matcher-already-exists = 匹配器 '{ $name }' 已存在
+matcher-methods-empty = 请求方法匹配器至少需要一个 HTTP 方法
+matcher-header-values-empty = 请求头匹配器至少需要一个允许值
+matcher-value-invalid = '{ $value }' 不是合法的头值字符串
+matcher-method-config-loaded = 请求方法匹配器配置已加载：methods = { $methods }
+matcher-regex-config-loaded = 路径正则匹配器配置已加载：pattern = { $pattern }
+matcher-regex-pattern-empty = 路径正则匹配器需要非空模式
 matcher-not-found = 匹配器 '{ $name }' 不存在
 matcher-registered = 注册自定义匹配器: { $name }
 matcher-unregistered = 注销自定义匹配器: { $name }

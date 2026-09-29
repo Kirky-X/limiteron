@@ -701,9 +701,29 @@ let extractor = IpExtractor::builder()
 | `RuleMatcher` | 规则匹配引擎（`new(rules: Vec<Rule>)`） |
 | `Matcher` | 内置匹配条件（User / Ip 等，见 `limiteron::config::Matcher`） |
 | `CustomMatcher` / `CustomMatcherRegistry` | 自定义匹配器 trait 与注册表 |
-| `HeaderMatcher` / `TimeWindowMatcher` | 内置 Header 与时间窗匹配器 |
+| `HeaderMatcher` | 内置 Header 匹配器，`HeaderMatchMode` 前缀/相等双模式（`with_match_mode` / `load_config` 的 `match_mode` 字段） |
+| `MethodMatcher` | 内置请求方法匹配器，方法名 ASCII 大小写规范化（`new(methods: Vec<String>)`） |
+| `TimeWindowMatcher` | 内置时间窗匹配器 |
+| `RegexPathMatcher`（`regex-matching`） | 路径正则匹配器，`new(pattern: &str, case_insensitive: bool)` |
 | `GeoMatcher`（`geo-matching`） | 地理位置条件匹配 |
 | `DeviceMatcher`（`device-matching`） | User-Agent 解析与设备识别 |
+
+---
+
+### Lua 脚本（`lua-script`）
+
+`oxcache_lua` 提供 7 个经 `OxcacheLuaManager` 注册的 Redis Lua 脚本常量（KEYS/ARGV 约定与返回值见 `src/oxcache_lua.rs` 各 const 文档）：
+
+| 脚本 | 语义 |
+|------|------|
+| `SLIDING_WINDOW_SCRIPT` | 滑动窗口（ZSET，每请求计 1） |
+| `SLIDING_WINDOW_LOG_SCRIPT` | 滑动窗口日志（cost 加权，伴随账本增量维护，摊还 O(1)；max_requests 上限 100K 与进程内同源） |
+| `FIXED_WINDOW_SCRIPT` | 固定窗口（String + TTL） |
+| `TOKEN_BUCKET_SCRIPT` | 令牌桶（严格余额判定） |
+| `BURST_TOKEN_BUCKET_SCRIPT` | 带突发透支令牌桶（借债放行、负余额记账，burst_allowance ≤ capacity，TTL 钳 24h） |
+| `QUOTA_CONSUME_SCRIPT` / `QUOTA_RESET_SCRIPT` | 配额消费（含透支）与重置 |
+
+执行入口：`execute_lua_script` / `load_script` + `execute_cached_script`（经 oxcache `eval_lua`/`EVALSHA`）。
 
 ---
 

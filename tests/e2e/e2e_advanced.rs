@@ -505,15 +505,12 @@ mod fallback_strategy {
             )
             .await;
 
+        // FailOpen 语义回归：主操作失败时执行降级闭包并返回其 Ok 值
+        //（旧实现返回 Err(FallbackError) 名不副实——没有任何调用方把它
+        // 映射为放行，实际表现为拒绝；见 src/fallback.rs 历史教训注释）
         match result {
-            Err(LimiteronError::FallbackError(msg)) => {
-                assert!(
-                    msg.contains("FailOpen"),
-                    "FailOpen message should indicate degraded: {}",
-                    msg
-                );
-            }
-            other => panic!("Expected FallbackError for FailOpen, got {:?}", other),
+            Ok(value) => assert_eq!(value, "fallback", "FailOpen 应返回降级闭包的 Ok 值"),
+            other => panic!("FailOpen should return fallback value, got {:?}", other),
         }
     }
 
@@ -1436,8 +1433,10 @@ mod t602_tenant_governor {
                 .map(|&consumed| limiteron::storage::QuotaInfo {
                     consumed,
                     limit: 0,
+                    // 窗口边界须返回远期窗口：若 window_end <= now，
+                    // controller 每次消费都会触发窗口重置，配额永不耗尽
                     window_start: chrono::Utc::now(),
-                    window_end: chrono::Utc::now(),
+                    window_end: chrono::Utc::now() + chrono::Duration::hours(1),
                 }))
         }
 

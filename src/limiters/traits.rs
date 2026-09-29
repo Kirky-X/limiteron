@@ -77,11 +77,17 @@ pub trait Limiter: Send + Sync {
     /// 非消费预检
     ///
     /// 查询「当前状态下消费 `cost` 是否可行」以及标准限流头数据
-    /// （limit/remaining/reset），**绝不修改限流器状态**。
+    /// （limit/remaining/reset），**不消费配额、不弹出条目**——不得改变
+    /// 有效限流判定。实现允许维护单调缓存（如过期确认游标）：时钟单调
+    /// 时它只缓存可推导信息；实现者若依赖墙钟，须在文档中声明时钟回拨
+    /// 下缓存带来的判定偏差方向（如 [`SlidingWindowLogLimiter`] 的
+    /// permissive 例外）。
     /// 调用方以 `snapshot.remaining >= cost` 判断可行性。
     ///
     /// 默认实现返回 `Err`（限流器未支持预检），保持对所有既有实现者的
     /// 源兼容；建议各限流器基于自身原子量覆盖实现。
+    ///
+    /// [`SlidingWindowLogLimiter`]: crate::limiters::SlidingWindowLogLimiter
     async fn peek(&self, cost: u64) -> Result<RateLimitSnapshot, LimiteronError> {
         let _ = cost;
         Err(LimiteronError::Other(

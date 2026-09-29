@@ -390,24 +390,28 @@ mod tests {
 
     #[tokio::test]
     async fn test_token_bucket_refill_fraction_conservation() {
-        // 积分守恒回归：rate=3/s，每 ~500ms 触发一次补充，每周期应得 1.5 个
+        // 积分守恒回归：rate=3/s，每 500ms 触发一次补充，每周期应得 1.5 个
         // 令牌积分。修复前每周期 floor(1.5)=1 且 last_refill 推到 now，
         // 0.5 个令牌的积分永久丢失 → 10 周期只得 ~10-10(消费)=0 个；
-        // 修复后积分滞留按 1,2,1,2 交替累积 → ~15-10=5 个。
-        // （真实时钟 + 抖动鲁棒区间：old 实现即使每周期多记 1 个也够不到 4。）
-        let limiter = TokenBucketLimiter::new(100, 3);
+        // 修复后积分滞留按 1,2,1,2 交替累积 → 15-10=5 个。
+        // （MockClock 确定性推进：真实时钟在并行门禁重放的 CPU 饥饿下
+        //   单循环耗时会拉长，补充超量击穿「~5」区间上界造成偶发失败——
+        //   区间断言只对时钟单调成立、对耗时无上界假设不成立。）
+        let mock_clock = Arc::new(MockClock::new());
+        let clock: Arc<dyn Clock> = mock_clock.clone();
+        let limiter = TokenBucketLimiter::with_clock(100, 3, clock);
         assert!(limiter.allow(100).await.unwrap());
         assert_eq!(limiter.tokens(), 0);
 
         for _ in 0..10 {
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            mock_clock.advance(Duration::from_millis(500));
             let _ = limiter.allow(1).await; // 触发补充并消费 1 个
         }
 
         let tokens = limiter.tokens();
-        assert!(
-            (4..=6).contains(&tokens),
-            "10×500ms@3/s 积分守恒应累积 ~5 个令牌(毛积累 15-消费 10),实际 {tokens}"
+        assert_eq!(
+            tokens, 5,
+            "10×500ms@3/s 积分守恒应精确累积 15-消费 10=5 个令牌"
         );
     }
 

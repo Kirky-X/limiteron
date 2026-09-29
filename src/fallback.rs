@@ -28,10 +28,11 @@ pub type IslandModeCallback = std::sync::Arc<dyn Fn(bool) + Send + Sync>;
 pub enum FallbackStrategy {
     /// 故障时允许所有请求（降级为全开放）
     ///
-    /// 注意：当前实现无法为泛型返回类型 `T` 合成默认值，因此 FailOpen
-    /// 会向调用方返回显性的 `Err(LimiteronError::FallbackError)`，由
-    /// 调用方决定放行语义；不会静默放行（Rule 12：失败必须显性化）。
-    /// 调用方以变体（而非字符串内容）识别降级。
+    /// 故障开放：主操作失败时执行降级闭包并返回其结果（`Ok` 值）。
+    /// 放行语义由调用方在降级闭包内决定。
+    /// 历史教训：旧实现直接返回 `Err(FallbackError)`——泛型 `T` 无法
+    /// 合成默认值是真的，但"显性错误"在全仓没有任何调用方把它映射为
+    /// 放行，FailOpen 实际表现为拒绝，名不副实。
     FailOpen,
     /// 故障时拒绝所有请求（降级为全关闭）
     FailClosed,

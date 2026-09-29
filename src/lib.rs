@@ -247,9 +247,12 @@ pub use macros::{
     FlowControlConfig as MacroFlowControlConfig, QuotaLimit, RateLimit, flow_control,
     parse_quota_limit, parse_rate_limit,
 };
+#[cfg(feature = "regex-matching")]
+pub use matchers::custom::RegexPathMatcher;
 pub use matchers::custom::{
-    CustomMatcher, CustomMatcherRegistry, CustomMatcherRegistryBuilder, HeaderMatcher,
-    HeaderMatcherBuilder, TimeWindowMatcher, TimeWindowMatcherBuilder,
+    CustomMatcher, CustomMatcherRegistry, CustomMatcherRegistryBuilder, HeaderMatchMode,
+    HeaderMatcher, HeaderMatcherBuilder, MethodMatcher, MethodMatcherBuilder, TimeWindowMatcher,
+    TimeWindowMatcherBuilder,
 };
 #[cfg(feature = "device-matching")]
 pub use matchers::device::{
@@ -281,9 +284,10 @@ pub use validation::validate_ban_target;
 
 #[cfg(feature = "lua-script")]
 pub use oxcache_lua::{
-    FIXED_WINDOW_SCRIPT, LuaScriptInfo, LuaScriptType, OxcacheLuaManager, QUOTA_CONSUME_SCRIPT,
-    QUOTA_RESET_SCRIPT, SLIDING_WINDOW_SCRIPT, TOKEN_BUCKET_SCRIPT, execute_cached_script,
-    execute_lua_script, load_script,
+    BURST_TOKEN_BUCKET_SCRIPT, FIXED_WINDOW_SCRIPT, LuaScriptInfo, LuaScriptType,
+    OxcacheLuaManager, QUOTA_CONSUME_SCRIPT, QUOTA_RESET_SCRIPT, SLIDING_WINDOW_LOG_SCRIPT,
+    SLIDING_WINDOW_SCRIPT, TOKEN_BUCKET_SCRIPT, execute_cached_script, execute_lua_script,
+    load_script,
 };
 
 // Re-export storage traits for compatibility (internal implementations are pub(crate))

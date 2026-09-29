@@ -141,11 +141,12 @@ async fn concurrency_limiter_rejects_over_limit() {
 #[tokio::test]
 async fn concurrency_limiter_rejects_zero_cost() {
     let limiter = ConcurrencyLimiter::new(10);
-    // allow(0) acquires 0 permits which always succeeds
+    // allow(0) 经 validate_cost 统一拒绝（全库 limiter 契约：cost=0 为
+    // 配置错误），与 token_bucket_rejects_zero_cost 等兄弟测试语义一致
     let result = limiter.allow(0).await;
     assert!(
-        result.is_ok(),
-        "allow(0) should succeed (acquiring 0 always succeeds)"
+        result.is_err(),
+        "allow(0) should be rejected by the library-wide cost validation"
     );
 }
 

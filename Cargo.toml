@@ -279,6 +279,7 @@ full = [
     "parallel-checker",
     "geo-matching",
     "device-matching",
+    "regex-matching",
     "telemetry",
     "monitoring",
     "audit-log",
@@ -349,6 +350,11 @@ cache-storage = ["cache-redis"]
 
 # Lua 脚本支持 - 使用 oxcache 的 lua-script 特性
 lua-script = ["oxcache/lua", "dep:redis"]
+
+# 路径正则匹配器（RegexPathMatcher）：引入 regex 引擎参与自定义匹配。
+# 注意：消费的 workspace regex 依赖保留全量默认特性（unicode 大表），
+# 启用本特性有编译时间与二进制体积代价
+regex-matching = ["dep:regex"]
 
 # ahash 不再作为特性，直接在依赖中定义
 
@@ -499,21 +505,33 @@ required-features = ["cli"]
 [[bench]]
 name = "throughput"
 path = "benches/throughput.rs"
+# criterion 0.8 要求关闭 libtest harness（否则 criterion_main 失效，bench 落入
+# libtest 空跑 "running 0 tests"）
+harness = false
 required-features = ["full"]
 
 [[bench]]
 name = "latency"
 path = "benches/latency.rs"
+# criterion 0.8 要求关闭 libtest harness（否则 criterion_main 失效，bench 落入
+# libtest 空跑 "running 0 tests"）
+harness = false
 required-features = ["full"]
 
 [[bench]]
 name = "memory"
 path = "benches/memory.rs"
+# criterion 0.8 要求关闭 libtest harness（否则 criterion_main 失效，bench 落入
+# libtest 空跑 "running 0 tests"）
+harness = false
 required-features = ["full"]
 
 [[bench]]
 name = "regression"
 path = "benches/regression.rs"
+# criterion 0.8 要求关闭 libtest harness（否则 criterion_main 失效，bench 落入
+# libtest 空跑 "running 0 tests"）
+harness = false
 required-features = ["full"]
 
 [profile.release]

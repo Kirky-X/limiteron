@@ -189,7 +189,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>sqlite</code></td><td>SQLite 存储（dbnexus 嵌入式驱动，本地默认后端）</td><td>❌</td></tr>
 <tr><td><code>mysql</code></td><td>MySQL 存储（dbnexus 服务端驱动）</td><td>❌</td></tr>
 <tr><td><code>cache-redis</code></td><td>Redis 缓存后端（经 oxcache；原 <code>cache-storage</code>，保留为兼容别名）</td><td>❌</td></tr>
-<tr><td><code>lua-script</code></td><td>Redis Lua 脚本执行（经 oxcache <code>eval_lua</code>）</td><td>❌</td></tr>
+<tr><td><code>lua-script</code></td><td>Redis Lua 脚本执行（经 oxcache <code>eval_lua</code>）：滑动窗口 / 滑动窗口日志（cost 加权）/ 固定窗口 / 令牌桶 / 带突发透支令牌桶 / 配额消费与重置七脚本</td><td>❌</td></tr>
 <tr><td rowspan="10">核心功能</td><td><code>ban-manager</code></td><td>封禁管理（目标封禁、优先级、文件加载）</td><td>❌</td></tr>
 <tr><td><code>bulkhead</code></td><td>舱壁隔离：按资源组分池 + 独立并发预算与隔离指标</td><td>❌</td></tr>
 <tr><td><code>quota-control</code></td><td>配额控制</td><td>❌</td></tr>
@@ -205,6 +205,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td>性能</td><td><code>parallel-checker</code></td><td>并行封禁检查</td><td>❌</td></tr>
 <tr><td rowspan="2">高级匹配</td><td><code>geo-matching</code></td><td>地理位置匹配（MaxMindDB）</td><td>❌</td></tr>
 <tr><td><code>device-matching</code></td><td>设备信息匹配（woothee User-Agent 解析）</td><td>❌</td></tr>
+<tr><td><code>regex-matching</code></td><td>路径正则匹配器（RegexPathMatcher）</td><td>❌</td></tr>
 <tr><td rowspan="2">控制面</td><td><code>admin-api</code></td><td>管理 REST API（axum，含 RBAC 与限流自保护）</td><td>❌</td></tr>
 <tr><td><code>cli</code></td><td><code>limiteron-cli</code> 二进制：规则文件校验 / 导出 / apply dry-run</td><td>❌</td></tr>
 <tr><td rowspan="5">可观测性</td><td><code>telemetry</code></td><td>追踪初始化（tracing-subscriber）</td><td>❌</td></tr>
@@ -275,7 +276,7 @@ cargo run -p limiteron-examples --features "ban-manager,admin-api" --bin ban_htt
 | `governor_demo` | Governor 三种构造模式、请求检查、决策解析与统计信息 |
 | `matchers_demo` | 标识符提取器、请求上下文与规则匹配器的完整使用流程 |
 | `decision_chain` | 责任链决策：组合多个限流器、按优先级执行、支持短路 |
-| `custom_matchers` | 自定义匹配器 trait 实现、注册表与内置 Header / TimeWindow 匹配器 |
+| `custom_matchers` | 自定义匹配器 trait 实现、注册表与内置 Header（前缀/相等）/ Method / TimeWindow / RegexPath（`regex-matching` 特性）匹配器 |
 | `authorization_demo` | 授权提供者 trait 实现与内置 `SimpleAuthorizationProvider` |
 | `graceful_shutdown` | 监听 Ctrl+C 并调用 `Governor::shutdown()` 幂等优雅关闭 |
 | `circuit_breaker` | 熔断器：故障检测、熔断打开、半开恢复探测与超时恢复 |
@@ -431,7 +432,7 @@ cargo bench --features full
 </tr>
 <tr>
 <td width="12%" align="center"><b>📋 计划中</b></td>
-<td>Lua 脚本增强、自定义匹配器扩展、更多存储后端、Web UI 管理界面</td>
+<td>更多存储后端、Web UI 管理界面</td>
 </tr>
 <tr>
 <td width="12%" align="center"><b>💡 未来想法</b></td>

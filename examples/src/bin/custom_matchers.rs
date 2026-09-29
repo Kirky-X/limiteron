@@ -2,14 +2,18 @@
 // SPDX-License-Identifier: MIT
 //! Custom Matchers 示例
 //!
-//! 演示自定义匹配器 trait 的实现、注册表使用、以及内置的 HeaderMatcher 与 TimeWindowMatcher。
+//! 演示自定义匹配器 trait 的实现、注册表使用、以及内置匹配器
+//! （HeaderMatcher 前缀/相等模式、MethodMatcher、TimeWindowMatcher、
+//! RegexPathMatcher——后者需 `regex-matching` 特性）。
 //!
 //! # 涵盖 API
 //!
 //! - `CustomMatcher` trait（`name`、`matches`、`load_config`）
-//! - `CustomMatcherRegistry`（`new`、`register`、`match_with`、`contains`、`list`、`count`）
-//! - `HeaderMatcher`（`new`、`with_case_sensitive`、`builder`）
+//! - `CustomMatcherRegistry`（`new`、`register`、`unregister`、`match_with`、`contains`、`list`、`count`）
+//! - `HeaderMatcher`（`new`、`with_match_mode` 前缀/相等、`with_case_sensitive`、`builder`）
+//! - `MethodMatcher`（`new`、`builder`，方法名大小写规范化）
 //! - `TimeWindowMatcher`（`new`、`builder`）
+//! - `RegexPathMatcher`（feature `regex-matching`）
 //!
 //! # 运行方式
 //!
@@ -20,8 +24,11 @@
 use limiteron::async_trait::async_trait;
 use limiteron::error::LimiteronError;
 use limiteron::matchers::RequestContext;
+#[cfg(feature = "regex-matching")]
+use limiteron::matchers::custom::RegexPathMatcher;
 use limiteron::matchers::custom::{
-    CustomMatcher, CustomMatcherRegistry, HeaderMatcher, TimeWindowMatcher,
+    CustomMatcher, CustomMatcherRegistry, HeaderMatchMode, HeaderMatcher, MethodMatcher,
+    TimeWindowMatcher,
 };
 use serde_json::Value;
 
@@ -30,6 +37,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Custom Matchers Demo ===\n");
 
     demo_builtin_matchers().await?;
+    demo_method_matcher().await?;
+    #[cfg(feature = "regex-matching")]
+    demo_regex_path_matcher().await?;
     demo_custom_matcher_trait().await?;
     demo_registry_management().await?;
 
@@ -70,6 +80,16 @@ async fn demo_builtin_matchers() -> Result<(), Box<dyn std::error::Error>> {
         built.header_name() == "x-region"
     );
 
+    // HeaderMatcher 前缀模式：租户命名空间匹配（team-a 及其子命名空间）
+    let prefix_matcher = HeaderMatcher::new("X-Tenant", vec!["team-a".to_string()])?
+        .with_match_mode(HeaderMatchMode::Prefix);
+    let m_prefix = prefix_matcher
+        .matches(&RequestContext::new().with_header("X-Tenant", "team-a-prod"))
+        .await?;
+    println!(
+        "\n  HeaderMatcher prefix mode: 'team-a-prod' starts-with 'team-a' matches={m_prefix}"
+    );
+
     // TimeWindowMatcher：匹配工作时间（9-18 点）
     let time_matcher = TimeWindowMatcher::new(9, 18);
     let ctx = RequestContext::new();
@@ -86,6 +106,52 @@ async fn demo_builtin_matchers() -> Result<(), Box<dyn std::error::Error>> {
         .build();
     let night_matched = night.matches(&ctx).await?;
     println!("  TimeWindowMatcher (22-23): matches={}", night_matched);
+    println!();
+    Ok(())
+}
+
+/// 演示 MethodMatcher（方法名大小写规范化）
+async fn demo_method_matcher() -> Result<(), Box<dyn std::error::Error>> {
+    println!("--- 1b. MethodMatcher ---\n");
+
+    let matcher = MethodMatcher::new(vec!["GET".to_string(), "Post".to_string()])?;
+    println!("  methods (normalized): {:?}", matcher.methods());
+
+    let m1 = matcher
+        .matches(&RequestContext::new().with_method("GET"))
+        .await?;
+    let m2 = matcher
+        .matches(&RequestContext::new().with_method("POST"))
+        .await?;
+    let m3 = matcher
+        .matches(&RequestContext::new().with_method("DELETE"))
+        .await?;
+    println!("  GET matches={m1}, post(→POST) matches={m2}, DELETE matches={m3}");
+    println!();
+    Ok(())
+}
+
+/// 演示 RegexPathMatcher（feature `regex-matching`）
+#[cfg(feature = "regex-matching")]
+async fn demo_regex_path_matcher() -> Result<(), Box<dyn std::error::Error>> {
+    println!("--- 1c. RegexPathMatcher (feature: regex-matching) ---\n");
+
+    let matcher = RegexPathMatcher::new("^/api/v[0-9]+/users", false)?;
+    let m1 = matcher
+        .matches(&RequestContext::new().with_path("/api/v2/users/42"))
+        .await?;
+    let m2 = matcher
+        .matches(&RequestContext::new().with_path("/web/users"))
+        .await?;
+    println!("  pattern: {}", matcher.pattern());
+    println!("  '/api/v2/users/42' matches={m1}, '/web/users' matches={m2}");
+
+    // 大小写不敏感模式
+    let insensitive = RegexPathMatcher::new("^/Admin", true)?;
+    let m3 = insensitive
+        .matches(&RequestContext::new().with_path("/admin/dashboard"))
+        .await?;
+    println!("  '(?i)^/Admin': '/admin/dashboard' matches={m3}");
     println!();
     Ok(())
 }
@@ -167,6 +233,12 @@ async fn demo_registry_management() -> Result<(), Box<dyn std::error::Error>> {
         .register("business-hours".to_string(), Box::new(time_matcher))
         .await?;
 
+    // 注册 MethodMatcher
+    let method_matcher = MethodMatcher::new(vec!["GET".to_string(), "POST".to_string()])?;
+    registry
+        .register("http-methods".to_string(), Box::new(method_matcher))
+        .await?;
+
     println!("  Registered matchers: {:?}", registry.list().await);
     println!("  Registry count: {}", registry.count().await);
     println!(
@@ -194,6 +266,10 @@ async fn demo_registry_management() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n  After unregister 'role-check':");
     println!("    count={}", registry.count().await);
     println!("    contains={}", registry.contains("role-check").await);
+    let method_match = registry
+        .match_with("http-methods", &RequestContext::new().with_method("GET"))
+        .await?;
+    println!("    http-methods (GET) matches={method_match}");
 
     // 清空注册表
     registry.clear().await;

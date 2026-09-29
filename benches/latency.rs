@@ -13,6 +13,9 @@ use limiteron::limiters::{
     FixedWindowLimiter, Limiter, ShardedSlidingWindowLimiter, SlidingWindowLimiter,
     TokenBucketLimiter,
 };
+#[cfg(feature = "regex-matching")]
+use limiteron::matchers::custom::RegexPathMatcher;
+use limiteron::matchers::custom::{CustomMatcher, HeaderMatchMode, HeaderMatcher, MethodMatcher};
 use limiteron::matchers::{
     ConditionEvaluator, IdentifierExtractor, IpExtractor, IpRange, MatchCondition, RequestContext,
     Rule, RuleMatcher, UserIdExtractor,
@@ -801,13 +804,141 @@ criterion_group! {
         bench_window_size_latency_comparison
 }
 
+/// 基准测试：自定义匹配器延迟
+///
+/// 覆盖每请求热路径上的三个内置匹配器：
+/// - `HeaderMatcher`：Exact/Prefix × 值列表 1/10/100（前缀模式的历史实现
+///   曾逐允许值现场 `to_lowercase` 分配，构造期归一化后应恒定）
+/// - `MethodMatcher`（ASCII 大小写折叠比较）
+/// - `RegexPathMatcher`（`regex-matching` 特性）：锚定/非锚定 × 短/长路径
+fn bench_custom_matcher_latency(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+
+    let mut group = c.benchmark_group("custom_matcher_latency");
+    group.sampling_mode(SamplingMode::Auto);
+
+    let ctx = RequestContext::new()
+        .with_header("x-tenant", "team-a-prod-namespace")
+        .with_method("GET")
+        .with_path("/api/v2/users/42/settings/profile");
+
+    for size in [1usize, 10, 100] {
+        for (mode_name, mode) in [
+            ("exact", HeaderMatchMode::Exact),
+            ("prefix", HeaderMatchMode::Prefix),
+        ] {
+            // 命中值 "team-a" 放首位，其余为噪声值；两模式各用专属命中
+            // ctx——Exact 要求头值与允许值完全相等（"team-a"），Prefix 只
+            // 要求前缀（"team-a-prod-namespace"），共用 ctx 会让 Exact 的
+            // _hit 实测 miss 路径
+            let values: Vec<String> = std::iter::once("team-a".to_string())
+                .chain((1..size).map(|i| format!("team-{i}")))
+                .collect();
+            let matcher = HeaderMatcher::new("x-tenant", values)
+                .unwrap()
+                .with_match_mode(mode);
+            let hit_ctx = RequestContext::new()
+                .with_header(
+                    "x-tenant",
+                    match mode {
+                        HeaderMatchMode::Exact => "team-a",
+                        HeaderMatchMode::Prefix => "team-a-prod-namespace",
+                    },
+                )
+                .with_method("GET")
+                .with_path("/api/v2/users/42/settings/profile");
+            group.bench_with_input(
+                BenchmarkId::new(format!("header_{mode_name}_hit"), size),
+                &hit_ctx,
+                |b, ctx| {
+                    b.iter(|| {
+                        rt.block_on(async {
+                            let _ = black_box(matcher.matches(ctx).await);
+                        });
+                    });
+                },
+            );
+            // 显式 miss 基准：头值无任何前缀/相等命中（any() 全表扫不短路）
+            let miss_ctx = RequestContext::new()
+                .with_header("x-tenant", "zzz-miss-namespace")
+                .with_method("GET")
+                .with_path("/api/v2/users/42/settings/profile");
+            group.bench_with_input(
+                BenchmarkId::new(format!("header_{mode_name}_miss"), size),
+                &miss_ctx,
+                |b, ctx| {
+                    b.iter(|| {
+                        rt.block_on(async {
+                            let _ = black_box(matcher.matches(ctx).await);
+                        });
+                    });
+                },
+            );
+        }
+    }
+
+    // MethodMatcher：命中与不命中各一
+    let method_matcher = MethodMatcher::new(vec![
+        "GET".to_string(),
+        "POST".to_string(),
+        "PUT".to_string(),
+        "DELETE".to_string(),
+    ])
+    .unwrap();
+    group.bench_function("method_hit", |b| {
+        b.iter(|| {
+            rt.block_on(async {
+                let _ = black_box(method_matcher.matches(&ctx).await);
+            });
+        });
+    });
+    group.bench_function("method_miss", |b| {
+        let miss_ctx = RequestContext::new().with_method("PATCH");
+        b.iter(|| {
+            rt.block_on(async {
+                let _ = black_box(method_matcher.matches(&miss_ctx).await);
+            });
+        });
+    });
+
+    // RegexPathMatcher：锚定/非锚定 × 短/长路径（feature 门控）
+    #[cfg(feature = "regex-matching")]
+    for (name, pattern, path) in [
+        ("anchored_short", "^/api", "/api"),
+        (
+            "anchored_long",
+            "^/api/v[0-9]+/users/[0-9]+/settings",
+            "/api/v2/users/42/settings/profile",
+        ),
+        ("unanchored_short", "users", "/a"),
+        (
+            "unanchored_long",
+            "users/.*/settings",
+            "/api/v2/users/42/settings/profile",
+        ),
+    ] {
+        let matcher = RegexPathMatcher::new(pattern, false).unwrap();
+        let path_ctx = RequestContext::new().with_path(path);
+        group.bench_function(format!("regex_{name}"), |b| {
+            b.iter(|| {
+                rt.block_on(async {
+                    let _ = black_box(matcher.matches(&path_ctx).await);
+                });
+            });
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group! {
     name = rule_matching;
     config = configure_criterion();
     targets =
         bench_rule_matching_latency,
         bench_identifier_extraction_latency,
-        bench_condition_evaluation_latency
+        bench_condition_evaluation_latency,
+        bench_custom_matcher_latency
 }
 
 criterion_group! {

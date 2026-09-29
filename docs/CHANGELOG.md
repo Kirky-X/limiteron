@@ -37,6 +37,8 @@
 
 ### 新增
 
+- **Lua 脚本增强（`lua-script`）**：新增滑动窗口日志脚本（cost 加权精确滑窗，每请求成本可变，对应进程内 `SlidingWindowLogLimiter` 语义，与每请求计 1 的既有滑窗脚本区分）与带突发透支令牌桶脚本（余额不足时在透支额度内借债放行、负余额记账未来偿还，与严格余额的既有令牌桶脚本区分）；`LuaScriptType` 扩至七变体并全部注册进 `OxcacheLuaManager`
+- **自定义匹配器扩展**：`HeaderMatcher` 新增前缀/相等双模式（`HeaderMatchMode`，默认精确相等向后兼容，`load_config` 支持 `match_mode` 字段）；新增 `MethodMatcher`（方法名大小写规范化、builder、load_config）；新增 `RegexPathMatcher`（feature `regex-matching`，模式构造期编译显性报错、大小写内联旗标）；三者均实现 `CustomMatcher` trait 并经 `CustomMatcherRegistry` 注册/注销/match_with；lib.rs 平铺导出（RegexPathMatcher 随 feature 门控）；`custom_matchers` 示例补三段演示
 - **LeakyBucketLimiter 漏桶限流器**：任意速率入桶、恒定速率漏出的水位计型（meter）限流，判定语义与令牌桶严格对偶（水位 = 容量 − 令牌），无请求排队/延迟放行；漏出积分守恒（亚单位时间滞留累计，与令牌桶补充对称）、漏空时积压积分丢弃、`peek`/`remaining` 纯读虚拟推演；状态为 Mutex 单点串行（高争用场景选无锁 TokenBucketLimiter）；`LimiterConfig::LeakyBucket` 配置变体接入工厂/决策链/自省
 - **SlidingWindowLogLimiter 滑动窗口日志限流器**：逐条记录窗口内放行（时间戳 + 成本队列）的精确滑动窗口，无固定窗口边界突刺；过期条目在 allow 路径惰性逐出（摊还 O(1)，空闲期已过期条目驻留队列、队空时收缩缓冲），内存随窗口内请求数线性增长（16 字节/条目，配置上界 `MAX_SLIDING_LOG_REQUESTS`=100K 条 ≈1.6MB/实例，计数器型大配额窗口优先分片滑动窗口）；判定/读路径经单调确认游标摊还 O(1)，拒绝热路径无重复扫描；`LimiterConfig::SlidingWindowLog` 配置变体接入工厂/决策链/自省
 - **Governor shutdown 完整实现**：五阶段优雅关闭编排——停止配置热重载 watcher（`register_config_watcher_token` 注册、多 watcher 全取消）、取消 shutdown 令牌、统计快照落盘（`GovernorBuilder::with_shutdown_snapshot_dir` 显式启用，JSON 原子写，临时文件 O_EXCL 独占创建 + 0600 权限防符号链接覆写，冲突退避 pid 后缀）、停止 BanManager 自动解封任务（取消信号优雅排空 5s，超时 abort）、审计日志器摘除（尽力 `Arc::try_unwrap` 优雅排空）

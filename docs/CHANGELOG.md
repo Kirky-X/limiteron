@@ -45,6 +45,15 @@
 - **`impl Drop for Governor`**：同步兜底无条件取消 shutdown 与已注册 watcher 令牌（幂等）
 - **`BanManager::is_auto_unban_running()`**：自动解封后台任务运行状态观测
 
+### 修复
+
+- **bench harness 失效修复**：criterion 0.8 要求 `[[bench]] harness = false`，四个 bench 目标缺失该设置导致 `cargo bench` 落入 libtest harness 空跑（"running 0 tests"），性能基线此前从未真实产出；补齐后 criterion 正常接管并建立首份基线（reviews/perf-baseline.md）
+
+### 变更
+
+- **性能基线建立与匹配器热点削减**：基线口径与环境见 reviews/perf-baseline.md；`HeaderMatcher` 大小写不敏感路径新增 ASCII 零分配快路径（`values_ascii` 逐值门控，非 ASCII 值回退 `to_lowercase` 原路径，语义严格等价），bench 三轮采样中位数 12 项全部改善（-10.0% ~ -33.4%，原热点 header_prefix_miss/100 193.60→128.89ns）；`MethodMatcher` 匹配改 `eq_ignore_ascii_case` 零分配折叠
+- **HeaderMatcher 配置解析与校验收紧（行为变更）**：`load_config` 的 allowed_values 非字符串项从静默丢弃改为显性报错（与 MethodMatcher 政策对齐）；空 allowed_values（`new`/builder/`load_config` 全空数组）从静默永不命中改为显性拒绝（`matcher-header-values-empty`）——已部署空列表配置升级后加载被拒
+
 ### 变更
 
 - **存量限流类型配置校验收紧（升级注意）**：`LimiterConfig::validate`（配置加载生效校验点）新增上限——TokenBucket/LeakyBucket 容量 ≤10M、补充/漏出速率 ≤1M/s，SlidingWindow/FixedWindow max_requests ≤10M，SlidingWindowLog max_requests ≤100K（日志型独立更严上界），Concurrency ≤100K；超限配置此前可加载（仅工厂层校验未接入生产路径），升级后将在配置加载/规则构建期被拒绝（fail-closed）。迁移检查：升级前扫描现有 YAML/TOML 配置中各限流器数值是否超限，超限项按业务真实需求下调或反馈 issue 评估上限调整

@@ -397,6 +397,7 @@ Concurrency tests: 100% data consistency, rate limit correctness 1000/1000
 
 ```bash
 cargo bench --features full
+# Note: [[bench]] targets set harness = false (required by criterion 0.8); without it benches fall into an empty libtest run
 ```
 
 ---

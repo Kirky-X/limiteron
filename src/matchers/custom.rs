@@ -740,11 +740,13 @@ pub struct HeaderMatcher {
     allowed_values: Vec<String>,
     /// 允许的值列表的小写副本（构造期归一化，热路径零逐项分配）
     allowed_values_normalized: Vec<String>,
-    /// 允许值是否全 ASCII：全 ASCII 时头值亦为 ASCII 的请求可走零分配
-    /// ASCII 折叠快路径（纯 ASCII 输入的 Unicode 折叠与 ASCII 折叠一致，
-    /// 语义严格等价）；允许值含非 ASCII 时必须走 Unicode to_lowercase
-    /// 原路径（'ſ'→'s' 等非 ASCII 折叠产物无法用 ASCII 折叠覆盖）
-    values_ascii_only: bool,
+    /// 逐值 ASCII 标志（与 allowed_values/allowed_values_normalized 对齐）：
+    /// ASCII 值可用零分配 ASCII 折叠比较（纯 ASCII 输入的 Unicode 折叠与
+    /// ASCII 折叠一致，语义严格等价）；非 ASCII 值的 Unicode 折叠产物无法
+    /// 用 ASCII 折叠覆盖（如带点大写 I 'İ' 经 to_lowercase 产生 "i̇" 双
+    /// 字节序列）仅对该值回退 to_lowercase 原路径——按值粒度门控，混合
+    /// 字符集列表的 ASCII 值不受牵连降级
+    values_ascii: Vec<bool>,
     /// 是否区分大小写
     case_sensitive: bool,
     /// 匹配模式（相等/前缀，默认相等）
@@ -789,7 +791,14 @@ impl HeaderMatcher {
         // 验证 HTTP 头名称
         validate_header_name(header_name)?;
 
-        // 验证允许的值数量
+        // 空 allowlist 的匹配器静默永不命中，与 MethodMatcher 的空列表
+        // 拒绝政策对齐，显性报错防配置失效不可知
+        if allowed_values.is_empty() {
+            return Err(LimiteronError::ConfigError(t(
+                "matcher-header-values-empty",
+                &[],
+            )));
+        }
         if allowed_values.len() > MAX_ALLOWED_VALUES_COUNT {
             return Err(LimiteronError::ValidationError(t(
                 "matcher-allowed-values-too-many",
@@ -803,12 +812,12 @@ impl HeaderMatcher {
         }
 
         let allowed_values_normalized = allowed_values.iter().map(|v| v.to_lowercase()).collect();
-        let values_ascii_only = allowed_values.iter().all(|v| v.is_ascii());
+        let values_ascii = allowed_values.iter().map(|v| v.is_ascii()).collect();
         Ok(Self {
             header_name: header_name.to_lowercase(),
             allowed_values,
             allowed_values_normalized,
-            values_ascii_only,
+            values_ascii,
             case_sensitive: false,
             match_mode: HeaderMatchMode::Exact,
         })
@@ -904,18 +913,28 @@ impl CustomMatcher for HeaderMatcher {
         // to_lowercase 一次后与构造期归一化副本比较（allowed_values 是
         // 构造期静态配置，逐项 to_lowercase 的每请求分配在 matches 热
         // 路径上不可接受）
-        let ascii_fast = self.values_ascii_only && header_value.is_ascii();
+        // 不敏感路径逐值门控：ASCII 值走零分配 ASCII 折叠（头值含非 ASCII
+        // 时 ASCII 折叠必不命中，等价跳过）；非 ASCII 值对 header_value 做
+        // 一次 to_lowercase 后折叠比较（惰性分配：仅在存在非 ASCII 值且
+        // ASCII 扫描未命中时才发生）
+        let lower_value = || header_value.to_lowercase();
         let matches = match self.match_mode {
             HeaderMatchMode::Exact => {
                 if self.case_sensitive {
                     self.allowed_values.contains(header_value)
-                } else if ascii_fast {
+                } else {
+                    let mut lower: Option<String> = None;
                     self.allowed_values_normalized
                         .iter()
-                        .any(|v| v.eq_ignore_ascii_case(header_value))
-                } else {
-                    let lower_value = header_value.to_lowercase();
-                    self.allowed_values_normalized.contains(&lower_value)
+                        .zip(self.values_ascii.iter())
+                        .any(|(v, ascii)| {
+                            if *ascii {
+                                v.eq_ignore_ascii_case(header_value)
+                            } else {
+                                lower.get_or_insert_with(lower_value);
+                                *v == lower.as_deref().unwrap()
+                            }
+                        })
                 }
             }
             HeaderMatchMode::Prefix => {
@@ -923,18 +942,24 @@ impl CustomMatcher for HeaderMatcher {
                     self.allowed_values
                         .iter()
                         .any(|v| header_value.starts_with(v))
-                } else if ascii_fast {
-                    let header_bytes = header_value.as_bytes();
-                    self.allowed_values_normalized.iter().any(|v| {
-                        let v_bytes = v.as_bytes();
-                        header_bytes.len() >= v_bytes.len()
-                            && header_bytes[..v_bytes.len()].eq_ignore_ascii_case(v_bytes)
-                    })
                 } else {
-                    let lower_value = header_value.to_lowercase();
+                    let header_bytes = header_value.as_bytes();
+                    let mut lower: Option<String> = None;
                     self.allowed_values_normalized
                         .iter()
-                        .any(|v| lower_value.starts_with(v))
+                        .zip(self.values_ascii.iter())
+                        .any(|(v, ascii)| {
+                            let v_bytes = v.as_bytes();
+                            if header_bytes.len() < v_bytes.len() {
+                                return false;
+                            }
+                            if *ascii {
+                                header_bytes[..v_bytes.len()].eq_ignore_ascii_case(v_bytes)
+                            } else {
+                                let lower_str = lower.get_or_insert_with(lower_value);
+                                lower_str.starts_with(v.as_str())
+                            }
+                        })
                 }
             }
         };
@@ -961,12 +986,19 @@ impl CustomMatcher for HeaderMatcher {
                 )));
             }
 
+            // 显性遍历：非字符串项报错而非 filter_map 静默丢弃（与
+            // MethodMatcher::load_config 政策一致——跳过会让匹配范围
+            // 静默缩小且不可观测）
             self.allowed_values = values
                 .iter()
-                .filter_map(|v| v.as_str())
-                .map(|s| {
-                    validate_header_value(s)?;
-                    Ok(s.to_string())
+                .map(|v| {
+                    let s = v.as_str().ok_or_else(|| {
+                        LimiteronError::ConfigError(t(
+                            "matcher-value-invalid",
+                            &[("value", v.to_string())],
+                        ))
+                    })?;
+                    validate_header_value(s).map(|_| s.to_string())
                 })
                 .collect::<Result<Vec<_>, LimiteronError>>()?;
             self.allowed_values_normalized = self
@@ -974,7 +1006,7 @@ impl CustomMatcher for HeaderMatcher {
                 .iter()
                 .map(|v| v.to_lowercase())
                 .collect();
-            self.values_ascii_only = self.allowed_values.iter().all(|v| v.is_ascii());
+            self.values_ascii = self.allowed_values.iter().map(|v| v.is_ascii()).collect();
         }
 
         if let Some(case_sensitive) = config["case_sensitive"].as_bool() {
@@ -1965,15 +1997,17 @@ mod tests {
     }
 
     #[test]
-    fn test_header_matcher_load_config_non_string_value() {
+    fn test_header_matcher_load_config_non_string_value_rejected() {
+        // 非字符串项显性报错而非 filter_map 静默丢弃（与 MethodMatcher
+        // 政策一致：跳过会让匹配范围静默缩小且不可观测）
         let mut matcher = HeaderMatcher::new("X-Test", vec!["valid".to_string()]).unwrap();
         let config = serde_json::json!({
             "allowed_values": ["valid1", 123, "valid2"],
         });
-        assert!(matcher.load_config(config).is_ok());
-        assert_eq!(matcher.allowed_values().len(), 2);
-        assert_eq!(matcher.allowed_values()[0], "valid1");
-        assert_eq!(matcher.allowed_values()[1], "valid2");
+        assert!(matcher.load_config(config).is_err());
+        // 报错时旧配置原样保留（rollback 语义）
+        assert_eq!(matcher.allowed_values().len(), 1);
+        assert_eq!(matcher.allowed_values()[0], "valid");
     }
 
     #[test]
@@ -2108,18 +2142,28 @@ mod tests {
 
     #[tokio::test]
     async fn test_header_matcher_non_ascii_values_fall_back_to_unicode_fold() {
-        // 允许值含非 ASCII 时必须走 Unicode to_lowercase 原路径：
-        // 'ſ'(U+017F) 折叠为 's'，ASCII 折叠快路径无法覆盖该语义
-        let matcher = HeaderMatcher::new("X-Tenant", vec!["ſpecial".to_string()])
-            .unwrap()
-            .with_match_mode(HeaderMatchMode::Prefix);
-        assert!(
-            !matcher.values_ascii_only,
-            "含非 ASCII 允许值应禁用 ASCII 快路径"
-        );
+        // 逐值门控：非 ASCII 值走 to_lowercase 原路径（'İ' 经 to_lowercase
+        // 产生 "i̇" 双字节序列，ASCII 折叠无法覆盖），同列表的 ASCII 值
+        // 不受牵连仍走零分配折叠；匹配行为与列表级门控时逐位一致
+        let matcher = HeaderMatcher::new(
+            "X-Tenant",
+            vec!["ſpecial".to_string(), "team-a".to_string()],
+        )
+        .unwrap()
+        .with_match_mode(HeaderMatchMode::Prefix);
+        assert_eq!(matcher.values_ascii, [false, true], "ASCII 标志应逐值对齐");
+        // 非 ASCII 值走原路径：'ſpecial' 经 to_lowercase 原样保留（'ſ' 已是
+        // 小写），前缀精确匹配命中
         assert!(
             matcher
                 .matches(&ctx_with_header("X-Tenant", "ſpecial-offer"))
+                .await
+                .unwrap()
+        );
+        // ASCII 值零分配快路径不受非 ASCII 邻值影响
+        assert!(
+            matcher
+                .matches(&ctx_with_header("X-Tenant", "TEAM-A-prod"))
                 .await
                 .unwrap()
         );
@@ -2144,6 +2188,19 @@ mod tests {
                 .await
                 .unwrap(),
             "ä ≠ a：Unicode 折叠后仍不命中，不得误放"
+        );
+    }
+
+    #[test]
+    fn test_header_matcher_empty_values_rejected() {
+        // 空 allowlist 的匹配器静默永不命中，与 MethodMatcher 空列表
+        // 拒绝政策对齐，显性报错防配置失效不可知
+        assert!(HeaderMatcher::new("X-Tenant", vec![]).is_err());
+        assert!(
+            HeaderMatcher::builder()
+                .header_name("X-Tenant")
+                .build()
+                .is_err()
         );
     }
 

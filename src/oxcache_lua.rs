@@ -353,15 +353,24 @@ if #expiring > 0 then
     redis.call('HINCRBY', total_key, 'total', -expired_cost)
 end
 
--- 窗口总量从账本读取（O(1)）。账本与 zset 须同刻同值维护：zset 非空而
--- 账本缺失（外部删除/驱逐）属状态损坏，与编码损坏同立场显性失败而非
--- 静默归零（低估窗口占用偏放行）；空窗（ZCARD 0）则自愈归零，覆盖
--- 两 key EXPIRE 先后到期竞态的漂移
+-- 窗口总量从账本读取（O(1)）。账本与 zset 须同刻同值维护，漂移双向
+-- 自愈：账本缺失且 zset 非空（外部删除/驱逐）属状态损坏，显性失败；
+-- 两侧任一方先过期/清空（EXPIRE 采样竞态）则空窗即重置归零
 local window_used = tonumber(redis.call('HGET', total_key, 'total'))
 if window_used == nil then
     if redis.call('ZCARD', key) > 0 then
         return redis.error_reply('sliding window log: total ledger missing while zset alive')
     end
+    redis.call('HSET', total_key, 'total', 0)
+    window_used = 0
+elseif window_used ~= 0 and redis.call('ZCARD', key) == 0 then
+    -- 反向漂移对称自愈：zset 被先过期/清空而账本残留非零（幽灵成本，
+    -- 判定持续偏拒绝）——空窗即重置归零
+    redis.call('HSET', total_key, 'total', 0)
+    window_used = 0
+elseif window_used ~= 0 and redis.call('ZCARD', key) == 0 then
+    -- 反向漂移对称自愈：zset 被先过期/清空而账本残留非零（幽灵成本，
+    -- 判定持续偏拒绝）——空窗即重置归零
     redis.call('HSET', total_key, 'total', 0)
     window_used = 0
 end

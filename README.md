@@ -396,6 +396,7 @@ ConcurrencyLimiter: 11,891,237 ops/s
 
 ```bash
 cargo bench --features full
+# 注意：[[bench]] 已设置 harness = false（criterion 0.8 要求），缺失时 bench 落入 libtest 空跑
 ```
 
 ---

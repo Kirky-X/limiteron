@@ -121,19 +121,38 @@ impl DBNexusBanStorageAdapter {
         StorageError::QueryError(e.to_string())
     }
 
-    /// 校验连接后端为 PostgreSQL
+    /// 原生 SQL 路径的方言选择
     ///
-    /// 本适配器的原生 SQL（UPSERT/RETURNING/GREATEST、`$N` 占位符）与
-    /// 建表 DDL 均为 Postgres 方言；对其他后端静默执行会产生错误的 SQL，
-    /// 故显性拒绝而非带病运行。
-    fn ensure_postgres(conn: &sea_orm::DatabaseConnection) -> Result<(), StorageError> {
-        if conn.get_database_backend() != sea_orm::DatabaseBackend::Postgres {
-            return Err(StorageError::InvalidConfig(format!(
-                "DBNexusBanStorageAdapter native-SQL path only supports PostgreSQL, got {:?}",
-                conn.get_database_backend()
-            )));
+    /// 原子计数路径的 SQL 需要按后端选择占位符与行解码（Postgres `$N`+
+    /// INT4、sqlite `?N`+INT8）；其余后端无方言实现，显性拒绝而非带病运行。
+    fn native_sql_dialect(
+        conn: &sea_orm::DatabaseConnection,
+    ) -> Result<sea_orm::DatabaseBackend, StorageError> {
+        match conn.get_database_backend() {
+            sea_orm::DatabaseBackend::Postgres | sea_orm::DatabaseBackend::Sqlite => {
+                Ok(conn.get_database_backend())
+            }
+            other => Err(StorageError::InvalidConfig(format!(
+                "DBNexusBanStorageAdapter native-SQL path supports PostgreSQL and SQLite, got {other:?}"
+            ))),
         }
-        Ok(())
+    }
+
+    /// 按方言读取 RETURNING 的 ban_times 列（Postgres INTEGER / sqlite INTEGER*8）
+    fn read_ban_times_row(
+        row: sea_orm::QueryResult,
+        backend: sea_orm::DatabaseBackend,
+    ) -> Result<u64, StorageError> {
+        match backend {
+            sea_orm::DatabaseBackend::Postgres => row
+                .try_get::<i32>("", "ban_times")
+                .map(|v| v as u64)
+                .map_err(|e| StorageError::QueryError(format!("Failed to read ban_times: {}", e))),
+            _ => row
+                .try_get::<i64>("", "ban_times")
+                .map(|v| v as u64)
+                .map_err(|e| StorageError::QueryError(format!("Failed to read ban_times: {}", e))),
+        }
     }
 }
 
@@ -265,19 +284,29 @@ impl BanStorage for DBNexusBanStorageAdapter {
 
         let session = self.get_session().await?;
         let conn = Self::get_conn(&session)?;
-        Self::ensure_postgres(conn)?;
+        let backend = Self::native_sql_dialect(conn)?;
         let target_key = Self::target_to_key(target);
 
-        const SQL: &str = r#"
+        const PG_SQL: &str = r#"
             UPDATE limiteron_bans
             SET ban_times = ban_times + 1, updated_at = $1
             WHERE target_key = $2
             RETURNING ban_times
         "#;
+        const SQLITE_SQL: &str = r#"
+            UPDATE limiteron_bans
+            SET ban_times = ban_times + 1, updated_at = ?1
+            WHERE target_key = ?2
+            RETURNING ban_times
+        "#;
+        let sql = match backend {
+            sea_orm::DatabaseBackend::Postgres => PG_SQL,
+            _ => SQLITE_SQL,
+        };
         let row = conn
             .query_one_raw(Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Postgres,
-                SQL,
+                backend,
+                sql,
                 [Utc::now().into(), target_key.into()],
             ))
             .await
@@ -286,10 +315,7 @@ impl BanStorage for DBNexusBanStorageAdapter {
             })?;
 
         match row {
-            Some(r) => r
-                .try_get::<i32>("", "ban_times")
-                .map(|v| v as u64)
-                .map_err(|e| StorageError::QueryError(format!("Failed to read ban_times: {}", e))),
+            Some(r) => Self::read_ban_times_row(r, backend),
             None => Err(StorageError::NotFound("Ban record not found".to_string())),
         }
     }
@@ -304,7 +330,7 @@ impl BanStorage for DBNexusBanStorageAdapter {
 
         let session = self.get_session().await?;
         let conn = Self::get_conn(&session)?;
-        Self::ensure_postgres(conn)?;
+        let backend = Self::native_sql_dialect(conn)?;
         let now = Utc::now();
         let (target_type, target_value) = Self::target_to_type_value(&record.target);
         let target_key = create_target_key(&target_type, &target_value);
@@ -324,7 +350,9 @@ impl BanStorage for DBNexusBanStorageAdapter {
             .num_seconds()
             .max(0);
 
-        const SQL: &str = r#"
+        // 方言差异：占位符形式与「已存值 +1 取大」的标量函数
+        // （Postgres GREATEST / sqlite 双参 MAX）
+        const PG_SQL: &str = r#"
             INSERT INTO limiteron_bans
                 (target_type, target_value, target_key, ban_times, duration,
                  banned_at, expires_at, is_manual, reason, created_at, updated_at)
@@ -341,11 +369,32 @@ impl BanStorage for DBNexusBanStorageAdapter {
                 updated_at = EXCLUDED.updated_at
             RETURNING ban_times
         "#;
+        const SQLITE_SQL: &str = r#"
+            INSERT INTO limiteron_bans
+                (target_type, target_value, target_key, ban_times, duration,
+                 banned_at, expires_at, is_manual, reason, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            ON CONFLICT (target_key) DO UPDATE SET
+                target_type = excluded.target_type,
+                target_value = excluded.target_value,
+                ban_times = MAX(excluded.ban_times, limiteron_bans.ban_times + 1),
+                duration = excluded.duration,
+                banned_at = excluded.banned_at,
+                expires_at = excluded.expires_at,
+                is_manual = excluded.is_manual,
+                reason = excluded.reason,
+                updated_at = excluded.updated_at
+            RETURNING ban_times
+        "#;
+        let sql = match backend {
+            sea_orm::DatabaseBackend::Postgres => PG_SQL,
+            _ => SQLITE_SQL,
+        };
 
         let row = conn
             .query_one_raw(Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Postgres,
-                SQL,
+                backend,
+                sql,
                 [
                     target_type.into(),
                     target_value.into(),
@@ -364,10 +413,7 @@ impl BanStorage for DBNexusBanStorageAdapter {
             .map_err(|e| StorageError::QueryError(format!("Failed to upsert ban record: {}", e)))?;
 
         match row {
-            Some(r) => r
-                .try_get::<i32>("", "ban_times")
-                .map(|v| v as u64)
-                .map_err(|e| StorageError::QueryError(format!("Failed to read ban_times: {}", e))),
+            Some(r) => Self::read_ban_times_row(r, backend),
             None => Err(StorageError::QueryError(
                 "upsert_ban_record returned no rows".to_string(),
             )),

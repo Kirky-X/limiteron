@@ -69,6 +69,26 @@ pub fn create_table_ddl() -> &'static str {
     "#
 }
 
+/// SQLite 方言建表 DDL（嵌入式后端）
+pub fn create_table_ddl_sqlite() -> &'static str {
+    r#"
+    CREATE TABLE IF NOT EXISTS limiteron_bans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        target_type TEXT NOT NULL,
+        target_value TEXT NOT NULL,
+        target_key TEXT NOT NULL UNIQUE,
+        ban_times INTEGER NOT NULL DEFAULT 1,
+        duration BIGINT NOT NULL,
+        banned_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        is_manual BOOLEAN NOT NULL DEFAULT 0,
+        reason TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    "#
+}
+
 /// Helper to create target key from type and value
 pub fn create_target_key(target_type: &str, target_value: &str) -> String {
     format!("{}:{}", target_type, target_value)

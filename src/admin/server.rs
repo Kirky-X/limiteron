@@ -36,6 +36,13 @@ pub struct LimiteronState {
     pub metrics: Option<Arc<crate::telemetry::Metrics>>,
 }
 
+impl LimiteronState {
+    /// 构造协议无关管理服务面（组件引用为廉价 `Arc` 克隆）
+    pub fn service(&self) -> super::service::GovernorAdminService {
+        super::service::GovernorAdminService::from_state(self)
+    }
+}
+
 /// 管理API服务器
 pub struct AdminServer {
     state: LimiteronState,

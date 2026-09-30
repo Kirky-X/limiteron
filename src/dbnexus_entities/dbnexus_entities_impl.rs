@@ -4,8 +4,7 @@
 use super::*;
 
 /// Create all Limiteron tables
-pub fn create_all_tables_ddl() -> &'static str {
-    // Combine all table creation DDLs
+pub fn create_all_tables_ddl() -> String {
     let ddl = [
         key_value::create_table_ddl(),
         ban_record::create_table_ddl(),
@@ -13,9 +12,19 @@ pub fn create_all_tables_ddl() -> &'static str {
         rate_limit::create_table_ddl(),
         event_outbox::create_table_ddl(),
     ];
-    // Leak the string intentionally to return &'static str
-    // This is safe because the DDL strings are &'static str and never need deallocation
-    Box::leak(ddl.join(";\n").into_boxed_str())
+    ddl.join(";\n")
+}
+
+/// Create all Limiteron tables（SQLite 方言，嵌入式后端）
+pub fn create_all_tables_ddl_sqlite() -> String {
+    let ddl = [
+        key_value::create_table_ddl_sqlite(),
+        ban_record::create_table_ddl_sqlite(),
+        quota_record::create_table_ddl_sqlite(),
+        rate_limit::create_table_ddl_sqlite(),
+        event_outbox::create_table_ddl_sqlite(),
+    ];
+    ddl.join(";\n")
 }
 
 #[cfg(test)]

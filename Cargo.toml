@@ -3,6 +3,7 @@ members = [
     ".",
     "macros",
     "examples",
+    "integrations/limiteron-sdforge",
 ]
 resolver = "2"
 
@@ -191,6 +192,12 @@ tower = { workspace = true, optional = true }
 tower-layer = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 
+# Admin 薄客户端（admin-client feature；hyper 1.x http1 client，
+# default-features=false 仅启用 http1+client+tokio 适配，零 TLS 面）
+hyper = { version = "1", default-features = false, features = ["http1", "client"], optional = true }
+hyper-util = { version = "0.1", default-features = false, features = ["client", "http1", "tokio"], optional = true }
+http-body-util = { version = "0.1", optional = true }
+
 # 国际化 (optional, feature-gated via `i18n`).
 # ICU4X 2.x 提供 locale 感知的数字/日期/复数/排序格式化。
 # Mirrors trait-kit/oxcache i18n pattern.
@@ -312,6 +319,11 @@ default = []
 # Compatibility features（vecboost 兼容声明）。
 # adaptive-limiting 自 rc4 起为真实实现（AIMD 自适应并发限流器）。
 adaptive-limiting = []
+# 自适应阈值限流器：滑动观测窗口错误率/延迟驱动动态配额（统计启发式，
+# 非 ML——显式决策见 src/limiters/adaptive_threshold.rs 模块文档）。
+# 决策记录：独立默认关 feature，刻意不入任何 preset（含 full），
+# 与 capacity-dial 同口径——调光/反馈接入点由消费方装配。
+adaptive-threshold = []
 # 六档容量调光（DialLevel L0-L5 / DialThresholds / CapacityDial）。
 # 独立默认关 feature，与既有模块零耦合，刻意不入任何 preset（含 full）：
 # 调光执行点（指标采集、按 capacity_ratio 放行）由消费方装配。
@@ -320,6 +332,10 @@ capacity-dial = []
 priority-queue = []
 # 准入控制器：并发 + 速率双门准入与按原因拒绝计数。
 admission-control = []
+# 插件系统：决策生命周期钩子（on_admit/on_reject/on_degrade）+ 编译期注册制。
+# 决策记录：入 full preset——运行时功能面（非文档/工具面）；动态 .so 明确不做，
+# 边界说明见 src/plugins/mod.rs 模块文档。
+plugins = ["dep:futures"]
 
 # ============================================
 # Storage Features (存储后端)
@@ -399,6 +415,19 @@ device-matching = ["dep:woothee", "dep:regex"]
 # Admin API (管理控制面)
 # ============================================
 admin-api = ["dep:axum", "dep:tower", "dep:http"]
+# OpenAPI 文档面：手写构建器（src/admin/openapi.rs）+ 入库产物防漂移测试。
+# 决策记录（feature 进/出 preset）：openapi 是文档工具面，非运行时能力，
+# 不入 full preset（与 cli/test-clock 同口径：默认不编译的二进制/文档面）。
+openapi = ["admin-api"]
+# Admin API 薄客户端（hyper http1，已是 axum 传递依赖，零新增依赖树重量）。
+# 临时验证面：sdforge-R11 SDK 生成器落地后接替（演进注记见 src/admin/client.rs）。
+# 决策记录：admin-client 是消费端工具面，不入 full preset（同 openapi 口径）。
+admin-client = ["admin-api", "dep:hyper", "dep:hyper-util", "dep:http-body-util"]
+# 只读管理 Web UI：内嵌单页（无构建链），机械只读守卫（路由表全 GET +
+# 注册完整性 + 只读投影类型窄化，见 src/admin/web.rs 模块文档）。
+# 默认绑定 127.0.0.1；无认证，非回环绑定须前置反向代理（模块文档显著警示）。
+# 决策记录：admin-ui 是 UI 面，不入 full preset（同 openapi/admin-client 口径）。
+admin-ui = ["admin-api"]
 
 # ============================================
 # Observability Features (可观测性)
@@ -494,6 +523,12 @@ required-features = ["admin-api"]
 name = "otlp_export_tests"
 path = "tests/telemetry/otlp_export_tests.rs"
 required-features = ["otlp"]
+
+# OpenAPI 产物防漂移守卫（docs/openapi.json vs 内存文档）
+[[test]]
+name = "openapi_drift"
+path = "tests/openapi_drift.rs"
+required-features = ["openapi"]
 
 # Governor 决策路径 span 属性 e2e（rule.id/rule.outcome 进 OTLP attributes）
 [[test]]

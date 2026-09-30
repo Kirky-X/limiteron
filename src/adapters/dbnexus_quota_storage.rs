@@ -65,21 +65,36 @@ impl DBNexusQuotaStorageAdapter {
         StorageError::QueryError(e.to_string())
     }
 
+    /// 原生 SQL 路径的方言选择
+    ///
+    /// 原子配额路径的 SQL 需要按后端选择占位符形式（Postgres `$N` /
+    /// sqlite `?N`）；其余后端无方言实现，显性拒绝而非带病运行。
+    fn native_sql_dialect(
+        conn: &DatabaseConnection,
+        pg_sql: &'static str,
+        sqlite_sql: &'static str,
+    ) -> Result<(DatabaseBackend, &'static str), StorageError> {
+        match conn.get_database_backend() {
+            DatabaseBackend::Postgres => Ok((DatabaseBackend::Postgres, pg_sql)),
+            DatabaseBackend::Sqlite => Ok((DatabaseBackend::Sqlite, sqlite_sql)),
+            other => Err(StorageError::InvalidConfig(format!(
+                "DBNexusQuotaStorageAdapter native-SQL path supports PostgreSQL and SQLite, got {other:?}"
+            ))),
+        }
+    }
+
     /// Execute a statement that returns at most one row (None if no match)
     async fn query_optional(
         conn: &DatabaseConnection,
+        backend: DatabaseBackend,
         sql: &str,
         values: impl IntoIterator<Item = sea_orm::Value>,
     ) -> Result<Option<sea_orm::QueryResult>, StorageError> {
-        conn.query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            sql,
-            values,
-        ))
-        .await
-        .map_err(|e| {
-            StorageError::QueryError(format!("Failed to execute atomic quota update: {}", e))
-        })
+        conn.query_one_raw(Statement::from_sql_and_values(backend, sql, values))
+            .await
+            .map_err(|e| {
+                StorageError::QueryError(format!("Failed to execute atomic quota update: {}", e))
+            })
     }
 
     /// Build an allowed ConsumeResult from the post-consumption ledger value
@@ -153,15 +168,22 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
         // 限额取调用方参数（历史教训：曾取 LEAST(存储列, 参数)——列值仅在
         // 窗口重启时更新，活跃窗口内升额 10→20 不生效，恒按旧小值裁决）。
         // 参数即传即生效：升额与降额在活跃窗口内均即时生效。
-        const CONSUME_SQL: &str = r#"
+        // 方言差异仅为占位符形式（编号占位符保持两侧参数数组同序）。
+        const PG_CONSUME_SQL: &str = r#"
             UPDATE limiteron_quotas
             SET consumed = consumed + $2, updated_at = $4
             WHERE quota_key = $1 AND window_end > $4 AND consumed + $2 <= $3
             RETURNING consumed
         "#;
+        const SQLITE_CONSUME_SQL: &str = r#"
+            UPDATE limiteron_quotas
+            SET consumed = consumed + ?2, updated_at = ?4
+            WHERE quota_key = ?1 AND window_end > ?4 AND consumed + ?2 <= ?3
+            RETURNING consumed
+        "#;
         // 守卫式插入：仅当冲突行确实过期时以全新窗口覆盖（并发首触时
         // 输家不再撞 UNIQUE 报错，而是回到循环顶部走原子累加路径）
-        const INSERT_SQL: &str = r#"
+        const PG_INSERT_SQL: &str = r#"
             INSERT INTO limiteron_quotas
                 (user_id, resource, quota_key, "limit", consumed,
                  window_start, window_end, created_at, updated_at)
@@ -175,23 +197,48 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             WHERE limiteron_quotas.window_end <= EXCLUDED.window_start
             RETURNING consumed
         "#;
+        const SQLITE_INSERT_SQL: &str = r#"
+            INSERT INTO limiteron_quotas
+                (user_id, resource, quota_key, "limit", consumed,
+                 window_start, window_end, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?6, ?6)
+            ON CONFLICT (quota_key) DO UPDATE SET
+                consumed = excluded.consumed,
+                "limit" = excluded."limit",
+                window_start = excluded.window_start,
+                window_end = excluded.window_end,
+                updated_at = excluded.updated_at
+            WHERE limiteron_quotas.window_end <= excluded.window_start
+            RETURNING consumed
+        "#;
         // 新窗口原子重启：同 key 的过期行在「窗口确实过期 + 不超限」
         // 条件下原子复用（保留行身份与创建时间）
-        const RESTART_SQL: &str = r#"
+        const PG_RESTART_SQL: &str = r#"
             UPDATE limiteron_quotas
             SET consumed = $2, "limit" = $3, window_start = $4, window_end = $5, updated_at = $6
             WHERE quota_key = $1 AND window_end <= $4 AND $2 <= $3
             RETURNING consumed
         "#;
+        const SQLITE_RESTART_SQL: &str = r#"
+            UPDATE limiteron_quotas
+            SET consumed = ?2, "limit" = ?3, window_start = ?4, window_end = ?5, updated_at = ?6
+            WHERE quota_key = ?1 AND window_end <= ?4 AND ?2 <= ?3
+            RETURNING consumed
+        "#;
         // 注:$4 = 新窗口起点(epoch 对齐),过期判定 window_end <= $4 与
         // 窗口推进语义一致
+        let (backend, consume_sql) =
+            Self::native_sql_dialect(conn, PG_CONSUME_SQL, SQLITE_CONSUME_SQL)?;
+        let (_, insert_sql) = Self::native_sql_dialect(conn, PG_INSERT_SQL, SQLITE_INSERT_SQL)?;
+        let (_, restart_sql) = Self::native_sql_dialect(conn, PG_RESTART_SQL, SQLITE_RESTART_SQL)?;
 
         // 有界重试：并发首触时败方的 INSERT 冲突由守卫吸收（0 行返回），
         // 回到顶部重跑原子累加即可命中胜方建立的活跃行
         for _ in 0..3 {
             if let Some(row) = Self::query_optional(
                 conn,
-                CONSUME_SQL,
+                backend,
+                consume_sql,
                 [
                     quota_key.clone().into(),
                     (cost as i64).into(),
@@ -227,7 +274,8 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             // 先试新窗口原子重启（复用过期行，保留行身份与创建时间）
             if let Some(row) = Self::query_optional(
                 conn,
-                RESTART_SQL,
+                backend,
+                restart_sql,
                 [
                     quota_key.clone().into(),
                     (cost as i64).into(),
@@ -248,7 +296,8 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             // （不再向请求抛 UNIQUE 错误），回到循环顶部走原子累加路径。
             if let Some(row) = Self::query_optional(
                 conn,
-                INSERT_SQL,
+                backend,
+                insert_sql,
                 [
                     user_id.into(),
                     resource.into(),
@@ -295,7 +344,7 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
             ChronoDuration::from_std(window).unwrap_or_else(|_| ChronoDuration::days(365));
         let window_end = now + chrono_window;
 
-        const RESET_SQL: &str = r#"
+        const PG_RESET_SQL: &str = r#"
             INSERT INTO limiteron_quotas
                 (user_id, resource, quota_key, "limit", consumed,
                  window_start, window_end, created_at, updated_at)
@@ -308,10 +357,25 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
                 updated_at = EXCLUDED.updated_at
             RETURNING consumed
         "#;
+        const SQLITE_RESET_SQL: &str = r#"
+            INSERT INTO limiteron_quotas
+                (user_id, resource, quota_key, "limit", consumed,
+                 window_start, window_end, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?5, ?5)
+            ON CONFLICT (quota_key) DO UPDATE SET
+                consumed = 0,
+                "limit" = excluded."limit",
+                window_start = excluded.window_start,
+                window_end = excluded.window_end,
+                updated_at = excluded.updated_at
+            RETURNING consumed
+        "#;
+        let (backend, reset_sql) = Self::native_sql_dialect(conn, PG_RESET_SQL, SQLITE_RESET_SQL)?;
 
         let _row = Self::query_optional(
             conn,
-            RESET_SQL,
+            backend,
+            reset_sql,
             [
                 user_id.into(),
                 resource.into(),
@@ -345,16 +409,26 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
         let quota_key = create_quota_key(user_id, resource);
         let now = Utc::now();
 
-        const REFUND_SQL: &str = r#"
+        // 方言差异：占位符形式与钳制函数（Postgres GREATEST / sqlite 双参 MAX）
+        const PG_REFUND_SQL: &str = r#"
             UPDATE limiteron_quotas
             SET consumed = GREATEST(consumed - $2, 0), updated_at = $3
             WHERE quota_key = $1 AND window_end > $3
             RETURNING consumed
         "#;
+        const SQLITE_REFUND_SQL: &str = r#"
+            UPDATE limiteron_quotas
+            SET consumed = MAX(consumed - ?2, 0), updated_at = ?3
+            WHERE quota_key = ?1 AND window_end > ?3
+            RETURNING consumed
+        "#;
+        let (backend, refund_sql) =
+            Self::native_sql_dialect(conn, PG_REFUND_SQL, SQLITE_REFUND_SQL)?;
 
         match Self::query_optional(
             conn,
-            REFUND_SQL,
+            backend,
+            refund_sql,
             [quota_key.into(), (amount as i64).into(), now.into()],
         )
         .await?

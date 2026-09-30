@@ -110,7 +110,7 @@ pub(crate) mod constants;
 #[cfg(any(feature = "postgres", feature = "sqlite", feature = "mysql"))]
 mod dbnexus_entities;
 #[cfg(any(feature = "postgres", feature = "sqlite", feature = "mysql"))]
-pub use dbnexus_entities::create_all_tables_ddl;
+pub use dbnexus_entities::{create_all_tables_ddl, create_all_tables_ddl_sqlite};
 pub mod decision_chain;
 
 // Event system (feature-gated)
@@ -135,6 +135,8 @@ pub mod macros;
 pub mod matchers;
 #[cfg(feature = "lua-script")]
 pub mod oxcache_lua;
+#[cfg(feature = "plugins")]
+pub mod plugins;
 #[cfg(feature = "quota-control")]
 pub mod quota;
 // 带退避的重试原语（指数退避 + 可定制重试判定 + 抖动）：与熔断互补，

@@ -40,4 +40,4 @@ pub use rate_limit::{
 };
 
 mod dbnexus_entities_impl;
-pub use dbnexus_entities_impl::create_all_tables_ddl;
+pub use dbnexus_entities_impl::{create_all_tables_ddl, create_all_tables_ddl_sqlite};

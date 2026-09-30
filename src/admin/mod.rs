@@ -18,16 +18,24 @@
 //! server.start().await?;
 //! ```
 
+#[cfg(feature = "admin-client")]
+pub mod client;
 #[cfg(feature = "admin-api")]
 pub mod config;
 #[cfg(feature = "admin-api")]
 pub mod handlers;
+#[cfg(feature = "openapi")]
+pub mod openapi;
 #[cfg(feature = "admin-api")]
 pub mod routes;
 #[cfg(feature = "admin-api")]
 pub mod server;
+#[cfg(feature = "admin-api")]
+pub mod service;
 #[cfg(all(feature = "admin-api", test))]
 mod test_support;
+#[cfg(feature = "admin-ui")]
+pub mod web;
 #[cfg(all(feature = "admin-api", feature = "ban-manager", test))]
 pub use test_support::make_state_with_ban_manager;
 #[cfg(all(feature = "admin-api", test))]
@@ -39,3 +47,7 @@ pub use config::{AdminApiConfig, AdminRole};
 pub use server::AdminServer;
 #[cfg(feature = "admin-api")]
 pub use server::LimiteronState;
+#[cfg(feature = "admin-api")]
+pub use service::{AdminService, AdminServiceError, GovernorAdminService};
+#[cfg(feature = "admin-ui")]
+pub use web::{ReadOnlySnapshotSource, WebUiConfig, WebUiServer};

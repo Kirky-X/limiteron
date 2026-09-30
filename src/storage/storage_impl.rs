@@ -507,6 +507,21 @@ impl<S: QuotaStorage + ?Sized> QuotaStorage for Arc<S> {
     ) -> Result<(), StorageError> {
         (**self).reset(user_id, resource, limit, window).await
     }
+
+    // 必须显式委托：缺失时方法解析在 `&Arc<_>` 步命中本 blanket 的 trait
+    // 默认 no-op（静态分发、不解引用），任何经 Arc 的 refund 都会静默失效
+    async fn refund(
+        &self,
+        user_id: &str,
+        resource: &str,
+        amount: u64,
+        limit: u64,
+        window: Duration,
+    ) -> Result<u64, StorageError> {
+        (**self)
+            .refund(user_id, resource, amount, limit, window)
+            .await
+    }
 }
 
 #[async_trait]

@@ -1,0 +1,905 @@
+{
+  "components": {
+    "schemas": {
+      "ApiResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/Unit"
+          },
+          "message": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ],
+        "type": "object"
+      },
+      "BanResponse": {
+        "properties": {
+          "ban_times": {
+            "type": "integer"
+          },
+          "expires_at": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_manual": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "ban_times",
+          "expires_at",
+          "is_manual"
+        ],
+        "type": "object"
+      },
+      "BanTarget": {
+        "description": "ip/user/mac 为字符串 value；geo 为 {country_code}；cidr 为字符串 value",
+        "properties": {
+          "type": {
+            "enum": [
+              "ip",
+              "user",
+              "mac",
+              "geo",
+              "cidr"
+            ],
+            "type": "string"
+          },
+          "value": {}
+        },
+        "required": [
+          "type",
+          "value"
+        ],
+        "type": "object"
+      },
+      "BatchCheckBody": {
+        "properties": {
+          "requests": {
+            "items": {
+              "properties": {
+                "ip": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "method": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "path": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "user_id": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "maxItems": 1000,
+            "type": "array"
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "type": "object"
+      },
+      "CircuitBreakerStatus": {
+        "properties": {
+          "failure_rate": {
+            "format": "double",
+            "type": "number"
+          },
+          "slow_call_rate": {
+            "format": "double",
+            "type": "number"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "failure_rate",
+          "slow_call_rate"
+        ],
+        "type": "object"
+      },
+      "CreateBanRequest": {
+        "properties": {
+          "duration_secs": {
+            "format": "int64",
+            "nullable": true,
+            "type": "integer"
+          },
+          "operator": {
+            "description": "已弃用：服务端忽略，身份由 API key mapping 决定",
+            "nullable": true,
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/BanTarget"
+          }
+        },
+        "required": [
+          "target",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "FlowControlConfig": {
+        "description": "完整 FlowControlConfig（字段见 config 模块；此处保留顶层骨架）",
+        "properties": {
+          "global": {
+            "type": "object"
+          },
+          "rules": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "global",
+          "rules"
+        ],
+        "type": "object"
+      },
+      "SystemStatus": {
+        "properties": {
+          "active_bans": {
+            "description": "ban-manager feature 下存在",
+            "type": "integer"
+          },
+          "blocked_requests": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "circuit_breaker": {
+            "description": "circuit-breaker feature 下存在",
+            "type": "string"
+          },
+          "success_rate": {
+            "format": "double",
+            "type": "number"
+          },
+          "total_requests": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_requests",
+          "blocked_requests",
+          "success_rate"
+        ],
+        "type": "object"
+      },
+      "TokenPrefetchBody": {
+        "properties": {
+          "items": {
+            "items": {
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "tokens": {
+                  "format": "int64",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "key",
+                "tokens"
+              ],
+              "type": "object"
+            },
+            "maxItems": 1000,
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "UnbanRequest": {
+        "properties": {
+          "operator": {
+            "description": "已弃用：服务端忽略",
+            "nullable": true,
+            "type": "string"
+          },
+          "reason": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Unit": {
+        "nullable": true,
+        "type": "object"
+      },
+      "UpdateQuotaRequest": {
+        "properties": {
+          "duration_secs": {
+            "format": "int64",
+            "nullable": true,
+            "type": "integer"
+          },
+          "new_limit": {
+            "description": "0 = 重置信号",
+            "format": "int64",
+            "type": "integer"
+          },
+          "resource": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource",
+          "new_limit"
+        ],
+        "type": "object"
+      },
+      "UpdateQuotaResponse": {
+        "properties": {
+          "expires_at": {
+            "format": "int64",
+            "nullable": true,
+            "type": "integer"
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Limiteron 管理控制面：限流状态、封禁管理、配额调整、熔断器状态与规则热更新。除探针/指标端点外均需 Bearer API key。",
+    "title": "Limiteron Admin API",
+    "version": "0.3.0-rc.6"
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/api/v1/ban": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/BanResponse"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "封禁详情"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "目标/原因校验失败"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "operator 无授权"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "未配置 ban-manager"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "responses": {},
+      "summary": "创建封禁（ip/user/mac/geo）",
+      "tags": [
+        "ban"
+      ]
+    },
+    "/api/v1/ban/{target}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "enum": [
+                "ip",
+                "user",
+                "mac",
+                "geo",
+                "cidr"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnbanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/Unit"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "解除结果"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "不支持的 type"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "封禁不存在"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "未配置 ban-manager"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "responses": {},
+      "summary": "解除封禁（?type=ip|user|mac|geo|cidr）",
+      "tags": [
+        "ban"
+      ]
+    },
+    "/api/v1/check/batch": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchCheckBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "逐项决策结果"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "空批次或超过 1000 条上限"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "responses": {},
+      "summary": "批量检查（N 个 key 一次决策）",
+      "tags": [
+        "decision"
+      ]
+    },
+    "/api/v1/config": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FlowControlConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "应用报告"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "校验失败，旧配置原样保留"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "responses": {},
+      "summary": "规则热更新（原子换配置，失败保留旧配置）",
+      "tags": [
+        "config"
+      ]
+    },
+    "/api/v1/introspect": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "自省快照 JSON（结构随 feature 组合扩展）"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "responses": {},
+      "summary": "运行时自省快照（规则/决策链/封禁/熔断聚合）",
+      "tags": [
+        "status"
+      ]
+    },
+    "/api/v1/quota/{tenant_id}": {
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateQuotaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/UpdateQuotaResponse"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "操作结果"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "不支持的操作"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "内部错误"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "未配置 quota-control"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "responses": {},
+      "summary": "配额重置（new_limit=0）/ 拒绝 per-tenant 上限更新",
+      "tags": [
+        "quota"
+      ]
+    },
+    "/api/v1/status": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/SystemStatus"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "系统状态"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "鉴权失败"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "responses": {},
+      "summary": "系统整体状态",
+      "tags": [
+        "status"
+      ]
+    },
+    "/api/v1/status/circuit-breaker": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/ApiResponse"
+                    },
+                    {
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/CircuitBreakerStatus"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "熔断器状态"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "未配置 circuit-breaker"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "responses": {},
+      "summary": "熔断器状态",
+      "tags": [
+        "status"
+      ]
+    },
+    "/api/v1/tokens/prefetch": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenPrefetchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "逐项 granted 与汇总"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            },
+            "description": "空批次或超过 1000 条上限"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "responses": {},
+      "summary": "批量令牌预取",
+      "tags": [
+        "decision"
+      ]
+    },
+    "/healthz": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "进程存活"
+          }
+        }
+      },
+      "responses": {},
+      "summary": "存活探针",
+      "tags": [
+        "probes"
+      ]
+    },
+    "/metrics": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "text/plain; version=0.0.4 exposition"
+          }
+        }
+      },
+      "responses": {},
+      "summary": "Prometheus 文本格式指标",
+      "tags": [
+        "probes"
+      ]
+    },
+    "/readyz": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "全部组件健康"
+          },
+          "503": {
+            "description": "任一组件不健康，响应体含明细"
+          }
+        }
+      },
+      "responses": {},
+      "summary": "就绪探针（组件级聚合）",
+      "tags": [
+        "probes"
+      ]
+    }
+  }
+}

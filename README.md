@@ -160,7 +160,9 @@ async fn api_handler(user_id: &str) -> Result<String, limiteron::error::Limitero
 - **FlowControlConfig**：`version` / `global` / `rules` 三层配置，支持文件加载与环境变量覆盖（`ConfigLoader::load_from_file_with_env`）
 - **Decision**：三态结果 `Allowed` / `Rejected` / `Banned`（`src/error/mod.rs`）
 - **DecisionChain**：按优先级级联执行的责任链，节点即 `Limiter`（`src/decision_chain/`）
-- **存储抽象**：`Storage` / `BanStorage` / `QuotaStorage`（`src/storage/`），内存实现开箱即用，dbnexus 适配器提供 PostgreSQL / SQLite / MySQL
+- **存储抽象**：`Storage` / `BanStorage` / `QuotaStorage`（`src/storage/`），内存实现开箱即用，dbnexus 适配器提供 PostgreSQL / SQLite / MySQL（SQLite 为嵌入式方言：`create_schema` 按 连接后端自动选择建表 DDL）
+- **插件系统**：`Plugin` trait（`on_admit` / `on_reject` / `on_degrade` 决策生命周期钩子）+ `PluginRegistry` 编译期注册制（`src/plugins/`）；分发顺序即注册顺序，插件 panic 隔离计数不反向影响限流裁决；动态 .so 明确不做（ABI 无稳定性 + 供应链攻击面，见模块文档安全边界）；内置 `LoggingPlugin` / `CounterPlugin` 示例
+- **自适应阈值限流**：`AdaptiveThresholdLimiter`（`src/limiters/adaptive_threshold.rs`）——滑动观测窗口错误率/p95 延迟驱动动态配额（统计启发式非 ML），阈值/步长/冷却期全显式配置
 
 ---
 
@@ -177,6 +179,8 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 | `full` | 除存储后端外的全部功能（不含 `cli`） | 24 项特性，见 Cargo.toml |
 
 > 注：preset 均不含存储后端，持久化需自行叠加 `sqlite` / `postgres` / `mysql`（dbnexus 驱动互斥，一次构建只能叠加一个）。
+>
+> ⚠️ **文件型 SQLite 部署提示**：dbnexus 建立连接时未启用 WAL（根因在 dbnexus 的 `create_connection`，属外部依赖）。文件库在并发读写场景建议让连接 URL 显式携带 `journal_mode=WAL`（如 `sqlite:data/limiteron.db?journal_mode=WAL`，`StorageFactoryConfig::sqlite` 的 path 原样拼接进连接 URL），否则写并发下可能遭遇 `database is locked`。
 
 <details>
 <summary><b>📋 全部特性（按类别）</b></summary>
@@ -186,7 +190,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <table>
 <tr><th>类别</th><th>特性</th><th>说明</th><th>默认</th></tr>
 <tr><td rowspan="5">存储后端</td><td><code>postgres</code></td><td>PostgreSQL 存储（dbnexus 服务端驱动 + sea-orm）</td><td>❌</td></tr>
-<tr><td><code>sqlite</code></td><td>SQLite 存储（dbnexus 嵌入式驱动，本地默认后端）</td><td>❌</td></tr>
+<tr><td><code>sqlite</code></td><td>SQLite 存储（dbnexus 嵌入式驱动，本地默认后端；<code>StorageFactory::create_schema</code> 自动建表，内存库 <code>sqlite::memory:</code> 单测覆盖并与 Redis 形后端行为对拍）</td><td>❌</td></tr>
 <tr><td><code>mysql</code></td><td>MySQL 存储（dbnexus 服务端驱动）</td><td>❌</td></tr>
 <tr><td><code>cache-redis</code></td><td>Redis 缓存后端（经 oxcache；原 <code>cache-storage</code>，保留为兼容别名）</td><td>❌</td></tr>
 <tr><td><code>lua-script</code></td><td>Redis Lua 脚本执行（经 oxcache <code>eval_lua</code>）：滑动窗口 / 滑动窗口日志（cost 加权）/ 固定窗口 / 令牌桶 / 带突发透支令牌桶 / 配额消费与重置七脚本</td><td>❌</td></tr>
@@ -206,7 +210,10 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td rowspan="2">高级匹配</td><td><code>geo-matching</code></td><td>地理位置匹配（MaxMindDB）</td><td>❌</td></tr>
 <tr><td><code>device-matching</code></td><td>设备信息匹配（woothee User-Agent 解析）</td><td>❌</td></tr>
 <tr><td><code>regex-matching</code></td><td>路径正则匹配器（RegexPathMatcher）</td><td>❌</td></tr>
-<tr><td rowspan="2">控制面</td><td><code>admin-api</code></td><td>管理 REST API（axum，含 RBAC 与限流自保护）</td><td>❌</td></tr>
+<tr><td rowspan="5">控制面</td><td><code>admin-api</code></td><td>管理 REST API（axum，含 RBAC 与限流自保护；协议无关操作面见 <code>AdminService</code> trait）</td><td>❌</td></tr>
+<tr><td><code>openapi</code></td><td>OpenAPI 3.0.3 文档构建器 + 入库产物 <code>docs/openapi.json</code> 防漂移测试</td><td>❌</td></tr>
+<tr><td><code>admin-client</code></td><td>Admin API 薄客户端（hyper http1；临时验证面，SDK 生成器落地后接替）</td><td>❌</td></tr>
+<tr><td><code>admin-ui</code></td><td>只读管理 Web UI（内嵌单页无构建链；机械只读守卫：路由表全 GET + 只读投影类型窄化；默认绑定 127.0.0.1，<b>无认证</b>，非回环绑定须前置反向代理）</td><td>❌</td></tr>
 <tr><td><code>cli</code></td><td><code>limiteron-cli</code> 二进制：规则文件校验 / 导出 / apply dry-run</td><td>❌</td></tr>
 <tr><td rowspan="5">可观测性</td><td><code>telemetry</code></td><td>追踪初始化（tracing-subscriber）</td><td>❌</td></tr>
 <tr><td><code>monitoring</code></td><td>Prometheus 指标（全局 + per-rule/per-limiter 维度与降级计数，可配置关闭）</td><td>❌</td></tr>
@@ -221,7 +228,8 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td>多租户</td><td><code>multi-tenant</code></td><td>tenant+key 复合决策键与按租户隔离</td><td>❌</td></tr>
 <tr><td>中间件</td><td><code>tower-middleware</code></td><td>Tower Layer / Service 集成（Governor 决策路径 + <code>KeyedRateLimitLayer</code> 静态限流器直驱快速路径，拒绝响应可经 <code>RejectResponder</code> 定制）</td><td>❌</td></tr>
 <tr><td>分布式</td><td><code>distributed</code></td><td><code>DistributedLimiter</code> trait + 内存实现（Redis 实现需另启用 <code>lua-script</code>）</td><td>❌</td></tr>
-<tr><td rowspan="3">限流算法</td><td><code>adaptive-limiting</code></td><td>AIMD 自适应并发限流器（延迟/错误率反馈调窗）</td><td>✅</td></tr>
+<tr><td rowspan="4">限流算法</td><td><code>adaptive-limiting</code></td><td>AIMD 自适应并发限流器（延迟/错误率反馈调窗）</td><td>✅</td></tr>
+<tr><td><code>adaptive-threshold</code></td><td>自适应阈值限流（滑动窗口错误率/延迟驱动动态配额，统计启发式；阈值与冷却期全显式配置）</td><td>❌</td></tr>
 <tr><td><code>priority-queue</code></td><td>兼容声明，启用无效果</td><td>❌</td></tr>
 <tr><td><code>admission-control</code></td><td>兼容声明，启用无效果</td><td>❌</td></tr>
 <tr><td rowspan="5">生态集成</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> 集成（健康/生命周期端口）</td><td>❌</td></tr>
@@ -324,6 +332,8 @@ Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式
 
 另通过 `i18n` 特性集成 [ICU4X](https://github.com/unicode-org/icu4x) 提供 locale 感知格式化。
 
+工作区成员 [`integrations/limiteron-sdforge`](integrations/limiteron-sdforge/) 反向提供防护层：limiteron 侧把限流/熔断/封禁以 `Guard` 三态判定面暴露给 sdforge 应用（该 crate 自身的 sdforge 特性下适配为 `ForgeRateLimiter`），与 sdforge 侧既有消费适配方向相反、发布节奏独立。
+
 ---
 
 ## 🧪 测试
@@ -410,6 +420,7 @@ cargo bench --features full
 - **输入防线** — 租户 / 环境标识符消毒（转义 `:` 防命名空间前缀注入，`src/tenant/config.rs`）；IP / 用户 ID / MAC 格式校验（`src/validation.rs`）
 - **算法边界** — 令牌桶时间差与补充使用饱和运算封顶；配额窗口内置时钟回退防护
 - **Admin 自保护** — 管理端点自身限流 + 分桶内存上限 + 多 key 令牌认证与 admin/viewer 角色矩阵（RBAC）
+- **只读 Web UI 无认证警示** — `admin-ui` 内嵌单页仅发起 GET 且经机械守卫（路由表全 GET + 只读投影类型窄化，`src/admin/web.rs`）；默认绑定 `127.0.0.1` 且**无认证**——改为非回环地址会将管理快照暴露给同网段，必须前置带认证的反向代理（服务启动时对非回环绑定发出 warn 日志）
 - **数据保护** — secrecy 保护敏感数据、日志脱敏（`log-redaction`）、审计事件 HMAC-SHA256 链式签名与篡改检测
 - **传输防线** — 可信代理 X-Forwarded-For 提取；Webhook 外发签名 + 时间戳防重放 + URL 校验（SSRF）
 - **供应链** — rustls-webpki 最低版本锁（CVE-2025-48369）；[cargo-deny](deny.toml) 校验漏洞/许可证/重复依赖；CI Security 任务与 pre-push 钩子运行 `cargo deny check` 与 `cargo audit`
@@ -433,11 +444,11 @@ cargo bench --features full
 </tr>
 <tr>
 <td width="12%" align="center"><b>📋 计划中</b></td>
-<td>更多存储后端、Web UI 管理界面</td>
+<td>更多存储后端</td>
 </tr>
 <tr>
 <td width="12%" align="center"><b>💡 未来想法</b></td>
-<td>机器学习驱动的限流、社区插件系统</td>
+<td>「机器学习驱动的限流」已经裁决具体化为统计启发式（`adaptive-limiting` AIMD 并发窗口与 `adaptive-threshold` 滑动窗口动态配额，均为确定性阈值逻辑，非神经网络——见 `src/limiters/adaptive_threshold.rs` 模块文档）；「社区插件系统」已落地为编译期注册制（`plugins`，动态 .so 明确不做，见 `src/plugins/`）</td>
 </tr>
 </table>
 

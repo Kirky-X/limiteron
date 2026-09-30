@@ -64,6 +64,24 @@ pub fn create_table_ddl() -> &'static str {
     "#
 }
 
+/// SQLite 方言建表 DDL（嵌入式后端）
+pub fn create_table_ddl_sqlite() -> &'static str {
+    r#"
+    CREATE TABLE IF NOT EXISTS limiteron_quotas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        resource TEXT NOT NULL,
+        quota_key TEXT NOT NULL UNIQUE,
+        "limit" BIGINT NOT NULL,
+        consumed BIGINT NOT NULL DEFAULT 0,
+        window_start TEXT NOT NULL,
+        window_end TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    "#
+}
+
 /// Helper to create quota key from user_id and resource
 pub fn create_quota_key(user_id: &str, resource: &str) -> String {
     format!("{}:{}", user_id, resource)

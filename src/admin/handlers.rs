@@ -2,18 +2,34 @@
 // SPDX-License-Identifier: MIT
 //! HTTP处理器
 
+#[cfg(feature = "ban-manager")]
+use axum::Extension;
 use axum::{
-    Extension, Json,
+    Json,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "ban-manager")]
 use super::routes::OperatorIdentity;
 use super::server::LimiteronState;
-#[cfg(feature = "ban-manager")]
-use crate::ban::{BanFilter, BanTarget};
+use super::service::AdminService;
+use super::service::AdminServiceError;
+
+/// 服务错误类别 → HTTP 状态码（协议适配层的唯一映射点；
+/// 三个批量/配置端点同样经此映射，禁止散落硬编码状态码）
+pub(crate) fn service_error_status(e: &AdminServiceError) -> StatusCode {
+    use axum::http::StatusCode as S;
+    match e {
+        AdminServiceError::NotConfigured(_) => S::SERVICE_UNAVAILABLE,
+        AdminServiceError::Invalid(_) => S::BAD_REQUEST,
+        AdminServiceError::NotFound(_) => S::NOT_FOUND,
+        AdminServiceError::Forbidden(_) => S::FORBIDDEN,
+        AdminServiceError::Internal(_) => S::INTERNAL_SERVER_ERROR,
+    }
+}
 
 // ==================== 响应类型 ====================
 
@@ -117,49 +133,7 @@ pub struct SystemStatus {
 
 /// GET /api/v1/status
 pub async fn get_status(State(state): State<LimiteronState>) -> Json<ApiResponse<SystemStatus>> {
-    let stats = state.governor.stats().await;
-
-    // 饱和运算：计数器持续累加可能接近 u64::MAX，且回退场景下
-    // blocked 可能超过 total，裸加减会 panic（debug）或回绕（release）
-    let blocked = stats
-        .rejected_requests
-        .saturating_add(stats.banned_requests);
-    let total = stats.total_requests;
-    let success_rate = if total > 0 {
-        (total.saturating_sub(blocked)) as f64 / total as f64
-    } else {
-        1.0
-    };
-
-    #[cfg(feature = "ban-manager")]
-    let active_bans: usize = if let Some(ref bm) = state.ban_manager {
-        bm.list_bans(BanFilter {
-            active_only: true,
-            ..Default::default()
-        })
-        .await
-        .map(|v| v.len())
-        .unwrap_or(0)
-    } else {
-        0
-    };
-
-    #[cfg(feature = "circuit-breaker")]
-    let cb_state = if let Some(ref cb) = state.circuit_breaker {
-        cb.get_state().await.to_string()
-    } else {
-        "disabled".to_string()
-    };
-
-    Json(ApiResponse::ok(SystemStatus {
-        total_requests: total,
-        blocked_requests: blocked,
-        success_rate,
-        #[cfg(feature = "ban-manager")]
-        active_bans,
-        #[cfg(feature = "circuit-breaker")]
-        circuit_breaker: cb_state,
-    }))
+    Json(ApiResponse::ok(state.service().status().await))
 }
 
 // ==================== Governor 自省 ====================
@@ -170,45 +144,13 @@ pub async fn get_status(State(state): State<LimiteronState>) -> Json<ApiResponse
 /// 封禁清单（ban-manager）与熔断状态（circuit-breaker）。
 /// 只读端点：viewer 角色即可访问。
 pub async fn introspect(State(state): State<LimiteronState>) -> Json<serde_json::Value> {
-    let snapshot = state.governor.introspect().await;
-    let mut body = serde_json::to_value(&snapshot).unwrap_or_else(|_| serde_json::json!({}));
-
-    #[cfg(feature = "ban-manager")]
-    if let Some(ref bm) = state.ban_manager
-        && let Ok(bans) = bm
-            .list_bans(BanFilter {
-                active_only: true,
-                ..Default::default()
-            })
-            .await
-    {
-        let items: Vec<serde_json::Value> = bans
-            .iter()
-            .map(|b| {
-                serde_json::json!({
-                    "target": b.target,
-                    "ban_times": b.ban_times,
-                    "is_manual": b.is_manual,
-                    "reason": b.reason,
-                    "expires_at": b.expires_at.to_rfc3339(),
-                })
-            })
-            .collect();
-        body["active_bans"] = serde_json::Value::Array(items);
-    }
-
-    #[cfg(feature = "circuit-breaker")]
-    if let Some(ref cb) = state.circuit_breaker {
-        body["circuit_breaker_state"] = serde_json::json!(cb.get_state().await.to_string());
-    }
-
-    Json(body)
+    Json(state.service().introspect().await)
 }
 
 // ==================== 规则热更新 / 批量 API ====================
 
 /// 批量检查/预取的条目数上限（防单请求打爆控制面）
-const BATCH_MAX_ITEMS: usize = 1000;
+pub(crate) const BATCH_MAX_ITEMS: usize = 1000;
 
 /// POST /api/v1/config —— 规则热更新（原子换配置）
 ///
@@ -220,21 +162,18 @@ pub async fn apply_config(
     State(state): State<LimiteronState>,
     Json(config): Json<crate::config::FlowControlConfig>,
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
-    match state.governor.apply_config(config).await {
-        Ok(report) => {
-            let data = serde_json::to_value(&report).unwrap_or_else(|_| serde_json::json!({}));
-            (
-                StatusCode::OK,
-                Json(ApiResponse {
-                    success: true,
-                    message: "config applied".to_string(),
-                    data: Some(data),
-                }),
-            )
-        }
+    match state.service().apply_config(config).await {
+        Ok(data) => (
+            StatusCode::OK,
+            Json(ApiResponse {
+                success: true,
+                message: "config applied".to_string(),
+                data: Some(data),
+            }),
+        ),
         Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(ApiResponse::error(format!("config rejected: {e}"))),
+            service_error_status(&e),
+            Json(ApiResponse::error(e.to_string())),
         ),
     }
 }
@@ -267,69 +206,20 @@ pub async fn check_batch(
     State(state): State<LimiteronState>,
     Json(body): Json<BatchCheckBody>,
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
-    if body.requests.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ApiResponse::error(
-                "batch check requires at least one request",
-            )),
-        );
+    match state.service().check_batch(body).await {
+        Ok((allowed_count, results)) => (
+            StatusCode::OK,
+            Json(ApiResponse {
+                success: true,
+                message: format!("{allowed_count}/{} allowed", results.len()),
+                data: Some(serde_json::json!({ "results": results })),
+            }),
+        ),
+        Err(e) => (
+            service_error_status(&e),
+            Json(ApiResponse::error(e.to_string())),
+        ),
     }
-    if body.requests.len() > BATCH_MAX_ITEMS {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ApiResponse::error(format!(
-                "batch check limited to {BATCH_MAX_ITEMS} requests per call"
-            ))),
-        );
-    }
-
-    let mut results = Vec::with_capacity(body.requests.len());
-    for (index, item) in body.requests.into_iter().enumerate() {
-        let mut ctx = crate::matchers::RequestContext::new();
-        // 默认 CompositeExtractor 从 X-User-Id 头 / 客户端 IP / X-API-Key
-        // 提取标识符；批量端点将 body 字段映射到对应提取源。
-        if let Some(user_id) = item.user_id {
-            ctx.headers.insert("x-user-id".to_string(), user_id);
-        }
-        ctx.ip = item.ip.clone();
-        ctx.client_ip = item.ip;
-        ctx.path = item.path.unwrap_or_default();
-        ctx.method = item.method.unwrap_or_else(|| "GET".to_string());
-
-        match state.governor.check(&ctx).await {
-            Ok(decision) => {
-                let (kind, allowed) = match &decision {
-                    crate::error::Decision::Allowed(_) => ("Allowed", true),
-                    crate::error::Decision::Rejected(_) => ("Rejected", false),
-                    crate::error::Decision::Banned(_) => ("Banned", false),
-                };
-                results.push(serde_json::json!({
-                    "index": index,
-                    "allowed": allowed,
-                    "decision": kind,
-                }));
-            }
-            Err(e) => {
-                results.push(serde_json::json!({
-                    "index": index,
-                    "allowed": false,
-                    "decision": "Error",
-                    "error": e.to_string(),
-                }));
-            }
-        }
-    }
-
-    let allowed_count = results.iter().filter(|r| r["allowed"] == true).count();
-    (
-        StatusCode::OK,
-        Json(ApiResponse {
-            success: true,
-            message: format!("{allowed_count}/{} allowed", results.len()),
-            data: Some(serde_json::json!({ "results": results })),
-        }),
-    )
 }
 
 /// 令牌预取条目
@@ -350,10 +240,10 @@ pub struct TokenPrefetchBody {
 /// 进程级批量令牌预取器（控制面专用，不参与决策热路径）。
 ///
 /// Admin API 无状态 handler 的共享实例；容量即语义（last-config-wins）。
-static TOKEN_PREFETCHER: std::sync::OnceLock<crate::limiters::BatchTokenPrefetcher> =
+pub(crate) static TOKEN_PREFETCHER: std::sync::OnceLock<crate::limiters::BatchTokenPrefetcher> =
     std::sync::OnceLock::new();
 
-fn token_prefetcher() -> &'static crate::limiters::BatchTokenPrefetcher {
+pub(crate) fn token_prefetcher() -> &'static crate::limiters::BatchTokenPrefetcher {
     TOKEN_PREFETCHER.get_or_init(crate::limiters::BatchTokenPrefetcher::new)
 }
 
@@ -365,35 +255,20 @@ fn token_prefetcher() -> &'static crate::limiters::BatchTokenPrefetcher {
 pub async fn prefetch_tokens(
     Json(body): Json<TokenPrefetchBody>,
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
-    if body.items.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ApiResponse::error(
-                "token prefetch requires at least one item",
-            )),
-        );
+    match crate::admin::service::prefetch_tokens_detached(body).await {
+        Ok((granted_count, results)) => (
+            StatusCode::OK,
+            Json(ApiResponse {
+                success: true,
+                message: format!("{granted_count}/{} granted", results.len()),
+                data: Some(serde_json::Value::Array(results)),
+            }),
+        ),
+        Err(e) => (
+            service_error_status(&e),
+            Json(ApiResponse::error(e.to_string())),
+        ),
     }
-    if body.items.len() > BATCH_MAX_ITEMS {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(ApiResponse::error(format!(
-                "token prefetch limited to {BATCH_MAX_ITEMS} items per call"
-            ))),
-        );
-    }
-
-    let pairs: Vec<(String, u64)> = body.items.into_iter().map(|i| (i.key, i.tokens)).collect();
-    let results = token_prefetcher().prefetch_batch(&pairs).await;
-    let granted_count = results.iter().filter(|r| r.granted).count();
-
-    (
-        StatusCode::OK,
-        Json(ApiResponse {
-            success: true,
-            message: format!("{granted_count}/{} granted", results.len()),
-            data: Some(serde_json::to_value(&results).unwrap_or_else(|_| serde_json::json!([]))),
-        }),
-    )
 }
 
 // ==================== 封禁管理 ====================
@@ -437,55 +312,22 @@ pub async fn delete_ban(
     Query(query): Query<BanTargetQuery>,
     Json(req): Json<UnbanRequest>,
 ) -> (StatusCode, Json<ApiResponse<()>>) {
-    let Some(ref ban_manager) = state.ban_manager else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiResponse::error("Ban manager not configured")),
-        );
-    };
-    let ban_target = match query.target_type.as_deref() {
-        Some("ip") => BanTarget::Ip(target),
-        Some("user") => BanTarget::UserId(target),
-        Some("mac") => BanTarget::Mac(target),
-        Some("geo") => BanTarget::Geo {
-            country_code: target,
-        },
-        Some("cidr") => BanTarget::Cidr(target),
-        Some(other) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(ApiResponse::error(format!(
-                    "unsupported target type: {}",
-                    other
-                ))),
-            );
-        }
-        None => {
-            // 自动推断：IP 优先，回退 UserId
-            if target.parse::<std::net::IpAddr>().is_ok() {
-                BanTarget::Ip(target)
-            } else {
-                BanTarget::UserId(target)
-            }
-        }
-    };
-    // vuln-0001 修复：operator 来自 OperatorIdentity（API key mapping），而非 body
-    match ban_manager.delete_ban(&ban_target, operator.0).await {
-        Ok(true) => (
+    match state
+        .service()
+        .delete_ban(operator.0, target, query, req)
+        .await
+    {
+        Ok(message) => (
             StatusCode::OK,
             Json(ApiResponse {
                 success: true,
-                message: req.reason.unwrap_or_else(|| "Ban removed".to_string()),
+                message,
                 data: Some(()),
             }),
         ),
-        Ok(false) => (
-            StatusCode::NOT_FOUND,
-            Json(ApiResponse::error("Ban not found")),
-        ),
         Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiResponse::error(format!("Failed to remove ban: {}", e))),
+            service_error_status(&e),
+            Json(ApiResponse::error(e.to_string())),
         ),
     }
 }
@@ -544,49 +386,12 @@ pub async fn create_ban(
     Extension(operator): Extension<OperatorIdentity>,
     Json(req): Json<CreateBanRequest>,
 ) -> (StatusCode, Json<ApiResponse<BanResponse>>) {
-    use crate::ban::BanSource;
-    use std::time::Duration;
-
-    let Some(ref ban_manager) = state.ban_manager else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiResponse::error("Ban manager not configured")),
-        );
-    };
-
-    // vuln-0001 修复：operator 来自 OperatorIdentity（API key mapping），而非 body
-    let source = BanSource::Manual {
-        operator: operator.0,
-    };
-    let duration = req.duration_secs.map(Duration::from_secs);
-
-    match ban_manager
-        .create_ban(
-            req.target,
-            req.reason,
-            source,
-            serde_json::json!({"source": "http-api"}),
-            duration,
-        )
-        .await
-    {
-        Ok(detail) => (
-            StatusCode::CREATED,
-            Json(ApiResponse::ok(BanResponse {
-                id: detail.id,
-                ban_times: detail.ban_times,
-                expires_at: detail.expires_at.timestamp(),
-                is_manual: detail.is_manual,
-            })),
+    match state.service().create_ban(operator.0, req).await {
+        Ok(ban) => (StatusCode::CREATED, Json(ApiResponse::ok(ban))),
+        Err(e) => (
+            service_error_status(&e),
+            Json(ApiResponse::error(e.to_string())),
         ),
-        Err(e) => {
-            let status = match &e {
-                crate::error::LimiteronError::ValidationError(_) => StatusCode::BAD_REQUEST,
-                crate::error::LimiteronError::AuthorizationError(_) => StatusCode::FORBIDDEN,
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
-            };
-            (status, Json(ApiResponse::error(format!("{}", e))))
-        }
     }
 }
 
@@ -626,45 +431,12 @@ pub async fn update_quota(
     Path(tenant_id): Path<String>,
     Json(req): Json<UpdateQuotaRequest>,
 ) -> (StatusCode, Json<ApiResponse<UpdateQuotaResponse>>) {
-    let Some(ref quota_controller) = state.quota_controller else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiResponse::error("Quota controller not configured")),
-        );
-    };
-    // QuotaController 当前不支持 per-tenant 配额上限更新（配额上限为全局 QuotaConfig）
-    // 提供重置配额使用量作为最接近的操作
-    if req.new_limit == 0 {
-        // new_limit=0 视为重置信号
-        match quota_controller
-            .reset_quota(&tenant_id, &req.resource)
-            .await
-        {
-            Ok(_) => (
-                StatusCode::OK,
-                Json(ApiResponse::ok(UpdateQuotaResponse {
-                    success: true,
-                    expires_at: req.duration_secs.map(|d| {
-                        use std::time::{SystemTime, UNIX_EPOCH};
-                        SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .map(|t| t.as_secs() + d)
-                            .unwrap_or(0)
-                    }),
-                })),
-            ),
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiResponse::error(format!("Failed to reset quota: {}", e))),
-            ),
-        }
-    } else {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(ApiResponse::error(
-                "Per-tenant quota limit update is not supported; use global QuotaConfig update_config instead",
-            )),
-        )
+    match state.service().update_quota(&tenant_id, req).await {
+        Ok(resp) => (StatusCode::OK, Json(ApiResponse::ok(resp))),
+        Err(e) => (
+            service_error_status(&e),
+            Json(ApiResponse::error(e.to_string())),
+        ),
     }
 }
 
@@ -696,28 +468,12 @@ pub struct CircuitBreakerStatus {
 pub async fn get_circuit_breaker_status(
     State(state): State<LimiteronState>,
 ) -> (StatusCode, Json<ApiResponse<CircuitBreakerStatus>>) {
-    if let Some(ref cb) = state.circuit_breaker {
-        let stats = cb.get_stats().await;
-        let total = stats.total_calls as f64;
-        // CircuitBreakerStats 不跟踪 slow_call_rate，置为 0.0
-        let failure_rate = if total > 0.0 {
-            stats.failure_count as f64 / total
-        } else {
-            0.0
-        };
-        (
-            StatusCode::OK,
-            Json(ApiResponse::ok(CircuitBreakerStatus {
-                state: stats.state.to_string(),
-                failure_rate,
-                slow_call_rate: 0.0,
-            })),
-        )
-    } else {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiResponse::error("Circuit breaker not configured")),
-        )
+    match state.service().circuit_breaker_status().await {
+        Ok(status) => (StatusCode::OK, Json(ApiResponse::ok(status))),
+        Err(e) => (
+            service_error_status(&e),
+            Json(ApiResponse::error(e.to_string())),
+        ),
     }
 }
 

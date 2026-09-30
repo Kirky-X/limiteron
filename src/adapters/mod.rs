@@ -41,6 +41,11 @@ pub mod storage_factory;
 #[cfg(test)]
 mod dbnexus_tests;
 
+// SQLite 嵌入式后端测试：sqlite 方言 DDL、原生 SQL 路径行为、
+// 与 Redis 形后端（cache-redis）的关键行为对拍
+#[cfg(all(test, feature = "sqlite"))]
+mod sqlite_tests;
+
 // Re-export adapters for convenient access
 pub use dbnexus_ban_storage::DBNexusBanStorageAdapter;
 pub use dbnexus_quota_storage::DBNexusQuotaStorageAdapter;

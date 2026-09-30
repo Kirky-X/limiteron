@@ -74,6 +74,22 @@ pub fn create_table_ddl() -> &'static str {
     "#
 }
 
+/// SQLite 方言建表 DDL（嵌入式后端）
+pub fn create_table_ddl_sqlite() -> &'static str {
+    r#"
+    CREATE TABLE IF NOT EXISTS limiteron_rate_limits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rate_key TEXT NOT NULL UNIQUE,
+        count BIGINT NOT NULL DEFAULT 0,
+        rate BIGINT NOT NULL,
+        capacity BIGINT NOT NULL,
+        last_update TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    "#
+}
+
 /// Helper to create rate limit key
 // 仅实体内单测引用，lib 构建下无调用方（test 构建下活）。
 #[cfg_attr(

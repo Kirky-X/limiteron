@@ -164,6 +164,16 @@ impl StorageFactoryConfig {
     }
 
     /// 创建 SQLite 配置
+    ///
+    /// `path` **原样拼接**为 `sqlite:{path}` 连接 URL：`?` 之后的参数会
+    /// 进入连接串、`file:` 前缀有特殊语义，故只接受可信配置来源，勿把
+    /// 用户输入透传进 `path`——这也正是按需叠加连接参数的机制（见下）。
+    ///
+    /// **部署提示（性能）**：dbnexus 建立连接时未启用 WAL（根因在
+    /// dbnexus 的 `create_connection`，属外部依赖、不在本仓修改范围）。
+    /// 文件库并发读写建议让连接 URL 显式携带 `journal_mode=WAL`，例如
+    /// `StorageFactoryConfig::sqlite("data/limiteron.db?journal_mode=WAL")`；
+    /// 不携带时写并发下可能遭遇 `database is locked`。
     pub fn sqlite(path: impl Into<String>) -> Self {
         Self {
             storage_type: StorageType::DBNexusSQLite,
@@ -289,6 +299,43 @@ impl StorageFactory {
     /// 检查工厂是否已初始化
     pub fn is_initialized(&self) -> bool {
         self.pool.is_some()
+    }
+
+    /// 在已初始化的连接池上执行建表 DDL
+    ///
+    /// 按连接后端选择方言：sqlite → sqlite 方言（嵌入式后端）；其余 →
+    /// Postgres 方言（MySQL 无 BIGSERIAL/NOW()，自动建表不受支持，显性报错
+    /// 而非产出错误 SQL）。DDL 语句按 `;` 切分逐条执行，失败即返回 Err。
+    pub async fn create_schema(&self) -> Result<(), StorageError> {
+        use sea_orm::ConnectionTrait;
+
+        let pool = self.pool_ref()?;
+        let session = pool
+            .get_session("admin")
+            .await
+            .map_err(|e| StorageError::ConnectionError(e.to_string()))?;
+        let conn = session
+            .connection()
+            .map_err(|e| StorageError::ConnectionError(e.to_string()))?;
+        let ddl = match conn.get_database_backend() {
+            sea_orm::DatabaseBackend::Sqlite => crate::create_all_tables_ddl_sqlite(),
+            sea_orm::DatabaseBackend::Postgres => crate::create_all_tables_ddl(),
+            other => {
+                return Err(StorageError::InvalidConfig(format!(
+                    "schema auto-provisioning supports PostgreSQL and SQLite, got {other:?}; apply DDL manually for other backends"
+                )));
+            }
+        };
+        for stmt in ddl.split(';') {
+            let stmt = stmt.trim();
+            if stmt.is_empty() {
+                continue;
+            }
+            conn.execute_unprepared(stmt)
+                .await
+                .map_err(|e| StorageError::QueryError(format!("schema statement failed: {e}")))?;
+        }
+        Ok(())
     }
 
     /// 获取连接池引用

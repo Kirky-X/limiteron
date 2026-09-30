@@ -775,6 +775,7 @@ pub struct StorageFactory { /* ... */ }
 impl StorageFactory {
     pub fn from_dsn(dsn: impl Into<String>) -> Self;
     pub async fn initialize(&mut self, config: Option<StorageFactoryConfig>) -> Result<(), StorageError>;
+    pub async fn create_schema(&self) -> Result<(), StorageError>;
     pub async fn create_storage(&self) -> Result<Arc<dyn Storage>, StorageError>;
     pub async fn create_ban_storage(&self) -> Result<Arc<dyn BanStorage>, StorageError>;
     pub async fn create_quota_storage(&self) -> Result<Arc<dyn QuotaStorage>, StorageError>;
@@ -788,6 +789,8 @@ use limiteron::adapters::StorageFactory;
 
 let mut factory = StorageFactory::from_dsn("postgresql://localhost/limiteron");
 factory.initialize(None).await?;
+// 按连接后端自动选择建表方言（PostgreSQL / SQLite；MySQL 不支持自动建表，显性报错）
+factory.create_schema().await?;
 let storage = factory.create_storage().await?;
 ```
 
@@ -814,6 +817,33 @@ let storage = factory.create_storage().await?;
 | `POST /api/v1/tokens/prefetch` | 批量令牌预取（`BatchTokenPrefetcher`） | Bearer |
 
 > 管理端点自带按路径、按客户端分桶的限流自保护（分桶内存上限 `RATE_BUCKET_MAX_ENTRIES=10000`）。
+
+**OpenAPI 产物（`openapi` 特性）**：完整契约见入库产物 [`docs/openapi.json`](openapi.json)（OpenAPI 3.0.3，12 条路由与 schema）。产物由内存构建器单一事实来源生成，`tests/openapi_drift.rs` 防漂移守卫保证二者逐字节一致——契约变更时红灯，`UPDATE_OPENAPI=1 cargo test --features openapi --test openapi_drift` 重写后须人工复核 diff。协议无关操作面见 `AdminService` trait（`src/admin/service.rs`）：axum handlers 与薄客户端共享同一契约，错误类别到状态码的映射唯一（NotConfigured→503 / Invalid→400 / NotFound→404 / Forbidden→403 / Internal→500）。
+
+**薄客户端（`admin-client` 特性）**：`AdminClient::new(base_url, api_key)` 提供与 `AdminService` 一一对应的类型化方法（`status` / `introspect` / `circuit_breaker_status` / `create_ban` / `delete_ban` / `reset_quota` / `apply_config` / `check_batch` / `healthz`）。hyper http1 每请求新建连接，管理面低频场景适用；**临时验证面**——SDK 生成器（sdforge-R11）落地后由生成的 client 接替。
+
+### 只读管理 Web UI（`admin-ui` 特性）
+
+> ⚠️ **无认证警示**：本 UI 面向「本机/可信内网快照查看」设计，**不提供任何认证**。默认绑定 `127.0.0.1:9091`（仅本机可访问）；改为非回环地址会将管理快照（规则、统计、健康、熔断状态）暴露给同网段所有主机——**必须前置带认证的反向代理（并在其上终止 TLS）**。服务启动时对非回环绑定发出 `tracing::warn!` 日志留痕。
+
+```rust
+use limiteron::admin::{WebUiConfig, WebUiServer};
+
+let config = WebUiConfig {
+    host: "127.0.0.1".to_string(), // 默认；非回环须前置反向代理
+    port: 9091,
+};
+let server = WebUiServer::new(state, config);
+server.start().await?;
+```
+
+**机械只读守卫**（`src/admin/web.rs`，新增写端点即红灯）：
+
+1. 路由表 `ROUTE_TABLE` 是路径清单的唯一事实来源，Router 由表驱动且仅经 `get()` 注册；
+2. 守卫测试对表内全部路径 GET 探测（漏注册红灯）+ 对全部路径发 POST/PUT/DELETE 断言 405；
+3. 数据 handler 仅接受 `Arc<dyn ReadOnlySnapshotSource>`——`AdminService` 的只读投影 trait（仅 status/introspect/circuit-breaker 三方法），类型面上不存在写方法。
+
+页面为内嵌单页（无构建链，vanilla HTML+JS），fetch `/snapshot` 与 `/circuit-breaker` 渲染聚合统计、组件健康、规则与决策链、熔断器状态，5s 自动刷新。
 
 ### POST /api/v1/ban
 

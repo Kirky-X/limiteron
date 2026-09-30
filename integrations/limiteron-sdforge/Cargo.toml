@@ -1,0 +1,44 @@
+[package]
+name = "limiteron-sdforge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license = "MIT"
+repository.workspace = true
+description = "Rate-limit / circuit-breaker guard layer for sdforge applications, provided from the limiteron side"
+
+[lints]
+workspace = true
+
+[dependencies]
+limiteron = { path = "../..", version = "0.3.0-rc.6", default-features = false }
+sdforge = { version = "0.5.0-rc.5", default-features = false, optional = true }
+chrono = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }
+tracing.workspace = true
+
+[dev-dependencies]
+limiteron = { path = "../..", default-features = false, features = [
+    "standard",
+    "parallel-checker",
+] }
+async-trait.workspace = true
+
+[features]
+# 默认仅核心 guard（协议无关，不依赖 sdforge）。
+default = []
+# sdforge 适配层：实现 sdforge::domain::ForgeRateLimiter。
+# 钉版策略（与 sdforge 侧 limiteron = "0.3.0-rc.4" 对称统一）：跨仓 optional
+# 集成一律钉对方已发布的 rc 版本下界 + default-features = false；本处 rc.5
+# 经 crates.io 解包验证 ForgeRateLimiter / ForgeError::internal 已存在且
+# domain 模块无条件编译。sdforge→limiteron→本 crate 菱形合法：Cargo 对
+# 同一 semver 兼容需求合并为单一 limiteron 构建（本 workspace 的
+# 0.3.0-rc.6 满足 sdforge 的 0.3.0-rc.4 下界）。
+sdforge = ["dep:sdforge"]
+# full preset：本 crate 全功能面 = 核心 guard + sdforge 适配层。
+full = ["sdforge"]
+
+[[example]]
+name = "sdforge_guard"
+required-features = ["sdforge"]

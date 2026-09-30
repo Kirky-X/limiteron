@@ -163,7 +163,9 @@ async fn api_handler(user_id: &str) -> Result<String, limiteron::error::Limitero
 - **FlowControlConfig**: `version` / `global` / `rules` layered configuration with file loading and environment variable overrides (`ConfigLoader::load_from_file_with_env`)
 - **Decision**: three outcomes, `Allowed` / `Rejected` / `Banned` (`src/error/mod.rs`)
 - **DecisionChain**: a priority-ordered responsibility chain whose nodes are `Limiters` (`src/decision_chain/`)
-- **Storage abstraction**: `Storage` / `BanStorage` / `QuotaStorage` (`src/storage/`) with an in-memory implementation out of the box, plus dbnexus adapters for PostgreSQL / SQLite / MySQL
+- **Storage abstraction**: `Storage` / `BanStorage` / `QuotaStorage` (`src/storage/`) with an in-memory implementation out of the box, plus dbnexus adapters for PostgreSQL / SQLite / MySQL (SQLite uses an embedded dialect: `create_schema` selects the table DDL by connection backend)
+- **Plugin system**: `Plugin` trait (`on_admit` / `on_reject` / `on_degrade` decision-lifecycle hooks) + `PluginRegistry` compile-time registration (`src/plugins/`); dispatch order follows registration order, plugin panics are isolated and counted without feeding back into rate-limit decisions; dynamic .so loading is explicitly not supported (no stable ABI + supply-chain attack surface, see module docs); `LoggingPlugin` / `CounterPlugin` built-in examples
+- **Adaptive threshold limiting**: `AdaptiveThresholdLimiter` (`src/limiters/adaptive_threshold.rs`) — sliding observation window error-rate/p95-latency-driven dynamic quota (statistical heuristics, not ML), thresholds/steps/cooldown fully explicit
 
 ---
 
@@ -180,6 +182,8 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 | `full` | Everything except storage backends (excludes `cli`) | 24 features, see Cargo.toml |
 
 > Note: presets include no storage backend; add `sqlite` / `postgres` / `mysql` on top for persistence (dbnexus drivers are mutually exclusive — only one per build).
+>
+> ⚠️ **File-backed SQLite deployment note**: dbnexus does not enable WAL when opening connections (root cause lives in dbnexus `create_connection`, an external dependency). For concurrent read/write workloads on a file database, pass `journal_mode=WAL` in the connection URL (e.g. `sqlite:data/limiteron.db?journal_mode=WAL`; the path given to `StorageFactoryConfig::sqlite` is concatenated verbatim into the URL), otherwise concurrent writes may hit `database is locked`.
 
 <details>
 <summary><b>📋 Complete Feature List (by Category)</b></summary>
@@ -189,7 +193,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <table>
 <tr><th>Category</th><th>Feature</th><th>Description</th><th>Default</th></tr>
 <tr><td rowspan="5">Storage Backends</td><td><code>postgres</code></td><td>PostgreSQL storage (dbnexus server-side driver + sea-orm)</td><td>❌</td></tr>
-<tr><td><code>sqlite</code></td><td>SQLite storage (dbnexus embedded driver, default local backend)</td><td>❌</td></tr>
+<tr><td><code>sqlite</code></td><td>SQLite storage (dbnexus embedded driver, default local backend; <code>StorageFactory::create_schema</code> provisions tables automatically, in-memory <code>sqlite::memory:</code> unit tests covered with behavioral parity checks against the Redis-shaped backend)</td><td>❌</td></tr>
 <tr><td><code>mysql</code></td><td>MySQL storage (dbnexus server-side driver)</td><td>❌</td></tr>
 <tr><td><code>cache-redis</code></td><td>Redis cache backend (via oxcache; formerly <code>cache-storage</code>, kept as a compatibility alias)</td><td>❌</td></tr>
 <tr><td><code>lua-script</code></td><td>Redis Lua script execution (via oxcache <code>eval_lua</code>): sliding window / sliding window log (cost-weighted) / fixed window / token bucket / burst-overdraft token bucket / quota consume &amp; reset — seven scripts</td><td>❌</td></tr>
@@ -207,7 +211,10 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td rowspan="2">Advanced Matching</td><td><code>geo-matching</code></td><td>Geographic matching (MaxMindDB)</td><td>❌</td></tr>
 <tr><td><code>device-matching</code></td><td>Device matching (woothee User-Agent parsing)</td><td>❌</td></tr>
 <tr><td><code>regex-matching</code></td><td>Regex path matcher (RegexPathMatcher)</td><td>❌</td></tr>
-<tr><td rowspan="2">Control Plane</td><td><code>admin-api</code></td><td>Admin REST API (axum, with RBAC and self rate-limit protection)</td><td>❌</td></tr>
+<tr><td rowspan="5">Control Plane</td><td><code>admin-api</code></td><td>Admin REST API (axum, with RBAC and self rate-limit protection; protocol-agnostic operations surface in the <code>AdminService</code> trait)</td><td>❌</td></tr>
+<tr><td><code>openapi</code></td><td>OpenAPI 3.0.3 document builder + committed artifact <code>docs/openapi.json</code> with drift guard test</td><td>❌</td></tr>
+<tr><td><code>admin-client</code></td><td>Thin Admin API client (hyper http1; temporary verification surface, superseded once the SDK generator lands)</td><td>❌</td></tr>
+<tr><td><code>admin-ui</code></td><td>Read-only admin Web UI (embedded single page, no build chain; mechanical read-only guards: all-GET route table + read-only projection typing; binds 127.0.0.1 by default, <b>no authentication</b> — non-loopback bindings require a reverse proxy in front)</td><td>❌</td></tr>
 <tr><td><code>cli</code></td><td><code>limiteron-cli</code> binary: rule file validation / export / apply dry-run</td><td>❌</td></tr>
 <tr><td rowspan="5">Observability</td><td><code>telemetry</code></td><td>Tracing initialization (tracing-subscriber)</td><td>❌</td></tr>
 <tr><td><code>monitoring</code></td><td>Prometheus metrics (global + per-rule/per-limiter dimensions and degraded counter, configurable off)</td><td>❌</td></tr>
@@ -222,7 +229,8 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td>Multi-Tenancy</td><td><code>multi-tenant</code></td><td>tenant+key compound decision keys and per-tenant isolation</td><td>❌</td></tr>
 <tr><td>Middleware</td><td><code>tower-middleware</code></td><td>Tower Layer / Service integration</td><td>❌</td></tr>
 <tr><td>Distributed</td><td><code>distributed</code></td><td><code>DistributedLimiter</code> trait + in-memory implementation (Redis implementation additionally requires <code>lua-script</code>)</td><td>❌</td></tr>
-<tr><td rowspan="3">Algorithms</td><td><code>adaptive-limiting</code></td><td>AIMD adaptive concurrency limiter (latency/error-rate feedback window tuning)</td><td>✅</td></tr>
+<tr><td rowspan="4">Algorithms</td><td><code>adaptive-limiting</code></td><td>AIMD adaptive concurrency limiter (latency/error-rate feedback window tuning)</td><td>✅</td></tr>
+<tr><td><code>adaptive-threshold</code></td><td>Adaptive threshold limiter (sliding-window error-rate/latency-driven dynamic quota, statistical heuristics; thresholds and cooldown fully explicit)</td><td>❌</td></tr>
 <tr><td><code>priority-queue</code></td><td>Compatibility declaration, no effect when enabled</td><td>❌</td></tr>
 <tr><td><code>admission-control</code></td><td>Compatibility declaration, no effect when enabled</td><td>❌</td></tr>
 <tr><td rowspan="5">Ecosystem</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> integration (health/lifecycle ports)</td><td>❌</td></tr>
@@ -325,6 +333,8 @@ Limiteron collaborates closely with its sibling crates in the workspace; each in
 
 Additionally, the `i18n` feature integrates [ICU4X](https://github.com/unicode-org/icu4x) for locale-aware formatting.
 
+The workspace member [`integrations/limiteron-sdforge`](integrations/limiteron-sdforge/) provides the reverse direction — a guard layer: the limiteron side exposes rate limiting / circuit breaking / bans to sdforge applications behind a tri-state `Guard` decision surface (adapted to `ForgeRateLimiter` under that crate's own sdforge feature), opposite in direction to sdforge's existing consumer adapter and independently versioned.
+
 ---
 
 ## 🧪 Testing
@@ -411,6 +421,7 @@ cargo bench --features full
 - **Input defenses** — tenant/environment identifier sanitization (`src/tenant/config.rs` escapes `:` to prevent namespace-prefix injection); IP / user ID / MAC format validation (`src/validation.rs`)
 - **Algorithm boundaries** — saturating arithmetic and capacity capping in the token bucket; clock-fallback protection in quota windows
 - **Admin self-protection** — per-path/per-client rate limiting on admin endpoints + bucket memory caps + multi-key token authentication with an admin/viewer role matrix (RBAC)
+- **Read-only Web UI unauthenticated warning** — the `admin-ui` embedded page issues GET requests only and is mechanically guarded (all-GET route table + read-only projection typing, `src/admin/web.rs`); it binds `127.0.0.1` by default and has **no authentication** — a non-loopback binding exposes admin snapshots to the whole subnet and must sit behind an authenticating reverse proxy (the server logs a warning on non-loopback binds)
 - **Data protection** — secrecy for sensitive data, log redaction (`log-redaction`), HMAC-SHA256 hash-chained audit events with tamper detection
 - **Transport defenses** — trusted-proxy X-Forwarded-For extraction; outbound webhook signatures + timestamp replay protection + URL validation (SSRF)
 - **Supply chain** — rustls-webpki minimum version pin (CVE-2025-48369); [cargo-deny](deny.toml) checks vulnerabilities/licenses/duplicate dependencies; the CI Security job and the pre-push hook run `cargo deny check` and `cargo audit`
@@ -434,11 +445,11 @@ cargo bench --features full
 </tr>
 <tr>
 <td width="12%" align="center"><b>📋 Planned</b></td>
-<td>Additional storage backends, Web UI management interface</td>
+<td>Additional storage backends</td>
 </tr>
 <tr>
 <td width="12%" align="center"><b>💡 Future Ideas</b></td>
-<td>Machine learning-driven rate limiting, community plugin system</td>
+<td>"ML-driven rate limiting" was adjudicated and materialized as statistical heuristics (`adaptive-limiting` AIMD concurrency window and `adaptive-threshold` sliding-window dynamic quota, both deterministic threshold logic, not neural networks — see `src/limiters/adaptive_threshold.rs`); the "community plugin system" has landed as compile-time registration (`plugins`, dynamic .so explicitly not supported, see `src/plugins/`)</td>
 </tr>
 </table>
 

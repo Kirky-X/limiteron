@@ -60,8 +60,7 @@ pub fn create_table_ddl() -> &'static str {
     "#
 }
 
-/// SQLite 方言建表 DDL（单测/本地后端）
-#[cfg_attr(not(test), allow(dead_code))]
+/// SQLite 方言建表 DDL（单测/嵌入式本地后端）
 pub fn create_table_ddl_sqlite() -> &'static str {
     r#"
     CREATE TABLE IF NOT EXISTS limiteron_event_outbox (

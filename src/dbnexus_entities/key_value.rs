@@ -46,3 +46,16 @@ pub fn create_table_ddl() -> &'static str {
     )
     "#
 }
+
+/// SQLite 方言建表 DDL（嵌入式后端）
+pub fn create_table_ddl_sqlite() -> &'static str {
+    r#"
+    CREATE TABLE IF NOT EXISTS limiteron_kv (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        expires_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+    "#
+}

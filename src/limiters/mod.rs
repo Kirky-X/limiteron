@@ -39,6 +39,11 @@ pub mod traits;
 #[cfg(feature = "adaptive-limiting")]
 pub mod adaptive;
 
+// 自适应阈值限流器（统计启发式动态配额；独立默认关 feature，刻意不入任何
+// preset——与 capacity-dial 同口径）
+#[cfg(feature = "adaptive-threshold")]
+pub mod adaptive_threshold;
+
 // 优先级队列限流器（按优先级调度的配额分配；此前 no-op feature 的真实实现）
 #[cfg(feature = "priority-queue")]
 pub mod priority_queue;

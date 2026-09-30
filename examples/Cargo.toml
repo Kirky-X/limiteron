@@ -147,7 +147,7 @@ postgres = ["limiteron/postgres"]
 cache-service = ["limiteron/cache-service"]
 # 可观测性
 telemetry = ["limiteron/telemetry"]
-monitoring = ["limiteron/monitoring"]
+prometheus = ["limiteron/prometheus"]
 audit-log = ["limiteron/audit-log"]
 # 降级与中间件
 fallback = ["limiteron/fallback"]
@@ -176,7 +176,7 @@ full = [
     "postgres",
     "cache-service",
     "telemetry",
-    "monitoring",
+    "prometheus",
     "audit-log",
     "fallback",
     "tower-middleware",

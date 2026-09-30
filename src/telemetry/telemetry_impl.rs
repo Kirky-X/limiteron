@@ -7,14 +7,14 @@
 use super::*;
 
 /// 全局指标实例
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 static GLOBAL_METRICS: std::sync::OnceLock<Arc<Metrics>> = std::sync::OnceLock::new();
 
 /// 空对象 Metrics 首次 `gather()` 已告警哨兵（避免每次调用重复刷屏）
-#[cfg(not(feature = "monitoring"))]
+#[cfg(not(feature = "prometheus"))]
 static METRICS_NOOP_WARNED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
 
-#[cfg(not(feature = "monitoring"))]
+#[cfg(not(feature = "prometheus"))]
 impl Metrics {
     pub fn new() -> Self {
         Self
@@ -54,7 +54,7 @@ impl Metrics {
 
 /// 设置全局指标实例
 ///
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 /// # 参数
 /// - `metrics`: Metrics实例
 pub fn set_global_metrics(metrics: Arc<Metrics>) {
@@ -63,14 +63,14 @@ pub fn set_global_metrics(metrics: Arc<Metrics>) {
 
 /// 获取全局指标实例
 ///
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 /// # 返回
 /// - `Some(Arc<Metrics>)`: 如果已设置
 pub fn try_global() -> Option<Arc<Metrics>> {
     GLOBAL_METRICS.get().cloned()
 }
 
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 impl Metrics {
     /// 创建新的监控指标
     ///
@@ -399,7 +399,7 @@ impl Metrics {
     }
 }
 
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 impl Default for Metrics {
     fn default() -> Self {
         Self::new()
@@ -803,7 +803,7 @@ fn init_console_tracer(config: &TelemetryConfig) -> Result<(), String> {
 /// # 返回
 /// - `Ok(())`: 服务器启动成功
 /// - `Err(_)`: 服务器启动失败
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result<(), String> {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -901,9 +901,9 @@ pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result
     }
 }
 
-#[cfg(not(feature = "monitoring"))]
+#[cfg(not(feature = "prometheus"))]
 pub async fn start_prometheus_server(_metrics: Arc<Metrics>, _port: u16) -> Result<(), String> {
-    Err("monitoring feature is disabled".to_string())
+    Err("prometheus feature is disabled".to_string())
 }
 
 // ============================================================================
@@ -918,7 +918,7 @@ mod tests {
     /// 自定义 registry 注册路径完整性：register() 必须与 new() 内建
     /// registry 暴露同一组指标（负缓存命中计数曾漏注册，自定义注册方
     /// 经 /metrics 收不到该序列）
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     #[test]
     fn test_register_covers_all_builtin_metrics() {
         let metrics = Metrics::new();
@@ -1212,7 +1212,7 @@ mod tests_init_telemetry {
     }
 }
 
-#[cfg(all(test, not(feature = "monitoring")))]
+#[cfg(all(test, not(feature = "prometheus")))]
 mod tests_noop_metrics {
     use super::*;
     use std::time::Duration;
@@ -1252,8 +1252,8 @@ mod tests_noop_metrics {
     }
 }
 
-#[cfg(all(test, feature = "monitoring"))]
-mod tests_monitoring {
+#[cfg(all(test, feature = "prometheus"))]
+mod tests_prometheus {
     use super::*;
     use std::time::Duration;
 
@@ -1502,7 +1502,7 @@ mod tests_monitoring {
     }
 }
 
-#[cfg(all(test, feature = "monitoring"))]
+#[cfg(all(test, feature = "prometheus"))]
 mod tests_prometheus_server {
     use super::*;
     use std::time::Duration;

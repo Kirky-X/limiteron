@@ -146,7 +146,7 @@ pub mod retry;
 // 同步限流原语（tokio-free，std + parking_lot）：供纯同步消费者使用
 #[cfg(feature = "sync")]
 pub mod sync;
-#[cfg(any(feature = "telemetry", feature = "monitoring"))]
+#[cfg(any(feature = "telemetry", feature = "prometheus"))]
 pub mod telemetry;
 #[cfg(feature = "multi-tenant")]
 mod tenant;
@@ -271,7 +271,7 @@ pub use matchers::{
 pub use matchers::{GeoCacheStats, GeoCondition, GeoInfo, GeoMatcher};
 #[cfg(feature = "quota-control")]
 pub use quota::QuotaController;
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 pub use telemetry::{Metrics, set_global_metrics, try_global};
 #[cfg(feature = "telemetry")]
 pub use telemetry::{TelemetryConfig, Tracer, init_telemetry};

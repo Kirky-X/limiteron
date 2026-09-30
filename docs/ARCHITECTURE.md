@@ -160,7 +160,7 @@ flowchart BT
 | 缓存 | `cache-service` / `cache-redis` / `lua-script` | oxcache 集成（`cache-storage` 为 `cache-redis` 的兼容别名） |
 | 算法 | `gcra` / `adaptive-limiting` | GCRA 限流、AIMD 自适应并发 |
 | 安全 | `log-redaction` / `validation` | 脱敏、输入校验 |
-| 可观测 | `telemetry` / `monitoring` / `metrics` / `audit-log` / `otlp` | 指标、追踪、审计；`metrics` 隐含 `monitoring`，`audit-log` / `otlp` 隐含 `telemetry` |
+| 可观测 | `telemetry` / `prometheus` / `metrics` / `audit-log` / `otlp` | 指标、追踪、审计；`metrics` 隐含 `prometheus`，`audit-log` / `otlp` 隐含 `telemetry`（`prometheus` 旧名 `monitoring` 保留为兼容别名） |
 | 控制面 | `admin-api` / `cli` | 管理 REST API 与 `limiteron-cli` |
 | 事件 | `event-system` / `webhook` / `ban-sync` | 事件订阅与 Outbox；`webhook` 签名外发与 `ban-sync` 跨实例广播需与 `event-system` 组合启用 |
 | 生态 | `kit` / `i18n` / `inklog` / `config-confers`(-reload) | trait-kit、ICU4X、inklog、confers 集成 |

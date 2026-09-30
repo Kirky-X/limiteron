@@ -144,7 +144,7 @@ Limiteron 的缓存分为两层：Governor 内置的 L1 负缓存（`src/l1_cach
 
 遥测系统通过 feature flag 控制编译，主要包含 OpenTelemetry 追踪与 Prometheus 指标两大功能。追踪集成通过 tracing crate 的 span 和 event 进行埋点，记录请求处理的各个阶段。tracing-subscriber 负责格式化输出，可以配置为 JSON 格式便于日志收集系统处理；`otlp` 特性将追踪数据经 OTLP/HTTP 导出到兼容收集器（如 Jaeger、Tempo），支持可视化分析请求链路和性能瓶颈。
 
-Prometheus 指标通过 `monitoring` / `metrics` 特性提供，覆盖 Governor 的 allow / reject / ban 三点指标与存储层指标传递，支持计数器、仪表盘、直方图三类指标。启用 `admin-api` 后，`/metrics` 端点直接暴露 Prometheus 抓取目标，`/healthz` 与 `/readyz` 提供 K8s 探针。
+Prometheus 指标通过 `prometheus`（旧名 `monitoring`）/ `metrics` 特性提供，覆盖 Governor 的 allow / reject / ban 三点指标与存储层指标传递，支持计数器、仪表盘、直方图三类指标。启用 `admin-api` 后，`/metrics` 端点直接暴露 Prometheus 抓取目标，`/healthz` 与 `/readyz` 提供 K8s 探针。
 
 遥测配置通过 TelemetryConfig 结构体管理，支持配置服务名称、端点、采样率等参数。init_telemetry 函数完成全局追踪器的初始化。
 

@@ -217,8 +217,8 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td><code>admin-ui</code></td><td>Read-only admin Web UI (embedded single page, no build chain; mechanical read-only guards: all-GET route table + read-only projection typing; binds 127.0.0.1 by default, <b>no authentication</b> — non-loopback bindings require a reverse proxy in front)</td><td>❌</td></tr>
 <tr><td><code>cli</code></td><td><code>limiteron-cli</code> binary: rule file validation / export / apply dry-run</td><td>❌</td></tr>
 <tr><td rowspan="5">Observability</td><td><code>telemetry</code></td><td>Tracing initialization (tracing-subscriber)</td><td>❌</td></tr>
-<tr><td><code>monitoring</code></td><td>Prometheus metrics (global + per-rule/per-limiter dimensions and degraded counter, configurable off)</td><td>❌</td></tr>
-<tr><td><code>metrics</code></td><td>Governor allow / reject / ban three-point metrics (implies <code>monitoring</code>)</td><td>❌</td></tr>
+<tr><td><code>prometheus</code></td><td>Prometheus metrics (global + per-rule/per-limiter dimensions and degraded counter, configurable off; legacy name <code>monitoring</code> kept as a compat alias)</td><td>❌</td></tr>
+<tr><td><code>metrics</code></td><td>Governor allow / reject / ban three-point metrics (implies <code>prometheus</code>)</td><td>❌</td></tr>
 <tr><td><code>audit-log</code></td><td>Audit logging (HMAC-SHA256 hash chain with tamper detection)</td><td>❌</td></tr>
 <tr><td><code>otlp</code></td><td>OTLP/HTTP tracing export</td><td>❌</td></tr>
 <tr><td rowspan="3">Tooling</td><td><code>macros</code></td><td><code>#[flow_control]</code> declarative macro (limiteron-macros)</td><td>❌</td></tr>

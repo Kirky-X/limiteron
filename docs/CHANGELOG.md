@@ -70,6 +70,7 @@
 - `BanManager::stop_auto_unban_task()` 由直接 abort 改为先取消信号等待在途清理完成（5s 超时兜底 abort）
 - 存储连接释放语义文档化：连接池随最后 `Arc` 引用释放由底层驱动关闭，shutdown 负责停止后台任务不再发起新访问
 - `LimiterFactory::create_with_redis`（`distributed` + `lua-script`）对无分布式脚本的类型（LeakyBucket/SlidingWindowLog/Concurrency 等）降级为进程内限流时输出 `tracing::warn` 带配置详情——多实例部署下全局放行量 = 配置值 × 实例数，降级不再静默
+- **`monitoring` 特性更名为 `prometheus`（兼容别名保留，无破坏）**：该特性实为 Prometheus 专属（`dep:prometheus` 门控），按「特性名即能力」命名惯例取依赖实名；91 处 `cfg(feature = "monitoring")` 门控同步迁移（src 90 + tests/e2e 1），examples 特性镜像与双语 README / docs 特性表同步更新，`start_prometheus_server` 禁用态错误消息同步更名；旧名 `monitoring = ["prometheus"]` 保留为兼容别名，既有消费者与文档旧引用不受影响；`metrics` 聚合特性与 `full` preset 改引主名
 
 ## [0.3.0-rc.6] - 2026-09-28
 

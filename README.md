@@ -216,8 +216,8 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>admin-ui</code></td><td>只读管理 Web UI（内嵌单页无构建链；机械只读守卫：路由表全 GET + 只读投影类型窄化；默认绑定 127.0.0.1，<b>无认证</b>，非回环绑定须前置反向代理）</td><td>❌</td></tr>
 <tr><td><code>cli</code></td><td><code>limiteron-cli</code> 二进制：规则文件校验 / 导出 / apply dry-run</td><td>❌</td></tr>
 <tr><td rowspan="5">可观测性</td><td><code>telemetry</code></td><td>追踪初始化（tracing-subscriber）</td><td>❌</td></tr>
-<tr><td><code>monitoring</code></td><td>Prometheus 指标（全局 + per-rule/per-limiter 维度与降级计数，可配置关闭）</td><td>❌</td></tr>
-<tr><td><code>metrics</code></td><td>Governor allow / reject / ban 三点指标（隐含 <code>monitoring</code>）</td><td>❌</td></tr>
+<tr><td><code>prometheus</code></td><td>Prometheus 指标（全局 + per-rule/per-limiter 维度与降级计数，可配置关闭；旧名 <code>monitoring</code> 保留为兼容别名）</td><td>❌</td></tr>
+<tr><td><code>metrics</code></td><td>Governor allow / reject / ban 三点指标（隐含 <code>prometheus</code>）</td><td>❌</td></tr>
 <tr><td><code>audit-log</code></td><td>审计日志（HMAC-SHA256 链式签名与篡改检测）</td><td>❌</td></tr>
 <tr><td><code>otlp</code></td><td>OTLP/HTTP 追踪导出</td><td>❌</td></tr>
 <tr><td rowspan="3">工具</td><td><code>macros</code></td><td><code>#[flow_control]</code> 声明式宏（limiteron-macros；展开代码依赖 <code>manager</code>，隐含启用）</td><td>❌</td></tr>

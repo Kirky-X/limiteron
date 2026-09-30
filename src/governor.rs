@@ -25,9 +25,9 @@ use crate::l1_cache::IslandFallbackStrategy;
 use crate::l1_cache::IslandModeConfig;
 use crate::l1_cache::{CacheableDecision, L1Cache, L1CacheConfig, RateLimitCacheKey};
 
-/// 决策结果维度标签（monitoring 指标与 telemetry span 共用同一判定；
+/// 决策结果维度标签（prometheus 指标与 telemetry span 共用同一判定；
 /// "error" 形态仅链执行失败产生，纯决策无该值）
-#[cfg(any(feature = "monitoring", feature = "telemetry"))]
+#[cfg(any(feature = "prometheus", feature = "telemetry"))]
 fn decision_outcome(decision: &Decision) -> &'static str {
     match decision {
         Decision::Allowed(_) => "allowed",
@@ -68,7 +68,7 @@ use crate::circuit::CircuitBreaker;
 use crate::logging::AuditLogger;
 #[cfg(any(feature = "parallel-checker", feature = "ban-manager"))]
 use crate::matchers::Identifier;
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 use crate::telemetry::Metrics;
 #[cfg(feature = "telemetry")]
 use crate::telemetry::Tracer;
@@ -200,12 +200,12 @@ pub struct Governor {
     event_emitter: Option<Arc<crate::events::EventEmitter>>,
 
     /// 指标收集器（可选，feature-gated）
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     metrics: Option<Arc<Metrics>>,
 
     /// per-rule/per-limiter 维度指标开关（默认开启；标签基数随规则与
     /// 限流器数量增长，超大规模配置可关闭仅保留全局计数）
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     per_rule_metrics: bool,
 
     /// 追踪器（可选，feature-gated）
@@ -236,12 +236,12 @@ pub struct Governor {
     /// 已导出的规则内限流器拒绝计数快照（上次导出值，增量求基）——
     /// 各链「已导出版本号」下沉为链内原子量（`DecisionChain`），稳态
     /// 版本比较零锁；本锁仅拒绝路径的合并落账持有——监控 feature 门控
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     exported_rejections: parking_lot::Mutex<ExportedRejections>,
 }
 
 /// per-limiter 拒绝增量导出的 Governor 侧状态（监控 feature 门控）
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 #[derive(Default)]
 struct ExportedRejections {
     /// rule_id → (node_name → 上次导出的累计拒绝值)
@@ -252,7 +252,7 @@ struct ExportedRejections {
     per_rule: std::collections::HashMap<String, std::collections::HashMap<String, u64>>,
 }
 
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 impl ExportedRejections {
     /// 清空导出快照（热更新换装后新链计数从零重计，快照必须同步归零）
     fn clear(&mut self) {
@@ -297,9 +297,9 @@ pub struct GovernorBuilder {
     circuit_breaker: Option<Arc<CircuitBreaker>>,
     #[cfg(feature = "audit-log")]
     audit_logger: Option<Arc<crate::logging::AuditLogger>>,
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     metrics: Option<Arc<Metrics>>,
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     per_rule_metrics: bool,
     #[cfg(feature = "telemetry")]
     tracer: Option<Arc<Tracer>>,
@@ -338,9 +338,9 @@ impl GovernorBuilder {
             circuit_breaker: None,
             #[cfg(feature = "audit-log")]
             audit_logger: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             per_rule_metrics: true,
             #[cfg(feature = "telemetry")]
             tracer: None,
@@ -450,7 +450,7 @@ impl GovernorBuilder {
     }
 
     /// 设置指标收集器
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     pub fn with_metrics(mut self, metrics: Arc<Metrics>) -> Self {
         self.metrics = Some(metrics);
         self
@@ -461,7 +461,7 @@ impl GovernorBuilder {
     /// 关闭后 Governor 仅记录全局计数（requests_total 等），不再导出
     /// `flowguard_rule_checks_total` / `flowguard_rule_limiter_rejections_total`
     /// 维度序列——标签基数随规则与限流器数量增长，超大规模配置可关闭。
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     pub fn with_per_rule_metrics(mut self, enabled: bool) -> Self {
         self.per_rule_metrics = enabled;
         self
@@ -664,9 +664,9 @@ impl GovernorBuilder {
             fallback_manager,
             #[cfg(feature = "event-system")]
             event_emitter: self.event_emitter,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: self.metrics,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             per_rule_metrics: self.per_rule_metrics,
             #[cfg(feature = "telemetry")]
             tracer: self.tracer,
@@ -676,7 +676,7 @@ impl GovernorBuilder {
             config_watcher_tokens: parking_lot::Mutex::new(Vec::new()),
             shutdown_snapshot_dir: self.shutdown_snapshot_dir.clone(),
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             exported_rejections: parking_lot::Mutex::new(ExportedRejections::default()),
         })
     }
@@ -820,9 +820,9 @@ impl Governor {
             fallback_manager: None,
             #[cfg(feature = "event-system")]
             event_emitter: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             per_rule_metrics: true,
             #[cfg(feature = "telemetry")]
             tracer: None,
@@ -832,7 +832,7 @@ impl Governor {
             config_watcher_tokens: parking_lot::Mutex::new(Vec::new()),
             shutdown_snapshot_dir: None,
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             exported_rejections: parking_lot::Mutex::new(ExportedRejections::default()),
         })
     }
@@ -875,7 +875,7 @@ impl Governor {
         config: FlowControlConfig,
         storage: Arc<dyn Storage>,
         ban_storage: Arc<dyn BanStorage>,
-        #[cfg(feature = "monitoring")] metrics: Option<Arc<Metrics>>,
+        #[cfg(feature = "prometheus")] metrics: Option<Arc<Metrics>>,
         #[cfg(feature = "telemetry")] tracer: Option<Arc<Tracer>>,
     ) -> Result<Self, LimiteronError> {
         // 使用 builder 模式创建 Governor
@@ -896,7 +896,7 @@ impl Governor {
             ));
 
         // 转发可选的 metrics/tracer（之前被静默丢弃）
-        #[cfg(feature = "monitoring")]
+        #[cfg(feature = "prometheus")]
         let builder = if let Some(m) = metrics {
             builder.with_metrics(m)
         } else {
@@ -1003,19 +1003,19 @@ impl Governor {
         storage: Arc<dyn Storage>,
         ban_storage: Arc<dyn BanStorage>,
     ) -> Result<Self, LimiteronError> {
-        #[cfg(all(feature = "monitoring", feature = "telemetry"))]
+        #[cfg(all(feature = "prometheus", feature = "telemetry"))]
         {
             Self::with_storage(config, storage, ban_storage, None, None).await
         }
-        #[cfg(all(feature = "monitoring", not(feature = "telemetry")))]
+        #[cfg(all(feature = "prometheus", not(feature = "telemetry")))]
         {
             Self::with_storage(config, storage, ban_storage, None).await
         }
-        #[cfg(all(not(feature = "monitoring"), feature = "telemetry"))]
+        #[cfg(all(not(feature = "prometheus"), feature = "telemetry"))]
         {
             Self::with_storage(config, storage, ban_storage, None).await
         }
-        #[cfg(all(not(feature = "monitoring"), not(feature = "telemetry")))]
+        #[cfg(all(not(feature = "prometheus"), not(feature = "telemetry")))]
         {
             Self::with_storage(config, storage, ban_storage).await
         }
@@ -1028,7 +1028,7 @@ impl Governor {
     ///
     /// 当启用了 FallbackManager 时，会在存储层故障时自动降级。
     pub async fn check(&self, context: &RequestContext) -> Result<Decision, LimiteronError> {
-        #[cfg(feature = "monitoring")]
+        #[cfg(feature = "prometheus")]
         let start_time = std::time::Instant::now();
 
         #[cfg(feature = "telemetry")]
@@ -1065,7 +1065,7 @@ impl Governor {
         }
 
         // 记录指标（Rule 12：失败必须显性化 — 错误也记录）
-        #[cfg(feature = "monitoring")]
+        #[cfg(feature = "prometheus")]
         if let Some(ref metrics) = self.metrics {
             let duration = start_time.elapsed();
             let allowed = matches!(&result, Ok(Decision::Allowed(_)));
@@ -1228,7 +1228,7 @@ impl Governor {
                     // 缓存命中）。规则被热更新移除后，其存量缓存条目在 TTL
                     // 内仍按已删 rule_id 递增 per-rule 序列（Prometheus 惰性
                     // 创建，短暂抬高基数，条目到期后自愈）
-                    #[cfg(feature = "monitoring")]
+                    #[cfg(feature = "prometheus")]
                     if let Some(ref metrics) = self.metrics {
                         if self.per_rule_metrics
                             && let Some(rule_id) = cached_decision.rule_id.as_deref()
@@ -1280,9 +1280,9 @@ impl Governor {
                 // 执行决策链
                 let result = chain.check().await;
 
-                // 规则维度结果（monitoring 指标与 telemetry span 共用一次判定；
+                // 规则维度结果（prometheus 指标与 telemetry span 共用一次判定；
                 // "error" 仅链执行失败产生，纯决策不含该形态）
-                #[cfg(any(feature = "monitoring", feature = "telemetry"))]
+                #[cfg(any(feature = "prometheus", feature = "telemetry"))]
                 let outcome: &str = match &result {
                     Ok(decision) => decision_outcome(decision),
                     Err(_) => "error",
@@ -1293,7 +1293,7 @@ impl Governor {
                 // 增量导出（Prometheus Counter 单调语义）——导出版本号下沉为
                 // 链内原子量，版本一致时两读一比零锁跳过，放行稳态与无新增
                 // 拒绝的流量不为监控导出付互斥锁与分配成本
-                #[cfg(feature = "monitoring")]
+                #[cfg(feature = "prometheus")]
                 if self.per_rule_metrics
                     && let Some(ref metrics) = self.metrics
                 {
@@ -1384,7 +1384,7 @@ impl Governor {
     ///    串行化后，基线只会随真实新增前进，不会被迟到的旧快照拉回
     ///    （曾经锁外快照 + 锁内无条件合并的 check-then-act 交错把基线
     ///    拉回旧值，下轮误判 stale 对已导出区间静默双算）。
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     fn export_chain_rejections(&self, chain: &DecisionChain, rule_id: &str, metrics: &Metrics) {
         let mut exported = self.exported_rejections.lock();
         if chain.exported_rejections_version() >= chain.node_rejections_version() {
@@ -1434,7 +1434,7 @@ impl Governor {
                     let result = self.check_internal(&context_clone).await;
 
                     // 降级计数仅认存储类错误（分类见 note_degraded_check）
-                    #[cfg(feature = "monitoring")]
+                    #[cfg(feature = "prometheus")]
                     self.note_degraded_check(&result);
                     result
                 },
@@ -1449,7 +1449,7 @@ impl Governor {
     /// 检查结果落监控面：存储类错误计降级（Redis 故障窗口信号）；
     /// 配置/标识符类错误不计——可被未认证请求无门槛刷出，计入会让
     /// degraded_checks_total 被请求洪水刷高、掩盖真实存储故障
-    #[cfg(all(feature = "monitoring", feature = "fallback"))]
+    #[cfg(all(feature = "prometheus", feature = "fallback"))]
     fn note_degraded_check(&self, result: &Result<Decision, LimiteronError>) {
         if let Err(LimiteronError::StorageError(_)) = result
             && let Some(ref metrics) = self.metrics
@@ -2093,7 +2093,7 @@ impl Governor {
             let old = std::mem::replace(&mut *cfg_guard, new_config);
             // 新链拒绝计数从零重计，增量导出快照同步清零——否则新链拒绝
             // 在累计值追平旧链快照前不会进入指标（漏报）
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             self.exported_rejections.lock().clear();
             let old_hash = old.compute_hash();
             let old_version = old.version;
@@ -2829,7 +2829,7 @@ mod governor_construction_tests {
 
         let config = create_valid_test_config();
 
-        #[cfg(feature = "monitoring")]
+        #[cfg(feature = "prometheus")]
         let metrics: Option<Arc<Metrics>> = None;
         #[cfg(feature = "telemetry")]
         let tracer: Option<Arc<Tracer>> = None;
@@ -2838,7 +2838,7 @@ mod governor_construction_tests {
             config,
             storage,
             ban_storage,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics,
             #[cfg(feature = "telemetry")]
             tracer,
@@ -3936,7 +3936,7 @@ mod governor_construction_tests {
             config,
             storage.clone(),
             ban_storage.clone(),
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             None,
             #[cfg(feature = "telemetry")]
             None,
@@ -5060,7 +5060,7 @@ mod governor_feature_gated_tests {
         assert!(governor.health_check().await.is_ok());
     }
 
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     #[tokio::test]
     async fn test_builder_with_metrics() {
         use crate::telemetry::Metrics;
@@ -5092,7 +5092,7 @@ mod governor_feature_gated_tests {
     /// per-rule/per-limiter 维度指标接线验证：规则命中后
     /// flowguard_rule_checks_total（rule/outcome 标签）被记录，且
     /// flowguard_rule_limiter_rejections_total 随链内拒绝增量导出
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     #[tokio::test]
     async fn test_per_rule_metrics_wiring() {
         use crate::telemetry::Metrics;
@@ -5133,7 +5133,7 @@ mod governor_feature_gated_tests {
     /// 负缓存命中路径的 per-rule 归因验证：缓存命中的拒绝按缓存内裁决
     /// 规则计入 flowguard_rule_checks_total（与链上拒绝同序列），可归因
     /// 命中不重复计入 negative_cache_hits_total
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     #[tokio::test]
     async fn test_negative_cache_hit_counts_per_rule_metrics() {
         use crate::telemetry::Metrics;
@@ -5193,7 +5193,7 @@ mod governor_feature_gated_tests {
 
     /// 维度指标开关关闭验证：with_per_rule_metrics(false) 后 check 不再
     /// 导出 rule 维度序列（全局计数仍工作）
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     #[tokio::test]
     async fn test_per_rule_metrics_disabled_opt_out() {
         use crate::telemetry::Metrics;
@@ -5227,7 +5227,7 @@ mod governor_feature_gated_tests {
     /// 合并串行化。曾经锁外快照 + 锁内无条件合并的 check-then-act 交错
     /// 把基线拉回旧值，下轮误判 stale 对已导出区间静默双算——同版本
     /// 重复导出必须整体跳过，新增拒绝后只导出真实增量
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     #[tokio::test]
     async fn test_incremental_export_idempotent_and_exact() {
         use crate::telemetry::Metrics;
@@ -5326,7 +5326,7 @@ mod governor_feature_gated_tests {
 
     /// 并发导出压力钉子：多任务并发触发同一链的导出，累计导出量必须
     /// 恰等于链上真实拒绝数——不双算不漏算
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     #[tokio::test]
     async fn test_concurrent_exports_never_double_count() {
         use crate::telemetry::Metrics;
@@ -5417,7 +5417,7 @@ mod governor_feature_gated_tests {
     /// 负缓存无归因命中（缓存条目 rule_id=None，如旧版本写入的共享缓存
     /// 条目）的防御路径：span 不虚构 rule.id，但保留 rule.outcome 结果
     /// 信号，观测面不留全盲 span；无归因命中退独立计数
-    #[cfg(all(test, feature = "monitoring", feature = "telemetry", feature = "otlp"))]
+    #[cfg(all(test, feature = "prometheus", feature = "telemetry", feature = "otlp"))]
     #[tokio::test]
     async fn test_negative_cache_hit_without_rule_id_records_outcome() {
         use crate::l1_cache::CacheableDecision;
@@ -5533,7 +5533,7 @@ mod governor_feature_gated_tests {
     /// 降级计数接线验证：配置 FallbackManager 后主检查失败走降级闭包，
     /// 但配置类错误（无标识符）不计 degraded——可被未认证请求无门槛刷出，
     /// 非存储健康度信号；未配置 fallback 或主检查成功时不计降级
-    #[cfg(all(feature = "monitoring", feature = "fallback"))]
+    #[cfg(all(feature = "prometheus", feature = "fallback"))]
     #[tokio::test]
     async fn test_degraded_metrics_wiring() {
         use crate::fallback::FallbackManager;
@@ -5590,7 +5590,7 @@ mod governor_feature_gated_tests {
     /// 降级分类判定验证：存储类错误计降级，配置类错误与成功结果不计
     /// （分类器直接驱动——链内限流器为本地实现，端到端注入存储错误
     /// 需分布式后端，不可在单测稳定复现）
-    #[cfg(all(feature = "monitoring", feature = "fallback"))]
+    #[cfg(all(feature = "prometheus", feature = "fallback"))]
     #[tokio::test]
     async fn test_degraded_error_classification() {
         use crate::error::StorageError;
@@ -5625,7 +5625,7 @@ mod governor_feature_gated_tests {
     /// 热更新后增量导出对齐验证：apply_config 重建决策链后链内拒绝计数
     /// 从零重计，导出快照同步清零，新链拒绝立即进入指标；若快照未清零，
     /// 新链累计在追平旧快照前会被增量语义吞掉（漏报）
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     #[tokio::test]
     async fn test_per_rule_limiter_rejections_reset_on_hot_reload() {
         use crate::telemetry::Metrics;
@@ -5718,7 +5718,7 @@ mod governor_feature_gated_tests {
     }
 
     /// 验证 with_storage() 转发 metrics 参数到 Governor（之前被 #[allow(unused_variables)] 静默丢弃）
-    #[cfg(feature = "monitoring")]
+    #[cfg(feature = "prometheus")]
     #[tokio::test]
     async fn test_with_storage_forwards_metrics() {
         use crate::telemetry::Metrics;
@@ -6311,7 +6311,7 @@ mod governor_feature_gated_tests {
 
     // ============================================================================
     // metrics feature 门控计数测试
-    // metrics 隐含 monitoring，启用后 governor check() 中 allow/reject/ban
+    // metrics 隐含 prometheus，启用后 governor check() 中 allow/reject/ban
     // 三点指标记录自动激活
     // ============================================================================
 

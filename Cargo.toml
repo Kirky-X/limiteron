@@ -288,7 +288,7 @@ full = [
     "device-matching",
     "regex-matching",
     "telemetry",
-    "monitoring",
+    "prometheus",
     "audit-log",
     "macros",
     "config-watcher",
@@ -436,10 +436,14 @@ telemetry = [
     "dep:tracing-subscriber",
     "dep:scopeguard",
 ]
-monitoring = ["dep:prometheus", "dep:scopeguard"]
+# prometheus 特性：Prometheus 指标导出（Metrics struct + Prometheus registry）。
+# 由 `monitoring` 更名而来——该特性实为 Prometheus 专属，按「特性名即能力」
+# 惯例取依赖实名（与 telemetry/otlp/audit-log 同口径）；旧名保留为兼容别名
+prometheus = ["dep:prometheus", "dep:scopeguard"]
+monitoring = ["prometheus"]
 # metrics 特性：启用 governor allow/reject/ban 三点指标记录 + dbnexus 指标传递
-# 隐含 monitoring 以激活 Metrics struct 和 Prometheus 计数器
-metrics = ["monitoring", "dbnexus/metrics"]
+# 隐含 prometheus 以激活 Metrics struct 和 Prometheus 计数器
+metrics = ["prometheus", "dbnexus/metrics"]
 audit-log = ["telemetry", "dep:hmac", "dep:sha2", "dep:hex"]
 # otlp 追踪导出：init_jaeger_tracer 升级为 OTLP/HTTP exporter
 # （手工 HTTP/1.1 客户端，无新增依赖；传输可 mock，mock collector 单测覆盖）
@@ -512,7 +516,7 @@ name = "e2e_advanced"
 path = "tests/e2e/e2e_advanced.rs"
 
 # K8s 探针与指标端点 e2e（/healthz /readyz /metrics，bypass 认证）。
-# 需 admin-api feature；monitoring 相关断言在测试内部按 cfg 门控。
+# 需 admin-api feature；prometheus 相关断言在测试内部按 cfg 门控。
 [[test]]
 name = "probes_e2e"
 path = "tests/e2e/probes_e2e.rs"

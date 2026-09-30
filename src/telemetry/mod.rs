@@ -38,10 +38,10 @@ pub use monitoring::{
     AlertConfig, AlertLevel, AlertThresholdF64, AlertThresholdU64, MetricsSnapshot,
 };
 
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 use log::error;
 use log::{info, warn};
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 use prometheus::{
     Counter, Encoder, Gauge, Histogram, HistogramOpts, IntCounter, IntCounterVec, Opts, Registry,
     TextEncoder,
@@ -62,16 +62,16 @@ mod telemetry_impl;
 #[cfg(feature = "telemetry")]
 pub use telemetry_impl::init_telemetry;
 pub use telemetry_impl::start_prometheus_server;
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 pub use telemetry_impl::{set_global_metrics, try_global};
 
-#[cfg(not(feature = "monitoring"))]
+#[cfg(not(feature = "prometheus"))]
 #[derive(Clone, Debug, Default)]
 pub struct Metrics;
 
 /// 监控指标
 ///
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 /// 包含所有Prometheus指标的定义和操作方法。
 #[derive(Clone, Debug)]
 pub struct Metrics {

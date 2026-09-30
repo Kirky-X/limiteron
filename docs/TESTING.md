@@ -82,7 +82,7 @@ cargo test --features standard
 | `ban-manager` | 封禁管理功能 | `cargo test --features ban-manager` |
 | `quota-control` | 配额控制功能 | `cargo test --features quota-control` |
 | `circuit-breaker` | 熔断器功能 | `cargo test --features circuit-breaker` |
-| `monitoring` | Prometheus 指标 | `cargo test --features monitoring` |
+| `prometheus` | Prometheus 指标 | `cargo test --features prometheus` |
 | `telemetry` | 追踪遥测 | `cargo test --features telemetry` |
 | `postgres` | PostgreSQL 存储 | `cargo test --features postgres` |
 | `sqlite` | SQLite 存储 | `cargo test --features sqlite` |

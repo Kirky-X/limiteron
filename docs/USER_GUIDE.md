@@ -626,7 +626,7 @@ for request in requests {
 
 > **🔒 安全提示**：不要在代码中硬编码数据库连接串或密钥，经环境变量注入；启用 `log-redaction` 与 `audit-log` 特性保护敏感数据。安全设计详见[安全文档](SECURITY.md)。
 
-> **📊 监控提示**：启用 `monitoring` / `metrics` 特性后，Governor 的 allow / reject / ban 三点指标自动接入 Prometheus。
+> **📊 监控提示**：启用 `prometheus`（旧名 `monitoring`）/ `metrics` 特性后，Governor 的 allow / reject / ban 三点指标自动接入 Prometheus。
 
 ---
 

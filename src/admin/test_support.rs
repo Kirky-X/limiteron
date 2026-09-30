@@ -66,7 +66,7 @@ pub async fn make_state() -> LimiteronState {
         quota_controller: None,
         #[cfg(feature = "circuit-breaker")]
         circuit_breaker: None,
-        #[cfg(feature = "monitoring")]
+        #[cfg(feature = "prometheus")]
         metrics: None,
     }
 }
@@ -88,7 +88,7 @@ pub async fn make_state_with_ban_manager() -> LimiteronState {
         quota_controller: None,
         #[cfg(feature = "circuit-breaker")]
         circuit_breaker: None,
-        #[cfg(feature = "monitoring")]
+        #[cfg(feature = "prometheus")]
         metrics: None,
     }
 }

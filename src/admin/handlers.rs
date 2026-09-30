@@ -95,7 +95,7 @@ pub async fn readyz(State(state): State<LimiteronState>) -> axum::response::Resp
 ///
 /// 数据源优先级：`LimiteronState.metrics`（显式注入）→ 全局指标（`try_global()`）
 /// → 空 exposition（合法 Prometheus 注释行，保持 200 契约）。
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 pub async fn metrics(State(state): State<LimiteronState>) -> axum::response::Response {
     use axum::http::header;
     let content_type = "text/plain; version=0.0.4";
@@ -106,8 +106,8 @@ pub async fn metrics(State(state): State<LimiteronState>) -> axum::response::Res
     ([(header::CONTENT_TYPE, content_type)], text).into_response()
 }
 
-/// GET /metrics（无 monitoring feature）——空 exposition
-#[cfg(not(feature = "monitoring"))]
+/// GET /metrics（无 prometheus feature）——空 exposition
+#[cfg(not(feature = "prometheus"))]
 pub async fn metrics() -> axum::response::Response {
     use axum::http::header;
     (
@@ -567,7 +567,7 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         // 未封禁的 IP → Ban not found
@@ -600,7 +600,7 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         // 非 IP 字符串 → UserId 目标
@@ -657,7 +657,7 @@ mod tests {
             quota_controller: Some(quota_controller),
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         // new_limit > 0 → 不支持
@@ -695,7 +695,7 @@ mod tests {
             #[cfg(feature = "quota-control")]
             quota_controller: None,
             circuit_breaker: Some(cb),
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         let resp = get_circuit_breaker_status(State(state)).await;
@@ -721,7 +721,7 @@ mod tests {
             #[cfg(feature = "quota-control")]
             quota_controller: None,
             circuit_breaker: Some(cb),
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         let resp = get_status(State(state)).await;
@@ -761,7 +761,7 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         let req = UnbanRequest {
@@ -810,7 +810,7 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         // ?type=mac 显式指定 → 成功解封
@@ -865,7 +865,7 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         // ?type=geo 显式指定 → 成功解封
@@ -901,7 +901,7 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         // ?type=foo 不支持 → 400 BAD_REQUEST
@@ -955,7 +955,7 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         // 不指定 type → 自动推断为 UserId（MAC 字符串不是合法 IP）→ 404 NOT_FOUND
@@ -999,7 +999,7 @@ mod tests {
             quota_controller: Some(quota_controller),
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         let req = UpdateQuotaRequest {
@@ -1038,7 +1038,7 @@ mod tests {
             #[cfg(feature = "quota-control")]
             quota_controller: None,
             circuit_breaker: Some(cb),
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         let resp = get_circuit_breaker_status(State(state)).await;

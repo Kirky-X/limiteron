@@ -518,7 +518,7 @@ pub async fn with_storage(
     config: FlowControlConfig,
     storage: Arc<dyn Storage>,
     ban_storage: Arc<dyn BanStorage>,
-    #[cfg(feature = "monitoring")] metrics: Option<Arc<Metrics>>,
+    #[cfg(feature = "prometheus")] metrics: Option<Arc<Metrics>>,
     #[cfg(feature = "telemetry")] tracer: Option<Arc<Tracer>>,
 ) -> Result<Self, LimiteronError>
 
@@ -533,7 +533,7 @@ pub fn builder() -> GovernorBuilder
 | `with_config(config: FlowControlConfig)` | 注入配置 |
 | `with_storage(storage: Arc<dyn Storage>)` | 注入存储后端 |
 | `with_ban_storage(ban_storage: Arc<dyn BanStorage>)` | 注入封禁存储 |
-| `with_metrics(metrics: Arc<Metrics>)` | 注入指标收集器（`monitoring` 特性） |
+| `with_metrics(metrics: Arc<Metrics>)` | 注入指标收集器（`prometheus` 特性） |
 | `with_tracer(tracer: Arc<Tracer>)` | 注入追踪器（`telemetry` 特性） |
 | `with_audit_logger(logger: Arc<AuditLogger>)` | 注入审计日志器（`audit-log` 特性） |
 | `with_shutdown_snapshot_dir(dir)` | 关闭时统计快照落盘目录（JSON；默认不落盘） |

@@ -145,9 +145,9 @@ async fn test_probe_endpoints_bypass_auth_but_business_endpoints_still_require_i
     }
 }
 
-#[cfg(feature = "monitoring")]
+#[cfg(feature = "prometheus")]
 #[tokio::test]
-async fn test_metrics_with_monitoring_feature_renders_registered_counters() {
+async fn test_metrics_with_prometheus_feature_renders_registered_counters() {
     use limiteron::telemetry::Metrics;
     // 记录一次指标后经 /metrics 渲染（走全局 metrics 注入路径）
     let metrics = std::sync::Arc::new(Metrics::new());
@@ -158,7 +158,7 @@ async fn test_metrics_with_monitoring_feature_renders_registered_counters() {
     assert_eq!(status, StatusCode::OK);
     assert!(
         body.contains("flowguard_check_duration_seconds"),
-        "monitoring 启用时 /metrics 应渲染注册的直方图，实际前 200 字节: {}",
+        "prometheus 启用时 /metrics 应渲染注册的直方图，实际前 200 字节: {}",
         body.chars().take(200).collect::<String>()
     );
 }

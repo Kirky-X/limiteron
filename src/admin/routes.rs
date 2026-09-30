@@ -727,7 +727,7 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         let app = create_router(state, &config);
@@ -776,7 +776,7 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         let app = create_router(state, &config);
@@ -840,7 +840,7 @@ mod tests {
             quota_controller: None,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: None,
-            #[cfg(feature = "monitoring")]
+            #[cfg(feature = "prometheus")]
             metrics: None,
         };
         let app = create_router(state, &config);

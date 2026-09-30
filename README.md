@@ -386,6 +386,8 @@ Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式
 
 <br>
 
+历史实测数据（口径早于基准设施口径统一，仅供量级参考；现行口径为 fresh 实例放行路径，见 `benches/throughput.rs` 口径说明）：
+
 ```text
 TokenBucket: 12,088,759 ops/s
 FixedWindow: 19,920,188 ops/s
@@ -439,8 +441,8 @@ cargo bench --features full
 <td>多租户贯穿 Governor、CIDR 网段封禁、Admin RBAC、OTLP 追踪导出、MySQL 存储、分布式限流器、<code>limiteron-cli</code> 等新能力（详见<a href="docs/CHANGELOG.md">更新日志</a>）</td>
 </tr>
 <tr>
-<td width="12%" align="center"><b>🚧 进行中</b></td>
-<td>性能优化、监控与追踪增强</td>
+<td width="12%" align="center"><b>✅ 已交付</b></td>
+<td>性能优化与监控追踪增强——criterion 四组基准修复并统一 fresh 实例放行口径（<code>90fb0cb</code>）、HeaderMatcher ASCII 零分配快路径削减热点（12 项基准 -10.0%~-33.4%，<code>4cc7c6f</code>）、per-rule/per-limiter 维度指标与 <code>governor_check</code> span（<code>5422c6d</code>）；OTLP 追踪导出已随 0.3.0-rc.4 交付</td>
 </tr>
 <tr>
 <td width="12%" align="center"><b>📋 计划中</b></td>

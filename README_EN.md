@@ -387,6 +387,8 @@ The testing strategy matrix (unit / integration & E2E / property / doc / benchma
 
 <br>
 
+Historical measurements (methodology predates the benchmark methodology unification, order-of-magnitude reference only; the current methodology is the fresh-instance pass path, see the notes in `benches/throughput.rs`):
+
 ```text
 TokenBucket: 12,088,759 ops/s
 FixedWindow: 19,920,188 ops/s
@@ -440,8 +442,8 @@ cargo bench --features full
 <td>Multi-tenancy through Governor, CIDR range bans, Admin RBAC, OTLP tracing export, MySQL storage, distributed limiting, <code>limiteron-cli</code>, and more (see the <a href="docs/CHANGELOG.md">changelog</a>)</td>
 </tr>
 <tr>
-<td width="12%" align="center"><b>🚧 In Progress</b></td>
-<td>Performance optimization, monitoring and tracing improvements</td>
+<td width="12%" align="center"><b>✅ Delivered</b></td>
+<td>Performance optimization and monitoring/tracing improvements — four criterion benchmark suites repaired with unified fresh-instance pass-path methodology (<code>90fb0cb</code>), HeaderMatcher zero-allocation ASCII fast-path hotspot reduction (-10.0%~-33.4% across 12 benchmarks, <code>4cc7c6f</code>), per-rule/per-limiter dimensional metrics and <code>governor_check</code> span (<code>5422c6d</code>); OTLP trace export shipped with 0.3.0-rc.4</td>
 </tr>
 <tr>
 <td width="12%" align="center"><b>📋 Planned</b></td>

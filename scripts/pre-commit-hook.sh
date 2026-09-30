@@ -144,7 +144,9 @@ check_formatting() {
 check_clippy() {
     log_info "运行 Clippy 检查..."
 
-    if cargo clippy --all-targets --all-features --workspace -- -D warnings 2>&1 | tee /tmp/clippy_output.txt; then
+    # 特性口径：存储驱动互斥（dbnexus embedded/server-side 红线）禁 --all-features，
+    # 统一为与 CI 相同的显式清单（full,postgres）
+    if cargo clippy --all-targets --workspace --no-default-features --features full,postgres -- -D warnings 2>&1 | tee /tmp/clippy_output.txt; then
         log_success "Clippy 检查通过"
         rm -f /tmp/clippy_output.txt
         return 0
@@ -317,7 +319,7 @@ run_architecture_check() {
 run_compile_check() {
     log_info "运行编译检查..."
 
-    if cargo check --all-features 2>&1 | tee /tmp/compile_output.txt; then
+    if cargo check --workspace --no-default-features --features full,postgres 2>&1 | tee /tmp/compile_output.txt; then
         log_success "编译检查通过"
         rm -f /tmp/compile_output.txt
         return 0

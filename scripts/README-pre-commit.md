@@ -32,11 +32,12 @@ Before each commit, the pre-commit hook automatically runs:
 
 3. **Compilation Check** (`cargo check`)
    - Verifies the code compiles successfully
-   - Uses `cargo check --all-features`
+   - Uses `cargo check --no-default-features --features full,postgres`
+     (storage drivers are mutually exclusive, `--all-features` cannot build)
 
 4. **Unit Tests** (`cargo test`)
    - Runs the library unit tests
-   - Uses `cargo test --lib --all-features`
+   - Uses `cargo test --lib --no-default-features --features full,postgres`
 
 ## Skipping the Hook
 

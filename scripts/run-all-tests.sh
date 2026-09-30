@@ -101,7 +101,9 @@ print_header "Limiteron 完整测试套件"
 if [ "$RUN_CHECK" = true ]; then
     print_header "1. 编译检查"
     echo "检查编译状态..."
-    if cargo check --all-features 2>&1 | grep -q "Finished"; then
+    # 特性口径：存储驱动互斥（dbnexus embedded/server-side 红线）禁 --all-features，
+    # 统一为与 CI 相同的显式清单（full,postgres）
+    if cargo check --workspace --no-default-features --features full,postgres 2>&1 | grep -q "Finished"; then
         print_success "编译检查通过"
     else
         print_error "编译检查失败"

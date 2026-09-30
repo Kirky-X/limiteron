@@ -125,10 +125,13 @@ run_check_with_output "Format Check" \
 
 echo ""
 
+# 特性口径：存储驱动互斥（dbnexus embedded/server-side 红线）禁 --all-features，
+# 统一为与 CI 相同的显式清单（full,postgres）
+
 # 2. Clippy Linting
 print_header "2. Clippy Linting"
 run_check "Clippy Check" \
-    "cargo clippy --all-features -- -A clippy::unnested-or-lower -D warnings" \
+    "cargo clippy --no-default-features --features full,postgres -- -A clippy::unnested-or-lower -D warnings" \
     "Clippy found issues. Review the output above."
 
 echo ""
@@ -136,7 +139,7 @@ echo ""
 # 3. Compilation Check
 print_header "3. Compilation Check"
 run_check "Build Check" \
-    "cargo check --all-features" \
+    "cargo check --no-default-features --features full,postgres" \
     "Compilation failed. Check the errors above."
 
 echo ""
@@ -144,7 +147,7 @@ echo ""
 # 4. Unit Tests (fast subset)
 print_header "4. Unit Tests"
 run_check "Unit Tests" \
-    "cargo test --lib --all-features -- --test-threads=4" \
+    "cargo test --lib --no-default-features --features full,postgres -- --test-threads=4" \
     "Unit tests failed. Check the test output above."
 
 echo ""
@@ -174,9 +177,9 @@ else
     echo ""
     echo -e "${BLUE}Quick fix commands:${NC}"
     echo -e "  ${BLUE}Formatting:${NC}    cargo fmt"
-    echo -e "  ${BLUE}Clippy:${NC}       cargo clippy --all-features -- -D warnings"
-    echo -e "  ${BLUE}Build:${NC}        cargo check --all-features"
-    echo -e "  ${BLUE}Tests:${NC}        cargo test --lib --all-features"
+    echo -e "  ${BLUE}Clippy:${NC}       cargo clippy --no-default-features --features full,postgres -- -D warnings"
+    echo -e "  ${BLUE}Build:${NC}        cargo check --no-default-features --features full,postgres"
+    echo -e "  ${BLUE}Tests:${NC}        cargo test --lib --no-default-features --features full,postgres"
     echo ""
     echo -e "${RED}Elapsed time: ${ELAPSED}s${NC}"
     exit 1

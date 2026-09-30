@@ -139,6 +139,12 @@ pub struct AtomicChainStats {
     error_count: AtomicU64,
     /// 各节点的拒绝次数（需要锁保护的动态数据）
     node_rejections: RwLock<AHashMap<String, u64>>,
+    /// 节点拒绝计数的版本号（每次递增或重置时 +1）——导出侧据此短路
+    /// 全量快照：版本未变化即无新增拒绝，免锁免分配跳过
+    node_rejections_version: AtomicU64,
+    /// 已导出到监控面的节点拒绝版本号（导出侧落账基线；与计数版本号
+    /// 比较即可判断有无未导出的新增拒绝，稳态比较为纯原子读）
+    exported_rejections_version: AtomicU64,
 }
 
 impl AtomicChainStats {
@@ -153,6 +159,8 @@ impl AtomicChainStats {
             rejected_count: AtomicU64::new(0),
             error_count: AtomicU64::new(0),
             node_rejections: RwLock::new(AHashMap::new()),
+            node_rejections_version: AtomicU64::new(0),
+            exported_rejections_version: AtomicU64::new(0),
         }
     }
 
@@ -187,6 +195,40 @@ impl AtomicChainStats {
     pub fn increment_node_rejection(&self, node_id: &str) {
         let mut rejections = self.node_rejections.write();
         *rejections.entry(node_id.to_string()).or_insert(0) += 1;
+        // 版本号递增留在写锁临界区内：持读锁的导出侧「计数 + 版本号」
+        // 同点观测严格一致。版本号仅作变化检测提示（读侧最终经 RwLock
+        // 取真实计数），Relaxed 足够，无须 SeqCst 跨计数器全序
+        self.node_rejections_version.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 节点拒绝计数的版本号（无新增拒绝时不变，导出侧据此短路全量快照）
+    #[inline]
+    pub fn node_rejections_version(&self) -> u64 {
+        self.node_rejections_version.load(Ordering::Relaxed)
+    }
+
+    /// 已导出的节点拒绝版本号（导出侧落账基线，仅变化检测提示，Relaxed 读）
+    pub fn exported_rejections_version(&self) -> u64 {
+        self.exported_rejections_version.load(Ordering::Relaxed)
+    }
+
+    /// 落账已导出的节点拒绝版本号（仅导出侧在其落账临界区内调用）
+    pub fn set_exported_rejections_version(&self, version: u64) {
+        self.exported_rejections_version
+            .store(version, Ordering::Relaxed);
+    }
+
+    /// 在节点拒绝表读锁内遍历计数执行 `f`，返回与计数同点读取的版本号
+    ///
+    /// 导出侧经此获得一致快照：计数与版本号同一临界区观测，迭代零克隆
+    /// （回调按需为增量节点分配）；`f` 内不得重入本表的写操作（持读锁）
+    pub fn for_each_node_rejection(&self, mut f: impl FnMut(&str, u64)) -> u64 {
+        let rejections = self.node_rejections.read();
+        let version = self.node_rejections_version.load(Ordering::Relaxed);
+        for (node, count) in rejections.iter() {
+            f(node, *count);
+        }
+        version
     }
 
     /// 获取统计快照
@@ -214,11 +256,15 @@ impl AtomicChainStats {
 
     /// 重置所有统计信息
     pub fn reset(&self) {
+        let mut rejections = self.node_rejections.write();
         self.total_checks.store(0, Ordering::SeqCst);
         self.allowed_count.store(0, Ordering::SeqCst);
         self.rejected_count.store(0, Ordering::SeqCst);
         self.error_count.store(0, Ordering::SeqCst);
-        self.node_rejections.write().clear();
+        rejections.clear();
+        // 版本号递增保证导出侧感知计数已清零，不会误判「无变化」而跳过；
+        // 与清零同在写锁临界区内完成，保证二者原子可见
+        self.node_rejections_version.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -380,6 +426,31 @@ impl DecisionChain {
     /// - 统计快照（值类型）
     pub fn stats_sync(&self) -> ChainStats {
         self.stats.snapshot()
+    }
+
+    /// 节点拒绝计数的版本号（无新增拒绝时不变）
+    ///
+    /// 导出侧据此短路全量快照：版本未变化即无新增拒绝，免锁免分配跳过，
+    /// 决策热路径稳态（放行流量）不为监控导出付任何克隆成本。
+    pub fn node_rejections_version(&self) -> u64 {
+        self.stats.node_rejections_version()
+    }
+
+    /// 在节点拒绝表读锁内遍历计数执行回调，返回同点读取的版本号
+    ///
+    /// 计数与版本号同一临界区观测，供监控导出侧构建一致快照
+    pub fn for_each_node_rejection(&self, f: impl FnMut(&str, u64)) -> u64 {
+        self.stats.for_each_node_rejection(f)
+    }
+
+    /// 已导出到监控面的节点拒绝版本号（导出侧落账基线，稳态比较为纯原子读）
+    pub fn exported_rejections_version(&self) -> u64 {
+        self.stats.exported_rejections_version()
+    }
+
+    /// 落账已导出的节点拒绝版本号（仅监控导出路径调用）
+    pub fn set_exported_rejections_version(&self, version: u64) {
+        self.stats.set_exported_rejections_version(version)
     }
 
     /// 重置统计信息

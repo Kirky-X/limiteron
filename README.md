@@ -209,7 +209,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td rowspan="2">控制面</td><td><code>admin-api</code></td><td>管理 REST API（axum，含 RBAC 与限流自保护）</td><td>❌</td></tr>
 <tr><td><code>cli</code></td><td><code>limiteron-cli</code> 二进制：规则文件校验 / 导出 / apply dry-run</td><td>❌</td></tr>
 <tr><td rowspan="5">可观测性</td><td><code>telemetry</code></td><td>追踪初始化（tracing-subscriber）</td><td>❌</td></tr>
-<tr><td><code>monitoring</code></td><td>Prometheus 指标</td><td>❌</td></tr>
+<tr><td><code>monitoring</code></td><td>Prometheus 指标（全局 + per-rule/per-limiter 维度与降级计数，可配置关闭）</td><td>❌</td></tr>
 <tr><td><code>metrics</code></td><td>Governor allow / reject / ban 三点指标（隐含 <code>monitoring</code>）</td><td>❌</td></tr>
 <tr><td><code>audit-log</code></td><td>审计日志（HMAC-SHA256 链式签名与篡改检测）</td><td>❌</td></tr>
 <tr><td><code>otlp</code></td><td>OTLP/HTTP 追踪导出</td><td>❌</td></tr>
@@ -271,7 +271,7 @@ cargo run -p limiteron-examples --features "ban-manager,admin-api" --bin ban_htt
 | 示例 | 说明 |
 |------|------|
 | `simple_rate_limit` | 最基本的令牌桶限流使用方式 |
-| `rate_limiters` | 五种限流算法：令牌桶、滑动窗口、固定窗口、并发限制器、GCRA |
+| `rate_limiters` | 七种限流算法：令牌桶、分片滑动窗口、固定窗口、并发限制器、漏桶、滑动窗口日志、GCRA |
 | `macro_usage` | `flow_control` 宏的使用方式与当前版本的限制 |
 | `governor_demo` | Governor 三种构造模式、请求检查、决策解析与统计信息 |
 | `matchers_demo` | 标识符提取器、请求上下文与规则匹配器的完整使用流程 |

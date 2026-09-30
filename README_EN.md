@@ -210,7 +210,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td rowspan="2">Control Plane</td><td><code>admin-api</code></td><td>Admin REST API (axum, with RBAC and self rate-limit protection)</td><td>❌</td></tr>
 <tr><td><code>cli</code></td><td><code>limiteron-cli</code> binary: rule file validation / export / apply dry-run</td><td>❌</td></tr>
 <tr><td rowspan="5">Observability</td><td><code>telemetry</code></td><td>Tracing initialization (tracing-subscriber)</td><td>❌</td></tr>
-<tr><td><code>monitoring</code></td><td>Prometheus metrics</td><td>❌</td></tr>
+<tr><td><code>monitoring</code></td><td>Prometheus metrics (global + per-rule/per-limiter dimensions and degraded counter, configurable off)</td><td>❌</td></tr>
 <tr><td><code>metrics</code></td><td>Governor allow / reject / ban three-point metrics (implies <code>monitoring</code>)</td><td>❌</td></tr>
 <tr><td><code>audit-log</code></td><td>Audit logging (HMAC-SHA256 hash chain with tamper detection)</td><td>❌</td></tr>
 <tr><td><code>otlp</code></td><td>OTLP/HTTP tracing export</td><td>❌</td></tr>
@@ -272,7 +272,7 @@ cargo run -p limiteron-examples --features "ban-manager,admin-api" --bin ban_htt
 | Example | Description |
 |---------|-------------|
 | `simple_rate_limit` | The most basic token bucket usage |
-| `rate_limiters` | Five algorithms: token bucket, sliding window, fixed window, concurrency limiter, GCRA |
+| `rate_limiters` | Seven algorithms: token bucket, sharded sliding window, fixed window, concurrency limiter, leaky bucket, sliding window log, GCRA |
 | `macro_usage` | Using the `flow_control` macro and its current-version constraints |
 | `governor_demo` | Three Governor construction modes, request checks, decision parsing, and statistics |
 | `matchers_demo` | Complete flow of identifier extractors, request contexts, and rule matchers |

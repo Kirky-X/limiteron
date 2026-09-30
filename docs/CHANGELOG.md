@@ -45,6 +45,10 @@
 - **`impl Drop for Governor`**：同步兜底无条件取消 shutdown 与已注册 watcher 令牌（幂等）
 - **`BanManager::is_auto_unban_running()`**：自动解封后台任务运行状态观测
 
+### 新增
+
+- **监控维度指标与关键路径追踪（`monitoring`/`telemetry`，默认开启可关闭）**：`Metrics` 新增 per-rule 检查计数（`flowguard_rule_checks_total`，标签 rule/outcome）、规则内限流器拒绝计数（`flowguard_rule_limiter_rejections_total`，标签 rule/limiter，Governor 持快照增量导出保持 Counter 单调——导出版本号下沉为链内原子量，放行稳态零锁零分配跳过，拒绝路径快照与基线落账同临界区串行化，基线只随真实新增前进）与降级检查计数（`flowguard_degraded_checks_total`）；负缓存命中的拒绝经缓存内裁决规则 ID 计入 per-rule 序列（缓存条目新增 rule 字段），无归因命中退 `flowguard_negative_cache_hits_total` 对账（opt-out 关闭维度序列时全部命中退此保底；规则被热更新移除后其存量缓存条目在 TTL 内仍按已删 rule_id 递增 per-rule 序列，惰性创建短暂抬高基数，条目到期自愈）；`Governor::builder().with_per_rule_metrics(bool)` 可关闭维度序列（标签基数随规则/限流器数量增长，超大规模配置降级为仅全局计数）；`telemetry` feature 下 `governor_check` span 记录 rule.outcome 属性，拒绝路径（链上与负缓存命中）另携带归因的 rule.id（全放行无单一裁决规则、缓存条目无归因时不虚构，后者仅记 outcome 保留结果信号）；主检查存储类错误触发降级时递增降级计数（配置类错误不计，避免未认证洪水刷高存储健康度告警）
+
 ### 修复
 
 - **bench harness 失效修复**：criterion 0.8 要求 `[[bench]] harness = false`，四个 bench 目标缺失该设置导致 `cargo bench` 落入 libtest harness 空跑（"running 0 tests"），性能基线此前从未真实产出；补齐后 criterion 正常接管并建立首份基线（reviews/perf-baseline.md）

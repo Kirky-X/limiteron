@@ -42,7 +42,10 @@ pub use monitoring::{
 use log::error;
 use log::{info, warn};
 #[cfg(feature = "monitoring")]
-use prometheus::{Counter, Encoder, Gauge, Histogram, HistogramOpts, Registry, TextEncoder};
+use prometheus::{
+    Counter, Encoder, Gauge, Histogram, HistogramOpts, IntCounter, IntCounterVec, Opts, Registry,
+    TextEncoder,
+};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 #[cfg(feature = "telemetry")]
@@ -96,6 +99,21 @@ pub struct Metrics {
     pub sliding_window_requests: Gauge,
     /// 固定窗口请求数
     pub fixed_window_requests: Gauge,
+    /// 规则维度检查计数（标签 rule/outcome：allowed/rejected/banned/error）——
+    /// per-rule 拒绝/准入维度导出；负缓存命中的拒绝按缓存内裁决规则计入
+    pub rule_checks_total: IntCounterVec,
+    /// 规则内限流器维度拒绝计数（标签 rule/limiter，累计值快照由 Governor
+    /// 增量导出）——per-limiter 拒绝维度导出
+    pub rule_limiter_rejections_total: IntCounterVec,
+    /// 降级检查计数（主操作因存储类错误触发降级路径时递增）
+    pub degraded_checks_total: IntCounter,
+    /// L1 负缓存命中计数（仅缓存条目无裁决规则归因的命中；可归因命中
+    /// 计入 rule_checks_total 不重复计此处，用于与全局计数对账）。
+    /// opt-out（per_rule_metrics 关闭）时可归因命中也计入本指标，作为
+    /// 可见性保底；规则被热更新移除后，其存量缓存条目在 TTL 内仍按
+    /// 已删 rule_id 递增 rule_checks_total（Prometheus 惰性创建序列，
+    /// 短暂抬高基数，条目到期后自愈）
+    pub negative_cache_hits_total: IntCounter,
     /// 指标注册表
     registry: Registry,
 }

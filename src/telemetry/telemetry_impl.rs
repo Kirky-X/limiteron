@@ -33,6 +33,14 @@ impl Metrics {
 
     pub fn record_ban(&self) {}
 
+    pub fn record_rule_outcome(&self, _rule: &str, _outcome: &str) {}
+
+    pub fn record_limiter_rejections(&self, _rule: &str, _limiter: &str, _delta: u64) {}
+
+    pub fn record_degraded(&self) {}
+
+    pub fn record_negative_cache_hit(&self) {}
+
     pub fn update_quota_usage(&self, _usage: f64) {}
 
     pub fn update_concurrent_connections(&self, _count: i64) {}
@@ -167,6 +175,60 @@ impl Metrics {
             "Current number of requests in fixed window",
         );
 
+        // 规则维度检查计数（per-rule 拒绝/准入）——负缓存命中的拒绝按缓存
+        // 内裁决规则计入本序列；无归因命中退 negative_cache_hits_total
+        let rule_checks_total = IntCounterVec::new(
+            Opts::new(
+                "flowguard_rule_checks_total",
+                "Total rule checks by rule and outcome (allowed/rejected/banned/error); \
+                 rejections served from the L1 negative cache are attributed to the \
+                 cached adjudicating rule",
+            ),
+            &["rule", "outcome"],
+        )
+        .expect("Failed to create rule checks counter vec");
+        registry
+            .register(Box::new(rule_checks_total.clone()))
+            .expect("Failed to register rule checks counter vec");
+
+        // 规则内限流器维度拒绝计数（per-limiter）——与 rule_checks_total 同口径
+        let rule_limiter_rejections_total = IntCounterVec::new(
+            Opts::new(
+                "flowguard_rule_limiter_rejections_total",
+                "Rejections attributed to individual limiters within a rule chain; \
+                 excludes L1 negative-cache hits (chain bypassed)",
+            ),
+            &["rule", "limiter"],
+        )
+        .expect("Failed to create rule limiter rejections counter vec");
+        registry
+            .register(Box::new(rule_limiter_rejections_total.clone()))
+            .expect("Failed to register rule limiter rejections counter vec");
+
+        // 降级检查计数——仅存储类错误触发降级时递增（配置/标识符类错误
+        // 不属存储健康度信号，避免被请求洪水刷高）
+        let degraded_checks_total = IntCounter::new(
+            "flowguard_degraded_checks_total",
+            "Total number of degraded checks (storage-class errors triggering fallback)",
+        )
+        .expect("Failed to create degraded checks counter");
+        registry
+            .register(Box::new(degraded_checks_total.clone()))
+            .expect("Failed to register degraded checks counter");
+
+        // L1 负缓存命中计数——仅缓存条目无裁决规则归因的命中（可归因命中
+        // 计入 rule_checks_total），用于与全局计数对账
+        let negative_cache_hits_total = IntCounter::new(
+            "flowguard_negative_cache_hits_total",
+            "Total number of negative-cache hits whose cached entry lacks an adjudicating \
+             rule (not attributable to a per-rule series; attributed hits are counted in \
+             flowguard_rule_checks_total)",
+        )
+        .expect("Failed to create negative cache hits counter");
+        registry
+            .register(Box::new(negative_cache_hits_total.clone()))
+            .expect("Failed to register negative cache hits counter");
+
         Self {
             requests_total,
             requests_allowed,
@@ -180,6 +242,10 @@ impl Metrics {
             token_bucket_tokens,
             sliding_window_requests,
             fixed_window_requests,
+            rule_checks_total,
+            rule_limiter_rejections_total,
+            degraded_checks_total,
+            negative_cache_hits_total,
             registry,
         }
     }
@@ -205,6 +271,10 @@ impl Metrics {
         registry.register(Box::new(self.token_bucket_tokens.clone()))?;
         registry.register(Box::new(self.sliding_window_requests.clone()))?;
         registry.register(Box::new(self.fixed_window_requests.clone()))?;
+        registry.register(Box::new(self.rule_checks_total.clone()))?;
+        registry.register(Box::new(self.rule_limiter_rejections_total.clone()))?;
+        registry.register(Box::new(self.degraded_checks_total.clone()))?;
+        registry.register(Box::new(self.negative_cache_hits_total.clone()))?;
         Ok(())
     }
 
@@ -249,6 +319,43 @@ impl Metrics {
     /// 记录封禁
     pub fn record_ban(&self) {
         self.requests_banned.inc();
+    }
+
+    /// 记录规则维度检查结果（per-rule 拒绝/准入）
+    ///
+    /// # 参数
+    /// - `rule`: 规则 ID
+    /// - `outcome`: 结果（allowed/rejected/banned/error）
+    pub fn record_rule_outcome(&self, rule: &str, outcome: &str) {
+        self.rule_checks_total
+            .with_label_values(&[rule, outcome])
+            .inc();
+    }
+
+    /// 增量导出规则内限流器拒绝计数（per-limiter）
+    ///
+    /// Governor 持有上次导出快照，每次传增量 `delta`，Counter 语义单调。
+    ///
+    /// # 参数
+    /// - `rule`: 规则 ID
+    /// - `limiter`: 链内限流器名
+    /// - `delta`: 自上次导出的拒绝增量
+    pub fn record_limiter_rejections(&self, rule: &str, limiter: &str, delta: u64) {
+        if delta > 0 {
+            self.rule_limiter_rejections_total
+                .with_label_values(&[rule, limiter])
+                .inc_by(delta);
+        }
+    }
+
+    /// 记录降级检查（主操作因存储类错误触发降级路径）
+    pub fn record_degraded(&self) {
+        self.degraded_checks_total.inc();
+    }
+
+    /// 记录 L1 负缓存命中（拒绝决策直接从缓存返回，未进入规则链）
+    pub fn record_negative_cache_hit(&self) {
+        self.negative_cache_hits_total.inc();
     }
 
     /// 更新配额使用率
@@ -403,10 +510,15 @@ impl Span {
     /// - `key`: 属性名
     /// - `value`: 属性值
     pub fn set_attribute(&self, key: &str, value: &str) {
-        if self.enabled
-            && let Ok(mut attrs) = self.attributes.try_lock()
-        {
-            attrs.push((key.to_string(), value.to_string()));
+        if self.enabled {
+            match self.attributes.try_lock() {
+                Ok(mut attrs) => attrs.push((key.to_string(), value.to_string())),
+                // 属性丢失必须留痕：追踪面缺失属性而无任何信号会误导排障
+                Err(_) => log::debug!(
+                    target: "telemetry",
+                    "span attribute dropped (lock contended): key={key}"
+                ),
+            }
         }
     }
 
@@ -803,6 +915,59 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    /// 自定义 registry 注册路径完整性：register() 必须与 new() 内建
+    /// registry 暴露同一组指标（负缓存命中计数曾漏注册，自定义注册方
+    /// 经 /metrics 收不到该序列）
+    #[cfg(feature = "monitoring")]
+    #[test]
+    fn test_register_covers_all_builtin_metrics() {
+        let metrics = Metrics::new();
+        let registry = Registry::new();
+        metrics
+            .register(&registry)
+            .expect("register should succeed");
+
+        // 标签序列（IntCounterVec）无子项时 gather 不产 family，先各填一个
+        // 标签组合再断言
+        metrics
+            .rule_checks_total
+            .with_label_values(&["r", "allowed"])
+            .inc();
+        metrics
+            .rule_limiter_rejections_total
+            .with_label_values(&["r", "n"])
+            .inc();
+
+        let names: std::collections::HashSet<String> = registry
+            .gather()
+            .iter()
+            .map(|family| family.name().to_string())
+            .collect();
+
+        let expected = [
+            "flowguard_requests_total",
+            "flowguard_requests_allowed_total",
+            "flowguard_requests_rejected_total",
+            "flowguard_requests_banned_total",
+            "flowguard_errors_total",
+            "flowguard_check_duration_seconds",
+            "flowguard_limiter_duration_seconds",
+            "flowguard_quota_usage_ratio_percent",
+            "flowguard_concurrent_connections",
+            "flowguard_token_bucket_tokens",
+            "flowguard_sliding_window_requests",
+            "flowguard_fixed_window_requests",
+            "flowguard_rule_checks_total",
+            "flowguard_rule_limiter_rejections_total",
+            "flowguard_degraded_checks_total",
+            "flowguard_negative_cache_hits_total",
+        ];
+        for name in expected {
+            assert!(names.contains(name), "register() 缺少指标 {name}");
+        }
+        assert_eq!(names.len(), expected.len(), "注册面应与内建 registry 一致");
+    }
+
     #[test]
     fn test_tracer_creation() {
         let tracer = Tracer::new(true);
@@ -1076,6 +1241,9 @@ mod tests_noop_metrics {
         metrics.record_check(Duration::from_secs(1), true);
         metrics.record_error("test");
         metrics.record_ban();
+        metrics.record_rule_outcome("r", "allowed");
+        metrics.record_limiter_rejections("r", "l", 1);
+        metrics.record_degraded();
         metrics.update_quota_usage(50.0);
         metrics.update_concurrent_connections(3);
         metrics.update_token_bucket_tokens(1.0);
@@ -1214,6 +1382,110 @@ mod tests_monitoring {
         metrics.record_check(Duration::from_millis(500), true);
 
         assert_eq!(metrics.requests_total.get(), 5.0);
+    }
+
+    #[test]
+    fn test_metrics_rule_outcome_labels() {
+        // per-rule 维度：outcome 标签分流（allowed/rejected/banned 各自累计）
+        let metrics = Metrics::new();
+        metrics.record_rule_outcome("r1", "allowed");
+        metrics.record_rule_outcome("r1", "allowed");
+        metrics.record_rule_outcome("r1", "rejected");
+        metrics.record_rule_outcome("r2", "banned");
+
+        assert_eq!(
+            metrics
+                .rule_checks_total
+                .with_label_values(&["r1", "allowed"])
+                .get(),
+            2
+        );
+        assert_eq!(
+            metrics
+                .rule_checks_total
+                .with_label_values(&["r1", "rejected"])
+                .get(),
+            1
+        );
+        assert_eq!(
+            metrics
+                .rule_checks_total
+                .with_label_values(&["r2", "banned"])
+                .get(),
+            1
+        );
+        // 未使用的 outcome 序列按 Prometheus 惰性创建语义为 0
+        assert_eq!(
+            metrics
+                .rule_checks_total
+                .with_label_values(&["r2", "allowed"])
+                .get(),
+            0
+        );
+    }
+
+    #[test]
+    fn test_metrics_limiter_rejections_incremental_export() {
+        // per-limiter 维度：增量导出语义（delta 累加；0 增量不产生序列）
+        let metrics = Metrics::new();
+        metrics.record_limiter_rejections("r1", "token_bucket", 3);
+        assert_eq!(
+            metrics
+                .rule_limiter_rejections_total
+                .with_label_values(&["r1", "token_bucket"])
+                .get(),
+            3
+        );
+        metrics.record_limiter_rejections("r1", "token_bucket", 2);
+        assert_eq!(
+            metrics
+                .rule_limiter_rejections_total
+                .with_label_values(&["r1", "token_bucket"])
+                .get(),
+            5
+        );
+        // 零增量不改变计数
+        metrics.record_limiter_rejections("r1", "token_bucket", 0);
+        assert_eq!(
+            metrics
+                .rule_limiter_rejections_total
+                .with_label_values(&["r1", "token_bucket"])
+                .get(),
+            5
+        );
+    }
+
+    #[test]
+    fn test_metrics_degraded_counter() {
+        let metrics = Metrics::new();
+        metrics.record_degraded();
+        metrics.record_degraded();
+        assert_eq!(metrics.degraded_checks_total.get(), 2);
+    }
+
+    #[test]
+    fn test_metrics_dimensional_gather_includes_labels() {
+        // 单测验证指标输出：gather() 的 Prometheus 文本含维度标签
+        let metrics = Metrics::new();
+        metrics.record_rule_outcome("rule_alpha", "rejected");
+        metrics.record_limiter_rejections("rule_alpha", "token_bucket", 1);
+        metrics.record_degraded();
+
+        let output = metrics.gather();
+        // prometheus 文本编码按字母序输出标签（outcome 在 rule 前）
+        assert!(
+            output.contains(
+                "flowguard_rule_checks_total{outcome=\"rejected\",rule=\"rule_alpha\"} 1"
+            ),
+            "per-rule outcome 指标应含 rule/outcome 标签: {output}"
+        );
+        assert!(
+            output.contains(
+                "flowguard_rule_limiter_rejections_total{limiter=\"token_bucket\",rule=\"rule_alpha\"} 1"
+            ),
+            "per-limiter 拒绝指标应含 rule/limiter 标签: {output}"
+        );
+        assert!(output.contains("flowguard_degraded_checks_total 1"));
     }
 
     #[test]

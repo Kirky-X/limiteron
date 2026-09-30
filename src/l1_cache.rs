@@ -27,6 +27,9 @@ pub(crate) struct CacheableDecision {
     pub decision_type: String,
     /// 决策原因（可选）
     pub reason: Option<String>,
+    /// 裁决规则 ID（写入方 Governor 已知，负缓存命中据此归因 per-rule
+    /// 维度指标；无归因来源时为 None，命中退回无归因独立计数）
+    pub rule_id: Option<String>,
     /// 封禁信息（仅当 decision_type 为 banned 时）
     pub ban_info: Option<CacheableBanInfo>,
     /// 限流元数据（保留 limit/remaining/reset/retry_after,负缓存命中时
@@ -62,6 +65,7 @@ impl CacheableDecision {
         Self {
             decision_type: "allowed".to_string(),
             reason: None,
+            rule_id: None,
             ban_info: None,
             metadata: None,
         }
@@ -73,6 +77,7 @@ impl CacheableDecision {
         Self {
             decision_type: "rejected".to_string(),
             reason: Some(reason.into()),
+            rule_id: None,
             ban_info: None,
             metadata: None,
         }
@@ -83,6 +88,7 @@ impl CacheableDecision {
         Self {
             decision_type: "banned".to_string(),
             reason: Some(ban_info.reason().to_string()),
+            rule_id: None,
             metadata: None,
             ban_info: Some(CacheableBanInfo {
                 reason: ban_info.reason().to_string(),
@@ -102,6 +108,7 @@ impl CacheableDecision {
                 } else {
                     Some(metadata.policy.clone())
                 },
+                rule_id: None,
                 ban_info: None,
                 metadata: Some(CacheableRateLimitMeta {
                     limit: metadata.limit,
@@ -113,6 +120,7 @@ impl CacheableDecision {
             Decision::Rejected(metadata) => Self {
                 decision_type: "rejected".to_string(),
                 reason: Some(metadata.reason.clone()),
+                rule_id: None,
                 ban_info: None,
                 // RejectionMetadata 无 remaining（拒绝态语义即 0）;
                 // retry_after 为 u64,缓存为 Option（to_decision 端 unwrap_or(0)）
@@ -1092,6 +1100,7 @@ mod tests {
         let cd = CacheableDecision {
             decision_type: "unknown".to_string(),
             reason: None,
+            rule_id: None,
             ban_info: None,
             metadata: None,
         };
@@ -1104,6 +1113,7 @@ mod tests {
         let cd = CacheableDecision {
             decision_type: "banned".to_string(),
             reason: Some("test".to_string()),
+            rule_id: None,
             ban_info: None,
             metadata: None,
         };
@@ -1117,6 +1127,7 @@ mod tests {
         let cd = CacheableDecision {
             decision_type: "banned".to_string(),
             reason: Some("banned".to_string()),
+            rule_id: None,
             metadata: None,
             ban_info: Some(CacheableBanInfo {
                 reason: "policy violation".to_string(),
@@ -1140,6 +1151,7 @@ mod tests {
         let cd = CacheableDecision {
             decision_type: "banned".to_string(),
             reason: Some("banned".to_string()),
+            rule_id: None,
             metadata: None,
             ban_info: Some(CacheableBanInfo {
                 reason: "bad date".to_string(),

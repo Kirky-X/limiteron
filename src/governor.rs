@@ -25,6 +25,17 @@ use crate::l1_cache::IslandFallbackStrategy;
 use crate::l1_cache::IslandModeConfig;
 use crate::l1_cache::{CacheableDecision, L1Cache, L1CacheConfig, RateLimitCacheKey};
 
+/// 决策结果维度标签（monitoring 指标与 telemetry span 共用同一判定；
+/// "error" 形态仅链执行失败产生，纯决策无该值）
+#[cfg(any(feature = "monitoring", feature = "telemetry"))]
+fn decision_outcome(decision: &Decision) -> &'static str {
+    match decision {
+        Decision::Allowed(_) => "allowed",
+        Decision::Rejected(_) => "rejected",
+        Decision::Banned(_) => "banned",
+    }
+}
+
 /// 日志指纹:仅暴露长度,不含任何标识符内容(CodeQL cleartext-logging 结构性断源)。
 fn log_fingerprint(key: &str) -> String {
     format!("<{} chars>", key.len())
@@ -192,6 +203,11 @@ pub struct Governor {
     #[cfg(feature = "monitoring")]
     metrics: Option<Arc<Metrics>>,
 
+    /// per-rule/per-limiter 维度指标开关（默认开启；标签基数随规则与
+    /// 限流器数量增长，超大规模配置可关闭仅保留全局计数）
+    #[cfg(feature = "monitoring")]
+    per_rule_metrics: bool,
+
     /// 追踪器（可选，feature-gated）
     #[cfg(feature = "telemetry")]
     tracer: Option<Arc<Tracer>>,
@@ -216,6 +232,32 @@ pub struct Governor {
 
     /// 是否已关闭（幂等性保证）
     is_shutdown: std::sync::atomic::AtomicBool,
+
+    /// 已导出的规则内限流器拒绝计数快照（上次导出值，增量求基）——
+    /// 各链「已导出版本号」下沉为链内原子量（`DecisionChain`），稳态
+    /// 版本比较零锁；本锁仅拒绝路径的合并落账持有——监控 feature 门控
+    #[cfg(feature = "monitoring")]
+    exported_rejections: parking_lot::Mutex<ExportedRejections>,
+}
+
+/// per-limiter 拒绝增量导出的 Governor 侧状态（监控 feature 门控）
+#[cfg(feature = "monitoring")]
+#[derive(Default)]
+struct ExportedRejections {
+    /// rule_id → (node_name → 上次导出的累计拒绝值)
+    ///
+    /// 外层按规则分桶：导出循环按节点迭代，内层 `get_mut(&str)` 命中时
+    /// 零分配（平铺 `(rule, node)` 键需每次克隆 rule_id，拒绝即导出的
+    /// flood 场景是热路径分配点）
+    per_rule: std::collections::HashMap<String, std::collections::HashMap<String, u64>>,
+}
+
+#[cfg(feature = "monitoring")]
+impl ExportedRejections {
+    /// 清空导出快照（热更新换装后新链计数从零重计，快照必须同步归零）
+    fn clear(&mut self) {
+        self.per_rule.clear();
+    }
 }
 
 /// Governor 构建器
@@ -257,6 +299,8 @@ pub struct GovernorBuilder {
     audit_logger: Option<Arc<crate::logging::AuditLogger>>,
     #[cfg(feature = "monitoring")]
     metrics: Option<Arc<Metrics>>,
+    #[cfg(feature = "monitoring")]
+    per_rule_metrics: bool,
     #[cfg(feature = "telemetry")]
     tracer: Option<Arc<Tracer>>,
     #[cfg(feature = "parallel-checker")]
@@ -296,6 +340,8 @@ impl GovernorBuilder {
             audit_logger: None,
             #[cfg(feature = "monitoring")]
             metrics: None,
+            #[cfg(feature = "monitoring")]
+            per_rule_metrics: true,
             #[cfg(feature = "telemetry")]
             tracer: None,
             #[cfg(feature = "parallel-checker")]
@@ -407,6 +453,17 @@ impl GovernorBuilder {
     #[cfg(feature = "monitoring")]
     pub fn with_metrics(mut self, metrics: Arc<Metrics>) -> Self {
         self.metrics = Some(metrics);
+        self
+    }
+
+    /// 设置 per-rule/per-limiter 维度指标开关（默认开启）
+    ///
+    /// 关闭后 Governor 仅记录全局计数（requests_total 等），不再导出
+    /// `flowguard_rule_checks_total` / `flowguard_rule_limiter_rejections_total`
+    /// 维度序列——标签基数随规则与限流器数量增长，超大规模配置可关闭。
+    #[cfg(feature = "monitoring")]
+    pub fn with_per_rule_metrics(mut self, enabled: bool) -> Self {
+        self.per_rule_metrics = enabled;
         self
     }
 
@@ -609,6 +666,8 @@ impl GovernorBuilder {
             event_emitter: self.event_emitter,
             #[cfg(feature = "monitoring")]
             metrics: self.metrics,
+            #[cfg(feature = "monitoring")]
+            per_rule_metrics: self.per_rule_metrics,
             #[cfg(feature = "telemetry")]
             tracer: self.tracer,
             #[cfg(feature = "multi-tenant")]
@@ -617,6 +676,8 @@ impl GovernorBuilder {
             config_watcher_tokens: parking_lot::Mutex::new(Vec::new()),
             shutdown_snapshot_dir: self.shutdown_snapshot_dir.clone(),
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(feature = "monitoring")]
+            exported_rejections: parking_lot::Mutex::new(ExportedRejections::default()),
         })
     }
 }
@@ -761,6 +822,8 @@ impl Governor {
             event_emitter: None,
             #[cfg(feature = "monitoring")]
             metrics: None,
+            #[cfg(feature = "monitoring")]
+            per_rule_metrics: true,
             #[cfg(feature = "telemetry")]
             tracer: None,
             #[cfg(feature = "multi-tenant")]
@@ -769,6 +832,8 @@ impl Governor {
             config_watcher_tokens: parking_lot::Mutex::new(Vec::new()),
             shutdown_snapshot_dir: None,
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(feature = "monitoring")]
+            exported_rejections: parking_lot::Mutex::new(ExportedRejections::default()),
         })
     }
 
@@ -967,8 +1032,13 @@ impl Governor {
         let start_time = std::time::Instant::now();
 
         #[cfg(feature = "telemetry")]
-        let span = self.tracer.as_ref().map(|t| t.start_span("governor_check"));
+        // 关键路径 span：终态裁决规则与结果以属性记录（见规则级联循环；
+        // 全放行时仅记 outcome=allowed，无单一裁决规则）
+        let check_span = self.tracer.as_ref().map(|t| t.start_span("governor_check"));
 
+        #[cfg(feature = "telemetry")]
+        let result = self.check_inner(context, check_span.as_ref()).await;
+        #[cfg(not(feature = "telemetry"))]
         let result = self.check_inner(context).await;
 
         // 审计接线：决策终态落审计日志（audit-log 特性；脱敏在 AuditLogger
@@ -1009,7 +1079,7 @@ impl Governor {
         }
 
         #[cfg(feature = "telemetry")]
-        if let Some(s) = span {
+        if let Some(s) = check_span {
             s.finish();
         }
 
@@ -1017,19 +1087,37 @@ impl Governor {
     }
 
     /// 内部检查分发（不含 metrics/tracer 包装，由 check() 统一处理）
-    async fn check_inner(&self, context: &RequestContext) -> Result<Decision, LimiteronError> {
+    async fn check_inner(
+        &self,
+        context: &RequestContext,
+        #[cfg(feature = "telemetry")] check_span: Option<&crate::telemetry::Span>,
+    ) -> Result<Decision, LimiteronError> {
         // 如果启用了 FallbackManager，使用降级包装的检查逻辑
         #[cfg(feature = "fallback")]
         if let Some(ref fallback_mgr) = self.fallback_manager {
-            return self.check_with_fallback(context, fallback_mgr).await;
+            #[cfg(feature = "telemetry")]
+            let result = self
+                .check_with_fallback(context, fallback_mgr, check_span)
+                .await;
+            #[cfg(not(feature = "telemetry"))]
+            let result = self.check_with_fallback(context, fallback_mgr).await;
+            return result;
         }
 
         // 否则直接执行检查
-        self.check_internal(context).await
+        #[cfg(feature = "telemetry")]
+        let result = self.check_internal(context, check_span).await;
+        #[cfg(not(feature = "telemetry"))]
+        let result = self.check_internal(context).await;
+        result
     }
 
     /// 内部检查逻辑（不包含降级处理）
-    async fn check_internal(&self, context: &RequestContext) -> Result<Decision, LimiteronError> {
+    async fn check_internal(
+        &self,
+        context: &RequestContext,
+        #[cfg(feature = "telemetry")] check_span: Option<&crate::telemetry::Span>,
+    ) -> Result<Decision, LimiteronError> {
         self.stats.increment_total();
 
         // Extracted identifier
@@ -1134,6 +1222,34 @@ impl Governor {
                         "L1 cache hit (reject decision): key={}",
                         log_fingerprint(&cache_key)
                     );
+                    // 负缓存命中的拒绝未执行规则链，但按缓存内裁决规则计入
+                    // per-rule 维度（与链上拒绝同序列）；缓存条目无规则归因时
+                    // 退回独立计数，保证与全局计数可对账（requests_total 含
+                    // 缓存命中）。规则被热更新移除后，其存量缓存条目在 TTL
+                    // 内仍按已删 rule_id 递增 per-rule 序列（Prometheus 惰性
+                    // 创建，短暂抬高基数，条目到期后自愈）
+                    #[cfg(feature = "monitoring")]
+                    if let Some(ref metrics) = self.metrics {
+                        if self.per_rule_metrics
+                            && let Some(rule_id) = cached_decision.rule_id.as_deref()
+                        {
+                            metrics.record_rule_outcome(rule_id, decision_outcome(&decision));
+                        } else {
+                            metrics.record_negative_cache_hit();
+                        }
+                    }
+
+                    // 缓存裁决同样记录终态规则与结果，观测面不留盲区
+                    //（不依赖 metrics 配置——追踪与指标互相独立）；缓存条目
+                    // 无裁决规则归因（如旧版本写入的共享缓存条目）时不虚构
+                    // rule.id，仅保留结果信号
+                    #[cfg(feature = "telemetry")]
+                    if let Some(span) = check_span {
+                        if let Some(rule_id) = cached_decision.rule_id.as_deref() {
+                            span.set_attribute("rule.id", rule_id);
+                        }
+                        span.set_attribute("rule.outcome", decision_outcome(&decision));
+                    }
                     self.update_stats_for_decision(&Result::Ok(decision.clone()));
                     return Ok(decision);
                 }
@@ -1164,6 +1280,30 @@ impl Governor {
                 // 执行决策链
                 let result = chain.check().await;
 
+                // 规则维度结果（monitoring 指标与 telemetry span 共用一次判定；
+                // "error" 仅链执行失败产生，纯决策不含该形态）
+                #[cfg(any(feature = "monitoring", feature = "telemetry"))]
+                let outcome: &str = match &result {
+                    Ok(decision) => decision_outcome(decision),
+                    Err(_) => "error",
+                };
+
+                // per-rule/per-limiter 维度指标（默认开启，builder 可关）：
+                // 规则结果计数随每次链检查记录；链内限流器拒绝计数按链版本号
+                // 增量导出（Prometheus Counter 单调语义）——导出版本号下沉为
+                // 链内原子量，版本一致时两读一比零锁跳过，放行稳态与无新增
+                // 拒绝的流量不为监控导出付互斥锁与分配成本
+                #[cfg(feature = "monitoring")]
+                if self.per_rule_metrics
+                    && let Some(ref metrics) = self.metrics
+                {
+                    metrics.record_rule_outcome(&rule.id, outcome);
+
+                    if chain.node_rejections_version() != chain.exported_rejections_version() {
+                        self.export_chain_rejections(&chain, &rule.id, metrics);
+                    }
+                }
+
                 match result {
                     Ok(Decision::Allowed(_)) => {
                         // 当前规则允许，继续检查下一个规则
@@ -1173,12 +1313,23 @@ impl Governor {
                         // 拒绝、封禁或错误，直接返回
                         self.update_stats_for_decision(&result);
 
+                        // 关键路径 span 属性：终态裁决规则与结果（拒绝/封禁/
+                        // 错误场景裁决规则唯一；全放行场景在循环后统一记
+                        // outcome，不虚构单一裁决规则）
+                        #[cfg(feature = "telemetry")]
+                        if let Some(span) = check_span {
+                            span.set_attribute("rule.id", &rule.id);
+                            span.set_attribute("rule.outcome", outcome);
+                        }
+
                         // 负缓存：仅缓存拒绝/封禁决策（fail-closed），"允许"决策永不入缓存
                         if self.is_l1_cache_enabled()
                             && let Ok(ref decision) = result
                         {
                             let cache_key = self.build_cache_key_multi(&identifier, &matched_rules);
-                            let cacheable = CacheableDecision::from_decision(decision);
+                            let mut cacheable = CacheableDecision::from_decision(decision);
+                            // 缓存条目携带裁决规则 ID：命中路径据此归因 per-rule 维度
+                            cacheable.rule_id = Some(rule.id.clone());
                             let _ = self.l1_cache.set(cache_key, cacheable).await;
                             trace!("L1 cache updated: decision=rejected");
                         }
@@ -1211,7 +1362,54 @@ impl Governor {
         self.stats.increment_allowed();
         let decision = Decision::allowed_default();
 
+        // 关键路径 span：全放行无单一裁决规则，仅记录结果
+        #[cfg(feature = "telemetry")]
+        if let Some(span) = check_span {
+            span.set_attribute("rule.outcome", "allowed");
+        }
+
         Ok(decision)
+    }
+
+    /// 将一条链的节点拒绝增量导出到监控面（监控 feature 门控）
+    ///
+    /// 拒绝即触发导出，flood 场景这是热路径，临界区编排（锁序固定
+    /// `exported` 互斥锁 → 链统计读锁，后者从不反向持有前者）：
+    /// 1. 互斥锁内二次复核「已导出版本 ≥ 当前版本」——稳态探测的版本
+    ///    只是省锁提示值，并发导出方可能已在探测之后完成同版本或更新
+    ///    的合并，复核通过才继续；
+    /// 2. 链统计读锁内遍历计数并同点读取版本号，计数与版本严格同序
+    ///    观测，迭代零克隆（仅对有增量的节点付分配与标签查找成本）；
+    /// 3. 基线 `last` 与导出版本号只在同一临界区内落账——快照与合并
+    ///    串行化后，基线只会随真实新增前进，不会被迟到的旧快照拉回
+    ///    （曾经锁外快照 + 锁内无条件合并的 check-then-act 交错把基线
+    ///    拉回旧值，下轮误判 stale 对已导出区间静默双算）。
+    #[cfg(feature = "monitoring")]
+    fn export_chain_rejections(&self, chain: &DecisionChain, rule_id: &str, metrics: &Metrics) {
+        let mut exported = self.exported_rejections.lock();
+        if chain.exported_rejections_version() >= chain.node_rejections_version() {
+            return;
+        }
+        let nodes = match exported.per_rule.get_mut(rule_id) {
+            Some(nodes) => nodes,
+            None => exported.per_rule.entry(rule_id.to_owned()).or_default(),
+        };
+        let version = chain.for_each_node_rejection(|node, count| match nodes.get_mut(node) {
+            Some(last) => {
+                let delta = count.saturating_sub(*last);
+                if delta > 0 {
+                    metrics.record_limiter_rejections(rule_id, node, delta);
+                }
+                // 基线一律跟随快照：计数回落（reset 清零）时随之下降，
+                // 之后的新增拒绝才能正常进入增量
+                *last = count;
+            }
+            None => {
+                nodes.insert(node.to_owned(), count);
+                metrics.record_limiter_rejections(rule_id, node, count);
+            }
+        });
+        chain.set_exported_rejections_version(version);
     }
 
     /// 带降级处理的检查逻辑
@@ -1222,19 +1420,42 @@ impl Governor {
         &self,
         context: &RequestContext,
         fallback_mgr: &Arc<FallbackManager>,
+        #[cfg(feature = "telemetry")] check_span: Option<&crate::telemetry::Span>,
     ) -> Result<Decision, LimiteronError> {
         let context_clone = context.clone();
 
         fallback_mgr
             .execute_with_fallback(
                 crate::fallback::ComponentType::Redis,
-                || async { self.check_internal(&context_clone).await },
+                || async {
+                    #[cfg(feature = "telemetry")]
+                    let result = self.check_internal(&context_clone, check_span).await;
+                    #[cfg(not(feature = "telemetry"))]
+                    let result = self.check_internal(&context_clone).await;
+
+                    // 降级计数仅认存储类错误（分类见 note_degraded_check）
+                    #[cfg(feature = "monitoring")]
+                    self.note_degraded_check(&result);
+                    result
+                },
                 || async {
                     // 降级操作：尝试仅使用 缓存
                     self.check_l1_cache_only(&context_clone).await
                 },
             )
             .await
+    }
+
+    /// 检查结果落监控面：存储类错误计降级（Redis 故障窗口信号）；
+    /// 配置/标识符类错误不计——可被未认证请求无门槛刷出，计入会让
+    /// degraded_checks_total 被请求洪水刷高、掩盖真实存储故障
+    #[cfg(all(feature = "monitoring", feature = "fallback"))]
+    fn note_degraded_check(&self, result: &Result<Decision, LimiteronError>) {
+        if let Err(LimiteronError::StorageError(_)) = result
+            && let Some(ref metrics) = self.metrics
+        {
+            metrics.record_degraded();
+        }
     }
 
     /// 仅使用 缓存的降级检查
@@ -1870,6 +2091,10 @@ impl Governor {
             *matcher_guard = new_matcher;
             *chains_guard = new_chains;
             let old = std::mem::replace(&mut *cfg_guard, new_config);
+            // 新链拒绝计数从零重计，增量导出快照同步清零——否则新链拒绝
+            // 在累计值追平旧链快照前不会进入指标（漏报）
+            #[cfg(feature = "monitoring")]
+            self.exported_rejections.lock().clear();
             let old_hash = old.compute_hash();
             let old_version = old.version;
             (old_version, old_hash)
@@ -4861,6 +5086,610 @@ mod governor_feature_gated_tests {
         assert!(
             metrics.requests_total.get() >= 1.0,
             "metrics.requests_total should be recorded after check()"
+        );
+    }
+
+    /// per-rule/per-limiter 维度指标接线验证：规则命中后
+    /// flowguard_rule_checks_total（rule/outcome 标签）被记录，且
+    /// flowguard_rule_limiter_rejections_total 随链内拒绝增量导出
+    #[cfg(feature = "monitoring")]
+    #[tokio::test]
+    async fn test_per_rule_metrics_wiring() {
+        use crate::telemetry::Metrics;
+
+        let metrics = Arc::new(Metrics::new());
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_metrics(metrics.clone())
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // 提取器/匹配器走 X-User-Id 头（ctx.user_id 字段不在默认提取链上）
+        let ctx = RequestContext::new()
+            .with_header("X-User-Id", "u_per_rule")
+            .with_method("GET");
+        // 配置规则 TokenBucket capacity=100：多次消费均放行（allowed 维度）
+        for _ in 0..3 {
+            let _ = governor.check(&ctx).await;
+        }
+        let output = metrics.gather();
+        assert!(
+            output.contains("flowguard_rule_checks_total"),
+            "维度指标应注册进 registry: {output}"
+        );
+        assert!(
+            output.contains("rule=\"test_rule\""),
+            "应有 test_rule 标签序列: {output}"
+        );
+        assert!(
+            output.contains("outcome=\"allowed\""),
+            "应有 allowed outcome 序列: {output}"
+        );
+    }
+
+    /// 负缓存命中路径的 per-rule 归因验证：缓存命中的拒绝按缓存内裁决
+    /// 规则计入 flowguard_rule_checks_total（与链上拒绝同序列），可归因
+    /// 命中不重复计入 negative_cache_hits_total
+    #[cfg(feature = "monitoring")]
+    #[tokio::test]
+    async fn test_negative_cache_hit_counts_per_rule_metrics() {
+        use crate::telemetry::Metrics;
+
+        // capacity=1、refill_rate=1/s：同秒连发首个放行其后拒绝并入负缓存
+        let config = FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::types::GlobalConfig::default(),
+            rules: vec![crate::config::types::Rule {
+                id: "test_rule".to_string(),
+                name: "Test Rule".to_string(),
+                priority: 100,
+                matchers: vec![crate::config::types::Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![crate::config::types::LimiterConfig::TokenBucket {
+                    capacity: 1,
+                    refill_rate: 1,
+                }],
+                action: crate::config::types::ActionConfig {
+                    on_exceed: crate::config::types::Action::Reject,
+                    ban: None,
+                },
+            }],
+        };
+
+        let metrics = Arc::new(Metrics::new());
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_metrics(metrics.clone())
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let ctx = RequestContext::new()
+            .with_header("X-User-Id", "u_neg_cache")
+            .with_method("GET");
+        // 1 放行（链上）+ 2 拒绝：第 2 次链上拒绝并写缓存，第 3 次负缓存命中
+        for _ in 0..3 {
+            let _ = governor.check(&ctx).await;
+        }
+
+        let output = metrics.gather();
+        assert!(
+            output
+                .contains("flowguard_rule_checks_total{outcome=\"rejected\",rule=\"test_rule\"} 2"),
+            "负缓存命中的拒绝应按裁决规则计入 per-rule 序列（链上 1 + 缓存命中 1）: {output}"
+        );
+        assert_eq!(
+            metrics.negative_cache_hits_total.get(),
+            0,
+            "可归因到规则的命中不应重复计入 negative_cache_hits_total"
+        );
+    }
+
+    /// 维度指标开关关闭验证：with_per_rule_metrics(false) 后 check 不再
+    /// 导出 rule 维度序列（全局计数仍工作）
+    #[cfg(feature = "monitoring")]
+    #[tokio::test]
+    async fn test_per_rule_metrics_disabled_opt_out() {
+        use crate::telemetry::Metrics;
+
+        let metrics = Arc::new(Metrics::new());
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_metrics(metrics.clone())
+            .with_per_rule_metrics(false)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let ctx = RequestContext::new()
+            .with_header("X-User-Id", "u_opt_out")
+            .with_method("GET");
+        let _ = governor.check(&ctx).await;
+
+        let output = metrics.gather();
+        assert!(
+            !output.contains("flowguard_rule_checks_total{"),
+            "关闭后不应有 rule 维度序列: {output}"
+        );
+        // 全局计数仍工作
+        assert!(metrics.requests_total.get() >= 1.0);
+    }
+
+    /// 增量导出幂等性钉子：导出基线（per-node last/落账版本号）必须与
+    /// 合并串行化。曾经锁外快照 + 锁内无条件合并的 check-then-act 交错
+    /// 把基线拉回旧值，下轮误判 stale 对已导出区间静默双算——同版本
+    /// 重复导出必须整体跳过，新增拒绝后只导出真实增量
+    #[cfg(feature = "monitoring")]
+    #[tokio::test]
+    async fn test_incremental_export_idempotent_and_exact() {
+        use crate::telemetry::Metrics;
+
+        let metrics = Arc::new(Metrics::new());
+        let governor = Governor::builder()
+            .with_config(FlowControlConfig {
+                version: "0.1.0".to_string(),
+                global: crate::config::types::GlobalConfig::default(),
+                rules: vec![crate::config::types::Rule {
+                    id: "test_rule".to_string(),
+                    name: "Test Rule".to_string(),
+                    priority: 100,
+                    matchers: vec![crate::config::types::Matcher::User {
+                        user_ids: vec!["*".to_string()],
+                    }],
+                    limiters: vec![crate::config::types::LimiterConfig::TokenBucket {
+                        capacity: 1,
+                        refill_rate: 1,
+                    }],
+                    action: crate::config::types::ActionConfig {
+                        on_exceed: crate::config::types::Action::Reject,
+                        ban: None,
+                    },
+                }],
+            })
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_metrics(metrics.clone())
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let chain = governor
+            .rule_chains
+            .read()
+            .await
+            .get("test_rule")
+            .map(|entry| entry.value().clone())
+            .expect("test_rule chain should exist");
+
+        let exported_total = |m: &Metrics| -> u64 {
+            use prometheus::core::Collector;
+            m.rule_limiter_rejections_total
+                .collect()
+                .iter()
+                .map(|family| {
+                    family
+                        .get_metric()
+                        .iter()
+                        .map(|metric| metric.get_counter().value() as u64)
+                        .sum::<u64>()
+                })
+                .sum()
+        };
+
+        // 链上直接制造拒绝（绕过 Governor 负缓存）：首查耗尽令牌，其后拒绝
+        let _ = chain.check().await.unwrap();
+        assert_eq!(chain.stats_sync().rejected_count, 0, "首查应耗尽令牌放行");
+        chain.check().await.unwrap();
+        chain.check().await.unwrap();
+        let actual = chain.stats_sync().node_rejections[0].1;
+
+        // 线程一视角：全量导出
+        governor.export_chain_rejections(&chain, "test_rule", &metrics);
+        assert_eq!(
+            exported_total(&metrics),
+            actual,
+            "首次导出应恰好等于真实拒绝数"
+        );
+        assert_eq!(
+            chain.exported_rejections_version(),
+            chain.node_rejections_version(),
+            "导出后落账版本应追平链版本"
+        );
+
+        // 线程二迟到闯入：持合并前的旧观测重复导出（并发导出方已落账同
+        // 版本的交错形态），必须整体跳过
+        governor.export_chain_rejections(&chain, "test_rule", &metrics);
+        assert_eq!(
+            exported_total(&metrics),
+            actual,
+            "同版本重复导出不得重复计数"
+        );
+
+        // 新增真实拒绝后仅导出新增 delta
+        chain.check().await.unwrap();
+        let actual = chain.stats_sync().node_rejections[0].1;
+        governor.export_chain_rejections(&chain, "test_rule", &metrics);
+        assert_eq!(
+            exported_total(&metrics),
+            actual,
+            "再次导出应恰好覆盖新增拒绝"
+        );
+    }
+
+    /// 并发导出压力钉子：多任务并发触发同一链的导出，累计导出量必须
+    /// 恰等于链上真实拒绝数——不双算不漏算
+    #[cfg(feature = "monitoring")]
+    #[tokio::test]
+    async fn test_concurrent_exports_never_double_count() {
+        use crate::telemetry::Metrics;
+
+        let metrics = Arc::new(Metrics::new());
+        let governor = Arc::new(
+            Governor::builder()
+                .with_config(FlowControlConfig {
+                    version: "0.1.0".to_string(),
+                    global: crate::config::types::GlobalConfig::default(),
+                    rules: vec![crate::config::types::Rule {
+                        id: "test_rule".to_string(),
+                        name: "Test Rule".to_string(),
+                        priority: 100,
+                        matchers: vec![crate::config::types::Matcher::User {
+                            user_ids: vec!["*".to_string()],
+                        }],
+                        limiters: vec![crate::config::types::LimiterConfig::TokenBucket {
+                            capacity: 1,
+                            refill_rate: 1,
+                        }],
+                        action: crate::config::types::ActionConfig {
+                            on_exceed: crate::config::types::Action::Reject,
+                            ban: None,
+                        },
+                    }],
+                })
+                .with_storage(Arc::new(MemoryStorage::new()))
+                .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+                .with_metrics(metrics.clone())
+                .build()
+                .await
+                .expect("build should succeed"),
+        );
+
+        let chain = governor
+            .rule_chains
+            .read()
+            .await
+            .get("test_rule")
+            .map(|entry| entry.value().clone())
+            .expect("test_rule chain should exist");
+
+        // 耗尽令牌，此后链上检查全部拒绝
+        let _ = chain.check().await.unwrap();
+
+        let tasks = (0..8)
+            .map(|_| {
+                let governor = governor.clone();
+                let chain = chain.clone();
+                let metrics = metrics.clone();
+                tokio::spawn(async move {
+                    for _ in 0..50 {
+                        let _ = chain.check().await;
+                        governor.export_chain_rejections(&chain, "test_rule", &metrics);
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for task in tasks {
+            task.await.unwrap();
+        }
+
+        let actual: u64 = chain
+            .stats_sync()
+            .node_rejections
+            .iter()
+            .map(|(_, count)| count)
+            .sum();
+        let exported: u64 = {
+            use prometheus::core::Collector;
+            metrics
+                .rule_limiter_rejections_total
+                .collect()
+                .iter()
+                .map(|family| {
+                    family
+                        .get_metric()
+                        .iter()
+                        .map(|metric| metric.get_counter().value() as u64)
+                        .sum::<u64>()
+                })
+                .sum()
+        };
+        assert_eq!(exported, actual, "并发导出不得双算或漏算");
+    }
+
+    /// 负缓存无归因命中（缓存条目 rule_id=None，如旧版本写入的共享缓存
+    /// 条目）的防御路径：span 不虚构 rule.id，但保留 rule.outcome 结果
+    /// 信号，观测面不留全盲 span；无归因命中退独立计数
+    #[cfg(all(test, feature = "monitoring", feature = "telemetry", feature = "otlp"))]
+    #[tokio::test]
+    async fn test_negative_cache_hit_without_rule_id_records_outcome() {
+        use crate::l1_cache::CacheableDecision;
+        use crate::matchers::Identifier;
+        use crate::telemetry::Metrics;
+        use crate::telemetry::otlp::{InMemoryTransport, OtlpSpanExporter};
+
+        let transport = Arc::new(InMemoryTransport::new());
+        let exporter = OtlpSpanExporter::new(
+            "limiteron-test",
+            transport.clone(),
+            "http://mock-collector:4318/v1/traces",
+        );
+        let (sink, worker) = OtlpSpanExporter::spawn_worker(exporter, 64);
+        tokio::spawn(worker.run());
+
+        let metrics = Arc::new(Metrics::new());
+        let governor = Governor::builder()
+            .with_config(FlowControlConfig {
+                version: "0.1.0".to_string(),
+                global: crate::config::types::GlobalConfig::default(),
+                rules: vec![crate::config::types::Rule {
+                    id: "test_rule".to_string(),
+                    name: "Test Rule".to_string(),
+                    priority: 100,
+                    matchers: vec![crate::config::types::Matcher::User {
+                        user_ids: vec!["*".to_string()],
+                    }],
+                    limiters: vec![crate::config::types::LimiterConfig::TokenBucket {
+                        capacity: 100,
+                        refill_rate: 10,
+                    }],
+                    action: crate::config::types::ActionConfig {
+                        on_exceed: crate::config::types::Action::Reject,
+                        ban: None,
+                    },
+                }],
+            })
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_metrics(metrics.clone())
+            .with_tracer(Arc::new(Tracer::with_otlp_sink(true, Some(Arc::new(sink)))))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // 预置无归因（rule_id=None）的拒绝缓存条目，命中后走防御路径；
+        // 缓存键按 check 同源路径经 matcher 计算
+        let ctx = RequestContext::new()
+            .with_header("X-User-Id", "u_noattr")
+            .with_method("GET");
+        let matched_rules: Vec<_> = governor
+            .rule_matcher
+            .read()
+            .await
+            .match_all(&ctx)
+            .into_iter()
+            .cloned()
+            .collect();
+        assert!(!matched_rules.is_empty(), "规则应匹配");
+        let identifier = Identifier::UserId("u_noattr".to_string());
+        let cache_key = governor.build_cache_key_multi(&identifier, &matched_rules);
+        governor
+            .l1_cache
+            .set(cache_key, CacheableDecision::rejected("cached deny"))
+            .await
+            .expect("seed cache should succeed");
+
+        let decision = governor.check(&ctx).await.expect("check should succeed");
+        assert!(
+            matches!(decision, Decision::Rejected(_)),
+            "应命中缓存拒绝: {decision:?}"
+        );
+        assert_eq!(
+            metrics.negative_cache_hits_total.get(),
+            1,
+            "无归因命中应退独立计数"
+        );
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let span = loop {
+            let requests = transport.requests();
+            if let Some(request) = requests.first() {
+                break request.1["resourceSpans"][0]["scopeSpans"][0]["spans"][0].clone();
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "5s 内未收到 OTLP 导出"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+
+        let attribute = |key: &str| -> Option<String> {
+            span["attributes"]
+                .as_array()?
+                .iter()
+                .find(|a| a["key"] == key)
+                .map(|a| {
+                    a["value"]["stringValue"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string()
+                })
+        };
+        assert_eq!(attribute("rule.id"), None, "无归因命中不应虚构 rule.id");
+        assert_eq!(
+            attribute("rule.outcome").as_deref(),
+            Some("rejected"),
+            "无归因命中应保留结果信号"
+        );
+    }
+
+    /// 降级计数接线验证：配置 FallbackManager 后主检查失败走降级闭包，
+    /// 但配置类错误（无标识符）不计 degraded——可被未认证请求无门槛刷出，
+    /// 非存储健康度信号；未配置 fallback 或主检查成功时不计降级
+    #[cfg(all(feature = "monitoring", feature = "fallback"))]
+    #[tokio::test]
+    async fn test_degraded_metrics_wiring() {
+        use crate::fallback::FallbackManager;
+        use crate::telemetry::Metrics;
+        use oxcache::Cache;
+
+        // 未配置 fallback_manager：主路径执行，degraded 不增
+        let metrics = Arc::new(Metrics::new());
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_metrics(metrics.clone())
+            .build()
+            .await
+            .expect("build should succeed");
+        let ctx = RequestContext::new()
+            .with_header("X-User-Id", "u_degraded")
+            .with_method("GET");
+        let _ = governor.check(&ctx).await;
+        assert_eq!(
+            metrics.degraded_checks_total.get(),
+            0,
+            "主路径成功不应计降级"
+        );
+
+        // 配置 fallback_manager + 无标识符请求：降级闭包执行但错误为配置类，
+        // 不计入 degraded（避免未认证洪水刷高存储健康度告警）
+        let cache: Cache<String, String> = Cache::builder()
+            .capacity(10000)
+            .ttl(Duration::from_secs(60))
+            .build()
+            .await
+            .unwrap();
+        let metrics_fb = Arc::new(Metrics::new());
+        let governor_fb = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_metrics(metrics_fb.clone())
+            .with_fallback_manager(Arc::new(FallbackManager::new(Arc::new(cache))))
+            .build()
+            .await
+            .expect("build with fallback should succeed");
+        let ctx_no_id = RequestContext::new().with_method("GET");
+        let _ = governor_fb.check(&ctx_no_id).await;
+        assert_eq!(
+            metrics_fb.degraded_checks_total.get(),
+            0,
+            "配置类错误触发降级不应计 degraded_checks_total"
+        );
+    }
+
+    /// 降级分类判定验证：存储类错误计降级，配置类错误与成功结果不计
+    /// （分类器直接驱动——链内限流器为本地实现，端到端注入存储错误
+    /// 需分布式后端，不可在单测稳定复现）
+    #[cfg(all(feature = "monitoring", feature = "fallback"))]
+    #[tokio::test]
+    async fn test_degraded_error_classification() {
+        use crate::error::StorageError;
+        use crate::telemetry::Metrics;
+
+        let metrics = Arc::new(Metrics::new());
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_metrics(metrics.clone())
+            .build()
+            .await
+            .expect("build should succeed");
+
+        governor.note_degraded_check(&Err(LimiteronError::StorageError(
+            StorageError::ConnectionError("redis down".to_string()),
+        )));
+        assert_eq!(metrics.degraded_checks_total.get(), 1, "存储类错误应计降级");
+
+        governor.note_degraded_check(&Err(LimiteronError::ConfigError(
+            "no identifier".to_string(),
+        )));
+        governor.note_degraded_check(&Ok(Decision::allowed_default()));
+        assert_eq!(
+            metrics.degraded_checks_total.get(),
+            1,
+            "配置类错误与成功结果不应计降级"
+        );
+    }
+
+    /// 热更新后增量导出对齐验证：apply_config 重建决策链后链内拒绝计数
+    /// 从零重计，导出快照同步清零，新链拒绝立即进入指标；若快照未清零，
+    /// 新链累计在追平旧快照前会被增量语义吞掉（漏报）
+    #[cfg(feature = "monitoring")]
+    #[tokio::test]
+    async fn test_per_rule_limiter_rejections_reset_on_hot_reload() {
+        use crate::telemetry::Metrics;
+
+        let make_config = || FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::types::GlobalConfig::default(),
+            rules: vec![crate::config::types::Rule {
+                id: "test_rule".to_string(),
+                name: "Test Rule".to_string(),
+                priority: 100,
+                matchers: vec![crate::config::types::Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                // capacity=1、refill_rate=1/s：同毫秒连发请求令牌不恢复，
+                // 首个放行其后拒绝
+                limiters: vec![crate::config::types::LimiterConfig::TokenBucket {
+                    capacity: 1,
+                    refill_rate: 1,
+                }],
+                action: crate::config::types::ActionConfig {
+                    on_exceed: crate::config::types::Action::Reject,
+                    ban: None,
+                },
+            }],
+        };
+
+        let metrics = Arc::new(Metrics::new());
+        let governor = Governor::builder()
+            .with_config(make_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_metrics(metrics.clone())
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let ctx = RequestContext::new()
+            .with_header("X-User-Id", "u_hot_reload")
+            .with_method("GET");
+        // 旧链：1 放行 + 1 拒绝（第 3 次命中拒绝负缓存短路返回，不再
+        // 经过链，因而不计入链检查维度指标）→ 导出 1
+        for _ in 0..3 {
+            let _ = governor.check(&ctx).await;
+        }
+        let counter = metrics
+            .rule_limiter_rejections_total
+            .with_label_values(&["test_rule", "test_rule_limiter_0"]);
+        assert_eq!(counter.get(), 1, "旧链 1 次链上拒绝应导出为 1");
+
+        // 热更新换新链（同规则 ID）：链内计数归零，快照同步清零
+        governor
+            .apply_config(make_config())
+            .await
+            .expect("hot reload should succeed");
+
+        // 新链：1 放行 + 1 拒绝 → 导出应增长到 2（快照未清零则停在 1）
+        for _ in 0..2 {
+            let _ = governor.check(&ctx).await;
+        }
+        assert_eq!(
+            counter.get(),
+            2,
+            "热更新后新链拒绝应立即导出（快照已随换装清零）"
         );
     }
 

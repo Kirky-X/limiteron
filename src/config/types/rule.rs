@@ -21,6 +21,9 @@ pub struct Rule {
 impl Rule {
     /// 校验规则
     pub fn validate(&self) -> Result<(), String> {
+        // rule_id 仅约束非空唯一，无字符集白名单：其作为 Prometheus 标签
+        // 值与 JSON 缓存键使用，转义由 prometheus/serde_json 兜底，无注入
+        // 面；若引入字符集约束属运维加固项，需评估存量配置兼容性
         if self.id.is_empty() {
             return Err("Rule ID cannot be empty".to_string());
         }

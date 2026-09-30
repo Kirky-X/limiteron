@@ -495,6 +495,12 @@ name = "otlp_export_tests"
 path = "tests/telemetry/otlp_export_tests.rs"
 required-features = ["otlp"]
 
+# Governor 决策路径 span 属性 e2e（rule.id/rule.outcome 进 OTLP attributes）
+[[test]]
+name = "governor_span_tests"
+path = "tests/telemetry/governor_span_tests.rs"
+required-features = ["otlp"]
+
 # `limiteron-cli` 二进制（规则文件 校验/导出/apply dry-run）。
 # CLI 核心逻辑在 src/cli（`cli` feature）；二进制仅参数透传。
 [[bin]]

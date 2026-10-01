@@ -228,6 +228,8 @@ version = "0.6.0-rc.5"
 default-features = false
 optional = true
 [dev-dependencies]
+# test-util 仅在测试构建生效：退避等待经 tokio paused time 验证，不真睡
+tokio = { workspace = true, features = ["test-util"] }
 tokio-test.workspace = true
 tempfile.workspace = true
 futures.workspace = true
@@ -312,6 +314,7 @@ full = [
     "admission-control",
     "distributed",
     "ban-sync",
+    "retry",
 ]
 
 default = []

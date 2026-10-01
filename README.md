@@ -176,7 +176,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 |------|------|------------|
 | `minimal` | 核心限流，无外部存储依赖 | 无 |
 | `standard` | 核心功能（封禁 / 配额 / 熔断） | `ban-manager`、`quota-control`、`circuit-breaker` |
-| `full` | 除存储后端外的全部功能（不含 `cli`） | 24 项特性，见 Cargo.toml |
+| `full` | 除存储后端外的全部功能（不含 `cli`） | 38 项特性，见 Cargo.toml |
 
 > 注：preset 均不含存储后端，持久化需自行叠加 `sqlite` / `postgres` / `mysql`（dbnexus 驱动互斥，一次构建只能叠加一个）。
 >
@@ -194,12 +194,13 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>mysql</code></td><td>MySQL 存储（dbnexus 服务端驱动）</td><td>❌</td></tr>
 <tr><td><code>cache-redis</code></td><td>Redis 缓存后端（经 oxcache；原 <code>cache-storage</code>，保留为兼容别名）</td><td>❌</td></tr>
 <tr><td><code>lua-script</code></td><td>Redis Lua 脚本执行（经 oxcache <code>eval_lua</code>）：滑动窗口 / 滑动窗口日志（cost 加权）/ 固定窗口 / 令牌桶 / 带突发透支令牌桶 / 配额消费与重置七脚本</td><td>❌</td></tr>
-<tr><td rowspan="10">核心功能</td><td><code>ban-manager</code></td><td>封禁管理（目标封禁、优先级、文件加载）</td><td>❌</td></tr>
+<tr><td rowspan="11">核心功能</td><td><code>ban-manager</code></td><td>封禁管理（目标封禁、优先级、文件加载）</td><td>❌</td></tr>
 <tr><td><code>bulkhead</code></td><td>舱壁隔离：按资源组分池 + 独立并发预算与隔离指标</td><td>❌</td></tr>
 <tr><td><code>quota-control</code></td><td>配额控制</td><td>❌</td></tr>
 <tr><td><code>manager</code></td><td>限流器管理器（<code>LimiterManager</code> 按 key 缓存；<code>#[flow_control]</code> 宏运行时配套，可独立启用）</td><td>❌</td></tr>
 <tr><td><code>capacity-dial</code></td><td>六档容量调光（<code>DialLevel</code> L0-L5 / <code>DialThresholds</code> / <code>CapacityDial</code>，原子内部可变性；不入任何 preset）</td><td>❌</td></tr>
 <tr><td><code>circuit-breaker</code></td><td>熔断器</td><td>❌</td></tr>
+<tr><td><code>retry</code></td><td>带退避重试原语（<code>RetryPolicy</code>：指数退避 + 抖动 + 重试预算，与熔断互补——熔断保护下游、重试消化瞬时抖动；<code>execute_with</code> 决策回调可按上游指示延迟重试）</td><td>❌</td></tr>
 <tr><td><code>fallback</code></td><td>降级策略（FallbackManager）</td><td>❌</td></tr>
 <tr><td><code>custom-limiter</code></td><td>自定义限流器扩展</td><td>❌</td></tr>
 <tr><td><code>cache-service</code></td><td>统一缓存服务（DI 支持）</td><td>❌</td></tr>
@@ -207,7 +208,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td rowspan="2">安全</td><td><code>log-redaction</code></td><td>日志脱敏</td><td>❌</td></tr>
 <tr><td><code>validation</code></td><td>标识符输入校验（IP / 用户 ID / MAC）</td><td>❌</td></tr>
 <tr><td>性能</td><td><code>parallel-checker</code></td><td>并行封禁检查</td><td>❌</td></tr>
-<tr><td rowspan="2">高级匹配</td><td><code>geo-matching</code></td><td>地理位置匹配（MaxMindDB）</td><td>❌</td></tr>
+<tr><td rowspan="3">高级匹配</td><td><code>geo-matching</code></td><td>地理位置匹配（MaxMindDB）</td><td>❌</td></tr>
 <tr><td><code>device-matching</code></td><td>设备信息匹配（woothee User-Agent 解析）</td><td>❌</td></tr>
 <tr><td><code>regex-matching</code></td><td>路径正则匹配器（RegexPathMatcher）</td><td>❌</td></tr>
 <tr><td rowspan="5">控制面</td><td><code>admin-api</code></td><td>管理 REST API（axum，含 RBAC 与限流自保护；协议无关操作面见 <code>AdminService</code> trait）</td><td>❌</td></tr>

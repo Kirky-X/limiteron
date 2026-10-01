@@ -11,30 +11,60 @@
 //!
 //! ```rust
 //! use limiteron::retry::RetryPolicy;
+//! use std::sync::Arc;
+//! use std::sync::atomic::{AtomicU32, Ordering};
 //! use std::time::Duration;
 //!
 //! # async fn example() {
 //! let policy = RetryPolicy::new(3, Duration::from_millis(100));
-//! let mut attempts = 0u32;
+//! let attempts = Arc::new(AtomicU32::new(0));
+//! let counter = attempts.clone();
 //! let result: Result<u32, String> = policy
 //!     .execute(
-//!         || async {
-//!             attempts += 1;
-//!             if attempts < 2 {
-//!                 Err("transient".to_string())
-//!             } else {
-//!                 Ok(42)
+//!         move || {
+//!             let counter = counter.clone();
+//!             async move {
+//!                 let n = counter.fetch_add(1, Ordering::SeqCst) + 1;
+//!                 if n < 2 {
+//!                     Err("transient".to_string())
+//!                 } else {
+//!                     Ok(n)
+//!                 }
 //!             }
 //!         },
 //!         |err| err == "transient", // 仅重试可重试错误
 //!     )
 //!     .await;
-//! assert_eq!(result.unwrap(), 42);
+//! assert_eq!(result.unwrap(), 2);
 //! # }
 //! ```
 
 use std::future::Future;
 use std::time::Duration;
+
+/// [`RetryPolicy::execute_with`] 的单次重试决策。
+///
+/// 决策回调在每次操作失败后收到 `(attempt, err)`（`attempt` 从 1 起，
+/// 指即将进行的第几次重试；`err` 为触发本次决策的错误引用），返回：
+///
+/// - [`RetryDecision::RetryAfter`]：按上游指示的时长等待后重试。适用于
+///   错误携带权威等待时间或分类知识的场景——限流应答的 `Retry-After`、
+///   GCRA 结果的 `GcraCheckResult::retry_after_us`（`gcra` feature）等
+///   生产端给出的值在此消费。
+/// - [`RetryDecision::Retry`]：按策略默认退避档位等待后重试。
+/// - [`RetryDecision::Stop`]：立即放弃，原样返回触发错误。
+///
+/// `execute_with` 无独立的 `is_retryable` 分类器：错误可否重试由决策
+/// 回调全权判定（对不可重试错误返回 `Stop`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryDecision {
+    /// 按上游指示的时长等待后重试。
+    RetryAfter(Duration),
+    /// 按策略默认退避档位等待后重试。
+    Retry,
+    /// 立即放弃重试，原样返回触发错误。
+    Stop,
+}
 
 /// 计算第 `attempt` 次重试的退避时长（attempt 从 1 起）。
 ///
@@ -221,9 +251,13 @@ impl RetryPolicy {
     ///
     /// 钩子为方法参数而非策略字段：[`RetryPolicy`] 保持 `derive(Debug, Clone)`
     /// 派生不变，钩子的记账状态由调用方闭包自行捕获。
+    ///
+    /// 经 [`Self::execute_with`] 实现（分类器映射为决策：不可重试 → `Stop`，
+    /// 可重试 → `Retry`）。循环硬约束耗尽时分类器不再被咨询，与
+    /// [`Self::execute_with`] 同口径。
     pub async fn execute_notify<F, Fut, T, E, P, N>(
         &self,
-        mut op: F,
+        op: F,
         is_retryable: P,
         on_retry: N,
     ) -> Result<T, E>
@@ -232,6 +266,52 @@ impl RetryPolicy {
         Fut: Future<Output = Result<T, E>>,
         P: Fn(&E) -> bool,
         N: Fn(u32, &E),
+    {
+        self.execute_with(op, |attempt, err| {
+            if is_retryable(err) {
+                on_retry(attempt, err);
+                RetryDecision::Retry
+            } else {
+                RetryDecision::Stop
+            }
+        })
+        .await
+    }
+
+    /// 执行操作并按决策回调逐次决定重试方式。
+    ///
+    /// - `op`：每次重试都会重新调用的异步操作工厂
+    /// - `decide(attempt, err)`：操作失败后调用，返回 [`RetryDecision`]；
+    ///   `attempt` 从 1 起，指即将进行的第几次重试
+    ///
+    /// # 循环硬约束先于决策
+    ///
+    /// `max_retries` 与重试预算在每次咨询 `decide` **之前**检查，任一耗尽
+    /// 即返回最后一次错误——决策回调只能收紧重试、不能扩大上限。这是
+    /// 风暴防护的关键：若 `RetryAfter` 可绕过这两道约束，上游指示就成了
+    /// 无限重试的后门。[`Self::execute`] / [`Self::execute_notify`] 与此
+    /// 同口径：耗尽路径上错误分类器同样不再被咨询。
+    ///
+    /// # RetryAfter 与预算 / 抖动记账的交互语义
+    ///
+    /// - **预算**：`RetryAfter` 与 [`RetryDecision::Retry`] 完全同等记账
+    ///   ——同样推进 attempt、消耗一次重试预算。上游指示的只是「何时重试」，
+    ///   不改变「重试多少次」的配额。
+    /// - **抖动链**：`prev_delay` 按策略 `delay_for` 对应档位记账（而非
+    ///   上游指示值），decorrelated 抖动的 `prev×3` 上界始终锚定策略自身
+    ///   的退避序列，不因单次上游指示而塌缩或膨胀；后续默认退避保持
+    ///   确定性。
+    /// - **实际等待**：直接睡上游指示值——不加抖动、不封顶 `max_delay`。
+    ///   封顶会让消费端早于上游指定时刻重试，违反指示契约（限流应答会
+    ///   再次拒绝并给出同样的等待，白白多打一轮）。信任边界：指示值的
+    ///   合理性由决策回调负责（例如对 HTTP `Retry-After` 设上限）；重试
+    ///   次数受 `max_retries` 硬封顶，总时长因此有上界（混合决策下每次
+    ///   等待不超过 `max(max_delay, 上游指示值)`）。
+    pub async fn execute_with<F, Fut, T, E, D>(&self, mut op: F, decide: D) -> Result<T, E>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<T, E>>,
+        D: Fn(u32, &E) -> RetryDecision,
     {
         let mut attempt = 0u32;
         // 预算记账：total = 首调 + 已发生重试
@@ -243,22 +323,26 @@ impl RetryPolicy {
             match op().await {
                 Ok(value) => return Ok(value),
                 Err(err) => {
-                    let retryable = is_retryable(&err);
                     let within_retries = attempt < self.max_retries;
-                    // 重试风暴防护：预算耗尽（重试数/总调用数超比例）即放弃
                     let within_budget = match self.budget_ratio {
                         Some(ratio) => (retries_used as f64) < ratio * total_calls as f64,
                         None => true,
                     };
-                    if !retryable || !within_retries || !within_budget {
+                    if !within_retries || !within_budget {
                         return Err(err);
                     }
                     attempt += 1;
                     retries_used += 1;
-                    on_retry(attempt, &err);
+                    // 记账按策略档位：prev_delay 不被上游指示值污染
                     let d = self.delay_for(attempt, prev_delay);
-                    tokio::time::sleep(d).await;
                     prev_delay = d;
+                    match decide(attempt, &err) {
+                        RetryDecision::Stop => return Err(err),
+                        RetryDecision::RetryAfter(upstream) => {
+                            tokio::time::sleep(upstream).await;
+                        }
+                        RetryDecision::Retry => tokio::time::sleep(d).await,
+                    }
                 }
             }
         }
@@ -526,5 +610,258 @@ mod tests {
         assert_eq!(hook_calls.load(Ordering::SeqCst), 2);
         // Debug 派生未因钩子引入字段而破坏
         assert!(format!("{policy:?}").starts_with("RetryPolicy"));
+    }
+
+    // ========================================================================
+    // execute_with:RetryDecision 三分支决策循环
+    // （tokio paused time 验证退避时长，断言虚拟时钟推进量而非真实睡眠）
+    // ========================================================================
+
+    /// 重试中途成功路径：返回 Ok 值，decide 收到每次失败的 attempt 与
+    /// 原始错误（透传断言），虚拟时钟只推进成功前的退避量。
+    #[tokio::test(start_paused = true)]
+    async fn execute_with_succeeds_after_transient_failures() {
+        let policy = RetryPolicy::new(3, Duration::from_millis(100));
+        let attempts = Arc::new(AtomicU32::new(0));
+        let a = attempts.clone();
+        let errs_seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let e = errs_seen.clone();
+        let start = tokio::time::Instant::now();
+        let result: Result<u32, String> = policy
+            .execute_with(
+                || {
+                    let a = a.clone();
+                    async move {
+                        let n = a.fetch_add(1, Ordering::SeqCst) + 1;
+                        if n < 3 {
+                            Err(format!("flaky-{n}"))
+                        } else {
+                            Ok(n)
+                        }
+                    }
+                },
+                move |attempt, err| {
+                    e.lock().unwrap().push((attempt, err.clone()));
+                    RetryDecision::Retry
+                },
+            )
+            .await;
+        assert_eq!(result.unwrap(), 3, "第 3 次调用成功并返回 Ok 值");
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            *errs_seen.lock().unwrap(),
+            vec![(1, "flaky-1".to_string()), (2, "flaky-2".to_string())],
+            "decide 应收到每次失败的 attempt 序号与原始错误"
+        );
+        assert_eq!(
+            start.elapsed(),
+            Duration::from_millis(300),
+            "虚拟时钟只推进成功前的两次默认退避（100ms+200ms）"
+        );
+    }
+
+    /// Retry 分支：按策略默认退避档位等待（100ms + 200ms）。
+    #[tokio::test(start_paused = true)]
+    async fn execute_with_retry_branch_sleeps_policy_backoff() {
+        let policy = RetryPolicy::new(2, Duration::from_millis(100));
+        let attempts = Arc::new(AtomicU32::new(0));
+        let a = attempts.clone();
+        let start = tokio::time::Instant::now();
+        let result: Result<(), String> = policy
+            .execute_with(
+                || {
+                    let a = a.clone();
+                    async move {
+                        a.fetch_add(1, Ordering::SeqCst);
+                        Err::<(), _>("always".to_string())
+                    }
+                },
+                |_, _| RetryDecision::Retry,
+            )
+            .await;
+        assert_eq!(result.unwrap_err(), "always");
+        assert_eq!(attempts.load(Ordering::SeqCst), 3, "1 次首调 + 2 次重试");
+        assert_eq!(
+            start.elapsed(),
+            Duration::from_millis(300),
+            "Retry 分支应按策略档位退避 100ms+200ms"
+        );
+    }
+
+    /// RetryAfter 分支：实际等待用上游指示值，覆盖策略默认档位。
+    #[tokio::test(start_paused = true)]
+    async fn execute_with_retry_after_overrides_policy_delay() {
+        let policy = RetryPolicy::new(2, Duration::from_millis(100));
+        let attempts = Arc::new(AtomicU32::new(0));
+        let a = attempts.clone();
+        let start = tokio::time::Instant::now();
+        let result: Result<(), String> = policy
+            .execute_with(
+                || {
+                    let a = a.clone();
+                    async move {
+                        a.fetch_add(1, Ordering::SeqCst);
+                        Err::<(), _>("throttled".to_string())
+                    }
+                },
+                |attempt, _| {
+                    if attempt == 1 {
+                        RetryDecision::RetryAfter(Duration::from_millis(50))
+                    } else {
+                        RetryDecision::RetryAfter(Duration::from_millis(70))
+                    }
+                },
+            )
+            .await;
+        assert_eq!(result.unwrap_err(), "throttled");
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            start.elapsed(),
+            Duration::from_millis(120),
+            "实际等待应为上游指示的 50ms+70ms，而非策略档位 100ms+200ms"
+        );
+    }
+
+    /// RetryAfter 不封顶 `max_delay`：上游指示值超过策略上限时仍原样睡眠。
+    /// 封顶会让消费端早于上游指定时刻重试，违反指示契约（限流应答会再次
+    /// 拒绝并给出同样的等待，白白多打一轮）。
+    #[tokio::test(start_paused = true)]
+    async fn execute_with_retry_after_not_capped_by_max_delay() {
+        let policy =
+            RetryPolicy::new(1, Duration::from_millis(1)).with_max_delay(Duration::from_millis(20));
+        let start = tokio::time::Instant::now();
+        let result: Result<(), String> = policy
+            .execute_with(
+                || async { Err::<(), _>("throttled".to_string()) },
+                |_, _| RetryDecision::RetryAfter(Duration::from_millis(500)),
+            )
+            .await;
+        assert_eq!(result.unwrap_err(), "throttled");
+        assert_eq!(
+            start.elapsed(),
+            Duration::from_millis(500),
+            "RetryAfter 应原样睡上游指示值 500ms，不得被 max_delay=20ms（或策略档位）截断"
+        );
+    }
+
+    /// Stop 分支：立即返回原始错误（值原样、不包装），不再调用 op、零退避。
+    #[tokio::test(start_paused = true)]
+    async fn execute_with_stop_returns_original_error_without_further_calls() {
+        let policy = RetryPolicy::new(5, Duration::from_millis(1));
+        let attempts = Arc::new(AtomicU32::new(0));
+        let a = attempts.clone();
+        let start = tokio::time::Instant::now();
+        let result: Result<(), String> = policy
+            .execute_with(
+                || {
+                    let a = a.clone();
+                    async move {
+                        a.fetch_add(1, Ordering::SeqCst);
+                        Err::<(), _>("fatal".to_string())
+                    }
+                },
+                |_, _| RetryDecision::Stop,
+            )
+            .await;
+        assert_eq!(result.unwrap_err(), "fatal", "Stop 必须原样返回触发错误");
+        assert_eq!(attempts.load(Ordering::SeqCst), 1, "Stop 后不得再调用 op");
+        assert_eq!(start.elapsed(), Duration::ZERO, "Stop 不产生退避等待");
+    }
+
+    /// attempt 序号从 1 起逐次递增，与 execute_notify 的 on_retry 同口径；
+    /// 重试次数仍受 max_retries 封顶（决策回调无法扩大上限）。
+    #[tokio::test(start_paused = true)]
+    async fn execute_with_attempts_start_at_one_and_capped_by_max_retries() {
+        let policy = RetryPolicy::new(3, Duration::from_millis(1));
+        let attempts_seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let a = attempts_seen.clone();
+        let result: Result<(), String> = policy
+            .execute_with(
+                || async { Err::<(), _>("boom".to_string()) },
+                move |attempt, _| {
+                    a.lock().unwrap().push(attempt);
+                    RetryDecision::Retry
+                },
+            )
+            .await;
+        assert!(result.is_err());
+        assert_eq!(
+            *attempts_seen.lock().unwrap(),
+            vec![1, 2, 3],
+            "attempt 序号应从 1 起逐次递增，且不超过 max_retries"
+        );
+    }
+
+    /// RetryAfter 与默认退避同等消耗重试预算：预算耗尽点与 execute 一致
+    /// （ratio=0.5 → 2 次调用后停止），不得借上游指示绕过风暴防护。
+    #[tokio::test(start_paused = true)]
+    async fn execute_with_retry_after_still_honors_budget() {
+        let policy = RetryPolicy::new(10, Duration::from_millis(1)).with_budget_ratio(0.5);
+        let attempts = Arc::new(AtomicU32::new(0));
+        let a = attempts.clone();
+        let result: Result<(), String> = policy
+            .execute_with(
+                || {
+                    let a = a.clone();
+                    async move {
+                        a.fetch_add(1, Ordering::SeqCst);
+                        Err::<(), _>("always".to_string())
+                    }
+                },
+                |_, _| RetryDecision::RetryAfter(Duration::from_millis(1)),
+            )
+            .await;
+        assert_eq!(result.unwrap_err(), "always");
+        let n = attempts.load(Ordering::SeqCst);
+        assert_eq!(n, 2, "预算 0.5 下 2 次调用后应停止，实际 {n}");
+    }
+
+    /// RetryAfter 后 jitter 链仍按策略档位记账：第 2 次默认退避的实际
+    /// 等待为 base 200ms×(1+jitter)（档位上界 prev×3 ≥ 300ms 不再收紧），
+    /// 而非按上游值记账时的 10ms×3=30ms。
+    #[tokio::test(start_paused = true)]
+    async fn execute_with_retry_after_accounts_backoff_chain_at_policy_tier() {
+        let policy = RetryPolicy::new(5, Duration::from_millis(100))
+            .with_max_delay(Duration::from_secs(3600))
+            .with_jitter(1.0);
+        let before_second_sleep = Arc::new(std::sync::Mutex::new(None));
+        let after_second_sleep = Arc::new(std::sync::Mutex::new(None));
+        let op_calls = Arc::new(AtomicU32::new(0));
+        let b = before_second_sleep.clone();
+        let aft = after_second_sleep.clone();
+        let o = op_calls.clone();
+        let result: Result<(), String> = policy
+            .execute_with(
+                || {
+                    let o = o.clone();
+                    let aft = aft.clone();
+                    async move {
+                        if o.fetch_add(1, Ordering::SeqCst) + 1 == 3 {
+                            *aft.lock().unwrap() = Some(tokio::time::Instant::now());
+                        }
+                        Err::<(), _>("always".to_string())
+                    }
+                },
+                |attempt, _| {
+                    if attempt == 2 {
+                        *b.lock().unwrap() = Some(tokio::time::Instant::now());
+                    }
+                    if attempt == 1 {
+                        RetryDecision::RetryAfter(Duration::from_millis(10))
+                    } else {
+                        RetryDecision::Retry
+                    }
+                },
+            )
+            .await;
+        assert!(result.is_err());
+        let before = before_second_sleep.lock().unwrap().unwrap();
+        let after = after_second_sleep.lock().unwrap().unwrap();
+        let wait = after.duration_since(before);
+        assert!(
+            wait >= Duration::from_millis(200) && wait < Duration::from_millis(400),
+            "第 2 次默认退避应按策略档位记账（base 200ms×(1+jitter) ∈ [200,400)ms、\
+             上界 prev×3 ≥ 300ms），而非上游 10ms×3=30ms，实际 {wait:?}"
+        );
     }
 }

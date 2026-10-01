@@ -179,7 +179,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 |--------|-------------|------------------|
 | `minimal` | Core rate limiting, no external storage dependencies | none |
 | `standard` | Core features (ban / quota / circuit breaker) | `ban-manager`, `quota-control`, `circuit-breaker` |
-| `full` | Everything except storage backends (excludes `cli`) | 24 features, see Cargo.toml |
+| `full` | Everything except storage backends (excludes `cli`) | 38 features, see Cargo.toml |
 
 > Note: presets include no storage backend; add `sqlite` / `postgres` / `mysql` on top for persistence (dbnexus drivers are mutually exclusive — only one per build).
 >
@@ -197,10 +197,11 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td><code>mysql</code></td><td>MySQL storage (dbnexus server-side driver)</td><td>❌</td></tr>
 <tr><td><code>cache-redis</code></td><td>Redis cache backend (via oxcache; formerly <code>cache-storage</code>, kept as a compatibility alias)</td><td>❌</td></tr>
 <tr><td><code>lua-script</code></td><td>Redis Lua script execution (via oxcache <code>eval_lua</code>): sliding window / sliding window log (cost-weighted) / fixed window / token bucket / burst-overdraft token bucket / quota consume &amp; reset — seven scripts</td><td>❌</td></tr>
-<tr><td rowspan="8">Core</td><td><code>ban-manager</code></td><td>Ban management (target bans, priorities, file loading)</td><td>❌</td></tr>
+<tr><td rowspan="9">Core</td><td><code>ban-manager</code></td><td>Ban management (target bans, priorities, file loading)</td><td>❌</td></tr>
 <tr><td><code>bulkhead</code></td><td>Bulkhead isolation: per-resource-group pools + independent concurrency budgets and isolation metrics</td><td>❌</td></tr>
 <tr><td><code>quota-control</code></td><td>Quota control</td><td>❌</td></tr>
 <tr><td><code>circuit-breaker</code></td><td>Circuit breaker</td><td>❌</td></tr>
+<tr><td><code>retry</code></td><td>Retry primitive with backoff (<code>RetryPolicy</code>: exponential backoff + jitter + retry budget, complements the circuit breaker — breaker protects downstream, retry absorbs transient jitter; <code>execute_with</code> decision callback supports retrying after an upstream-indicated delay)</td><td>❌</td></tr>
 <tr><td><code>fallback</code></td><td>Fallback strategies (FallbackManager)</td><td>❌</td></tr>
 <tr><td><code>custom-limiter</code></td><td>Custom rate limiter support</td><td>❌</td></tr>
 <tr><td><code>cache-service</code></td><td>Unified cache service (DI support)</td><td>❌</td></tr>
@@ -208,7 +209,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td rowspan="2">Security</td><td><code>log-redaction</code></td><td>Log redaction</td><td>❌</td></tr>
 <tr><td><code>validation</code></td><td>Identifier input validation (IP / User ID / MAC)</td><td>❌</td></tr>
 <tr><td>Performance</td><td><code>parallel-checker</code></td><td>Parallel ban checking</td><td>❌</td></tr>
-<tr><td rowspan="2">Advanced Matching</td><td><code>geo-matching</code></td><td>Geographic matching (MaxMindDB)</td><td>❌</td></tr>
+<tr><td rowspan="3">Advanced Matching</td><td><code>geo-matching</code></td><td>Geographic matching (MaxMindDB)</td><td>❌</td></tr>
 <tr><td><code>device-matching</code></td><td>Device matching (woothee User-Agent parsing)</td><td>❌</td></tr>
 <tr><td><code>regex-matching</code></td><td>Regex path matcher (RegexPathMatcher)</td><td>❌</td></tr>
 <tr><td rowspan="5">Control Plane</td><td><code>admin-api</code></td><td>Admin REST API (axum, with RBAC and self rate-limit protection; protocol-agnostic operations surface in the <code>AdminService</code> trait)</td><td>❌</td></tr>

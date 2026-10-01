@@ -25,7 +25,7 @@
 //! # 注意
 //!
 //! - 仅启用 `telemetry` feature 时，`Metrics` 为无操作实现（方法仍可调用）
-//! - 同时启用 `monitoring` feature 时，`Metrics` 为完整 Prometheus 实现
+//! - 同时启用 `prometheus` feature 时，`Metrics` 为完整 Prometheus 实现
 //! - `init_telemetry` 在 `enable_tracing=true` 时会尝试初始化 tracing subscriber，
 //!   重复初始化会被安全忽略
 
@@ -287,10 +287,10 @@ async fn demo_metrics_gather() -> Result<(), Box<dyn std::error::Error>> {
     // 收集指标
     let gathered = metrics.gather();
 
-    // 在无 monitoring feature 时，gather() 返回空字符串
-    // 在有 monitoring feature 时，返回 Prometheus 格式文本
+    // 在无 prometheus feature 时，gather() 返回空字符串
+    // 在有 prometheus feature 时，返回 Prometheus 格式文本
     if gathered.is_empty() {
-        println!("Metrics gather 返回空（monitoring feature 未启用，使用无操作实现）");
+        println!("Metrics gather 返回空（prometheus feature 未启用，使用无操作实现）");
         println!("提示: 使用 --features full 启用完整 Prometheus 指标导出");
     } else {
         println!("Metrics gather 成功，输出长度: {} 字节", gathered.len());

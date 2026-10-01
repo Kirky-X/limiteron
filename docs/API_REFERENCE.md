@@ -541,6 +541,8 @@ pub fn builder() -> GovernorBuilder
 | `with_l1_cache_config(config: L1CacheConfig)` | 自定义 L1 负缓存（TTL 与容量） |
 | `build().await` | 构建 Governor |
 
+> **注记**：`Metrics` 的 Prometheus 导出由 `start_prometheus_server` 提供（`prometheus` 特性）；特性未启用时调用返回错误，错误消息文本已随特性更名由 `monitoring feature is disabled` 变为 `prometheus feature is disabled`（变更披露见 [CHANGELOG](CHANGELOG.md) Unreleased 段）。
+
 **示例：**
 
 ```rust

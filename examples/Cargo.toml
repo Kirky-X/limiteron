@@ -148,6 +148,8 @@ cache-service = ["limiteron/cache-service"]
 # 可观测性
 telemetry = ["limiteron/telemetry"]
 prometheus = ["limiteron/prometheus"]
+# 旧名兼容别名（镜像主 crate Cargo.toml 的别名政策；特性由 monitoring 更名而来）
+monitoring = ["prometheus"]
 audit-log = ["limiteron/audit-log"]
 # 降级与中间件
 fallback = ["limiteron/fallback"]

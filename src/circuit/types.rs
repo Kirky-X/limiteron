@@ -9,7 +9,7 @@ use crate::constants::{
     DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_RATE_THRESHOLD, DEFAULT_CIRCUIT_BREAKER_SUCCESS_THRESHOLD,
     DEFAULT_CIRCUIT_BREAKER_TIMEOUT_SECS,
 };
-use crate::error::{CircuitBreakerStats, CircuitState, LimiteronError};
+use crate::error::{CircuitBreakerStats, CircuitCallError, CircuitState, LimiteronError};
 use crate::i18n::t;
 use log::{info, trace, warn};
 use std::sync::Arc;
@@ -17,27 +17,31 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
-/// 错误分类器 trait
+/// 失败分类器 trait
 ///
 /// 用于判断错误是否应该计入失败计数。
 /// 允许用户自定义哪些错误应该被视为失败。
 ///
+/// 泛型参数 `E` 为熔断器包装调用的错误类型：默认的
+/// [`DefaultFailureClassifier`] 仅支持 [`LimiteronError`]，自定义错误类型
+/// 须提供对应 `E` 的分类器实现。
+///
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::circuit::ErrorClassifier;
+/// use limiteron::circuit::FailureClassifier;
 /// use limiteron::error::LimiteronError;
 ///
 /// #[derive(Debug)]
 /// struct CustomErrorClassifier;
-/// impl ErrorClassifier for CustomErrorClassifier {
+/// impl FailureClassifier<LimiteronError> for CustomErrorClassifier {
 ///     fn is_counted_as_failure(&self, error: &LimiteronError) -> bool {
 ///         // 自定义逻辑：只有特定的错误才算失败
 ///         !matches!(error, LimiteronError::ValidationError(_))
 ///     }
 /// }
 /// ```
-pub trait ErrorClassifier: Send + Sync + std::fmt::Debug {
+pub trait FailureClassifier<E>: Send + Sync + std::fmt::Debug {
     /// 判断错误是否应该计入失败计数
     ///
     /// # 参数
@@ -46,19 +50,21 @@ pub trait ErrorClassifier: Send + Sync + std::fmt::Debug {
     /// # 返回
     /// - `true`: 错误应计入失败计数
     /// - `false`: 错误不应计入失败计数
-    fn is_counted_as_failure(&self, error: &LimiteronError) -> bool;
+    fn is_counted_as_failure(&self, error: &E) -> bool;
 }
 
 /// 默认错误分类器
+///
+/// 仅实现 [`FailureClassifier<LimiteronError>`](FailureClassifier)。
 ///
 /// 默认行为：
 /// - 5xx 错误（StorageError::ConnectionError, StorageError::TimeoutError）算失败
 /// - 超时错误算失败
 /// - 4xx 错误（ValidationError, NotFound）不算失败
 #[derive(Debug)]
-pub struct DefaultErrorClassifier;
+pub struct DefaultFailureClassifier;
 
-impl ErrorClassifier for DefaultErrorClassifier {
+impl FailureClassifier<LimiteronError> for DefaultFailureClassifier {
     fn is_counted_as_failure(&self, error: &LimiteronError) -> bool {
         match error {
             // 存储相关的临时错误算失败
@@ -74,8 +80,11 @@ impl ErrorClassifier for DefaultErrorClassifier {
 }
 
 /// 熔断器配置
-#[derive(Debug, Clone)]
-pub struct CircuitBreakerConfig {
+///
+/// 泛型参数 `E` 为被包装调用的错误类型，默认 [`LimiteronError`]。
+/// 默认错误分类器 [`DefaultFailureClassifier`] 仅支持该默认错误类型，
+/// 自定义 `E` 的配置经 [`CircuitBreakerConfig::with_error_classifier`] 构造。
+pub struct CircuitBreakerConfig<E = LimiteronError> {
     /// 失败阈值（达到此值时熔断）
     pub failure_threshold: u64,
     /// 成功阈值（半开状态下达到此值时恢复）
@@ -93,11 +102,49 @@ pub struct CircuitBreakerConfig {
     /// 慢调用率阈值（慢调用占比超过此值时熔断）
     pub slow_call_rate_threshold: f64,
     /// 错误分类器
-    pub error_classifier: Arc<dyn ErrorClassifier>,
+    pub error_classifier: Arc<dyn FailureClassifier<E>>,
 }
 
-impl Default for CircuitBreakerConfig {
-    fn default() -> Self {
+impl<E> std::fmt::Debug for CircuitBreakerConfig<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CircuitBreakerConfig")
+            .field("failure_threshold", &self.failure_threshold)
+            .field("success_threshold", &self.success_threshold)
+            .field("timeout", &self.timeout)
+            .field("half_open_max_calls", &self.half_open_max_calls)
+            .field("half_open_max_duration", &self.half_open_max_duration)
+            .field(
+                "slow_call_duration_threshold",
+                &self.slow_call_duration_threshold,
+            )
+            .field("slow_call_rate_threshold", &self.slow_call_rate_threshold)
+            .field("error_classifier", &self.error_classifier)
+            .finish()
+    }
+}
+
+impl<E> Clone for CircuitBreakerConfig<E> {
+    fn clone(&self) -> Self {
+        Self {
+            failure_threshold: self.failure_threshold,
+            success_threshold: self.success_threshold,
+            timeout: self.timeout,
+            half_open_max_calls: self.half_open_max_calls,
+            half_open_max_duration: self.half_open_max_duration,
+            slow_call_duration_threshold: self.slow_call_duration_threshold,
+            slow_call_rate_threshold: self.slow_call_rate_threshold,
+            error_classifier: Arc::clone(&self.error_classifier),
+        }
+    }
+}
+
+impl<E> CircuitBreakerConfig<E> {
+    /// 以显式错误分类器创建采用默认阈值的配置
+    ///
+    /// 自定义错误类型 `E` 的唯一配置入口：默认分类器
+    /// [`DefaultFailureClassifier`] 仅支持 [`LimiteronError`]，无法为任意
+    /// `E` 提供缺省值。
+    pub fn with_error_classifier(error_classifier: Arc<dyn FailureClassifier<E>>) -> Self {
         Self {
             failure_threshold: DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
             success_threshold: DEFAULT_CIRCUIT_BREAKER_SUCCESS_THRESHOLD,
@@ -108,25 +155,7 @@ impl Default for CircuitBreakerConfig {
                 DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_DURATION_MILLIS,
             ),
             slow_call_rate_threshold: DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_RATE_THRESHOLD,
-            error_classifier: Arc::new(DefaultErrorClassifier),
-        }
-    }
-}
-
-impl CircuitBreakerConfig {
-    /// 创建新的熔断器配置
-    pub fn new(failure_threshold: u64, success_threshold: u64, timeout: Duration) -> Self {
-        Self {
-            failure_threshold,
-            success_threshold,
-            timeout,
-            half_open_max_duration: Duration::from_secs(30),
-            half_open_max_calls: DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS,
-            slow_call_duration_threshold: Duration::from_millis(
-                DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_DURATION_MILLIS,
-            ),
-            slow_call_rate_threshold: DEFAULT_CIRCUIT_BREAKER_SLOW_CALL_RATE_THRESHOLD,
-            error_classifier: Arc::new(DefaultErrorClassifier),
+            error_classifier,
         }
     }
 
@@ -149,14 +178,39 @@ impl CircuitBreakerConfig {
     }
 
     /// 设置错误分类器
-    pub fn error_classifier(mut self, classifier: Arc<dyn ErrorClassifier>) -> Self {
+    pub fn error_classifier(mut self, classifier: Arc<dyn FailureClassifier<E>>) -> Self {
         self.error_classifier = classifier;
         self
     }
 }
 
+impl Default for CircuitBreakerConfig<LimiteronError> {
+    fn default() -> Self {
+        Self::with_error_classifier(Arc::new(DefaultFailureClassifier))
+    }
+}
+
+impl CircuitBreakerConfig<LimiteronError> {
+    /// 创建新的熔断器配置
+    pub fn new(failure_threshold: u64, success_threshold: u64, timeout: Duration) -> Self {
+        Self {
+            failure_threshold,
+            success_threshold,
+            timeout,
+            ..Self::default()
+        }
+    }
+}
+
 /// 熔断器
-pub struct CircuitBreaker {
+///
+/// 泛型参数 `E` 为包装调用的错误类型，默认 [`LimiteronError`]。
+/// 拒绝语义与 sync 版
+/// [`SyncCircuitBreaker`](crate::sync::SyncCircuitBreaker) 对齐：熔断打开时
+/// [`execute`](CircuitBreaker::execute) 返回
+/// [`CircuitCallError::Open`]（闭包未执行），调用自身的失败经
+/// [`CircuitCallError::Inner`] 原样透传。
+pub struct CircuitBreaker<E = LimiteronError> {
     /// 当前状态
     state: Arc<RwLock<CircuitState>>,
     /// 失败计数
@@ -184,7 +238,7 @@ pub struct CircuitBreaker {
     /// 半开状态下的调用计数
     half_open_calls: Arc<AtomicU64>,
     /// 配置
-    config: CircuitBreakerConfig,
+    config: CircuitBreakerConfig<E>,
     /// 时钟实例
     clock: Arc<dyn Clock>,
     /// 事件发射器（可选，feature-gated）
@@ -193,9 +247,13 @@ pub struct CircuitBreaker {
 }
 
 /// 熔断器构建器
+///
+/// 构建默认错误类型（[`LimiteronError`]）的熔断器；自定义错误类型经
+/// [`CircuitBreakerConfig::with_error_classifier`] 构造配置后走
+/// [`CircuitBreaker::with_dependencies`]。
 #[derive(Debug, Clone)]
 pub struct CircuitBreakerBuilder {
-    config: CircuitBreakerConfig,
+    config: CircuitBreakerConfig<LimiteronError>,
 }
 
 impl CircuitBreakerBuilder {
@@ -248,7 +306,10 @@ impl CircuitBreakerBuilder {
     }
 
     /// 设置错误分类器
-    pub fn error_classifier(mut self, classifier: Arc<dyn ErrorClassifier>) -> Self {
+    pub fn error_classifier(
+        mut self,
+        classifier: Arc<dyn FailureClassifier<LimiteronError>>,
+    ) -> Self {
         self.config.error_classifier = classifier;
         self
     }
@@ -265,7 +326,7 @@ impl Default for CircuitBreakerBuilder {
     }
 }
 
-impl CircuitBreaker {
+impl<E> CircuitBreaker<E> {
     /// 使用依赖注入模式创建熔断器
     ///
     /// # 参数
@@ -282,7 +343,7 @@ impl CircuitBreaker {
     /// let config = CircuitBreakerConfig::new(5, 2, Duration::from_secs(60));
     /// let breaker = CircuitBreaker::with_dependencies(config);
     /// ```
-    pub fn with_dependencies(config: CircuitBreakerConfig) -> Self {
+    pub fn with_dependencies(config: CircuitBreakerConfig<E>) -> Self {
         Self::with_clock(config, Arc::new(SystemClock))
     }
 
@@ -291,7 +352,7 @@ impl CircuitBreaker {
     /// # 参数
     /// - `config`: 熔断器配置
     /// - `clock`: 时钟实现,用于时间注入(测试用)
-    pub fn with_clock(config: CircuitBreakerConfig, clock: Arc<dyn Clock>) -> Self {
+    pub fn with_clock(config: CircuitBreakerConfig<E>, clock: Arc<dyn Clock>) -> Self {
         info!(
             "{}",
             t(
@@ -323,21 +384,6 @@ impl CircuitBreaker {
         }
     }
 
-    /// 创建熔断器构建器
-    ///
-    /// # 返回
-    /// 新的构建器实例
-    ///
-    /// # 示例
-    /// ```rust
-    /// use limiteron::circuit::CircuitBreaker;
-    ///
-    /// let builder = CircuitBreaker::builder();
-    /// ```
-    pub fn builder() -> CircuitBreakerBuilder {
-        CircuitBreakerBuilder::new()
-    }
-
     /// 创建新的熔断器（保持向后兼容）
     ///
     /// # 参数
@@ -351,26 +397,52 @@ impl CircuitBreaker {
     /// let config = CircuitBreakerConfig::new(5, 2, Duration::from_secs(60));
     /// let breaker = CircuitBreaker::new(config);
     /// ```
-    pub fn new(config: CircuitBreakerConfig) -> Self {
+    pub fn new(config: CircuitBreakerConfig<E>) -> Self {
         Self::with_dependencies(config)
     }
 }
 
-impl Default for CircuitBreaker {
+impl CircuitBreaker<LimiteronError> {
+    /// 创建熔断器构建器
+    ///
+    /// 构建器仅面向默认错误类型 [`LimiteronError`]；自定义错误类型经
+    /// [`CircuitBreakerConfig::with_error_classifier`] 构造配置后走
+    /// [`Self::with_dependencies`]。
+    ///
+    /// # 返回
+    /// 新的构建器实例
+    ///
+    /// # 示例
+    /// ```rust
+    /// use limiteron::circuit::CircuitBreaker;
+    ///
+    /// let builder = CircuitBreaker::builder();
+    /// ```
+    pub fn builder() -> CircuitBreakerBuilder {
+        CircuitBreakerBuilder::new()
+    }
+}
+
+impl Default for CircuitBreaker<LimiteronError> {
     fn default() -> Self {
         Self::with_dependencies(CircuitBreakerConfig::default())
     }
 }
 
-impl CircuitBreaker {
+impl<E> CircuitBreaker<E> {
     /// 执行操作，自动处理熔断逻辑
+    ///
+    /// 拒绝语义与 sync 版对齐：熔断打开（冷却中或半开探针配额满）时返回
+    /// [`CircuitCallError::Open`]，`operation` 不执行；调用被放行但自身
+    /// 失败时，错误经 [`CircuitCallError::Inner`] 原样透传。
     ///
     /// # 参数
     /// - `operation`: 要执行的操作
     ///
     /// # 返回
     /// - `Ok(T)`: 操作成功
-    /// - `Err(LimiteronError)`: 操作失败或熔断器打开
+    /// - `Err(CircuitCallError::Open)`: 熔断打开，操作未执行
+    /// - `Err(CircuitCallError::Inner(e))`: 操作自身失败，透传 `e`
     ///
     /// # 示例
     /// ```rust
@@ -388,10 +460,10 @@ impl CircuitBreaker {
     /// }).await;
     /// # }
     /// ```
-    pub async fn execute<F, Fut, T>(&self, operation: F) -> Result<T, LimiteronError>
+    pub async fn execute<F, Fut, T>(&self, operation: F) -> Result<T, CircuitCallError<E>>
     where
         F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = Result<T, LimiteronError>>,
+        Fut: std::future::Future<Output = Result<T, E>>,
     {
         // 注意：total_calls 只统计实际执行的操作（慢调用率的分母）。
         // 被熔断/限流拒绝的调用不进入分母——否则它们会稀释慢调用率，
@@ -426,19 +498,13 @@ impl CircuitBreaker {
                         // 仍在熔断状态，拒绝请求
                         drop(state);
                         warn!("{}", t("circuit-open-rejecting", &[]));
-                        return Err(LimiteronError::LimitError(t(
-                            "circuit-open-request-rejected",
-                            &[],
-                        )));
+                        return Err(CircuitCallError::Open);
                     }
                 } else {
                     // 无失败时间戳（不应出现在 Open 态），保守拒绝
                     drop(state);
                     warn!("{}", t("circuit-open-rejecting", &[]));
-                    return Err(LimiteronError::LimitError(t(
-                        "circuit-open-request-rejected",
-                        &[],
-                    )));
+                    return Err(CircuitCallError::Open);
                 }
             }
             CircuitState::HalfOpen => {
@@ -473,16 +539,10 @@ impl CircuitBreaker {
                     if escaped {
                         self.transition_to(CircuitState::Open).await;
                         warn!("{}", t("circuit-half-open-escape-timeout", &[]));
-                        return Err(LimiteronError::CircuitBreakerError(t(
-                            "circuit-half-open-limit-exceeded",
-                            &[],
-                        )));
+                        return Err(CircuitCallError::Open);
                     }
                     warn!("{}", t("circuit-half-open-limit-reached", &[]));
-                    return Err(LimiteronError::LimitError(t(
-                        "circuit-half-open-limit-exceeded",
-                        &[],
-                    )));
+                    return Err(CircuitCallError::Open);
                 }
                 match self.half_open_calls.compare_exchange(
                     calls,
@@ -514,7 +574,7 @@ impl CircuitBreaker {
             }
             Err(e) => {
                 self.on_failure_probe_aware(&e, half_open_probe).await;
-                Err(e)
+                Err(CircuitCallError::Inner(e))
             }
         }
     }
@@ -560,10 +620,12 @@ impl CircuitBreaker {
     /// `was_probe` 表示本次失败来自半开准入的探针调用。探针失败是
     /// 后端仍处于故障状态的确证：即使准入后状态被并发的其他探针成功
     /// 漂移回 Closed，也必须重新熔断，而非按 Closed 计数等待阈值（B3）。
-    async fn on_failure_probe_aware(&self, error: &LimiteronError, was_probe: bool) {
-        // 使用错误分类器判断是否应该计入失败计数
+    async fn on_failure_probe_aware(&self, error: &E, was_probe: bool) {
+        // 使用错误分类器判断是否应该计入失败计数。
+        // 此处不复读错误内容（E 无 bound）：错误经 CircuitCallError::Inner
+        // 完整返还调用方，由调用方自行记录；不插值使任意 E 类型均可使用。
         if !self.config.error_classifier.is_counted_as_failure(error) {
-            trace!("error not counted as failure: {:?}", error);
+            trace!("error not counted as failure by error classifier");
             return;
         }
 
@@ -606,7 +668,9 @@ impl CircuitBreaker {
             }
         }
     }
+}
 
+impl<E> CircuitBreaker<E> {
     /// 记录调用时长并检查是否为慢调用
     ///
     /// 如果调用时长超过慢调用阈值，则增加慢调用计数。
@@ -860,7 +924,7 @@ impl CircuitBreaker {
     }
 
     /// 获取配置
-    pub fn config(&self) -> &CircuitBreakerConfig {
+    pub fn config(&self) -> &CircuitBreakerConfig<E> {
         &self.config
     }
 }
@@ -986,9 +1050,10 @@ mod tests {
             .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_err());
-        // 错误双轨:Display 恒英文规范串(与 locale 无关)
-        let rendered = result.unwrap_err().to_string();
-        assert!(rendered.contains("Circuit breaker open"), "got: {rendered}");
+        // 拒绝为显式 Open 变体（对齐 sync 版），Display 恒英文规范串
+        let call_err = result.unwrap_err();
+        assert!(call_err.is_open(), "got: {call_err:?}");
+        assert_eq!(call_err.to_string(), "circuit breaker is open");
     }
 
     #[tokio::test]
@@ -1146,12 +1211,9 @@ mod tests {
             .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_err());
-        // 错误双轨:Display 恒英文规范串(与 locale 无关)
-        let rendered = result.unwrap_err().to_string();
-        assert!(
-            rendered.contains("Half-open state call limit exceeded"),
-            "got: {rendered}"
-        );
+        // 半开配额满的拒绝同样是显式 Open 变体（拒绝原因经 warn 日志区分）
+        let call_err = result.unwrap_err();
+        assert!(call_err.is_open(), "got: {call_err:?}");
     }
 
     #[tokio::test]
@@ -1352,7 +1414,7 @@ mod tests {
     /// 测试默认错误分类器 - StorageError 超时算失败
     #[test]
     fn test_default_error_classifier_storage_timeout() {
-        let classifier = DefaultErrorClassifier;
+        let classifier = DefaultFailureClassifier;
         let error = LimiteronError::StorageError(crate::error::StorageError::TimeoutError(
             "timeout".into(),
         ));
@@ -1362,7 +1424,7 @@ mod tests {
     /// 测试默认错误分类器 - StorageError 连接错误算失败
     #[test]
     fn test_default_error_classifier_connection_error() {
-        let classifier = DefaultErrorClassifier;
+        let classifier = DefaultFailureClassifier;
         let error = LimiteronError::StorageError(crate::error::StorageError::ConnectionError(
             "connection".into(),
         ));
@@ -1372,7 +1434,7 @@ mod tests {
     /// 测试默认错误分类器 - LimitError 不算失败
     #[test]
     fn test_default_error_classifier_limit_error() {
-        let classifier = DefaultErrorClassifier;
+        let classifier = DefaultFailureClassifier;
         let error = LimiteronError::LimitError("rate limited".into());
         assert!(!classifier.is_counted_as_failure(&error));
     }
@@ -1380,7 +1442,7 @@ mod tests {
     /// 测试默认错误分类器 - ValidationError 不算失败
     #[test]
     fn test_default_error_classifier_validation_error() {
-        let classifier = DefaultErrorClassifier;
+        let classifier = DefaultFailureClassifier;
         let error = LimiteronError::ValidationError("invalid input".into());
         assert!(!classifier.is_counted_as_failure(&error));
     }
@@ -1388,7 +1450,7 @@ mod tests {
     /// 测试默认错误分类器 - CircuitBreakerError 不算失败
     #[test]
     fn test_default_error_classifier_circuit_breaker_error() {
-        let classifier = DefaultErrorClassifier;
+        let classifier = DefaultFailureClassifier;
         let error = LimiteronError::CircuitBreakerError("circuit open".into());
         assert!(!classifier.is_counted_as_failure(&error));
     }
@@ -1396,7 +1458,7 @@ mod tests {
     /// 测试默认错误分类器 - 其他错误算失败
     #[test]
     fn test_default_error_classifier_other_errors() {
-        let classifier = DefaultErrorClassifier;
+        let classifier = DefaultFailureClassifier;
         let error = LimiteronError::Other("unknown error".into());
         assert!(classifier.is_counted_as_failure(&error));
     }
@@ -1406,7 +1468,7 @@ mod tests {
     async fn test_custom_error_classifier() {
         #[derive(Debug)]
         struct CustomClassifier;
-        impl ErrorClassifier for CustomClassifier {
+        impl FailureClassifier<LimiteronError> for CustomClassifier {
             fn is_counted_as_failure(&self, error: &LimiteronError) -> bool {
                 // 只有 StorageError 算失败
                 matches!(error, LimiteronError::StorageError(_))
@@ -1469,7 +1531,8 @@ mod tests {
 
     #[test]
     fn test_config_error_classifier_builder() {
-        let classifier: Arc<dyn ErrorClassifier> = Arc::new(DefaultErrorClassifier);
+        let classifier: Arc<dyn FailureClassifier<LimiteronError>> =
+            Arc::new(DefaultFailureClassifier);
         let config = CircuitBreakerConfig::default().error_classifier(classifier);
         // Just verify it doesn't panic and config is accessible
         assert_eq!(config.failure_threshold, 5);
@@ -1477,7 +1540,8 @@ mod tests {
 
     #[test]
     fn test_config_all_builder_methods() {
-        let classifier: Arc<dyn ErrorClassifier> = Arc::new(DefaultErrorClassifier);
+        let classifier: Arc<dyn FailureClassifier<LimiteronError>> =
+            Arc::new(DefaultFailureClassifier);
         let config = CircuitBreakerConfig::new(10, 5, Duration::from_secs(30))
             .half_open_max_calls(4)
             .slow_call_duration_threshold(Duration::from_millis(100))
@@ -1658,7 +1722,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_circuit_breaker_builder_error_classifier() {
-        let classifier: Arc<dyn ErrorClassifier> = Arc::new(DefaultErrorClassifier);
+        let classifier: Arc<dyn FailureClassifier<LimiteronError>> =
+            Arc::new(DefaultFailureClassifier);
         let breaker = CircuitBreaker::builder()
             .failure_threshold(3)
             .error_classifier(classifier)
@@ -1683,7 +1748,7 @@ mod tests {
 
     #[test]
     fn test_default_error_classifier_storage_not_transient() {
-        let classifier = DefaultErrorClassifier;
+        let classifier = DefaultFailureClassifier;
         // NotFound is NOT transient, so it should NOT be counted as failure
         let error = LimiteronError::StorageError(crate::error::StorageError::NotFound("nf".into()));
         assert!(!classifier.is_counted_as_failure(&error));
@@ -1816,5 +1881,155 @@ mod tests {
         let transitioned = breaker.transition_to_closed_if_half_open().await;
         assert!(!transitioned, "Open 态不得经条件关闭转为 Closed");
         assert!(breaker.is_open().await, "状态必须保持 Open");
+    }
+
+    // ==================== 泛型错误类型支持 ====================
+
+    /// 测试用跨库自定义错误类型（非 LimiteronError）
+    #[derive(Debug, Clone, PartialEq)]
+    struct ApiError {
+        transient: bool,
+        message: String,
+    }
+
+    /// ApiError 分类器：仅瞬时错误计入失败
+    #[derive(Debug)]
+    struct ApiErrorClassifier;
+
+    impl FailureClassifier<ApiError> for ApiErrorClassifier {
+        fn is_counted_as_failure(&self, error: &ApiError) -> bool {
+            error.transient
+        }
+    }
+
+    fn api_error_breaker() -> CircuitBreaker<ApiError> {
+        CircuitBreaker::with_dependencies(
+            CircuitBreakerConfig::with_error_classifier(Arc::new(ApiErrorClassifier))
+                .half_open_max_calls(2),
+        )
+    }
+
+    /// 自定义错误类型经 Inner 原样透传，无有损映射；分类器不计的非瞬时
+    /// 错误不触发失败计数
+    #[tokio::test]
+    async fn test_generic_error_inner_passthrough() {
+        let breaker = api_error_breaker();
+
+        let result = breaker
+            .execute(|| async {
+                Err::<(), ApiError>(ApiError {
+                    transient: false,
+                    message: "bad request".to_string(),
+                })
+            })
+            .await;
+
+        match result {
+            Err(CircuitCallError::Inner(e)) => {
+                assert_eq!(
+                    e,
+                    ApiError {
+                        transient: false,
+                        message: "bad request".to_string(),
+                    },
+                    "调用自身的失败必须原样透传"
+                );
+            }
+            other => panic!("调用失败应透传 Inner，实际: {other:?}"),
+        }
+        assert_eq!(breaker.get_stats().await.failure_count, 0);
+        assert!(breaker.is_closed().await);
+    }
+
+    /// 自定义分类器判定的瞬时错误计入失败并触发熔断（默认阈值 5）
+    #[tokio::test]
+    async fn test_generic_error_classifier_counts_failures() {
+        let breaker = api_error_breaker();
+
+        for i in 0..5 {
+            let _ = breaker
+                .execute(|| async {
+                    Err::<(), ApiError>(ApiError {
+                        transient: true,
+                        message: format!("boom {i}"),
+                    })
+                })
+                .await;
+        }
+
+        assert_eq!(breaker.get_stats().await.failure_count, 5);
+        assert!(breaker.is_open().await);
+    }
+
+    /// 熔断打开时拒绝为显式 Open 变体且闭包不执行（对齐 sync 版语义）
+    #[tokio::test]
+    async fn test_generic_error_open_rejection_is_explicit() {
+        let breaker = api_error_breaker();
+        let executed = Arc::new(AtomicU64::new(0));
+
+        for _ in 0..5 {
+            let _ = breaker
+                .execute(|| async {
+                    Err::<(), ApiError>(ApiError {
+                        transient: true,
+                        message: "boom".to_string(),
+                    })
+                })
+                .await;
+        }
+        assert!(breaker.is_open().await);
+
+        let counter = Arc::clone(&executed);
+        let result = breaker
+            .execute(move || {
+                counter.fetch_add(1, Ordering::Relaxed);
+                async { Ok::<(), ApiError>(()) }
+            })
+            .await;
+
+        match result {
+            Err(call_err) => {
+                assert!(call_err.is_open(), "熔断打开应返回 Open 变体");
+                assert_eq!(call_err.into_inner(), None, "Open 无透传错误");
+            }
+            Ok(()) => panic!("熔断打开必须拒绝"),
+        }
+        assert_eq!(
+            executed.load(Ordering::Relaxed),
+            0,
+            "熔断打开时闭包不得执行"
+        );
+    }
+
+    /// 非 Debug 错误类型必须与 sync 版同等可用（execute 无 E bound 回归）
+    #[tokio::test]
+    async fn test_generic_error_without_debug_usable() {
+        // 刻意不实现 Debug：未计失败的 trace 日志不得依赖 E 的格式化能力
+        struct OpaqueError(u32);
+
+        #[derive(Debug)]
+        struct OpaqueClassifier;
+
+        impl FailureClassifier<OpaqueError> for OpaqueClassifier {
+            fn is_counted_as_failure(&self, _error: &OpaqueError) -> bool {
+                false
+            }
+        }
+
+        let breaker = CircuitBreaker::with_dependencies(
+            CircuitBreakerConfig::with_error_classifier(Arc::new(OpaqueClassifier)),
+        );
+
+        let result = breaker
+            .execute(|| async { Err::<(), OpaqueError>(OpaqueError(1)) })
+            .await;
+
+        match result {
+            Err(CircuitCallError::Inner(e)) => assert_eq!(e.0, 1),
+            Err(CircuitCallError::Open) => panic!("熔断未打开不应拒绝"),
+            Ok(()) => panic!("调用应失败并透传"),
+        }
+        assert_eq!(breaker.get_stats().await.failure_count, 0);
+        assert!(breaker.is_closed().await);
     }
 }

@@ -5,7 +5,7 @@
 //! 测试熔断器模块的基本功能
 
 #[cfg(feature = "circuit-breaker")]
-use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig};
+use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig, CircuitCallError};
 #[cfg(feature = "circuit-breaker")]
 use limiteron::error::{CircuitState, LimiteronError};
 use std::time::Duration;
@@ -64,7 +64,7 @@ async fn test_circuit_breaker_recovers_after_timeout() {
     let circuit_breaker = CircuitBreaker::new(config);
 
     // 触发熔断器打开 - 执行失败操作
-    // 注意：DefaultErrorClassifier 不将 LimitError/CircuitBreakerError/ValidationError 计为失败，
+    // 注意：DefaultFailureClassifier 不将 LimitError/CircuitBreakerError/ValidationError 计为失败，
     // 必须使用其他错误变体（如 BanError）才能触发熔断
     for _ in 0..2 {
         let _ = circuit_breaker
@@ -100,7 +100,7 @@ async fn test_circuit_breaker_fast_fails_in_open_state() {
     let circuit_breaker = CircuitBreaker::new(config);
 
     // 触发熔断器打开
-    // 注意：DefaultErrorClassifier 不将 LimitError 计为失败，使用 BanError 触发熔断
+    // 注意：DefaultFailureClassifier 不将 LimitError 计为失败，使用 BanError 触发熔断
     for _ in 0..2 {
         let _ = circuit_breaker
             .execute(|| async {
@@ -117,16 +117,10 @@ async fn test_circuit_breaker_fast_fails_in_open_state() {
         .await;
     assert!(result.is_err());
 
-    // 验证错误类型（熔断器打开时返回 LimitError）
+    // 验证错误类型（熔断器打开时返回显式拒绝 Open 变体，闭包未执行）
     match result {
-        Err(LimiteronError::LimitError(msg)) => {
-            // 错误双轨:Display 恒英文规范串(与 locale 无关)
-            assert!(
-                msg.contains("Circuit breaker open") || msg.contains("request rejected"),
-                "got: {msg}"
-            );
-        }
-        _ => panic!("Expected LimitError when circuit breaker is open"),
+        Err(CircuitCallError::Open) => {}
+        _ => panic!("Expected CircuitCallError::Open when circuit breaker is open"),
     }
 
     // 验证状态仍然是 Open

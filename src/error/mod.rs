@@ -6,12 +6,14 @@
 
 // 子模块
 pub mod abstraction;
+mod call_error;
 
 // 重新导出 abstraction 模块的公共类型
 pub use abstraction::{
     BanSafeError, ConfigSafeError, ErrorMessageAbstraction, GeneralSafeError, LimitSafeError,
     SafeErrorMessage, StorageSafeError, ValidationSafeError,
 };
+pub use call_error::CircuitCallError;
 
 use thiserror::Error;
 

@@ -5,7 +5,7 @@
 //! 测试后端失败触发熔断，以及熔断恢复后正常访问的完整流程
 
 #[cfg(feature = "circuit-breaker")]
-use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig};
+use limiteron::circuit::{CircuitBreaker, CircuitBreakerConfig, CircuitCallError};
 #[cfg(feature = "circuit-breaker")]
 use limiteron::error::{CircuitState, LimiteronError};
 #[cfg(feature = "circuit-breaker")]
@@ -107,19 +107,10 @@ async fn e2e_circuit_breaker_fast_fail_when_open() {
         elapsed
     );
 
-    // 验证错误消息
+    // 验证拒绝形态：熔断打开为显式 Open 变体（闭包未执行）
     match result {
-        Err(LimiteronError::LimitError(msg)) => {
-            assert!(
-                msg.contains("熔断器打开")
-                    || msg.contains("请求被拒绝")
-                    || msg.contains("Circuit breaker open")
-                    || msg.contains("request rejected"),
-                "Error message should indicate circuit is open: {}",
-                msg
-            );
-        }
-        _ => panic!("Expected LimitError"),
+        Err(CircuitCallError::Open) => {}
+        other => panic!("Expected CircuitCallError::Open, got: {other:?}"),
     }
 }
 

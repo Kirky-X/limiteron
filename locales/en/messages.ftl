@@ -274,9 +274,7 @@ fallback-all-recovered-island-exit = All storage layers recovered, exiting islan
 # ---- Circuit breaker (T025) ----
 circuit-created = Circuit breaker created: failure_threshold={ $failure_threshold }, success_threshold={ $success_threshold }, timeout={ $timeout }
 circuit-open-rejecting = Circuit breaker open, rejecting request
-circuit-open-request-rejected = Circuit breaker open, request rejected
 circuit-half-open-limit-reached = Half-open state call limit reached, rejecting request
-circuit-half-open-limit-exceeded = Half-open state call limit exceeded
 circuit-success-while-open = Success response received while circuit breaker open
 circuit-half-open-probe-failed = Half-open probe failed (state drifted to Closed in the meantime), re-opening circuit
 circuit-failure-while-open = Failure response received while circuit breaker open

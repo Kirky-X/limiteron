@@ -46,43 +46,8 @@ use std::time::{Duration, Instant};
 use crate::clock::{Clock, SystemClock};
 use parking_lot::Mutex;
 
-/// 熔断器包装的调用结果。
-///
-/// - [`CircuitCallError::Open`]：熔断打开，闭包未执行即被拒绝（快速失败）；
-/// - [`CircuitCallError::Inner`]：调用被放行但自身失败，透传原始错误。
-#[derive(Debug, PartialEq, Eq)]
-pub enum CircuitCallError<E> {
-    /// 熔断打开：闭包未执行。
-    Open,
-    /// 调用被放行但失败：透传原始错误。
-    Inner(E),
-}
-
-impl<E> CircuitCallError<E> {
-    /// 熔断是否处于打开拒绝态（`true` 表示闭包未执行）。
-    pub fn is_open(&self) -> bool {
-        matches!(self, Self::Open)
-    }
-
-    /// 取透传的原始错误（Open 态返回 `None`）。
-    pub fn into_inner(self) -> Option<E> {
-        match self {
-            Self::Open => None,
-            Self::Inner(e) => Some(e),
-        }
-    }
-}
-
-impl<E: fmt::Display> fmt::Display for CircuitCallError<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Open => write!(f, "circuit breaker is open"),
-            Self::Inner(e) => write!(f, "{e}"),
-        }
-    }
-}
-
-impl<E: fmt::Debug + fmt::Display> std::error::Error for CircuitCallError<E> {}
+// 显式拒绝语义的类型定义与 async 版共用一份（见 crate::error::call_error）
+pub use crate::error::CircuitCallError;
 
 /// 熔断器内部状态。
 #[derive(Debug)]
@@ -378,17 +343,6 @@ mod tests {
         assert!(!b.admit());
     }
 
-    #[test]
-    fn test_circuit_call_error_helpers() {
-        assert!(CircuitCallError::<&str>::Open.is_open());
-        assert_eq!(CircuitCallError::Inner("x").into_inner(), Some("x"));
-        assert!(CircuitCallError::<&str>::Open.into_inner().is_none());
-        assert_eq!(
-            CircuitCallError::<&str>::Open.to_string(),
-            "circuit breaker is open"
-        );
-        assert_eq!(CircuitCallError::Inner("boom").to_string(), "boom");
-    }
     #[test]
     fn test_late_success_in_open_does_not_close() {
         // B4 防护对齐回归：call() 放行的慢请求在途期间熔断被其他线程

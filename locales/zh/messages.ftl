@@ -273,9 +273,7 @@ fallback-all-recovered-island-exit = 所有存储层恢复，退出孤岛模式
 # ---- 熔断器（T025） ----
 circuit-created = 创建熔断器: failure_threshold={ $failure_threshold }, success_threshold={ $success_threshold }, timeout={ $timeout }
 circuit-open-rejecting = 熔断器打开，拒绝请求
-circuit-open-request-rejected = 熔断器打开，请求被拒绝
 circuit-half-open-limit-reached = 半开状态调用次数已达上限，拒绝请求
-circuit-half-open-limit-exceeded = 半开状态调用次数已达上限
 circuit-success-while-open = 熔断器打开状态下收到成功响应
 circuit-half-open-probe-failed = 半开探针失败（期间状态已漂移至 Closed），重新熔断
 circuit-failure-while-open = 熔断器打开状态下收到失败响应

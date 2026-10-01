@@ -1022,7 +1022,7 @@ mod tests {
             CircuitBreakerConfig::default(),
         ));
         // 通过 execute 触发一次失败以覆盖 failure_rate > 0 分支
-        // 使用 ConnectionError（transient）才会被 DefaultErrorClassifier 计为失败
+        // 使用 ConnectionError（transient）才会被 DefaultFailureClassifier 计为失败
         let _ = cb
             .execute(|| async {
                 Err::<(), LimiteronError>(LimiteronError::StorageError(

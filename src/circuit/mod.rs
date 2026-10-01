@@ -33,8 +33,9 @@
 pub mod manual;
 pub mod types;
 
+pub use crate::error::CircuitCallError;
 pub use manual::{ManualCircuitBreaker, ManualCircuitBreakerConfig};
 pub use types::{
-    CircuitBreaker, CircuitBreakerBuilder, CircuitBreakerConfig, DefaultErrorClassifier,
-    ErrorClassifier,
+    CircuitBreaker, CircuitBreakerBuilder, CircuitBreakerConfig, DefaultFailureClassifier,
+    FailureClassifier,
 };

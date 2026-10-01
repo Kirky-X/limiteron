@@ -462,29 +462,54 @@ println!("剩余 {}，使用率 {:.1}%", result.remaining, result.usage_percent)
 pub fn new(config: CircuitBreakerConfig) -> Self
 ```
 
-`CircuitBreaker` 同时实现 `Default`（默认配置）。
+`CircuitBreaker<E = LimiteronError>` 同时实现 `Default`（默认配置，仅默认错误类型实例化）。
 
 > **注意**：不存在 `new(failure_threshold, timeout_secs)` 参数化签名，也不存在 `with_config()` 方法。自定义配置请构造 `CircuitBreakerConfig` 后传入 `new()`，或使用 `CircuitBreaker::builder()`。
 
 #### `CircuitBreakerConfig`
 
 ```rust
-pub struct CircuitBreakerConfig {
+pub struct CircuitBreakerConfig<E = LimiteronError> {
     pub failure_threshold: u64,          // 失败阈值（默认 5）
     pub success_threshold: u64,          // 半开状态恢复所需成功数（默认 3）
     pub timeout: Duration,               // 打开状态等待时长（默认 30 秒）
     pub half_open_max_calls: u64,        // 半开状态最大探测调用数（默认 3）
+    pub half_open_max_duration: Duration, // 半开探针滞留逃逸时长（默认 30 秒）
     pub slow_call_duration_threshold: Duration, // 慢调用时长阈值（默认 500ms）
     pub slow_call_rate_threshold: f64,   // 慢调用率阈值（默认 0.5）
-    pub error_classifier: Arc<dyn ErrorClassifier>, // 错误分类器
+    pub error_classifier: Arc<dyn FailureClassifier<E>>, // 错误分类器
 }
 ```
+
+泛型参数 `E` 为被包装调用的错误类型。默认分类器 `DefaultFailureClassifier` 仅实现
+`FailureClassifier<LimiteronError>`；自定义错误类型经
+`CircuitBreakerConfig::with_error_classifier(Arc<dyn FailureClassifier<E>>)` 构造配置。
+
+#### `CircuitCallError`
+
+熔断拒绝为显式变体（与 sync 版 `SyncCircuitBreaker` 共用同一类型，定义于
+`limiteron::error::CircuitCallError`）：
+
+- `CircuitCallError::Open`：熔断打开（冷却中或半开探针配额满），闭包未执行；
+- `CircuitCallError::Inner(e)`：调用被放行但自身失败，透传原始错误 `e`。
+
+#### 0.3.0 破坏性变更与迁移
+
+本版对齐 async 与 sync 版的拒绝语义，含三个破坏点：
+
+1. `execute` 返回类型 `Result<T, LimiteronError>` → `Result<T, CircuitCallError<E>>`。
+   旧 `match Err(LimiteronError::LimitError(msg)) | Err(LimiteronError::CircuitBreakerError(msg))`
+   （熔断拒绝）改为 `Err(CircuitCallError::Open)`；调用自身的失败错误改从
+   `Err(CircuitCallError::Inner(e))` 取得（不再与拒绝共用错误通道）。
+2. 分类器 trait `ErrorClassifier` 改名 `FailureClassifier<E>`：`impl ErrorClassifier for X`
+   改为 `impl FailureClassifier<LimiteronError> for X`（方法签名不变）。
+3. 默认实现 `DefaultErrorClassifier` 改名 `DefaultFailureClassifier`。
 
 **常用方法：**
 
 | 方法 | 说明 |
 |------|------|
-| `execute(op).await` | 执行操作，自动处理熔断逻辑 |
+| `execute(op).await` | 执行操作，返回 `Result<T, CircuitCallError<E>>`（`op` 返回 `Result<T, E>`） |
 | `get_state().await` | 查询当前状态（`CircuitState`：Closed / Open / HalfOpen） |
 | `config()` | 读取生效配置 |
 

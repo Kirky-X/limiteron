@@ -9,7 +9,7 @@
 //!
 //! Run: cargo run --bin circuit_breaker --features circuit-breaker
 
-use limiteron::circuit::CircuitBreaker;
+use limiteron::circuit::{CircuitBreaker, CircuitCallError};
 use limiteron::error::LimiteronError;
 use std::time::Duration;
 
@@ -40,7 +40,7 @@ async fn demo_basic_operations() -> Result<(), LimiteronError> {
     println!("Is closed: {}", breaker.is_closed().await);
     println!("Is open: {}\n", breaker.is_open().await);
 
-    let success: Result<(), LimiteronError> = breaker
+    let success: Result<(), CircuitCallError<LimiteronError>> = breaker
         .execute(|| async { Ok::<(), LimiteronError>(()) })
         .await;
     println!("Execute success operation: {:?}", success.is_ok());
@@ -114,7 +114,8 @@ async fn demo_recovery() -> Result<(), LimiteronError> {
     tokio::time::sleep(Duration::from_millis(120)).await;
 
     println!("\nProbing with success operation...");
-    let result: Result<(), LimiteronError> = breaker.execute(success_operation).await;
+    let result: Result<(), CircuitCallError<LimiteronError>> =
+        breaker.execute(success_operation).await;
     println!("Probe result: {:?}", result.is_ok());
 
     let stats = breaker.get_stats().await;

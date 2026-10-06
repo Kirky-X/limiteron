@@ -220,7 +220,7 @@ default-features = false
 features = ["async", "health", "lifecycle"]
 optional = true
 [dependencies.inklog]
-version = "0.3.0-rc.6"
+version = "0.3.0-rc.7"
 default-features = false
 optional = true
 [dependencies.confers]

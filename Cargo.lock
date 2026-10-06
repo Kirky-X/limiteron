@@ -2332,9 +2332,9 @@ dependencies = [
 
 [[package]]
 name = "inklog"
-version = "0.3.0-rc.6"
+version = "0.3.0-rc.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe59bd3dd2852f2c9eb13ca5e7925fa35f720206f88e0287d848348d50e2607b"
+checksum = "5bbf0ba9e4515b1eb838937e99518081dae78f2e17f474ec5f1b657b1d8c9e3e"
 dependencies = [
  "aes-gcm",
  "anyhow",

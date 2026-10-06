@@ -675,3 +675,287 @@ mod tests {
         assert!(config.validate().is_ok());
     }
 }
+
+#[cfg(test)]
+/// 限流器配置校验的分支穷尽测试：每个变体的零值/越界/窗口格式错误都必须被拒绝，
+/// 且错误文案保持稳定（下游按文案排障）。新增变体或改边界时此表会失配。
+mod limiter_config_validate_branches {
+    use super::LimiterConfig;
+    use super::parse_window_size;
+    use crate::config::QuotaType;
+    use crate::constants::{
+        MAX_SLIDING_LOG_REQUESTS, MAX_TOKEN_BUCKET_CAPACITY, MAX_TOKEN_BUCKET_REFILL_RATE,
+        MAX_WINDOW_REQUESTS,
+    };
+
+    fn err_of(cfg: &LimiterConfig) -> String {
+        match cfg.validate() {
+            Err(e) => e,
+            Ok(()) => panic!("配置应被拒绝: {cfg:?}"),
+        }
+    }
+
+    #[test]
+    fn test_token_bucket_bounds() {
+        assert!(
+            LimiterConfig::TokenBucket {
+                capacity: 5,
+                refill_rate: 1
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            err_of(&LimiterConfig::TokenBucket {
+                capacity: 0,
+                refill_rate: 1
+            })
+            .contains("capacity")
+        );
+        assert!(
+            err_of(&LimiterConfig::TokenBucket {
+                capacity: 5,
+                refill_rate: 0
+            })
+            .contains("Refill rate")
+        );
+        assert!(
+            err_of(&LimiterConfig::TokenBucket {
+                capacity: MAX_TOKEN_BUCKET_CAPACITY + 1,
+                refill_rate: 1,
+            })
+            .contains("cannot exceed")
+        );
+        assert!(
+            err_of(&LimiterConfig::TokenBucket {
+                capacity: 5,
+                refill_rate: MAX_TOKEN_BUCKET_REFILL_RATE + 1,
+            })
+            .contains("cannot exceed")
+        );
+    }
+
+    #[test]
+    fn test_window_backed_variants_reject_zero_and_huge() {
+        for name in ["SlidingWindow", "FixedWindow"] {
+            let zero = match name {
+                "SlidingWindow" => LimiterConfig::SlidingWindow {
+                    window_size: "1m".into(),
+                    max_requests: 0,
+                },
+                _ => LimiterConfig::FixedWindow {
+                    window_size: "1m".into(),
+                    max_requests: 0,
+                },
+            };
+            assert!(err_of(&zero).contains("Max requests"));
+            let huge = match name {
+                "SlidingWindow" => LimiterConfig::SlidingWindow {
+                    window_size: "1m".into(),
+                    max_requests: MAX_WINDOW_REQUESTS + 1,
+                },
+                _ => LimiterConfig::FixedWindow {
+                    window_size: "1m".into(),
+                    max_requests: MAX_WINDOW_REQUESTS + 1,
+                },
+            };
+            assert!(err_of(&huge).contains("cannot exceed"));
+            let bad_window = match name {
+                "SlidingWindow" => LimiterConfig::SlidingWindow {
+                    window_size: "".into(),
+                    max_requests: 5,
+                },
+                _ => LimiterConfig::FixedWindow {
+                    window_size: "abc".into(),
+                    max_requests: 5,
+                },
+            };
+            let msg = err_of(&bad_window);
+            assert!(
+                msg.contains("Window size") || msg.contains("missing number"),
+                "{name} 窗口校验未生效: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_quota_and_concurrency_bounds() {
+        assert!(
+            LimiterConfig::Quota {
+                quota_type: QuotaType::Count,
+                limit: 10,
+                window: "1d".into(),
+                alert_threshold: Some(80),
+                overdraft: None,
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            err_of(&LimiterConfig::Quota {
+                quota_type: QuotaType::Count,
+                limit: 0,
+                window: "1d".into(),
+                alert_threshold: None,
+                overdraft: None,
+            })
+            .contains("limit")
+        );
+        assert!(
+            err_of(&LimiterConfig::Quota {
+                quota_type: QuotaType::Count,
+                limit: 10,
+                window: "1d".into(),
+                alert_threshold: Some(101),
+                overdraft: None,
+            })
+            .contains("100")
+        );
+
+        assert!(
+            LimiterConfig::Concurrency { max_concurrent: 4 }
+                .validate()
+                .is_ok()
+        );
+        assert!(err_of(&LimiterConfig::Concurrency { max_concurrent: 0 }).contains("concurrency"));
+        assert!(
+            err_of(&LimiterConfig::Concurrency {
+                max_concurrent: u64::MAX
+            })
+            .contains("cannot exceed")
+        );
+    }
+
+    #[test]
+    fn test_leaky_bucket_and_log_bounds() {
+        assert!(
+            LimiterConfig::LeakyBucket {
+                capacity: 4,
+                leak_rate: 2
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            err_of(&LimiterConfig::LeakyBucket {
+                capacity: 0,
+                leak_rate: 1
+            })
+            .contains("capacity")
+        );
+        assert!(
+            err_of(&LimiterConfig::LeakyBucket {
+                capacity: 4,
+                leak_rate: 0
+            })
+            .contains("leak_rate")
+        );
+        assert!(
+            err_of(&LimiterConfig::LeakyBucket {
+                capacity: MAX_TOKEN_BUCKET_CAPACITY + 1,
+                leak_rate: 1,
+            })
+            .contains("cannot exceed")
+        );
+        assert!(
+            err_of(&LimiterConfig::LeakyBucket {
+                capacity: 4,
+                leak_rate: MAX_TOKEN_BUCKET_REFILL_RATE + 1,
+            })
+            .contains("cannot exceed")
+        );
+
+        assert!(
+            LimiterConfig::SlidingWindowLog {
+                window_size: "1s".into(),
+                max_requests: 5
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            err_of(&LimiterConfig::SlidingWindowLog {
+                window_size: "1s".into(),
+                max_requests: 0
+            })
+            .contains("max_requests")
+        );
+        assert!(
+            err_of(&LimiterConfig::SlidingWindowLog {
+                window_size: "1s".into(),
+                max_requests: MAX_SLIDING_LOG_REQUESTS + 1,
+            })
+            .contains("cannot exceed"),
+            "日志型窗口上界必须比计数器型更严"
+        );
+    }
+
+    #[test]
+    fn test_priority_queue_admission_custom_branches() {
+        let pq = |total: u64, weights: Vec<u64>, def: Option<usize>| LimiterConfig::PriorityQueue {
+            window_size: "1m".into(),
+            total_per_window: total,
+            level_weights: weights,
+            default_priority: def,
+        };
+        assert!(pq(10, vec![1, 2], Some(1)).validate().is_ok());
+        assert!(err_of(&pq(0, vec![1], None)).contains("total_per_window"));
+        assert!(err_of(&pq(10, vec![], None)).contains("level_weights"));
+        assert!(err_of(&pq(10, vec![1, 0], None)).contains("level_weights"));
+        assert!(err_of(&pq(10, vec![1, 2], Some(2))).contains("out of range"));
+        assert!(
+            err_of(&LimiterConfig::PriorityQueue {
+                window_size: "1z".into(),
+                total_per_window: 10,
+                level_weights: vec![1],
+                default_priority: None,
+            })
+            .contains("Unsupported unit")
+        );
+
+        assert!(
+            LimiterConfig::AdmissionControl {
+                max_concurrent: 2,
+                max_per_second: 5
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            err_of(&LimiterConfig::AdmissionControl {
+                max_concurrent: 0,
+                max_per_second: 5
+            })
+            .contains("max_concurrent")
+        );
+        assert!(
+            err_of(&LimiterConfig::AdmissionControl {
+                max_concurrent: 2,
+                max_per_second: 0
+            })
+            .contains("max_per_second")
+        );
+
+        let custom = |name: &str, v: serde_json::Value| LimiterConfig::Custom {
+            name: name.to_string(),
+            config: v,
+        };
+        assert!(custom("m", serde_json::json!({"k": 1})).validate().is_ok());
+        assert!(err_of(&custom("", serde_json::json!({}))).contains("name"));
+        assert!(err_of(&custom("m", serde_json::Value::Null)).contains("config"));
+    }
+
+    /// 窗口字符串解析的边界（validate 的间接依赖，错误文案须可判别）。
+    #[test]
+    fn test_parse_window_size_boundaries() {
+        for ok in ["1s", "250ms", "1m", "1h", "2d"] {
+            assert!(parse_window_size(ok).is_ok(), "{ok} 应为合法窗口");
+        }
+        assert!(parse_window_size("").is_err());
+        assert!(parse_window_size("   ").is_err());
+        assert!(parse_window_size("abc").is_err(), "缺数字必须报错");
+        assert!(parse_window_size("10").is_err(), "缺单位必须报错");
+        assert!(parse_window_size("10q").is_err(), "未知单位必须报错");
+        assert!(parse_window_size("-5s").is_err(), "负值必须报错");
+    }
+}

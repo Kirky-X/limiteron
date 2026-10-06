@@ -657,4 +657,381 @@ mod tests {
         };
         assert!(matches!(back, StorageError::QueryError(_)));
     }
+
+    /// 错误双轨契约：每个错误枚举的每个变体都映射到既有 FTL 键，键能在英文目录中
+    /// 解析出真实文案（不是键 id 本身），且各 safe 子枚举的键空间互不冲突。
+    /// 抓两类真实回归：新增变体忘记登记 ftl 键；代码与目录两侧键改名不同步。
+    #[test]
+    fn test_error_message_key_and_catalog_contract() {
+        use crate::i18n::catalog::translate_en;
+
+        let storage: Vec<(StorageError, &str)> = vec![
+            (
+                StorageError::ConnectionError("m".into()),
+                "error-storage-connection",
+            ),
+            (StorageError::QueryError("m".into()), "error-storage-query"),
+            (
+                StorageError::TimeoutError("m".into()),
+                "error-storage-timeout",
+            ),
+            (
+                StorageError::NotFound("m".into()),
+                "error-storage-not-found",
+            ),
+            (
+                StorageError::AuthenticationError("m".into()),
+                "error-storage-authentication",
+            ),
+            (
+                StorageError::PermissionError("m".into()),
+                "error-storage-permission",
+            ),
+            (
+                StorageError::InvalidConfig("m".into()),
+                "error-storage-invalid-config",
+            ),
+            (
+                StorageError::RateLimitError("m".into()),
+                "error-storage-rate-limit",
+            ),
+            (
+                StorageError::ValidationError("m".into()),
+                "error-storage-validation",
+            ),
+        ];
+
+        let io_err = LimiteronError::IoError(std::io::Error::other("x"));
+        let serde_err = LimiteronError::SerdeError(
+            serde_json::from_str::<String>("not-json").expect_err("invalid json"),
+        );
+        let yaml_err = LimiteronError::YamlError(
+            serde_yaml_ng::from_str::<std::collections::HashMap<String, String>>("[")
+                .expect_err("invalid yaml"),
+        );
+        let limiteron: Vec<(LimiteronError, &str)> = vec![
+            (LimiteronError::ConfigError("m".into()), "error-config"),
+            (
+                // 有意委托内层键，避免 "Storage error: ..." 双层包装
+                LimiteronError::StorageError(StorageError::NotFound("m".into())),
+                "error-storage-not-found",
+            ),
+            (LimiteronError::LimitError("m".into()), "error-limit"),
+            (LimiteronError::BanError("m".into()), "error-ban"),
+            (
+                LimiteronError::CircuitBreakerError("m".into()),
+                "error-circuit-breaker",
+            ),
+            (LimiteronError::FallbackError("m".into()), "error-fallback"),
+            (LimiteronError::AuditLogError("m".into()), "error-audit-log"),
+            (
+                LimiteronError::AuthorizationError("m".into()),
+                "error-authorization",
+            ),
+            (io_err, "error-io"),
+            (serde_err, "error-serde"),
+            (yaml_err, "error-yaml"),
+            (
+                LimiteronError::RateLimitExceeded("m".into()),
+                "error-rate-limit-exceeded",
+            ),
+            (
+                LimiteronError::QuotaExceeded("m".into()),
+                "error-quota-exceeded",
+            ),
+            (
+                LimiteronError::ConcurrencyLimitExceeded("m".into()),
+                "error-concurrency-limit-exceeded",
+            ),
+            (LimiteronError::Throttled("m".into()), "error-throttled"),
+            (
+                LimiteronError::ValidationError("m".into()),
+                "error-validation",
+            ),
+            (LimiteronError::LockError("m".into()), "error-lock"),
+            (LimiteronError::TimeError("m".into()), "error-time"),
+            (
+                LimiteronError::DependencyError("m".into()),
+                "error-dependency",
+            ),
+            (
+                LimiteronError::ParamMismatch("m".into()),
+                "error-param-mismatch",
+            ),
+            (LimiteronError::Other("m".into()), "error-other"),
+        ];
+
+        let config_safe: Vec<(ConfigSafeError, &str)> = vec![
+            (ConfigSafeError::InvalidFormat, "config-safe-invalid-format"),
+            (
+                ConfigSafeError::MissingRequiredField,
+                "config-safe-missing-required-field",
+            ),
+            (
+                ConfigSafeError::DuplicateRuleId,
+                "config-safe-duplicate-rule-id",
+            ),
+            (
+                ConfigSafeError::InvalidStorageType,
+                "config-safe-invalid-storage-type",
+            ),
+            (
+                ConfigSafeError::InvalidCacheType,
+                "config-safe-invalid-cache-type",
+            ),
+            (
+                ConfigSafeError::InvalidMetricsType,
+                "config-safe-invalid-metrics-type",
+            ),
+            (
+                ConfigSafeError::InvalidVersion,
+                "config-safe-invalid-version",
+            ),
+            (ConfigSafeError::RuleNotFound, "config-safe-rule-not-found"),
+            (
+                ConfigSafeError::InvalidLimiterConfig,
+                "config-safe-invalid-limiter-config",
+            ),
+            (
+                ConfigSafeError::InvalidMatcherConfig,
+                "config-safe-invalid-matcher-config",
+            ),
+            (
+                ConfigSafeError::ValueOutOfRange,
+                "config-safe-value-out-of-range",
+            ),
+            (
+                ConfigSafeError::MalformedPattern,
+                "config-safe-malformed-pattern",
+            ),
+            (ConfigSafeError::SecurityRisk, "config-safe-security-risk"),
+        ];
+
+        let storage_safe: Vec<(StorageSafeError, &str)> = vec![
+            (
+                StorageSafeError::ConnectionFailed,
+                "storage-safe-connection-failed",
+            ),
+            (StorageSafeError::QueryFailed, "storage-safe-query-failed"),
+            (StorageSafeError::Timeout, "storage-safe-timeout"),
+            (StorageSafeError::NotFound, "storage-safe-not-found"),
+            (
+                StorageSafeError::ConcurrentModification,
+                "storage-safe-concurrent-modification",
+            ),
+            (StorageSafeError::StorageFull, "storage-safe-storage-full"),
+            (
+                StorageSafeError::InvalidDataFormat,
+                "storage-safe-invalid-data-format",
+            ),
+        ];
+
+        let limit_safe: Vec<(LimitSafeError, &str)> = vec![
+            (
+                LimitSafeError::RateLimitExceeded,
+                "limit-safe-rate-limit-exceeded",
+            ),
+            (LimitSafeError::QuotaExceeded, "limit-safe-quota-exceeded"),
+            (
+                LimitSafeError::ConcurrencyLimitExceeded,
+                "limit-safe-concurrency-exceeded",
+            ),
+            (
+                LimitSafeError::TokenBucketEmpty,
+                "limit-safe-token-bucket-empty",
+            ),
+            (LimitSafeError::WindowFull, "limit-safe-window-full"),
+            (
+                LimitSafeError::TooManyRequests,
+                "limit-safe-too-many-requests",
+            ),
+        ];
+
+        let ban_safe: Vec<(BanSafeError, &str)> = vec![
+            (BanSafeError::UserBanned, "ban-safe-user-banned"),
+            (BanSafeError::IpBanned, "ban-safe-ip-banned"),
+            (BanSafeError::DeviceBanned, "ban-safe-device-banned"),
+            (BanSafeError::RateExceeded, "ban-safe-rate-exceeded"),
+            (BanSafeError::SpamDetected, "ban-safe-spam-detected"),
+            (
+                BanSafeError::SecurityViolation,
+                "ban-safe-security-violation",
+            ),
+        ];
+
+        let validation_safe: Vec<(ValidationSafeError, &str)> = vec![
+            (
+                ValidationSafeError::InvalidInput,
+                "validation-safe-invalid-input",
+            ),
+            (
+                ValidationSafeError::MalformedData,
+                "validation-safe-malformed-data",
+            ),
+            (
+                ValidationSafeError::SecurityCheckFailed,
+                "validation-safe-security-check-failed",
+            ),
+            (
+                ValidationSafeError::InputTooLong,
+                "validation-safe-input-too-long",
+            ),
+            (
+                ValidationSafeError::InvalidFormat,
+                "validation-safe-invalid-format",
+            ),
+            (
+                ValidationSafeError::SuspiciousPattern,
+                "validation-safe-suspicious-pattern",
+            ),
+        ];
+
+        let general_safe: Vec<(GeneralSafeError, &str)> = vec![
+            (
+                GeneralSafeError::InternalError,
+                "general-safe-internal-error",
+            ),
+            (
+                GeneralSafeError::ServiceUnavailable,
+                "general-safe-service-unavailable",
+            ),
+            (
+                GeneralSafeError::InvalidRequest,
+                "general-safe-invalid-request",
+            ),
+            (GeneralSafeError::Unauthorized, "general-safe-unauthorized"),
+            (GeneralSafeError::Forbidden, "general-safe-forbidden"),
+            (GeneralSafeError::RateLimited, "general-safe-rate-limited"),
+        ];
+
+        let safe_message: Vec<(SafeErrorMessage, &str)> = vec![
+            (
+                SafeErrorMessage::ConfigError(ConfigSafeError::InvalidFormat),
+                "safe-error-config",
+            ),
+            (
+                SafeErrorMessage::StorageError(StorageSafeError::Timeout),
+                "safe-error-storage",
+            ),
+            (
+                SafeErrorMessage::LimitError(LimitSafeError::WindowFull),
+                "safe-error-limit",
+            ),
+            (
+                SafeErrorMessage::BanError(BanSafeError::IpBanned),
+                "safe-error-ban",
+            ),
+            (
+                SafeErrorMessage::ValidationError(ValidationSafeError::InvalidInput),
+                "safe-error-validation",
+            ),
+            (
+                SafeErrorMessage::General(GeneralSafeError::Forbidden),
+                "safe-error-general",
+            ),
+        ];
+
+        // 分组唯一性：委托给内层的那条允许重复，故 LimiteronError 组跳过第 2 项检查
+        let mut groups: Vec<Vec<&'static str>> = vec![
+            storage
+                .iter()
+                .map(|(_, k)| *k)
+                .chain(limiteron.iter().skip(2).map(|(_, k)| *k))
+                .collect(),
+        ];
+        groups.push(config_safe.iter().map(|(_, k)| *k).collect());
+        groups.push(storage_safe.iter().map(|(_, k)| *k).collect());
+        groups.push(limit_safe.iter().map(|(_, k)| *k).collect());
+        groups.push(ban_safe.iter().map(|(_, k)| *k).collect());
+        groups.push(validation_safe.iter().map(|(_, k)| *k).collect());
+        groups.push(general_safe.iter().map(|(_, k)| *k).collect());
+        groups.push(safe_message.iter().map(|(_, k)| *k).collect());
+        for g in &groups {
+            let mut sorted = g.clone();
+            sorted.sort_unstable();
+            let n = sorted.len();
+            sorted.dedup();
+            assert_eq!(sorted.len(), n, "重复的 message_key（同组内）");
+        }
+
+        let mut all: Vec<Box<dyn LocalizedMsg>> = Vec::new();
+        for (e, k) in storage {
+            assert_eq!(e.message_key(), k, "键映射漂移");
+            all.push(Box::new(e));
+        }
+        for (e, k) in limiteron {
+            assert_eq!(e.message_key(), k, "键映射漂移");
+            all.push(Box::new(e));
+        }
+        for (e, k) in config_safe {
+            assert_eq!(e.message_key(), k, "键映射漂移");
+            all.push(Box::new(e));
+        }
+        for (e, k) in storage_safe {
+            assert_eq!(e.message_key(), k, "键映射漂移");
+            all.push(Box::new(e));
+        }
+        for (e, k) in limit_safe {
+            assert_eq!(e.message_key(), k, "键映射漂移");
+            all.push(Box::new(e));
+        }
+        for (e, k) in ban_safe {
+            assert_eq!(e.message_key(), k, "键映射漂移");
+            all.push(Box::new(e));
+        }
+        for (e, k) in validation_safe {
+            assert_eq!(e.message_key(), k, "键映射漂移");
+            all.push(Box::new(e));
+        }
+        for (e, k) in general_safe {
+            assert_eq!(e.message_key(), k, "键映射漂移");
+            all.push(Box::new(e));
+        }
+        for (e, k) in safe_message {
+            assert_eq!(e.message_key(), k, "键映射漂移");
+            all.push(Box::new(e));
+        }
+        assert!(all.len() >= 70, "错误面覆盖不全，仅 {0} 个变体", all.len());
+
+        for e in &all {
+            let key = e.message_key();
+            let text = translate_en(key, &e.message_args());
+            assert!(!text.is_empty(), "目录文案为空: {key}");
+            assert_ne!(text, key, "该键未登记在英文 ftl 目录中: {key}");
+        }
+    }
+
+    /// StorageError 的可重试分类必须互斥且穷尽（决定退避策略走向）。
+    #[test]
+    fn test_storage_error_transient_and_permanent_are_disjoint() {
+        let transient = [
+            StorageError::ConnectionError("x".into()),
+            StorageError::TimeoutError("x".into()),
+            StorageError::RateLimitError("x".into()),
+        ];
+        let permanent = [
+            StorageError::AuthenticationError("x".into()),
+            StorageError::PermissionError("x".into()),
+            StorageError::InvalidConfig("x".into()),
+        ];
+        let neither = [
+            StorageError::QueryError("x".into()),
+            StorageError::NotFound("x".into()),
+            StorageError::ValidationError("x".into()),
+        ];
+        for e in &transient {
+            assert!(e.is_transient(), "{e:?} 应为可重试");
+            assert!(!e.is_permanent(), "{e:?} 不应同时为永久错误");
+        }
+        for e in &permanent {
+            assert!(e.is_permanent(), "{e:?} 应为永久错误");
+            assert!(!e.is_transient(), "{e:?} 不应同时为可重试");
+        }
+        for e in &neither {
+            assert!(
+                !e.is_transient() && !e.is_permanent(),
+                "{e:?} 两者皆非，分类不得扩张"
+            );
+        }
+    }
 }

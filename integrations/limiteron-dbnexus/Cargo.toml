@@ -1,0 +1,29 @@
+[package]
+name = "limiteron-dbnexus"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license = "MIT"
+repository.workspace = true
+description = "Adapter implementing the dbnexus-limiter-port `Limiter` port on top of limiteron's per-key LimiterManager"
+
+[dependencies]
+# 父仓 path+version 双钉（limiteron-sdforge 同款）；仅取 per-key 引擎面，
+# 不含 dbnexus 存储/封禁/配额等 feature——端口契约是纯限流判定
+limiteron = { path = "../..", version = "0.3.0-rc.6", default-features = false, features = ["manager"] }
+# 端口契约 crate（dbnexus 与 limiteron 的公共底座，防循环依赖）；crates.io 版本钉 rc 下界
+dbnexus-limiter-port = { version = "0.6.0-rc.6", default-features = false }
+# 端口 trait 以 #[async_trait] 定义，实现侧必须同宏（端口 crate 未 re-export）
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1.53", default-features = false, features = ["rt", "macros"] }
+
+[features]
+default = []
+# 预留位：与 workspace CI 显式特性清单口径（--features full,postgres）对齐，sdforge 同款
+full = []
+
+[lints]
+workspace = true

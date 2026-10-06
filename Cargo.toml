@@ -4,6 +4,7 @@ members = [
     "macros",
     "examples",
     "integrations/limiteron-sdforge",
+    "integrations/limiteron-dbnexus",
 ]
 resolver = "2"
 

@@ -335,6 +335,8 @@ Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式
 
 工作区成员 [`integrations/limiteron-sdforge`](integrations/limiteron-sdforge/) 反向提供防护层：limiteron 侧把限流/熔断/封禁以 `Guard` 三态判定面暴露给 sdforge 应用（该 crate 自身的 sdforge 特性下适配为 `ForgeRateLimiter`），与 sdforge 侧既有消费适配方向相反、发布节奏独立。
 
+工作区成员 [`integrations/limiteron-dbnexus`](integrations/limiteron-dbnexus/) 为 dbnexus 提供限流端口适配：实现 dbnexus 0.6.0-rc.6 抽出的 `dbnexus-limiter-port` 端口（`Limiter::check(key)`），内部经 `LimiterManager` per-key 令牌桶判定（deny 携带 `Retry-After`，后端故障显性上报，fail-open/closed 由消费方决定）——dbnexus 应用在组合根经 `RateLimitBackend::External` 注入；与 sdforge 桥接同款不发布 crates.io、发布节奏随 limiteron 主仓。
+
 ---
 
 ## 🧪 测试

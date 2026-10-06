@@ -145,7 +145,7 @@ sequenceDiagram
 flowchart BT
     PC["parallel-checker"] --> BM["ban-manager"]
     CR["cache-redis"] --> CSV["cache-service"]
-    MET["metrics"] --> MON["monitoring"]
+    MET["metrics"] --> PRO["prometheus"]
     AL["audit-log"] --> TEL["telemetry"]
     OTLP["otlp"] --> TEL
     STD["standard"] --> BM
@@ -164,8 +164,6 @@ flowchart BT
 | 控制面 | `admin-api` / `cli` | 管理 REST API 与 `limiteron-cli` |
 | 事件 | `event-system` / `webhook` / `ban-sync` | 事件订阅与 Outbox；`webhook` 签名外发与 `ban-sync` 跨实例广播需与 `event-system` 组合启用 |
 | 生态 | `kit` / `i18n` / `inklog` / `config-confers`(-reload) | trait-kit、ICU4X、inklog、confers 集成 |
-
-> **兼容声明**：`priority-queue` 与 `admission-control` 仅为下游兼容保留的特性声明，启用无任何效果。
 
 ---
 

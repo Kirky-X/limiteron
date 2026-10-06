@@ -1002,9 +1002,9 @@ pub fn load_from_file_with_env<P: AsRef<Path>>(path: P) -> Result<FlowControlCon
 
 | 环境变量 | 覆盖配置项 | 说明 |
 |---------|-----------|------|
-| `LIMITERON_GLOBAL_STORAGE` | `global.storage` | 存储类型：`memory` / `postgres` |
-| `LIMITERON_GLOBAL_CACHE` | `global.cache` | 缓存类型：`memory` / `redis`（经 oxcache） |
-| `LIMITERON_GLOBAL_METRICS` | `global.metrics` | 指标类型：`prometheus` / `none` |
+| `LIMITERON_GLOBAL_STORAGE` | `global.storage` | 存储类型：`memory` / `postgresql` / `redis` |
+| `LIMITERON_GLOBAL_CACHE` | `global.cache` | 缓存类型：`memory` / `redis` / `none`（经 oxcache） |
+| `LIMITERON_GLOBAL_METRICS` | `global.metrics` | 指标类型：`prometheus` / `statsd` / `none` |
 
 **示例：**
 
@@ -1049,6 +1049,7 @@ pub enum LimiteronError {
     LockError(String),
     TimeError(String),
     DependencyError(String),
+    ParamMismatch(String),
     Other(String),
 }
 ```

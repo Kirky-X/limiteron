@@ -197,9 +197,11 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td><code>mysql</code></td><td>MySQL storage (dbnexus server-side driver)</td><td>❌</td></tr>
 <tr><td><code>cache-redis</code></td><td>Redis cache backend (via oxcache; formerly <code>cache-storage</code>, kept as a compatibility alias)</td><td>❌</td></tr>
 <tr><td><code>lua-script</code></td><td>Redis Lua script execution (via oxcache <code>eval_lua</code>): sliding window / sliding window log (cost-weighted) / fixed window / token bucket / burst-overdraft token bucket / quota consume &amp; reset — seven scripts</td><td>❌</td></tr>
-<tr><td rowspan="9">Core</td><td><code>ban-manager</code></td><td>Ban management (target bans, priorities, file loading)</td><td>❌</td></tr>
+<tr><td rowspan="11">Core</td><td><code>ban-manager</code></td><td>Ban management (target bans, priorities, file loading)</td><td>❌</td></tr>
 <tr><td><code>bulkhead</code></td><td>Bulkhead isolation: per-resource-group pools + independent concurrency budgets and isolation metrics</td><td>❌</td></tr>
 <tr><td><code>quota-control</code></td><td>Quota control</td><td>❌</td></tr>
+<tr><td><code>manager</code></td><td>Limiter manager (<code>LimiterManager</code> keyed cache; runtime companion of the <code>#[flow_control]</code> macro, independently enableable)</td><td>❌</td></tr>
+<tr><td><code>capacity-dial</code></td><td>Six-level capacity dial (<code>DialLevel</code> L0-L5 / <code>DialThresholds</code> / <code>CapacityDial</code>, atomic interior mutability; not in any preset)</td><td>❌</td></tr>
 <tr><td><code>circuit-breaker</code></td><td>Circuit breaker</td><td>❌</td></tr>
 <tr><td><code>retry</code></td><td>Retry primitive with backoff (<code>RetryPolicy</code>: exponential backoff + jitter + retry budget, complements the circuit breaker — breaker protects downstream, retry absorbs transient jitter; <code>execute_with</code> decision callback supports retrying after an upstream-indicated delay)</td><td>❌</td></tr>
 <tr><td><code>fallback</code></td><td>Fallback strategies (FallbackManager)</td><td>❌</td></tr>
@@ -230,10 +232,10 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td>Multi-Tenancy</td><td><code>multi-tenant</code></td><td>tenant+key compound decision keys and per-tenant isolation</td><td>❌</td></tr>
 <tr><td>Middleware</td><td><code>tower-middleware</code></td><td>Tower Layer / Service integration</td><td>❌</td></tr>
 <tr><td>Distributed</td><td><code>distributed</code></td><td><code>DistributedLimiter</code> trait + in-memory implementation (Redis implementation additionally requires <code>lua-script</code>)</td><td>❌</td></tr>
-<tr><td rowspan="4">Algorithms</td><td><code>adaptive-limiting</code></td><td>AIMD adaptive concurrency limiter (latency/error-rate feedback window tuning)</td><td>✅</td></tr>
+<tr><td rowspan="4">Algorithms</td><td><code>adaptive-limiting</code></td><td>AIMD adaptive concurrency limiter (latency/error-rate feedback window tuning)</td><td>❌</td></tr>
 <tr><td><code>adaptive-threshold</code></td><td>Adaptive threshold limiter (sliding-window error-rate/latency-driven dynamic quota, statistical heuristics; thresholds and cooldown fully explicit)</td><td>❌</td></tr>
-<tr><td><code>priority-queue</code></td><td>Compatibility declaration, no effect when enabled</td><td>❌</td></tr>
-<tr><td><code>admission-control</code></td><td>Compatibility declaration, no effect when enabled</td><td>❌</td></tr>
+<tr><td><code>priority-queue</code></td><td>Priority-queue scheduling (<code>PriorityQueueLimiter</code>: quota dispatch by priority)</td><td>❌</td></tr>
+<tr><td><code>admission-control</code></td><td>Admission control (<code>AdmissionController</code>: concurrency + rate dual gate)</td><td>❌</td></tr>
 <tr><td rowspan="5">Ecosystem</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> integration (health/lifecycle ports)</td><td>❌</td></tr>
 <tr><td><code>i18n</code></td><td>ICU4X locale-aware formatting</td><td>❌</td></tr>
 <tr><td><code>inklog</code></td><td>inklog structured logging integration</td><td>❌</td></tr>
@@ -246,8 +248,6 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 
 > ⚠️ **Storage driver exclusivity**: `postgres` / `sqlite` / `mysql` all go through dbnexus; embedded and server-side drivers cannot coexist in one build, so avoid `--all-features` and use explicit feature combinations.
 >
-> ⚠️ **No-op features**: `priority-queue` and `admission-control` are declared only for downstream compatibility and have no effect when enabled. Do not rely on them for capability detection.
-
 ---
 
 ## 📚 Documentation
@@ -346,8 +346,8 @@ The testing strategy matrix (unit / integration & E2E / property / doc / benchma
 
 | Metric | Count |
 |--------|-------|
-| In-library test functions (`src/`) | 2,295 (#[test] 1,495 + #[tokio::test] 800) |
-| External test functions (`tests/`) | 601 (#[test] 157 + #[tokio::test] 444) |
+| In-library test functions (`src/`) | 2,489 |
+| External test functions (`tests/`) | 605 |
 | Property test groups (proptest) | 4 |
 
 ---

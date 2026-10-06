@@ -11,7 +11,7 @@
 <summary>📑 目录</summary>
 
 - [Unreleased](#unreleased)
-- [0.3.0-rc.6](#030-rc6---2026-09-28)
+- [0.3.0-rc.6](#030-rc6---2026-10-06)
 - [0.3.0-rc.5](#030-rc5---2026-09-21)
 - [0.3.0-rc.4](#030-rc4---2026-09-14)
 - [0.3.0-rc.3](#030-rc3---2026-09-10)
@@ -35,8 +35,17 @@
 
 ## [Unreleased]
 
+## [0.3.0-rc.6] - 2026-10-06
+
 ### 新增
 
+- **ManualCircuitBreaker 手动记录式熔断**：比例触发 + 半开探测 + 时钟注入；`ManualCircuitBreaker` / `ManualCircuitBreakerConfig` 公开导出并进 prelude
+- **capacity-dial 六档容量调光模块**：独立默认关 feature
+- **tower-middleware 增强**：拒绝响应工厂与 keyed 静态限流器直驱快速路径
+- **RetryPolicy 重试前回调**：`execute_notify` 钩子
+- **QuotaLimiter 超限窗口查询**：`check_retry_after` 返回剩余秒数
+- **manager feature 拆分**：新增 `try_get_quota_limiter` 非 panic 路径
+- **文档一致性门禁脚本**：接入 CI doc job，检出文档漂移
 - **插件系统（`plugins` feature，入 full preset）**：`Plugin` trait（`on_admit`/`on_reject`/`on_degrade` 决策生命周期钩子，默认空实现——插件只订阅自己关心的终态）+ `PluginRegistry` 编译期注册制（`src/plugins/mod.rs`；BTreeMap 保注册顺序分发；同名注册显性报错 `PluginError::AlreadyRegistered` 而非静默覆盖；卸载按名移除返回存在性）。**动态 .so 明确不做并文档说明边界**（模块文档：Rust 无稳定 ABI、`extern` FFI 面不可审计且与 `#![forbid(unsafe_code)]` 立场冲突、运行时加载任意路径 .so 等于把代码执行权交给文件系统写入者；第三方扩展以独立 crate 依赖 limiteron 实现 `Plugin` 并在同一构建注册）。**分发语义**：单个插件的 panic 经 `futures::FutureExt::catch_unwind` 隔离并计数（`panicked_dispatches` 留痕），不中断其余插件、不上抛裁决路径——插件是观测面，不得反向影响限流判定；分发顺序即注册顺序。内置两个示例插件：`LoggingPlugin`（log 门面记录三类终态）与 `CounterPlugin`（无锁原子计数自省面）。单测 7 项（注册/触发/卸载全生命周期、同名拒绝、分发顺序、panic 隔离计数、空表 no-op、get 查询）+ doctest；feature 决策：入 full preset（运行时功能面，非文档/工具面）
 - **只读管理 Web UI（`admin-ui` feature）**：内嵌单页（无构建链，vanilla HTML+JS，fetch `/snapshot` 与 `/circuit-breaker` 渲染聚合统计/组件健康/规则与决策链/熔断状态，5s 自动刷新）+ `WebUiServer`（默认绑定 `127.0.0.1:9091` 可配，非回环绑定发出无认证暴露 warn 日志并要求前置反向代理——README 安全节与 API_REFERENCE 显著警示）。**机械只读守卫三层**：①路由表 `ROUTE_TABLE` 为路径清单唯一事实来源，Router 表驱动注册且仅经 `get()`；②守卫测试对表内全路径 GET 探测（漏注册红灯）+ 全路径 POST/PUT/DELETE 断言 405（方法级守卫）；③数据 handler 仅接受 `Arc<dyn ReadOnlySnapshotSource>`——`AdminService` 的只读投影 trait（async_trait，blanket 委托 status/introspect/circuit-breaker），类型面上不存在写方法。feature 决策：默认关、不入 full preset（UI 面与 openapi/admin-client 同口径）
 - **自适应阈值限流器（`adaptive-threshold` feature，默认关）**：滑动观测窗口（样本数驱动，无墙钟依赖、无时钟回拨面）内的错误率与 p95 延迟驱动动态配额——错误率升高或延迟劣化时乘性收紧（`decrease_ratio`，钳制 `min_limit`），指标恢复后加性放宽（`increase_step`，钳制 `max_limit`），下调信号为「或」（错误率 ≥ 阈值 **或** p95 ≥ 阈值），上调信号为「且」（错误率 ≤ 阈值 **且** p95 ≤ 阈值）；**统计启发式非 ML（显式决策）**——全部阈值/步长/冷却期为显式配置项，判定是确定性条件语句；冷却期（`cooldown_samples` 个样本内禁止再调整）防阈值附近振荡，冷启动期（样本数 < `min_samples_for_adjust`）不抖动；配置构造期显式校验（min≤base≤max、ratio∈(0,1)、上下阈值序）fail-loud；实现 `Limiter` trait（`allow` 对动态配额原子消费判定、`peek`/`remaining` 标准限流头快照），反馈经 `report(Feedback)` 显式上报（错误/延迟语义由调用方定义，限流拒绝不是错误信号）；与 AIMD `AdaptiveConcurrencyLimiter`（并发租约窗口）的分工：本限流器为配额型，适配出口配额随下游健康度伸缩与服务端按错误率自降载两类场景。单测 9 项（下调至下界钳制/上调至上界钳制/冷却期抑制再升降/延迟信号独立触发/冷启动跳过/配置校验/快照面）。feature 决策：独立默认关，刻意不入任何 preset（含 full）——与 capacity-dial 同口径，反馈接入点由消费方装配
@@ -50,39 +59,7 @@
 - **Governor shutdown 完整实现**：五阶段优雅关闭编排——停止配置热重载 watcher（`register_config_watcher_token` 注册、多 watcher 全取消）、取消 shutdown 令牌、统计快照落盘（`GovernorBuilder::with_shutdown_snapshot_dir` 显式启用，JSON 原子写，临时文件 O_EXCL 独占创建 + 0600 权限防符号链接覆写，冲突退避 pid 后缀）、停止 BanManager 自动解封任务（取消信号优雅排空 5s，超时 abort）、审计日志器摘除（尽力 `Arc::try_unwrap` 优雅排空）
 - **`impl Drop for Governor`**：同步兜底无条件取消 shutdown 与已注册 watcher 令牌（幂等）
 - **`BanManager::is_auto_unban_running()`**：自动解封后台任务运行状态观测
-
-### 新增
-
 - **监控维度指标与关键路径追踪（`monitoring`/`telemetry`，默认开启可关闭）**：`Metrics` 新增 per-rule 检查计数（`flowguard_rule_checks_total`，标签 rule/outcome）、规则内限流器拒绝计数（`flowguard_rule_limiter_rejections_total`，标签 rule/limiter，Governor 持快照增量导出保持 Counter 单调——导出版本号下沉为链内原子量，放行稳态零锁零分配跳过，拒绝路径快照与基线落账同临界区串行化，基线只随真实新增前进）与降级检查计数（`flowguard_degraded_checks_total`）；负缓存命中的拒绝经缓存内裁决规则 ID 计入 per-rule 序列（缓存条目新增 rule 字段），无归因命中退 `flowguard_negative_cache_hits_total` 对账（opt-out 关闭维度序列时全部命中退此保底；规则被热更新移除后其存量缓存条目在 TTL 内仍按已删 rule_id 递增 per-rule 序列，惰性创建短暂抬高基数，条目到期自愈）；`Governor::builder().with_per_rule_metrics(bool)` 可关闭维度序列（标签基数随规则/限流器数量增长，超大规模配置降级为仅全局计数）；`telemetry` feature 下 `governor_check` span 记录 rule.outcome 属性，拒绝路径（链上与负缓存命中）另携带归因的 rule.id（全放行无单一裁决规则、缓存条目无归因时不虚构，后者仅记 outcome 保留结果信号）；主检查存储类错误触发降级时递增降级计数（配置类错误不计，避免未认证洪水刷高存储健康度告警）
-
-### 修复
-
-- **bench harness 失效修复**：criterion 0.8 要求 `[[bench]] harness = false`，四个 bench 目标缺失该设置导致 `cargo bench` 落入 libtest harness 空跑（"running 0 tests"），性能基线此前从未真实产出；补齐后 criterion 正常接管并建立首份基线（reviews/perf-baseline.md）
-
-### 变更
-
-- **性能基线建立与匹配器热点削减**：基线口径与环境见 reviews/perf-baseline.md；`HeaderMatcher` 大小写不敏感路径新增 ASCII 零分配快路径（`values_ascii` 逐值门控，非 ASCII 值回退 `to_lowercase` 原路径，语义严格等价），bench 三轮采样中位数 12 项全部改善（-10.0% ~ -33.4%，原热点 header_prefix_miss/100 193.60→128.89ns）；`MethodMatcher` 匹配改 `eq_ignore_ascii_case` 零分配折叠
-- **HeaderMatcher 配置解析与校验收紧（行为变更）**：`load_config` 的 allowed_values 非字符串项从静默丢弃改为显性报错（与 MethodMatcher 政策对齐）；空 allowed_values（`new`/builder/`load_config` 全空数组）从静默永不命中改为显性拒绝（`matcher-header-values-empty`）——已部署空列表配置升级后加载被拒
-
-### 变更
-
-- **存量限流类型配置校验收紧（升级注意）**：`LimiterConfig::validate`（配置加载生效校验点）新增上限——TokenBucket/LeakyBucket 容量 ≤10M、补充/漏出速率 ≤1M/s，SlidingWindow/FixedWindow max_requests ≤10M，SlidingWindowLog max_requests ≤100K（日志型独立更严上界），Concurrency ≤100K；超限配置此前可加载（仅工厂层校验未接入生产路径），升级后将在配置加载/规则构建期被拒绝（fail-closed）。迁移检查：升级前扫描现有 YAML/TOML 配置中各限流器数值是否超限，超限项按业务真实需求下调或反馈 issue 评估上限调整
-- `BanManager::stop_auto_unban_task()` 由直接 abort 改为先取消信号等待在途清理完成（5s 超时兜底 abort）
-- 存储连接释放语义文档化：连接池随最后 `Arc` 引用释放由底层驱动关闭，shutdown 负责停止后台任务不再发起新访问
-- `LimiterFactory::create_with_redis`（`distributed` + `lua-script`）对无分布式脚本的类型（LeakyBucket/SlidingWindowLog/Concurrency 等）降级为进程内限流时输出 `tracing::warn` 带配置详情——多实例部署下全局放行量 = 配置值 × 实例数，降级不再静默
-- **`monitoring` 特性更名为 `prometheus`（兼容别名保留，无破坏）**：该特性实为 Prometheus 专属（`dep:prometheus` 门控），按「特性名即能力」命名惯例取依赖实名；91 处 `cfg(feature = "monitoring")` 门控同步迁移（src 90 + tests/e2e 1），examples 特性镜像与双语 README / docs 特性表同步更新，`start_prometheus_server` 禁用态错误消息同步更名；旧名 `monitoring = ["prometheus"]` 保留为兼容别名，既有消费者与文档旧引用不受影响；`metrics` 聚合特性与 `full` preset 改引主名
-
-## [0.3.0-rc.6] - 2026-09-28
-
-### 新增
-
-- **ManualCircuitBreaker 手动记录式熔断**：比例触发 + 半开探测 + 时钟注入；`ManualCircuitBreaker` / `ManualCircuitBreakerConfig` 公开导出并进 prelude
-- **capacity-dial 六档容量调光模块**：独立默认关 feature
-- **tower-middleware 增强**：拒绝响应工厂与 keyed 静态限流器直驱快速路径
-- **RetryPolicy 重试前回调**：`execute_notify` 钩子
-- **QuotaLimiter 超限窗口查询**：`check_retry_after` 返回剩余秒数
-- **manager feature 拆分**：新增 `try_get_quota_limiter` 非 panic 路径
-- **文档一致性门禁脚本**：接入 CI doc job，检出文档漂移
 
 ### 修复
 
@@ -93,11 +70,19 @@
 - **governor**：换装原子性/降级路径/XFF 可信代理/审计与孤岛落地
 - **resilience**：熔断恢复通道/AIMD 信号/重试风暴防护
 - try_get_quota_limiter 慢路径参数一致性校验、tower-middleware keyed 快速路径键卫生、capacity-dial 构造期校验与 quota 边界去时序依赖、默认 feature 下测试编译与空链越界门控修复
+- **bench harness 失效修复**：criterion 0.8 要求 `[[bench]] harness = false`，四个 bench 目标缺失该设置导致 `cargo bench` 落入 libtest harness 空跑（"running 0 tests"），性能基线此前从未真实产出；补齐后 criterion 正常接管并建立首份基线（reviews/perf-baseline.md）
 
 ### 变更
 
 - **封禁时长口径修正**：四档阶梯封顶（非指数退避）
 - CI：文档门禁接入 doc job、codeql-action 升 4.38.0、codecov-action 升 7.1.0、patch 组依赖刷新
+- **性能基线建立与匹配器热点削减**：基线口径与环境见 reviews/perf-baseline.md；`HeaderMatcher` 大小写不敏感路径新增 ASCII 零分配快路径（`values_ascii` 逐值门控，非 ASCII 值回退 `to_lowercase` 原路径，语义严格等价），bench 三轮采样中位数 12 项全部改善（-10.0% ~ -33.4%，原热点 header_prefix_miss/100 193.60→128.89ns）；`MethodMatcher` 匹配改 `eq_ignore_ascii_case` 零分配折叠
+- **HeaderMatcher 配置解析与校验收紧（行为变更）**：`load_config` 的 allowed_values 非字符串项从静默丢弃改为显性报错（与 MethodMatcher 政策对齐）；空 allowed_values（`new`/builder/`load_config` 全空数组）从静默永不命中改为显性拒绝（`matcher-header-values-empty`）——已部署空列表配置升级后加载被拒
+- **存量限流类型配置校验收紧（升级注意）**：`LimiterConfig::validate`（配置加载生效校验点）新增上限——TokenBucket/LeakyBucket 容量 ≤10M、补充/漏出速率 ≤1M/s，SlidingWindow/FixedWindow max_requests ≤10M，SlidingWindowLog max_requests ≤100K（日志型独立更严上界），Concurrency ≤100K；超限配置此前可加载（仅工厂层校验未接入生产路径），升级后将在配置加载/规则构建期被拒绝（fail-closed）。迁移检查：升级前扫描现有 YAML/TOML 配置中各限流器数值是否超限，超限项按业务真实需求下调或反馈 issue 评估上限调整
+- `BanManager::stop_auto_unban_task()` 由直接 abort 改为先取消信号等待在途清理完成（5s 超时兜底 abort）
+- 存储连接释放语义文档化：连接池随最后 `Arc` 引用释放由底层驱动关闭，shutdown 负责停止后台任务不再发起新访问
+- `LimiterFactory::create_with_redis`（`distributed` + `lua-script`）对无分布式脚本的类型（LeakyBucket/SlidingWindowLog/Concurrency 等）降级为进程内限流时输出 `tracing::warn` 带配置详情——多实例部署下全局放行量 = 配置值 × 实例数，降级不再静默
+- **`monitoring` 特性更名为 `prometheus`（兼容别名保留，无破坏）**：该特性实为 Prometheus 专属（`dep:prometheus` 门控），按「特性名即能力」命名惯例取依赖实名；91 处 `cfg(feature = "monitoring")` 门控同步迁移（src 90 + tests/e2e 1），examples 特性镜像与双语 README / docs 特性表同步更新，`start_prometheus_server` 禁用态错误消息同步更名；旧名 `monitoring = ["prometheus"]` 保留为兼容别名，既有消费者与文档旧引用不受影响；`metrics` 聚合特性与 `full` preset 改引主名
 
 ## [0.3.0-rc.5] - 2026-09-21
 

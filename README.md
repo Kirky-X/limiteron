@@ -229,10 +229,10 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td>多租户</td><td><code>multi-tenant</code></td><td>tenant+key 复合决策键与按租户隔离</td><td>❌</td></tr>
 <tr><td>中间件</td><td><code>tower-middleware</code></td><td>Tower Layer / Service 集成（Governor 决策路径 + <code>KeyedRateLimitLayer</code> 静态限流器直驱快速路径，拒绝响应可经 <code>RejectResponder</code> 定制）</td><td>❌</td></tr>
 <tr><td>分布式</td><td><code>distributed</code></td><td><code>DistributedLimiter</code> trait + 内存实现（Redis 实现需另启用 <code>lua-script</code>）</td><td>❌</td></tr>
-<tr><td rowspan="4">限流算法</td><td><code>adaptive-limiting</code></td><td>AIMD 自适应并发限流器（延迟/错误率反馈调窗）</td><td>✅</td></tr>
+<tr><td rowspan="4">限流算法</td><td><code>adaptive-limiting</code></td><td>AIMD 自适应并发限流器（延迟/错误率反馈调窗）</td><td>❌</td></tr>
 <tr><td><code>adaptive-threshold</code></td><td>自适应阈值限流（滑动窗口错误率/延迟驱动动态配额，统计启发式；阈值与冷却期全显式配置）</td><td>❌</td></tr>
-<tr><td><code>priority-queue</code></td><td>兼容声明，启用无效果</td><td>❌</td></tr>
-<tr><td><code>admission-control</code></td><td>兼容声明，启用无效果</td><td>❌</td></tr>
+<tr><td><code>priority-queue</code></td><td>优先级队列调度（<code>PriorityQueueLimiter</code>：按优先级调度配额）</td><td>❌</td></tr>
+<tr><td><code>admission-control</code></td><td>准入控制（<code>AdmissionController</code>：并发 + 速率双门准入）</td><td>❌</td></tr>
 <tr><td rowspan="5">生态集成</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> 集成（健康/生命周期端口）</td><td>❌</td></tr>
 <tr><td><code>i18n</code></td><td>ICU4X 国际化格式化</td><td>❌</td></tr>
 <tr><td><code>inklog</code></td><td>inklog 结构化日志集成</td><td>❌</td></tr>
@@ -245,8 +245,6 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 
 > ⚠️ **存储驱动互斥**：`postgres` / `sqlite` / `mysql` 均走 dbnexus，嵌入式与服务端驱动不可共存于同一构建，请勿使用 `--all-features`，应使用显式特性组合。
 >
-> ⚠️ **no-op 特性**：`priority-queue`、`admission-control` 仅为下游兼容声明，启用无任何效果，请勿依赖其做能力判断。
-
 ---
 
 ## 📚 文档
@@ -345,8 +343,8 @@ Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式
 
 | 统计项 | 数量 |
 |--------|------|
-| 库内测试函数（`src/`） | 2,295（#[test] 1,495 + #[tokio::test] 800） |
-| 外部测试函数（`tests/`） | 601（#[test] 157 + #[tokio::test] 444） |
+| 库内测试函数（`src/`） | 2,489 |
+| 外部测试函数（`tests/`） | 605 |
 | 属性测试组（proptest） | 4 |
 
 ---

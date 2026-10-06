@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
-//! sdforge 适配层：把 [`Guard`](crate::guard::Guard) 暴露为
+//! sdforge 适配层：把 [`Guard`] 暴露为
 //! `sdforge::domain::ForgeRateLimiter`，供 sdforge 应用从 limiteron 侧
 //! 一行接入防护层。
 //!

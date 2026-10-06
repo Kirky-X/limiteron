@@ -1119,7 +1119,7 @@ impl MethodMatcher {
     /// - `methods`: 允许的请求方法列表（如 `["GET", "POST"]`，大小写不敏感）
     ///
     /// # 错误
-    /// - 列表为空或超过 [`MAX_ALLOWED_VALUES_COUNT`]
+    /// - 列表为空或超过 `MAX_ALLOWED_VALUES_COUNT`
     pub fn new(methods: Vec<String>) -> Result<Self, LimiteronError> {
         if methods.is_empty() {
             return Err(LimiteronError::ConfigError(t("matcher-methods-empty", &[])));

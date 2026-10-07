@@ -74,7 +74,7 @@
 **可以。** 当前 0.3.0-rc.x 发布线已在真实项目中验证核心能力：
 
 - ✅ 核心限流与存储抽象稳定，默认构建零外部存储依赖
-- ✅ 3298 个测试的分层测试体系与 llvm-cov ≥80% 行覆盖门禁（见[测试指南](TESTING.md)）
+- ✅ 3298 个测试的分层测试体系与 llvm-cov ≥90% 行覆盖门禁（见[测试指南](TESTING.md)）
 - ✅ CI 覆盖 fmt / clippy / 三平台构建 / cargo-deny / cargo-audit / CodeQL
 - ✅ 性能数据可经仓库自带 criterion 基准复现（`cargo bench --features full`）
 

@@ -83,5 +83,5 @@ CI 口径全量结果：**38 目标 / 3298 passed / 0 failed / 42 ignored**（ig
 | doc | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --no-default-features --features full` | 零告警 |
 | deny | `cargo deny check` | 4 项 ok |
 | audit | `cargo audit` | rc=0 |
-| 覆盖率 | `cargo llvm-cov --workspace --no-default-features --features full --lib --fail-under-lines 80` | ≥80% 行覆盖（CI/pre-push 门禁） |
+| 覆盖率 | `cargo llvm-cov --workspace --no-default-features --features full,postgres --lib --fail-under-lines 90` | ≥90% 行覆盖（CI/pre-push 门禁） |
 | MSRV | rust-version（workspace 统一 1.97.1） | 一致 |

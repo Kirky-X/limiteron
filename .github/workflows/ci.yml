@@ -142,8 +142,8 @@ jobs:
         uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375 # v2
         with:
           tool: cargo-llvm-cov
-      - name: Generate coverage (gate ≥80% lines)
-        run: cargo llvm-cov --workspace --no-default-features --features full,postgres --lib --fail-under-lines 80 --lcov --output-path lcov.info
+      - name: Generate coverage (gate ≥90% lines)
+        run: cargo llvm-cov --workspace --no-default-features --features full,postgres --lib --fail-under-lines 90 --lcov --output-path lcov.info
       - name: Upload coverage
         uses: codecov/codecov-action@0b35c9ecc4f0529d0eb674914510c22f85b196b4 # v7
         with:

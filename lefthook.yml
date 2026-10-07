@@ -33,7 +33,7 @@ pre-push:
     cargo-audit:
       run: cargo audit
     coverage-80:
-      name: coverage ≥80% lines
+      name: coverage ≥90% lines
       # 与 CI coverage job 同口径（full,postgres）——此前裸 default(=[]) 统计的
       # 是零 feature 空壳，80% 门槛形同虚设。
-      run: cargo llvm-cov --workspace --no-default-features --features full,postgres --lib --fail-under-lines 80
+      run: cargo llvm-cov --workspace --no-default-features --features full,postgres --lib --fail-under-lines 90

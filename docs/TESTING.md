@@ -130,11 +130,11 @@ CI 口径（`--workspace --no-default-features --features full`）全量运行�
 
 ### 覆盖率门禁
 
-CI 与 pre-push 钩子均启用 **cargo-llvm-cov 行覆盖率 ≥ 80%** 门禁（以 [CI 配置](../.github/workflows/ci.yml) 为准）：
+CI 与 pre-push 钩子均启用 **cargo-llvm-cov 行覆盖率 ≥ 90%** 门禁（以 [CI 配置](../.github/workflows/ci.yml) 为准）：
 
 ```bash
 # 与 CI 完全一致的口径
-cargo llvm-cov --workspace --no-default-features --features full --lib --fail-under-lines 80
+cargo llvm-cov --workspace --no-default-features --features full --lib --fail-under-lines 90
 
 # 生成 HTML 报告
 cargo llvm-cov --workspace --no-default-features --features full --lib --html
@@ -204,7 +204,7 @@ CI 质量门禁定义在 [ci.yml](../.github/workflows/ci.yml)，包含以下任
 | Build | ubuntu / macos / windows 三平台矩阵，full 与 no-default 双口径 |
 | Documentation | `cargo doc --workspace --no-deps --no-default-features --features full` |
 | Security | `cargo deny check` 与 `cargo audit` |
-| Coverage | `cargo llvm-cov ... --fail-under-lines 80` |
+| Coverage | `cargo llvm-cov ... --fail-under-lines 90` |
 
 ## 🔧 故障排查
 

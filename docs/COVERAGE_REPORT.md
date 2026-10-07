@@ -5,8 +5,8 @@
 > **本报告为历史快照，数据已过时，请勿作为当前质量依据。**
 >
 > - 本报告基于 **v0.1.0 时期**（生成于 2026-03-20）的 cargo-tarpaulin 统计，覆盖率口径为 **53.56%**。此后 v0.2.x 重组了模块结构、测试规模扩大数倍，这些数字已无法反映现状。
-> - **当前覆盖率门禁为 cargo-llvm-cov 行覆盖率 ≥ 80%**，口径与命令以 [CI 配置](../.github/workflows/ci.yml) 为准：
->   `cargo llvm-cov --workspace --no-default-features --features full --lib --fail-under-lines 80`
+> - **当前覆盖率门禁为 cargo-llvm-cov 行覆盖率 ≥ 90%**，口径与命令以 [CI 配置](../.github/workflows/ci.yml) 为准：
+>   `cargo llvm-cov --workspace --no-default-features --features full --lib --fail-under-lines 90`
 > - 当前测试规模基线见 [测试场景固化](TEST_SCENARIOS.md) 与 [测试指南](TESTING.md)。
 >
 > 以下内容仅作历史追溯参考，本文档不提供也不应引用任何"当前覆盖率"数字。

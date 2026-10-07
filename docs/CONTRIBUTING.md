@@ -56,7 +56,7 @@ cargo test --workspace --no-default-features --features full
 | 格式 | `cargo fmt --all -- --check` |
 | 静态分析 | `cargo clippy --all-targets --no-default-features --features full -- -D warnings` |
 | 编译 | `cargo check --no-default-features --features full` |
-| 供应链 | `cargo deny check`（pre-push 另有 `cargo audit` 与覆盖率 ≥80% 门禁） |
+| 供应链 | `cargo deny check`（pre-push 另有 `cargo audit` 与覆盖率 ≥90% 门禁） |
 | 通用规范 | trailing-whitespace / end-of-file-fixer / check-yaml / check-toml / typos |
 | 密钥防护 | 私钥扫描与 detect-secrets（带 `.secrets.baseline` 误报基线） |
 

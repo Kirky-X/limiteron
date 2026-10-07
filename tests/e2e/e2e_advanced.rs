@@ -1285,8 +1285,12 @@ mod t602_tenant_governor {
     };
     use limiteron::matchers::{Identifier, RequestContext};
     use limiteron::storage::{BanStorage, MemoryBanStorage, MemoryStorage, Storage};
-    use limiteron::{DefaultTenantResolver, Governor, HeaderTenantResolver, Namespace};
+    use limiteron::{DefaultTenantResolver, Governor, HeaderTenantResolver};
+    // Namespace/Duration 仅被 ban-manager 门控的封禁隔离测试使用
+    #[cfg(feature = "ban-manager")]
+    use limiteron::Namespace;
     use std::sync::Arc;
+    #[cfg(feature = "ban-manager")]
     use std::time::Duration;
 
     fn tenant_ctx(tenant: &str, user: &str) -> RequestContext {

@@ -330,6 +330,9 @@ mod tests {
     }
 
     /// 构造 POST /api/v1/ban 请求
+    ///
+    /// 消费方测试组均经 ban-manager 门控，helper 随之门控。
+    #[cfg(feature = "ban-manager")]
     fn make_create_ban_request(body: &str) -> Request<Body> {
         Request::builder()
             .uri("/api/v1/ban")

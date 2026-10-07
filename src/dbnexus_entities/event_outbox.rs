@@ -10,10 +10,10 @@ use sea_orm::entity::prelude::*;
 
 /// Event outbox model
 ///
-/// DDL（`create_table_ddl`）始终参与 `create_all_tables_ddl`；Model/Relation
-/// 的唯一消费者是 `event-system` 特性下的 outbox 存储适配器，该特性关闭时
-/// 按预留项处理（allow 而非删除，保持 schema 与适配器同步演进）。
-#[cfg_attr(not(feature = "event-system"), allow(dead_code))]
+/// DDL（`create_table_ddl`）始终参与 `create_all_tables_ddl`；Model 宏展开产物
+/// 与 Relation 的唯一消费者是 `event-system` 特性下的 outbox 存储适配器，
+/// 整项随该特性门控编译，不产生跨特性死代码。
+#[cfg(feature = "event-system")]
 #[db_entity(table_name = "limiteron_event_outbox", primary_key = "id")]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "limiteron_event_outbox")]
@@ -41,7 +41,7 @@ pub struct Model {
 }
 
 /// Relations for the entity
-#[cfg_attr(not(feature = "event-system"), allow(dead_code))]
+#[cfg(feature = "event-system")]
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {}
 

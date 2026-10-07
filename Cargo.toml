@@ -509,7 +509,7 @@ config-confers = ["dep:confers"]
 config-confers-reload = ["config-confers", "confers/watch"]
 
 # ============================================================================
-# 测试目标显式注册（阶段 2 验收）
+# 测试目标显式注册
 # ============================================================================
 # e2e_advanced 迁入 tests/e2e/ 目录承载（e2e_* 不得裸放顶层）；顶层文件迁入
 # 子目录后脱离 Cargo 自动发现范围（仅自动发现顶层 *.rs 与 */main.rs），
@@ -562,24 +562,18 @@ required-features = ["full"]
 [[bench]]
 name = "latency"
 path = "benches/latency.rs"
-# criterion 0.8 要求关闭 libtest harness（否则 criterion_main 失效，bench 落入
-# libtest 空跑 "running 0 tests"）
 harness = false
 required-features = ["full"]
 
 [[bench]]
 name = "memory"
 path = "benches/memory.rs"
-# criterion 0.8 要求关闭 libtest harness（否则 criterion_main 失效，bench 落入
-# libtest 空跑 "running 0 tests"）
 harness = false
 required-features = ["full"]
 
 [[bench]]
 name = "regression"
 path = "benches/regression.rs"
-# criterion 0.8 要求关闭 libtest harness（否则 criterion_main 失效，bench 落入
-# libtest 空跑 "running 0 tests"）
 harness = false
 required-features = ["full"]
 
@@ -592,7 +586,4 @@ strip = true
 [profile.bench]
 inherits = "release"
 
-# ============================================================================
-# 本地开发联调 patch 占位（当前为空）：联调未发布 crate 时在此添加
-# [patch.crates-io] 条目指向本地路径，联调完成后移除
-# ============================================================================
+# 本地开发联调 [patch.crates-io] 占位（当前为空）：联调未发布 crate 时指向本地路径，完成后移除

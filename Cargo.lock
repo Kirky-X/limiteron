@@ -1090,6 +1090,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dbnexus-limiter-port"
+version = "0.6.0-rc.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0a87bf0210681e9e517767f7c8b8850e99a41354aa8b6e309b77d7eae66b7e8"
+dependencies = [
+ "async-trait",
+]
+
+[[package]]
 name = "dbnexus-macros"
 version = "0.6.0-rc.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2666,6 +2675,16 @@ dependencies = [
  "uuid",
  "woothee",
  "writeable",
+]
+
+[[package]]
+name = "limiteron-dbnexus"
+version = "0.3.0-rc.6"
+dependencies = [
+ "async-trait",
+ "dbnexus-limiter-port",
+ "limiteron",
+ "tokio",
 ]
 
 [[package]]

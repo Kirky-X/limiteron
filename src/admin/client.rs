@@ -231,16 +231,16 @@ impl AdminClient {
         serde_json::from_slice(&body).map_err(|e| AdminClientError::Decode(e.to_string()))
     }
 
-    /// PUT /api/v1/quota/{tenant_id} —— 配额重置（new_limit=0）
+    /// PUT /api/v1/quota/{user_id} —— 按 user 重置配额使用量（new_limit=0）
     pub async fn reset_quota(
         &self,
-        tenant_id: &str,
+        user_id: &str,
         resource: &str,
     ) -> Result<ApiResponse, AdminClientError> {
         let body = self
             .send(
                 hyper::Method::PUT,
-                &format!("/api/v1/quota/{}", encode_path(tenant_id)),
+                &format!("/api/v1/quota/{}", encode_path(user_id)),
                 Some(serde_json::json!({ "resource": resource, "new_limit": 0 })),
             )
             .await?;
@@ -274,7 +274,7 @@ impl AdminClient {
     }
 }
 
-/// 路径段 / query 值百分号编码（target/tenant_id/target_type 为用户
+/// 路径段 / query 值百分号编码（target/user_id/target_type 为用户
 /// 输入，防路径穿越与 query 篡改）
 fn encode_path(segment: &str) -> String {
     let mut out = String::with_capacity(segment.len());

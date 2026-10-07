@@ -210,11 +210,11 @@ pub fn openapi_document() -> serde_json::Value {
                     }
                 }
             })),
-            "/api/v1/quota/{tenant_id}": operation("配额重置（new_limit=0）/ 拒绝 per-tenant 上限更新", "quota", serde_json::json!({
+            "/api/v1/quota/{user_id}": operation("按 user 重置配额使用量（new_limit=0）/ 拒绝 per-tenant 上限更新", "quota", serde_json::json!({
                 "put": {
                     "security": bearer,
                     "parameters": [
-                        { "name": "tenant_id", "in": "path", "required": true, "schema": { "type": "string" } }
+                        { "name": "user_id", "in": "path", "required": true, "schema": { "type": "string" } }
                     ],
                     "requestBody": {
                         "required": true,
@@ -398,7 +398,7 @@ mod tests {
             "/api/v1/tokens/prefetch",
             "/api/v1/ban",
             "/api/v1/ban/{target}",
-            "/api/v1/quota/{tenant_id}",
+            "/api/v1/quota/{user_id}",
         ] {
             assert!(paths.contains_key(key), "缺少路由 {key}");
         }

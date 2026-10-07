@@ -113,11 +113,11 @@ pub trait AdminService: Send + Sync {
         req: UnbanRequest,
     ) -> Result<String, AdminServiceError>;
 
-    /// PUT /api/v1/quota/{tenant_id} —— 更新/重置配额
+    /// PUT /api/v1/quota/{user_id} —— 重置该 user 的配额使用量（new_limit=0）
     #[cfg(feature = "quota-control")]
     async fn update_quota(
         &self,
-        tenant_id: &str,
+        user_id: &str,
         req: UpdateQuotaRequest,
     ) -> Result<UpdateQuotaResponse, AdminServiceError>;
 
@@ -446,17 +446,18 @@ impl AdminService for GovernorAdminService {
     #[cfg(feature = "quota-control")]
     async fn update_quota(
         &self,
-        tenant_id: &str,
+        user_id: &str,
         req: UpdateQuotaRequest,
     ) -> Result<UpdateQuotaResponse, AdminServiceError> {
         let Some(ref quota_controller) = self.quota_controller else {
             return Err(AdminServiceError::NotConfigured("Quota controller"));
         };
         // QuotaController 当前不支持 per-tenant 配额上限更新（配额上限为全局
-        // QuotaConfig）；提供重置配额使用量作为最接近的操作
+        // QuotaConfig）；本端点为 user 维度：路径段即 reset_quota 的 user_id，
+        // 租户维度配额请用 QuotaController::reset_quota_for_tenant。
         if req.new_limit == 0 {
             // new_limit=0 视为重置信号
-            match quota_controller.reset_quota(tenant_id, &req.resource).await {
+            match quota_controller.reset_quota(user_id, &req.resource).await {
                 Ok(_) => Ok(UpdateQuotaResponse {
                     success: true,
                     expires_at: req.duration_secs.map(|d| {

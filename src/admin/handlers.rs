@@ -422,16 +422,17 @@ pub struct UpdateQuotaResponse {
     pub expires_at: Option<u64>,
 }
 
-/// PUT /api/v1/quota/{tenant_id}
+/// PUT /api/v1/quota/{user_id}
 ///
+/// 路径段为 user_id（重置该 user 的配额使用量；租户维度配额不在此端点）。
 /// 状态码：200=成功, 400=不支持的操作, 503=未配置, 500=内部错误
 #[cfg(feature = "quota-control")]
 pub async fn update_quota(
     State(state): State<LimiteronState>,
-    Path(tenant_id): Path<String>,
+    Path(user_id): Path<String>,
     Json(req): Json<UpdateQuotaRequest>,
 ) -> (StatusCode, Json<ApiResponse<UpdateQuotaResponse>>) {
-    match state.service().update_quota(&tenant_id, req).await {
+    match state.service().update_quota(&user_id, req).await {
         Ok(resp) => (StatusCode::OK, Json(ApiResponse::ok(resp))),
         Err(e) => (
             service_error_status(&e),
@@ -440,10 +441,10 @@ pub async fn update_quota(
     }
 }
 
-/// PUT /api/v1/quota/{tenant_id} (无quota-control特性)
+/// PUT /api/v1/quota/{user_id} (无quota-control特性)
 #[cfg(not(feature = "quota-control"))]
 pub async fn update_quota(
-    Path(_tenant_id): Path<String>,
+    Path(_user_id): Path<String>,
 ) -> (StatusCode, Json<ApiResponse<UpdateQuotaResponse>>) {
     (
         StatusCode::SERVICE_UNAVAILABLE,
@@ -629,7 +630,7 @@ mod tests {
             new_limit: 0,
             duration_secs: None,
         };
-        let resp = update_quota(State(state), Path("tenant-1".to_string()), Json(req)).await;
+        let resp = update_quota(State(state), Path("user-1".to_string()), Json(req)).await;
         assert!(!resp.1.0.success);
         assert_eq!(resp.1.0.message, "Quota controller not configured");
     }
@@ -666,7 +667,7 @@ mod tests {
             new_limit: 100,
             duration_secs: None,
         };
-        let resp = update_quota(State(state), Path("tenant-1".to_string()), Json(req)).await;
+        let resp = update_quota(State(state), Path("user-1".to_string()), Json(req)).await;
         assert!(!resp.1.0.success);
         assert!(resp.1.0.message.contains("not supported"));
     }
@@ -1007,7 +1008,7 @@ mod tests {
             new_limit: 0,
             duration_secs: Some(3600),
         };
-        let resp = update_quota(State(state), Path("tenant-1".to_string()), Json(req)).await;
+        let resp = update_quota(State(state), Path("user-1".to_string()), Json(req)).await;
         assert!(resp.1.0.success);
         let data = resp.1.0.data.unwrap();
         assert!(data.expires_at.is_some());

@@ -614,12 +614,12 @@
         "status"
       ]
     },
-    "/api/v1/quota/{tenant_id}": {
+    "/api/v1/quota/{user_id}": {
       "put": {
         "parameters": [
           {
             "in": "path",
-            "name": "tenant_id",
+            "name": "user_id",
             "required": true,
             "schema": {
               "type": "string"
@@ -697,7 +697,7 @@
         ]
       },
       "responses": {},
-      "summary": "配额重置（new_limit=0）/ 拒绝 per-tenant 上限更新",
+      "summary": "按 user 重置配额使用量（new_limit=0）/ 拒绝 per-tenant 上限更新",
       "tags": [
         "quota"
       ]

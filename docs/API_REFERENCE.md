@@ -953,7 +953,7 @@ let storage = factory.create_storage().await?;
 | `GET /api/v1/introspect` | 规则/决策链/配额/封禁/熔断自省 JSON | Bearer |
 | `POST /api/v1/ban` | 创建封禁（需 `ban-manager`） | Bearer |
 | `DELETE /api/v1/ban/{target}` | 解除封禁（需 `ban-manager`） | Bearer |
-| `PUT /api/v1/quota/{tenant_id}` | 更新租户配额 | Bearer |
+| `PUT /api/v1/quota/{user_id}` | 按 user 重置配额使用量（`new_limit=0`；租户维度配额用 `QuotaController::reset_quota_for_tenant`） | Bearer |
 | `POST /api/v1/config` | 原子热更新配置 | Bearer |
 | `POST /api/v1/check/batch` | 批量决策检查 | Bearer |
 | `POST /api/v1/tokens/prefetch` | 批量令牌预取（`BatchTokenPrefetcher`） | Bearer |

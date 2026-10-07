@@ -135,7 +135,7 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
         .route("/api/v1/ban", post(handlers::create_ban))
         .route("/api/v1/ban/{target}", delete(handlers::delete_ban))
         // 配额管理
-        .route("/api/v1/quota/{tenant_id}", put(handlers::update_quota))
+        .route("/api/v1/quota/{user_id}", put(handlers::update_quota))
         // 熔断器状态
         .route(
             "/api/v1/status/circuit-breaker",

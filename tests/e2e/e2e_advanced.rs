@@ -1285,7 +1285,7 @@ mod t602_tenant_governor {
     };
     use limiteron::matchers::{Identifier, RequestContext};
     use limiteron::storage::{BanStorage, MemoryBanStorage, MemoryStorage, Storage};
-    use limiteron::{Governor, HeaderTenantResolver, Namespace};
+    use limiteron::{DefaultTenantResolver, Governor, HeaderTenantResolver, Namespace};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -1401,6 +1401,62 @@ mod t602_tenant_governor {
         assert!(
             banned_globex.is_none(),
             "globex 租户的 u1 不应受 acme 封禁影响"
+        );
+    }
+
+    /// 默认命名空间封禁以无前缀键写入且读侧可达
+    ///
+    /// 回归：写侧曾无条件加租户前缀，而读侧（is_identifier_banned 与热路径）
+    /// 在默认命名空间下只查无前缀键——该路径写入的封禁静默失效。
+    /// 默认命名空间封禁即全局封禁（无前缀键为所有租户的回退查询目标）。
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn default_namespace_ban_is_written_unprefixed_and_readable() {
+        let governor = make_tenant_governor().await;
+        let id = Identifier::UserId("u1".to_string());
+
+        governor
+            .ban_identifier_for_namespace(
+                &Namespace::default(),
+                &id,
+                "default namespace ban",
+                Some(Duration::from_secs(600)),
+            )
+            .await
+            .expect("default namespace ban write");
+
+        let banned_acme = governor
+            .is_identifier_banned(&tenant_ctx("acme", "u1"), &id)
+            .await
+            .expect("read acme");
+        assert!(
+            banned_acme.is_some(),
+            "默认命名空间封禁必须以无前缀键写入，非默认租户读侧经回退查询命中"
+        );
+    }
+
+    /// 默认命名空间决策键不加前缀，与无租户部署逐位一致
+    ///
+    /// DefaultTenantResolver 恒解析出默认命名空间；此时决策键必须等于
+    /// identifier.key()——热路径的键改写同口径（否则公开决策键与内部贯通
+    /// 的缓存/封禁/事件键不一致）。
+    #[tokio::test]
+    async fn default_namespace_decision_key_is_unprefixed() {
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+        let governor = Governor::builder()
+            .with_config(test_config())
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .with_tenant_resolver(Arc::new(DefaultTenantResolver))
+            .build()
+            .await
+            .expect("default tenant governor build");
+        let id = Identifier::UserId("u1".to_string());
+        assert_eq!(
+            governor.decision_key(&RequestContext::new(), &id),
+            id.key(),
+            "默认命名空间决策键必须无前缀"
         );
     }
 

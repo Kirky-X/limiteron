@@ -239,6 +239,7 @@ governor-resource-ban-check-unavailable = Parallel check disabled and ban manage
 governor-user-banned = User { $user } has been banned
 governor-user-unbanned = User { $user } has been unbanned
 governor-tenant-ban-applied = Identifier banned per tenant: namespace={ $namespace }, key={ $key }
+governor-global-ban-applied = Identifier banned globally (default namespace writes an unprefixed key): key={ $key }
 governor-config-watcher-stopped = Config watcher stopped
 governor-manual-config-check = Manual config check
 governor-stats-reset = Statistics reset

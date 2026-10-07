@@ -24,9 +24,18 @@ pub fn sanitize_environment(environment: &str) -> String {
     environment.replace(':', "::")
 }
 
+/// 默认命名空间的 tenant_id（[`Namespace::default`] 与 [`Namespace::is_default`] 共用）
+pub(crate) const DEFAULT_TENANT_ID: &str = "global";
+/// 默认命名空间的 environment
+pub(crate) const DEFAULT_ENVIRONMENT: &str = "development";
+
 /// 租户命名空间
 ///
 /// 用于标识请求所属的租户和环境，确保限流键在不同租户之间隔离。
+///
+/// `tenant_id = "global"` 且 `environment = "development"` 的组合是默认
+/// 命名空间（[`Namespace::is_default`]）：该组合下的键不加前缀，与无租户
+/// 部署共享同一键空间——部署侧不应把该组合分配给真实租户。
 ///
 /// # 示例
 ///
@@ -77,6 +86,20 @@ impl Namespace {
         &self.environment
     }
 
+    /// 是否为默认命名空间（global/development）
+    ///
+    /// 默认命名空间下的键不加前缀，与无租户部署逐位一致。所有
+    /// 「是否加前缀」的判定（决策键改写、封禁读写）必须经本方法，
+    /// 不得各自内联比较——读写两侧判定不一致会使封禁静默失效：
+    /// 写侧加前缀而读侧不加（或反之）时，写入的记录在任何查询路径都不可见。
+    ///
+    /// 零堆分配：直接比较字段字面量，不经 [`Namespace::default`]
+    /// （后者构造两个 `String`）。
+    #[inline]
+    pub fn is_default(&self) -> bool {
+        self.tenant_id == DEFAULT_TENANT_ID && self.environment == DEFAULT_ENVIRONMENT
+    }
+
     /// 生成命名空间的唯一前缀
     ///
     /// 格式: `tenant:{tenant_id}:env:{environment}`，其中 tenant_id 和 environment
@@ -99,6 +122,10 @@ impl Namespace {
     }
 
     /// 为给定的限流键添加命名空间前缀
+    ///
+    /// 本方法**不做**默认命名空间判定——调用方须先用 [`Namespace::is_default`]
+    /// 决定是否加前缀（默认命名空间与无租户部署共享无前缀键空间，
+    /// 无条件调用本方法会使读写两侧键不一致）。
     ///
     /// # 参数
     ///
@@ -132,8 +159,8 @@ impl Default for Namespace {
     /// 创建默认的命名空间（全局租户，开发环境）
     fn default() -> Self {
         Self {
-            tenant_id: "global".to_string(),
-            environment: "development".to_string(),
+            tenant_id: DEFAULT_TENANT_ID.to_string(),
+            environment: DEFAULT_ENVIRONMENT.to_string(),
         }
     }
 }

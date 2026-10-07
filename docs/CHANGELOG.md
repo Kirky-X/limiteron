@@ -58,10 +58,12 @@
 
 ### 修复
 
+- **默认命名空间封禁静默失效修复**：`ban_identifier_for_namespace` 此前无条件加租户前缀，而读侧（`is_identifier_banned` 与热路径键改写）在默认命名空间（global/development，如 `DefaultTenantResolver` 解析结果）下只查无前缀键——该路径写入的封禁在任何查询路径都不可见。现改为：默认命名空间写无前缀键（全局封禁）——强制点为默认命名空间/无 resolver 流量的请求热路径，非默认命名空间流量经 `is_identifier_banned` 的回退查询可见；非默认命名空间写限定键的行为不变。本方法仍是低级写入口（直写封禁存储，不经 `BanManager` 的授权检查、封禁历史累加、退避时长与格式校验链），默认命名空间与 `ban_identifier` 仅键范围一致、记录语义不同。存量说明：此前经该路径写入的限定键记录从未生效，升级后可按前缀 `tenant:global:env:development:` 清理，无生效语义需要迁移
 - **bench harness 失效修复**：criterion 0.8 要求 `[[bench]] harness = false`，四个 bench 目标缺失该设置导致 `cargo bench` 落入 libtest harness 空跑（"running 0 tests"），性能基线此前从未真实产出；补齐后 criterion 正常接管并建立首份基线（reviews/perf-baseline.md）
 
 ### 变更
 
+- **`Governor::decision_key` 默认命名空间返回值变更（公开 API）**：配置 resolver 且解析为默认命名空间时，返回值由 `tenant:global:env:development:{key}` 改为 `{key}`，与请求热路径的键改写及内部负缓存/事件/封禁键逐位一致；自建缓存键或预热数据的调用方需自查旧前缀格式
 - **性能基线建立与匹配器热点削减**：基线口径与环境见 reviews/perf-baseline.md；`HeaderMatcher` 大小写不敏感路径新增 ASCII 零分配快路径（`values_ascii` 逐值门控，非 ASCII 值回退 `to_lowercase` 原路径，语义严格等价），bench 三轮采样中位数 12 项全部改善（-10.0% ~ -33.4%，原热点 header_prefix_miss/100 193.60→128.89ns）；`MethodMatcher` 匹配改 `eq_ignore_ascii_case` 零分配折叠
 - **HeaderMatcher 配置解析与校验收紧（行为变更）**：`load_config` 的 allowed_values 非字符串项从静默丢弃改为显性报错（与 MethodMatcher 政策对齐）；空 allowed_values（`new`/builder/`load_config` 全空数组）从静默永不命中改为显性拒绝（`matcher-header-values-empty`）——已部署空列表配置升级后加载被拒
 

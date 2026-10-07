@@ -148,7 +148,7 @@ impl BanTarget {
 ///
 /// 返回 `Some(value)` 表示该变体携带可被租户命名空间限定的字符串值；
 /// `Geo` 变体按国家码全局生效，返回 `None`。
-#[cfg(feature = "multi-tenant")]
+#[cfg(all(feature = "multi-tenant", feature = "ban-manager"))]
 pub(crate) fn ban_target_value(target: &BanTarget) -> Option<&str> {
     match target {
         BanTarget::Ip(v) | BanTarget::UserId(v) | BanTarget::Mac(v) => Some(v),
@@ -161,7 +161,7 @@ pub(crate) fn ban_target_value(target: &BanTarget) -> Option<&str> {
 ///
 /// 保持 [`BanTarget`] 变体类型不变，仅将字符串值替换为
 /// `namespace.qualify_key(value)`；`Geo` 变体不限定（返回 `None`）。
-#[cfg(feature = "multi-tenant")]
+#[cfg(all(feature = "multi-tenant", feature = "ban-manager"))]
 pub(crate) fn qualify_ban_target(
     target: &BanTarget,
     namespace: &crate::tenant::Namespace,

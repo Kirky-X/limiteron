@@ -66,7 +66,11 @@ use crate::ban::BanManager;
 use crate::circuit::CircuitBreaker;
 #[cfg(feature = "audit-log")]
 use crate::logging::AuditLogger;
-#[cfg(any(feature = "parallel-checker", feature = "ban-manager"))]
+#[cfg(any(
+    feature = "parallel-checker",
+    feature = "ban-manager",
+    feature = "multi-tenant"
+))]
 use crate::matchers::Identifier;
 #[cfg(feature = "prometheus")]
 use crate::telemetry::Metrics;
@@ -215,7 +219,10 @@ pub struct Governor {
     /// 租户解析器（可选，feature-gated `multi-tenant`）
     ///
     /// 配置后，决策键（缓存键/事件键/封禁键）以 tenant+key 复合键计算，
-    /// 实现存储/配额/封禁按租户隔离；未配置时行为与现状逐位一致。
+    /// 实现存储/封禁与按标识符键控的限流器按租户隔离；未配置时行为与现状
+    /// 逐位一致。注意：规则链中的配额限流器按 `rule.id` 键控
+    /// （`QuotaLimiter::with_storage` 的 storage key），其用量不随命名空间
+    /// 隔离——租户级额度需用 `QuotaController` 的租户键 API。
     #[cfg(feature = "multi-tenant")]
     tenant_resolver: Option<Arc<dyn crate::tenant::TenantResolver>>,
 
@@ -1865,17 +1872,19 @@ impl Governor {
             .and_then(|resolver| resolver.resolve(context))
     }
 
-    /// 计算决策键：tenant + key 复合
+    /// 计算决策键：tenant + key 复合（公开辅助 API）
     ///
-    /// - 配置 resolver 且解析到租户 → `tenant:{id}:env:{env}:{identifier.key()}`
-    /// - 否则 → `identifier.key()`（与现状逐位一致）
+    /// - 配置 resolver 且解析到非默认租户 → `tenant:{id}:env:{env}:{identifier.key()}`
+    /// - 否则（未配置 resolver / 解析失败 / 默认命名空间）→ `identifier.key()`
+    ///   （与现状逐位一致）
     ///
-    /// 该键贯穿 负缓存、事件发射与封禁存储，实现按租户隔离。
+    /// 与请求热路径的键改写（`tenant_scoped_identifier`，私有）同口径；
+    /// 内部负缓存、事件与封禁键由热路径自身的改写结果贯穿，不经本方法。
     #[cfg(feature = "multi-tenant")]
     pub fn decision_key(&self, context: &RequestContext, identifier: &Identifier) -> String {
         match self.resolve_tenant(context) {
-            Some(ns) => ns.qualify_key(&identifier.key()),
-            None => identifier.key(),
+            Some(ns) if !ns.is_default() => ns.qualify_key(&identifier.key()),
+            _ => identifier.key(),
         }
     }
 
@@ -1894,7 +1903,7 @@ impl Governor {
             return identifier;
         };
         // 默认命名空间（global/development）不加前缀，保持与无租户部署逐位一致
-        if ns == crate::tenant::Namespace::default() {
+        if ns.is_default() {
             return identifier;
         }
         let qualified = ns.qualify_key(identifier.as_str());
@@ -1907,15 +1916,25 @@ impl Governor {
         }
     }
 
-    /// 按租户命名空间封禁标识符
+    /// 按命名空间封禁标识符（低级写入口）
     ///
-    /// 封禁记录以 tenant 限定的 BanTarget 写入封禁存储，仅影响该租户内
-    /// 的同标识符请求；其他租户与无租户请求不受影响。
+    /// 非默认命名空间：以 tenant 限定的 BanTarget 写入封禁存储，仅影响该
+    /// 租户内的同标识符请求；其他租户与无租户请求不受影响。
+    /// 默认命名空间（global/development）：写无前缀键（全局封禁），与决策键
+    /// 改写和读侧编码一致——写限定键会使记录在任何查询路径都不可见
+    /// （读侧跳过默认命名空间的限定键）。
     ///
-    /// 与 [`Governor::ban_identifier`] 不同，本方法写入租户限定的复合键，
-    /// 绕过面向外部输入的格式校验（tenant 前缀由 [`crate::tenant::Namespace`]
-    /// 的转义规则保证无歧义）。
-    #[cfg(feature = "multi-tenant")]
+    /// 强制点说明：默认命名空间写入的全局封禁由请求热路径对默认命名空间
+    /// （或无 resolver）流量强制；对非默认命名空间流量，仅
+    /// [`Governor::is_identifier_banned`] 的回退查询可见（热路径对非默认
+    /// 命名空间只查租户限定键，无无前缀回退）。
+    ///
+    /// 本方法直接写封禁存储（`ban_times = 1`、默认 3600s、`is_manual = true`），
+    /// 不经 [`crate::ban::BanManager::create_ban`]：不做授权检查、不累加历史
+    /// 封禁次数、不用退避时长策略，也不做面向外部输入的格式校验（tenant 前缀
+    /// 由 [`crate::tenant::Namespace`] 的转义规则保证无歧义）。需要上述语义时
+    /// 用 [`Governor::ban_identifier`]。
+    #[cfg(all(feature = "multi-tenant", feature = "ban-manager"))]
     pub async fn ban_identifier_for_namespace(
         &self,
         namespace: &crate::tenant::Namespace,
@@ -1923,16 +1942,20 @@ impl Governor {
         reason: &str,
         duration: Option<std::time::Duration>,
     ) -> Result<(), LimiteronError> {
-        let Some(mut target) = identifier.to_ban_target() else {
+        let Some(target) = identifier.to_ban_target() else {
             return Err(LimiteronError::ValidationError(
                 "Unsupported identifier type".to_string(),
             ));
         };
-        // 以租户前缀限定封禁键（保持 BanTarget 变体类型不变）；
-        // Geo 维度按国家码全局生效，不做租户限定
-        if let Some(qualified) = crate::storage::qualify_ban_target(&target, namespace) {
-            target = qualified;
-        }
+        // 默认命名空间写无前缀键；非默认以租户前缀限定（保持 BanTarget
+        // 变体类型不变）。`qualify_ban_target` 返回 None 的唯一成因是
+        // Geo/Cidr 刻意全局生效（见 storage::ban_target_value），
+        // 此时保持原 target。
+        let target = if namespace.is_default() {
+            target
+        } else {
+            crate::storage::qualify_ban_target(&target, namespace).unwrap_or(target)
+        };
         let now = chrono::Utc::now();
         let duration = duration.unwrap_or(std::time::Duration::from_secs(3600));
         let record = crate::storage::BanRecord {
@@ -1949,10 +1972,15 @@ impl Governor {
             .save(&record)
             .await
             .map_err(LimiteronError::StorageError)?;
+        let message_key = if namespace.is_default() {
+            "governor-global-ban-applied"
+        } else {
+            "governor-tenant-ban-applied"
+        };
         info!(
             "{}",
             t(
-                "governor-tenant-ban-applied",
+                message_key,
                 &[
                     ("namespace", namespace.to_string()),
                     ("key", log_fingerprint(&identifier.key()).to_string(),),
@@ -1965,8 +1993,10 @@ impl Governor {
     /// 租户感知的封禁检查
     ///
     /// 先查租户限定键（tenant 隔离封禁），未命中再查无前缀键（全局封禁，
-    /// 如自动封禁/Geo 封禁，保持既有语义）。未配置 resolver 时仅查无前缀键。
-    #[cfg(feature = "multi-tenant")]
+    /// 如自动封禁/Geo 封禁，保持既有语义）。未配置 resolver / 解析到默认
+    /// 命名空间时仅查无前缀键——默认命名空间不加前缀，写侧
+    /// [`Governor::ban_identifier_for_namespace`] 同口径写无前缀键。
+    #[cfg(all(feature = "multi-tenant", feature = "ban-manager"))]
     pub async fn is_identifier_banned(
         &self,
         context: &RequestContext,
@@ -1976,7 +2006,7 @@ impl Governor {
             return Ok(None);
         };
         if let Some(ns) = self.resolve_tenant(context)
-            && ns != crate::tenant::Namespace::default()
+            && !ns.is_default()
             && let Some(scoped) = crate::storage::qualify_ban_target(&target, &ns)
             && let Some(record) = self.ban_storage.is_banned(&scoped).await?
         {

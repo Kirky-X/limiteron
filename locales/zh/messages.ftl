@@ -238,6 +238,7 @@ governor-resource-ban-check-unavailable = 并行检查已禁用且未启用封�
 governor-user-banned = 用户 { $user } 已被封禁
 governor-user-unbanned = 用户 { $user } 已解封
 governor-tenant-ban-applied = 标识符已按租户封禁: namespace={ $namespace }, key={ $key }
+governor-global-ban-applied = 标识符已全局封禁（默认命名空间写无前缀键）: key={ $key }
 governor-config-watcher-stopped = 停止配置监视器
 governor-manual-config-check = 手动配置检查
 governor-stats-reset = 重置统计信息

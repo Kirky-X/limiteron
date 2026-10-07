@@ -107,7 +107,10 @@ check_paths() {
                 while (match(s, /`[A-Za-z0-9_][A-Za-z0-9_./-]*`/)) {
                     token = substr(s, RSTART + 1, RLENGTH - 2)
                     s = substr(s, RSTART + RLENGTH)
-                    if (token == "src/main.rs" || token ~ /\/\//) continue
+                    # target/ 下的路径是构建产物（如 criterion 报告）：其存在性
+                    # 取决于本地是否跑过构建/基准，不能作为仓库路径漂移的硬判据
+                    # （CI checkout 后 target/ 不存在，该 token 本就落入 SKIP）。
+                    if (token == "src/main.rs" || token ~ /\/\// || token ~ /^target\//) continue
                     split(token, seg, "/")
                     if (seg[1] in top) print "CAND\t" token "\t" NR
                     else if (token ~ /[\/.]/) print "SKIP\t" token "\t" NR

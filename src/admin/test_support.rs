@@ -55,40 +55,65 @@ pub async fn make_governor() -> Governor {
         .expect("Governor build should succeed with valid config")
 }
 
-/// 构造最小可用 LimiteronState（仅 Governor，可选组件均为 None）
-pub async fn make_state() -> LimiteronState {
-    let governor = Arc::new(make_governor().await);
+/// LimiteronState 可选依赖集合
+///
+/// feature 关闭时对应字段整体缺席；调用点用 `..Default::default()` 补空，
+/// 新增状态字段只需改此处与 `make_state_with` 两个组装点。
+#[derive(Default)]
+pub struct TestDeps {
+    #[cfg(feature = "ban-manager")]
+    pub ban_manager: Option<Arc<crate::BanManager>>,
+    #[cfg(feature = "quota-control")]
+    pub quota_controller: Option<Arc<crate::QuotaController>>,
+    #[cfg(feature = "circuit-breaker")]
+    pub circuit_breaker: Option<Arc<crate::CircuitBreaker>>,
+    #[cfg(feature = "prometheus")]
+    pub metrics: Option<Arc<crate::telemetry::Metrics>>,
+}
+
+/// 用既有实例组装 LimiteronState（状态组装的唯一入口）
+#[cfg_attr(
+    not(any(
+        feature = "ban-manager",
+        feature = "quota-control",
+        feature = "circuit-breaker",
+        feature = "prometheus"
+    )),
+    allow(unused_variables)
+)]
+pub fn make_state_with(governor: Arc<Governor>, deps: TestDeps) -> LimiteronState {
     LimiteronState {
         governor,
         #[cfg(feature = "ban-manager")]
-        ban_manager: None,
+        ban_manager: deps.ban_manager,
         #[cfg(feature = "quota-control")]
-        quota_controller: None,
+        quota_controller: deps.quota_controller,
         #[cfg(feature = "circuit-breaker")]
-        circuit_breaker: None,
+        circuit_breaker: deps.circuit_breaker,
         #[cfg(feature = "prometheus")]
-        metrics: None,
+        metrics: deps.metrics,
     }
+}
+
+/// 构造最小可用 LimiteronState（仅 Governor，可选组件均为 None）
+pub async fn make_state() -> LimiteronState {
+    make_state_with(Arc::new(make_governor().await), TestDeps::default())
 }
 
 /// 构造带 BanManager 的 LimiteronState（用于封禁相关测试）
 #[cfg(feature = "ban-manager")]
 pub async fn make_state_with_ban_manager() -> LimiteronState {
     use crate::BanManager;
-    let governor = Arc::new(make_governor().await);
     let ban_manager = Arc::new(
         BanManager::new()
             .await
             .expect("BanManager::new should succeed"),
     );
-    LimiteronState {
-        governor,
-        ban_manager: Some(ban_manager),
-        #[cfg(feature = "quota-control")]
-        quota_controller: None,
-        #[cfg(feature = "circuit-breaker")]
-        circuit_breaker: None,
-        #[cfg(feature = "prometheus")]
-        metrics: None,
-    }
+    make_state_with(
+        Arc::new(make_governor().await),
+        TestDeps {
+            ban_manager: Some(ban_manager),
+            ..Default::default()
+        },
+    )
 }

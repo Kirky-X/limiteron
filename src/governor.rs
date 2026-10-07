@@ -1010,22 +1010,16 @@ impl Governor {
         storage: Arc<dyn Storage>,
         ban_storage: Arc<dyn BanStorage>,
     ) -> Result<Self, LimiteronError> {
-        #[cfg(all(feature = "prometheus", feature = "telemetry"))]
-        {
-            Self::with_storage(config, storage, ban_storage, None, None).await
-        }
-        #[cfg(all(feature = "prometheus", not(feature = "telemetry")))]
-        {
-            Self::with_storage(config, storage, ban_storage, None).await
-        }
-        #[cfg(all(not(feature = "prometheus"), feature = "telemetry"))]
-        {
-            Self::with_storage(config, storage, ban_storage, None).await
-        }
-        #[cfg(all(not(feature = "prometheus"), not(feature = "telemetry")))]
-        {
-            Self::with_storage(config, storage, ban_storage).await
-        }
+        Self::with_storage(
+            config,
+            storage,
+            ban_storage,
+            #[cfg(feature = "prometheus")]
+            None,
+            #[cfg(feature = "telemetry")]
+            None,
+        )
+        .await
     }
 
     /// 检查请求 - 简化版本使用并行检查器
@@ -6406,14 +6400,11 @@ mod governor_feature_gated_tests {
 #[cfg(all(test, feature = "multi-tenant"))]
 /// Governor 的租户限定封禁与限流器标签契约测试（自带 import，独立于其它测试模块）。
 mod governor_tenant_ban_tests {
-    use super::{Governor, LimiteronError, RequestContext};
+    use super::{Governor, RequestContext};
     use super::{create_valid_test_config_for_tenant, limiter_kind};
     use crate::config::{LimiterConfig, QuotaType};
-    use crate::matchers::Identifier;
     use crate::storage::{MemoryBanStorage, MemoryStorage};
-    use crate::tenant::Namespace;
     use std::sync::Arc;
-    use std::time::Duration;
 
     async fn make_governor() -> Governor {
         let storage: Arc<dyn crate::storage::Storage> = Arc::new(MemoryStorage::new());
@@ -6518,8 +6509,16 @@ mod governor_tenant_ban_tests {
 
     /// 租户限定封禁键契约：非默认命名空间加前缀落库、默认命名空间保持全局键、
     /// 不支持封禁的标识符显式报错（不得静默跳过）。
+    ///
+    /// 被测方法经 `all(multi-tenant, ban-manager)` 门控，测试须同门控。
+    #[cfg(feature = "ban-manager")]
     #[tokio::test]
     async fn test_ban_identifier_namespace_scoping() {
+        use super::LimiteronError;
+        use crate::matchers::Identifier;
+        use crate::tenant::Namespace;
+        use std::time::Duration;
+
         let governor = make_governor().await;
         let ns = Namespace::new("t1", "prod");
         let user = Identifier::UserId("u1".to_string());

@@ -145,91 +145,104 @@ impl FromStr for IpRange {
     type Err = LimiteronError;
 
     /// 从字符串解析IP范围
+    ///
+    /// 三种格式分派：CIDR（含 `/`）、IPv4 区间（含 `-`）、单 IP。
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s.contains('/') {
-            // CIDR格式
-            let parts: Vec<&str> = s.split('/').collect();
-            if parts.len() != 2 {
-                return Err(LimiteronError::ConfigError(t(
-                    "iprange-invalid-cidr",
-                    &[("input", s.to_string())],
-                )));
-            }
-
-            let addr: IpAddr = parts[0].parse().map_err(|_| {
-                LimiteronError::ConfigError(t(
-                    "iprange-invalid-ip",
-                    &[("input", parts[0].to_string())],
-                ))
-            })?;
-            let prefix: u8 = parts[1].parse().map_err(|_| {
-                LimiteronError::ConfigError(t(
-                    "iprange-invalid-prefix",
-                    &[("input", parts[1].to_string())],
-                ))
-            })?;
-
-            match addr {
-                IpAddr::V4(ipv4) => {
-                    if prefix > 32 {
-                        return Err(LimiteronError::ConfigError(t(
-                            "iprange-v4-prefix-too-large",
-                            &[("input", prefix.to_string())],
-                        )));
-                    }
-                    Ok(IpRange::Ipv4Cidr { addr: ipv4, prefix })
-                }
-                IpAddr::V6(ipv6) => {
-                    if prefix > 128 {
-                        return Err(LimiteronError::ConfigError(t(
-                            "iprange-v6-prefix-too-large",
-                            &[("input", prefix.to_string())],
-                        )));
-                    }
-                    Ok(IpRange::Ipv6Cidr { addr: ipv6, prefix })
-                }
-            }
+            Self::parse_cidr(s)
         } else if s.contains('-') {
-            // 范围格式
-            let parts: Vec<&str> = s.split('-').collect();
-            if parts.len() != 2 {
-                return Err(LimiteronError::ConfigError(t(
-                    "iprange-invalid-range",
-                    &[("input", s.to_string())],
-                )));
-            }
-
-            let start: Ipv4Addr = parts[0].parse().map_err(|_| {
-                LimiteronError::ConfigError(t(
-                    "iprange-invalid-start-ip",
-                    &[("input", parts[0].to_string())],
-                ))
-            })?;
-            let end: Ipv4Addr = parts[1].parse().map_err(|_| {
-                LimiteronError::ConfigError(t(
-                    "iprange-invalid-end-ip",
-                    &[("input", parts[1].to_string())],
-                ))
-            })?;
-
-            if start > end {
-                return Err(LimiteronError::ConfigError(t(
-                    "iprange-start-greater-than-end",
-                    &[
-                        ("start", parts[0].to_string()),
-                        ("end", parts[1].to_string()),
-                    ],
-                )));
-            }
-
-            Ok(IpRange::Ipv4Range { start, end })
+            Self::parse_ipv4_range(s)
         } else {
-            // 单个IP
-            let addr: IpAddr = s.parse().map_err(|_| {
-                LimiteronError::ConfigError(t("iprange-invalid-ip", &[("input", s.to_string())]))
-            })?;
-            Ok(IpRange::Single(addr))
+            Self::parse_single_ip(s)
         }
+    }
+}
+
+impl IpRange {
+    /// 解析 CIDR 格式（`addr/prefix`，v4 前缀 ≤32、v6 前缀 ≤128）
+    fn parse_cidr(s: &str) -> Result<Self, LimiteronError> {
+        let parts: Vec<&str> = s.split('/').collect();
+        if parts.len() != 2 {
+            return Err(LimiteronError::ConfigError(t(
+                "iprange-invalid-cidr",
+                &[("input", s.to_string())],
+            )));
+        }
+
+        let addr: IpAddr = parts[0].parse().map_err(|_| {
+            LimiteronError::ConfigError(t("iprange-invalid-ip", &[("input", parts[0].to_string())]))
+        })?;
+        let prefix: u8 = parts[1].parse().map_err(|_| {
+            LimiteronError::ConfigError(t(
+                "iprange-invalid-prefix",
+                &[("input", parts[1].to_string())],
+            ))
+        })?;
+
+        match addr {
+            IpAddr::V4(ipv4) => {
+                if prefix > 32 {
+                    return Err(LimiteronError::ConfigError(t(
+                        "iprange-v4-prefix-too-large",
+                        &[("input", prefix.to_string())],
+                    )));
+                }
+                Ok(IpRange::Ipv4Cidr { addr: ipv4, prefix })
+            }
+            IpAddr::V6(ipv6) => {
+                if prefix > 128 {
+                    return Err(LimiteronError::ConfigError(t(
+                        "iprange-v6-prefix-too-large",
+                        &[("input", prefix.to_string())],
+                    )));
+                }
+                Ok(IpRange::Ipv6Cidr { addr: ipv6, prefix })
+            }
+        }
+    }
+
+    /// 解析 IPv4 区间格式（`start-end`，要求 start ≤ end）
+    fn parse_ipv4_range(s: &str) -> Result<Self, LimiteronError> {
+        let parts: Vec<&str> = s.split('-').collect();
+        if parts.len() != 2 {
+            return Err(LimiteronError::ConfigError(t(
+                "iprange-invalid-range",
+                &[("input", s.to_string())],
+            )));
+        }
+
+        let start: Ipv4Addr = parts[0].parse().map_err(|_| {
+            LimiteronError::ConfigError(t(
+                "iprange-invalid-start-ip",
+                &[("input", parts[0].to_string())],
+            ))
+        })?;
+        let end: Ipv4Addr = parts[1].parse().map_err(|_| {
+            LimiteronError::ConfigError(t(
+                "iprange-invalid-end-ip",
+                &[("input", parts[1].to_string())],
+            ))
+        })?;
+
+        if start > end {
+            return Err(LimiteronError::ConfigError(t(
+                "iprange-start-greater-than-end",
+                &[
+                    ("start", parts[0].to_string()),
+                    ("end", parts[1].to_string()),
+                ],
+            )));
+        }
+
+        Ok(IpRange::Ipv4Range { start, end })
+    }
+
+    /// 解析单个 IP（v4/v6 均可）
+    fn parse_single_ip(s: &str) -> Result<Self, LimiteronError> {
+        let addr: IpAddr = s.parse().map_err(|_| {
+            LimiteronError::ConfigError(t("iprange-invalid-ip", &[("input", s.to_string())]))
+        })?;
+        Ok(IpRange::Single(addr))
     }
 }
 

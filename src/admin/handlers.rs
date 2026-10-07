@@ -490,8 +490,20 @@ pub async fn get_circuit_breaker_status() -> (StatusCode, Json<ApiResponse<()>>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::admin::LimiteronState;
-    use crate::admin::{make_governor, make_state};
+    use crate::admin::make_state;
+    // 三个依赖注入型测试组各自有 feature 门控；其构造辅助随之门控，
+    // 避免 admin-api 单开（无任何依赖 feature）时的未用导入告警。
+    #[cfg(any(
+        feature = "ban-manager",
+        feature = "quota-control",
+        feature = "circuit-breaker"
+    ))]
+    use crate::admin::{TestDeps, make_governor, make_state_with};
+    #[cfg(any(
+        feature = "ban-manager",
+        feature = "quota-control",
+        feature = "circuit-breaker"
+    ))]
     use std::sync::Arc;
 
     #[test]
@@ -561,16 +573,13 @@ mod tests {
         use crate::BanManager;
         let ban_manager = Arc::new(BanManager::new().await.unwrap());
         let governor = Arc::new(make_governor().await);
-        let state = LimiteronState {
+        let state = make_state_with(
             governor,
-            ban_manager: Some(ban_manager),
-            #[cfg(feature = "quota-control")]
-            quota_controller: None,
-            #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: None,
-            #[cfg(feature = "prometheus")]
-            metrics: None,
-        };
+            TestDeps {
+                ban_manager: Some(ban_manager),
+                ..Default::default()
+            },
+        );
         // 未封禁的 IP → Ban not found
         let req = UnbanRequest {
             reason: Some("test".to_string()),
@@ -594,16 +603,13 @@ mod tests {
         use crate::BanManager;
         let ban_manager = Arc::new(BanManager::new().await.unwrap());
         let governor = Arc::new(make_governor().await);
-        let state = LimiteronState {
+        let state = make_state_with(
             governor,
-            ban_manager: Some(ban_manager),
-            #[cfg(feature = "quota-control")]
-            quota_controller: None,
-            #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: None,
-            #[cfg(feature = "prometheus")]
-            metrics: None,
-        };
+            TestDeps {
+                ban_manager: Some(ban_manager),
+                ..Default::default()
+            },
+        );
         // 非 IP 字符串 → UserId 目标
         let req = UnbanRequest {
             reason: None,
@@ -651,16 +657,13 @@ mod tests {
             QuotaConfig::default(),
         ));
         let governor = Arc::new(make_governor().await);
-        let state = LimiteronState {
+        let state = make_state_with(
             governor,
-            #[cfg(feature = "ban-manager")]
-            ban_manager: None,
-            quota_controller: Some(quota_controller),
-            #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: None,
-            #[cfg(feature = "prometheus")]
-            metrics: None,
-        };
+            TestDeps {
+                quota_controller: Some(quota_controller),
+                ..Default::default()
+            },
+        );
         // new_limit > 0 → 不支持
         let req = UpdateQuotaRequest {
             resource: "api".to_string(),
@@ -689,16 +692,13 @@ mod tests {
             CircuitBreakerConfig::default(),
         ));
         let governor = Arc::new(make_governor().await);
-        let state = LimiteronState {
+        let state = make_state_with(
             governor,
-            #[cfg(feature = "ban-manager")]
-            ban_manager: None,
-            #[cfg(feature = "quota-control")]
-            quota_controller: None,
-            circuit_breaker: Some(cb),
-            #[cfg(feature = "prometheus")]
-            metrics: None,
-        };
+            TestDeps {
+                circuit_breaker: Some(cb),
+                ..Default::default()
+            },
+        );
         let resp = get_circuit_breaker_status(State(state)).await;
         assert!(resp.1.0.success);
         let data = resp.1.0.data.unwrap();
@@ -716,15 +716,14 @@ mod tests {
             CircuitBreakerConfig::default(),
         ));
         let governor = Arc::new(make_governor().await);
-        let state = LimiteronState {
+        let state = make_state_with(
             governor,
-            ban_manager: Some(ban_manager),
-            #[cfg(feature = "quota-control")]
-            quota_controller: None,
-            circuit_breaker: Some(cb),
-            #[cfg(feature = "prometheus")]
-            metrics: None,
-        };
+            TestDeps {
+                ban_manager: Some(ban_manager),
+                circuit_breaker: Some(cb),
+                ..Default::default()
+            },
+        );
         let resp = get_status(State(state)).await;
         assert!(resp.0.success);
         let data = resp.0.data.unwrap();
@@ -755,16 +754,13 @@ mod tests {
             .await
             .unwrap();
         let governor = Arc::new(make_governor().await);
-        let state = LimiteronState {
+        let state = make_state_with(
             governor,
-            ban_manager: Some(ban_manager),
-            #[cfg(feature = "quota-control")]
-            quota_controller: None,
-            #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: None,
-            #[cfg(feature = "prometheus")]
-            metrics: None,
-        };
+            TestDeps {
+                ban_manager: Some(ban_manager),
+                ..Default::default()
+            },
+        );
         let req = UnbanRequest {
             reason: Some("manual unban".to_string()),
             operator: Some("admin".to_string()),
@@ -804,16 +800,13 @@ mod tests {
             .await
             .unwrap();
         let governor = Arc::new(make_governor().await);
-        let state = LimiteronState {
+        let state = make_state_with(
             governor,
-            ban_manager: Some(ban_manager),
-            #[cfg(feature = "quota-control")]
-            quota_controller: None,
-            #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: None,
-            #[cfg(feature = "prometheus")]
-            metrics: None,
-        };
+            TestDeps {
+                ban_manager: Some(ban_manager),
+                ..Default::default()
+            },
+        );
         // ?type=mac 显式指定 → 成功解封
         let req = UnbanRequest {
             reason: Some("mac unban".to_string()),
@@ -859,16 +852,13 @@ mod tests {
             .await
             .unwrap();
         let governor = Arc::new(make_governor().await);
-        let state = LimiteronState {
+        let state = make_state_with(
             governor,
-            ban_manager: Some(ban_manager),
-            #[cfg(feature = "quota-control")]
-            quota_controller: None,
-            #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: None,
-            #[cfg(feature = "prometheus")]
-            metrics: None,
-        };
+            TestDeps {
+                ban_manager: Some(ban_manager),
+                ..Default::default()
+            },
+        );
         // ?type=geo 显式指定 → 成功解封
         let req = UnbanRequest {
             reason: Some("geo unban".to_string()),
@@ -895,16 +885,13 @@ mod tests {
         use crate::BanManager;
         let ban_manager = Arc::new(BanManager::new().await.unwrap());
         let governor = Arc::new(make_governor().await);
-        let state = LimiteronState {
+        let state = make_state_with(
             governor,
-            ban_manager: Some(ban_manager),
-            #[cfg(feature = "quota-control")]
-            quota_controller: None,
-            #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: None,
-            #[cfg(feature = "prometheus")]
-            metrics: None,
-        };
+            TestDeps {
+                ban_manager: Some(ban_manager),
+                ..Default::default()
+            },
+        );
         // ?type=foo 不支持 → 400 BAD_REQUEST
         let req = UnbanRequest {
             reason: None,
@@ -949,16 +936,13 @@ mod tests {
             .await
             .unwrap();
         let governor = Arc::new(make_governor().await);
-        let state = LimiteronState {
+        let state = make_state_with(
             governor,
-            ban_manager: Some(ban_manager),
-            #[cfg(feature = "quota-control")]
-            quota_controller: None,
-            #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: None,
-            #[cfg(feature = "prometheus")]
-            metrics: None,
-        };
+            TestDeps {
+                ban_manager: Some(ban_manager),
+                ..Default::default()
+            },
+        );
         // 不指定 type → 自动推断为 UserId（MAC 字符串不是合法 IP）→ 404 NOT_FOUND
         // 这验证了 ?type=mac 是解封 MAC 的必要条件（修复前的 bug 复现）
         let req = UnbanRequest {
@@ -993,16 +977,13 @@ mod tests {
             QuotaConfig::default(),
         ));
         let governor = Arc::new(make_governor().await);
-        let state = LimiteronState {
+        let state = make_state_with(
             governor,
-            #[cfg(feature = "ban-manager")]
-            ban_manager: None,
-            quota_controller: Some(quota_controller),
-            #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: None,
-            #[cfg(feature = "prometheus")]
-            metrics: None,
-        };
+            TestDeps {
+                quota_controller: Some(quota_controller),
+                ..Default::default()
+            },
+        );
         let req = UpdateQuotaRequest {
             resource: "api".to_string(),
             new_limit: 0,
@@ -1032,16 +1013,13 @@ mod tests {
             })
             .await;
         let governor = Arc::new(make_governor().await);
-        let state = LimiteronState {
+        let state = make_state_with(
             governor,
-            #[cfg(feature = "ban-manager")]
-            ban_manager: None,
-            #[cfg(feature = "quota-control")]
-            quota_controller: None,
-            circuit_breaker: Some(cb),
-            #[cfg(feature = "prometheus")]
-            metrics: None,
-        };
+            TestDeps {
+                circuit_breaker: Some(cb),
+                ..Default::default()
+            },
+        );
         let resp = get_circuit_breaker_status(State(state)).await;
         assert!(resp.1.0.success);
         let data = resp.1.0.data.unwrap();

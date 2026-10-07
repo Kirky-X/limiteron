@@ -2470,4 +2470,105 @@ mod tests {
         // usage_percent=100 >= threshold=100，应触发告警
         assert!(result);
     }
+
+    /// 多租户配额 API 的入参校验与键隔离契约：
+    /// - 空 tenant_id 必须拒绝（否则会与无前缀键碰撞）
+    /// - user_id / resource 含 ':' 必须拒绝（配额键分隔符注入 → 跨账户污染）
+    /// - 不同租户下的同名用户必须各自独立记账
+    #[cfg(feature = "multi-tenant")]
+    #[tokio::test]
+    async fn test_tenant_quota_validation_and_isolation() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let controller = QuotaController::with_dependencies(storage, QuotaConfig::default());
+
+        // 1) 三个租户 API 共用同一套校验：空 tenant_id 一律拒绝
+        assert!(matches!(
+            controller.consume_for_tenant("", "u1", "api", 1).await,
+            Err(LimiteronError::ValidationError(_))
+        ));
+        assert!(matches!(
+            controller.get_quota_for_tenant("", "u1", "api").await,
+            Err(LimiteronError::ValidationError(_))
+        ));
+        assert!(matches!(
+            controller.reset_quota_for_tenant("", "u1", "api").await,
+            Err(LimiteronError::ValidationError(_))
+        ));
+
+        // 2) ':' 注入拒绝（键碰撞防线）
+        assert!(matches!(
+            controller.consume_for_tenant("t1", "u:1", "api", 1).await,
+            Err(LimiteronError::ValidationError(_))
+        ));
+        assert!(matches!(
+            controller.consume_for_tenant("t1", "u1", "ap:i", 1).await,
+            Err(LimiteronError::ValidationError(_))
+        ));
+        assert!(matches!(
+            controller.get_quota_for_tenant("t1", "u:1", "api").await,
+            Err(LimiteronError::ValidationError(_))
+        ));
+        assert!(matches!(
+            controller.reset_quota_for_tenant("t1", "u1", "a:i").await,
+            Err(LimiteronError::ValidationError(_))
+        ));
+
+        // 3) 合法入参：跨租户同名用户互不影响
+        controller
+            .consume_for_tenant("t1", "u1", "api", 1)
+            .await
+            .expect("consume for t1");
+        controller
+            .consume_for_tenant("t2", "u1", "api", 7)
+            .await
+            .expect("consume for t2");
+        let s1 = controller
+            .get_quota_for_tenant("t1", "u1", "api")
+            .await
+            .expect("get t1")
+            .expect("t1 quota state must exist");
+        let s2 = controller
+            .get_quota_for_tenant("t2", "u1", "api")
+            .await
+            .expect("get t2")
+            .expect("t2 quota state must exist");
+        assert_eq!(
+            (s1.consumed, s2.consumed),
+            (1, 7),
+            "两个租户下同名 u1 的用量必须各自独立记账"
+        );
+
+        // 4) 重置只影响目标租户
+        controller
+            .reset_quota_for_tenant("t1", "u1", "api")
+            .await
+            .expect("reset t1");
+        // 重置语义：记账归零或记录移除，二者皆可，但绝不得残留原用量
+        let after_reset = controller
+            .get_quota_for_tenant("t1", "u1", "api")
+            .await
+            .expect("get t1 after reset");
+        if let Some(state) = after_reset {
+            assert_eq!(state.consumed, 0, "重置后不得残留原用量");
+        }
+        assert!(
+            controller
+                .get_quota_for_tenant("t2", "u1", "api")
+                .await
+                .expect("get t2 after t1 reset")
+                .is_some()
+        );
+
+        // 5) 键构造与 sanitize：租户段经 sanitize_tenant_id，避免分隔符注入
+        let key = QuotaController::tenant_user_key("t1", "u1");
+        assert!(key.starts_with("t:"), "限定键需 t: 前缀: {key}");
+        assert!(key.contains("u1"));
+        assert_ne!(key, "t1:u1", "不得与裸拼接键同形");
+
+        // 6) 私有校验函数的直接契约（含全通过路径）
+        assert!(QuotaController::validate_tenant_quota_args("t", "u", "r").is_ok());
+        assert!(QuotaController::validate_tenant_quota_args("", "u", "r").is_err());
+        assert!(QuotaController::validate_tenant_quota_args("t", "u:1", "r").is_err());
+        assert!(QuotaController::validate_tenant_quota_args("t", "u", "r:1").is_err());
+    }
 }

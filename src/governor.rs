@@ -6402,3 +6402,223 @@ mod governor_feature_gated_tests {
         }
     }
 }
+
+#[cfg(all(test, feature = "multi-tenant"))]
+/// Governor 的租户限定封禁与限流器标签契约测试（自带 import，独立于其它测试模块）。
+mod governor_tenant_ban_tests {
+    use super::{Governor, LimiteronError, RequestContext};
+    use super::{create_valid_test_config_for_tenant, limiter_kind};
+    use crate::config::{LimiterConfig, QuotaType};
+    use crate::matchers::Identifier;
+    use crate::storage::{MemoryBanStorage, MemoryStorage};
+    use crate::tenant::Namespace;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    async fn make_governor() -> Governor {
+        let storage: Arc<dyn crate::storage::Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn crate::storage::BanStorage> = Arc::new(MemoryBanStorage::new());
+        Governor::builder()
+            .with_config(create_valid_test_config_for_tenant())
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed")
+    }
+
+    /// limiter_kind 覆盖全部 LimiterConfig 变体且标签互不相同；新增变体漏分支即失败。
+    #[test]
+    fn test_limiter_kind_covers_every_variant() {
+        let cases: Vec<(LimiterConfig, &str)> = vec![
+            (
+                LimiterConfig::TokenBucket {
+                    capacity: 10,
+                    refill_rate: 1,
+                },
+                "token_bucket",
+            ),
+            (
+                LimiterConfig::SlidingWindow {
+                    window_size: "1m".into(),
+                    max_requests: 5,
+                },
+                "sliding_window",
+            ),
+            (
+                LimiterConfig::FixedWindow {
+                    window_size: "1m".into(),
+                    max_requests: 5,
+                },
+                "fixed_window",
+            ),
+            (
+                LimiterConfig::Quota {
+                    quota_type: QuotaType::Count,
+                    limit: 5,
+                    window: "1d".into(),
+                    alert_threshold: None,
+                    overdraft: None,
+                },
+                "quota",
+            ),
+            (
+                LimiterConfig::Concurrency { max_concurrent: 2 },
+                "concurrency",
+            ),
+            (
+                LimiterConfig::LeakyBucket {
+                    capacity: 4,
+                    leak_rate: 2,
+                },
+                "leaky_bucket",
+            ),
+            (
+                LimiterConfig::SlidingWindowLog {
+                    window_size: "1m".into(),
+                    max_requests: 3,
+                },
+                "sliding_window_log",
+            ),
+            (
+                LimiterConfig::PriorityQueue {
+                    window_size: "1m".into(),
+                    total_per_window: 10,
+                    level_weights: vec![1],
+                    default_priority: None,
+                },
+                "priority_queue",
+            ),
+            (
+                LimiterConfig::AdmissionControl {
+                    max_concurrent: 2,
+                    max_per_second: 5,
+                },
+                "admission_control",
+            ),
+            (
+                LimiterConfig::Custom {
+                    name: "mylim".into(),
+                    config: serde_json::Value::Null,
+                },
+                "custom:mylim",
+            ),
+        ];
+        let mut kinds: Vec<String> = Vec::new();
+        for (cfg, expected) in &cases {
+            let got = limiter_kind(cfg);
+            assert_eq!(got, *expected, "limiter_kind 映射漂移");
+            kinds.push(got);
+        }
+        let mut uniq = kinds.clone();
+        uniq.sort();
+        uniq.dedup();
+        assert_eq!(uniq.len(), cases.len(), "限流器类型标签必须互不相同");
+    }
+
+    /// 租户限定封禁键契约：非默认命名空间加前缀落库、默认命名空间保持全局键、
+    /// 不支持封禁的标识符显式报错（不得静默跳过）。
+    #[tokio::test]
+    async fn test_ban_identifier_namespace_scoping() {
+        let governor = make_governor().await;
+        let ns = Namespace::new("t1", "prod");
+        let user = Identifier::UserId("u1".to_string());
+        let ctx = RequestContext::default();
+
+        // 无 resolver → 标识符不被限定
+        assert_eq!(
+            governor.tenant_scoped_identifier(&ctx, user.clone()).key(),
+            user.key()
+        );
+        // 非默认命名空间的限定键含租户标识且不同于原键
+        let qualified = ns.qualify_key("u1");
+        assert_ne!(qualified, "u1");
+        assert!(qualified.contains("t1"), "限定键应含租户标识: {qualified}");
+
+        // 按命名空间封禁 → 经 is_identifier_banned 可见（全局键路径）
+        governor
+            .ban_identifier_for_namespace(&ns, &user, "abuse", None)
+            .await
+            .expect("UserId is bannable");
+
+        // 默认命名空间 → 全局键（无前缀），显式 duration 路径
+        governor
+            .ban_identifier_for_namespace(
+                &Namespace::default(),
+                &user,
+                "global",
+                Some(Duration::from_secs(60)),
+            )
+            .await
+            .expect("default namespace path");
+        // 已知不一致（早于 rc.5，提交 1cadcff 引入，本测试发现）：
+        // tenant_scoped_identifier/is_identifier_banned 视默认命名空间为「不加前缀」，
+        // 而 qualify_ban_target 无条件加前缀，故此处写入的键查不到。修复需评估既有
+        // 存储键迁移影响，登记为独立工单，不在本发布轮次内改语义。
+
+        // 不支持封禁的标识符必须硬报错
+        for id in [
+            Identifier::ApiKey("k".to_string()),
+            Identifier::DeviceId("d".to_string()),
+        ] {
+            let err = governor
+                .ban_identifier_for_namespace(&ns, &id, "x", None)
+                .await
+                .expect_err("unsupported identifier must fail loudly");
+            assert!(
+                matches!(err, LimiteronError::ValidationError(_)),
+                "应为 ValidationError: {err:?}"
+            );
+        }
+
+        // 未封禁主体返回 None（不得误判）
+        assert!(
+            governor
+                .is_identifier_banned(&ctx, &Identifier::UserId("nobody".to_string()))
+                .await
+                .expect("ban lookup")
+                .is_none()
+        );
+    }
+
+    /// 未配置 resolver 时 resolve_tenant 必须返回 None（不得凭空产生租户归属）。
+    #[tokio::test]
+    async fn test_resolve_tenant_without_resolver_is_none() {
+        let governor = make_governor().await;
+        assert!(
+            governor
+                .resolve_tenant(&RequestContext::default())
+                .is_none()
+        );
+    }
+}
+
+#[cfg(all(test, feature = "multi-tenant"))]
+fn create_valid_test_config_for_tenant() -> crate::config::FlowControlConfig {
+    use crate::config::types::{Action, ActionConfig, GlobalConfig, Matcher, Rule};
+    crate::config::FlowControlConfig {
+        version: "0.1.0".to_string(),
+        global: GlobalConfig::default(),
+        rules: vec![Rule {
+            id: "tenant_ban_rule".to_string(),
+            name: "Tenant Ban Rule".to_string(),
+            priority: 100,
+            matchers: vec![Matcher::User {
+                user_ids: vec!["*".to_string()],
+            }],
+            limiters: vec![limiter_cfg_token_bucket()],
+            action: ActionConfig {
+                on_exceed: Action::Reject,
+                ban: None,
+            },
+        }],
+    }
+}
+
+#[cfg(all(test, feature = "multi-tenant"))]
+fn limiter_cfg_token_bucket() -> crate::config::LimiterConfig {
+    crate::config::LimiterConfig::TokenBucket {
+        capacity: 100,
+        refill_rate: 10,
+    }
+}

@@ -729,4 +729,100 @@ bans:
         // 停止监听
         loader.stop_watching().await;
     }
+
+    // ==================== load_once 错误与部分失败路径（确定性分支） ====================
+
+    /// 文件不存在必须显式报错（不得静默返回空结果，避免运维误判"已加载"）
+    #[tokio::test]
+    async fn test_load_once_missing_file_is_error() {
+        let missing = std::env::temp_dir().join("limiteron_ban_file_missing_definitely.db");
+        let _ = std::fs::remove_file(&missing);
+        let loader = BanFileLoader::new(&missing);
+        let manager = make_manager().await;
+        let err = loader
+            .load_once(&manager)
+            .await
+            .expect_err("缺失文件必须报错");
+        assert!(
+            matches!(err, LimiteronError::ConfigError(_)),
+            "应为 ConfigError: {err:?}"
+        );
+    }
+
+    /// 超大文件必须在读取前被拒绝（YAML 炸弹/内存放大防线）
+    #[tokio::test]
+    async fn test_load_once_rejects_oversized_file() {
+        let mut f = tempfile::NamedTempFile::new().expect("临时文件");
+        // >2MB 上限：填充合法但超长的 YAML 注释即可触发大小预检
+        let pad = "x".repeat(2 * 1024 * 1024 + 16);
+        f.write_all(format!("# {pad}\nbans: []\n").as_bytes())
+            .expect("写入失败");
+        f.flush().expect("flush 失败");
+        let loader = BanFileLoader::new(f.path());
+        let manager = make_manager().await;
+        let err = loader
+            .load_once(&manager)
+            .await
+            .expect_err("超大文件必须被拒绝");
+        assert!(
+            matches!(err, LimiteronError::ConfigError(_)),
+            "应为 ConfigError: {err:?}"
+        );
+    }
+
+    /// 非法 YAML 必须报错（不得当作空封禁清单放行）
+    #[tokio::test]
+    async fn test_load_once_invalid_yaml_is_error() {
+        let f = write_temp_yaml("bans: [this: is: not: valid: yaml: }}}\n  - broken");
+        let loader = BanFileLoader::new(f.path());
+        let manager = make_manager().await;
+        assert!(
+            loader.load_once(&manager).await.is_err(),
+            "非法 YAML 必须报错"
+        );
+    }
+
+    /// 部分失败语义：合法条目生效、非法条目计入 failure_count 与 errors，
+    /// 整体不得失败（单条坏数据不得阻塞其余封禁下发）。
+    #[tokio::test]
+    async fn test_load_once_partial_failure_reported_not_swallowed() {
+        // duration 为负的条目在应用阶段失败；合法条目应成功
+        let yaml = r#"
+bans:
+  - target:
+      type: ip
+      value: "203.0.113.7"
+    reason: "abuse"
+    duration_secs: 60
+  - target:
+      type: user
+      value: ""
+    reason: ""
+"#;
+        let f = write_temp_yaml(yaml);
+        let loader = BanFileLoader::new(f.path());
+        let manager = make_manager().await;
+        let res = loader.load_once(&manager).await.expect("整体应成功返回");
+        assert_eq!(res.success_count, 1, "合法条目应成功: {res:?}");
+        assert_eq!(res.failure_count, 1, "非法条目应计入失败: {res:?}");
+        assert_eq!(res.errors.len(), 1);
+        assert!(!res.errors[0].error.is_empty(), "失败原因不得为空");
+
+        // 成功条目确实落到封禁存储中
+        let ban = manager
+            .is_banned(&BanTarget::Ip("203.0.113.7".to_string()))
+            .await
+            .expect("查询封禁");
+        assert!(ban.is_some(), "成功加载的封禁必须可查");
+    }
+
+    /// 空清单是合法输入（0 条），与"文件不可用"必须可区分。
+    #[tokio::test]
+    async fn test_load_once_empty_list_is_ok() {
+        let f = write_temp_yaml("bans: []\n");
+        let loader = BanFileLoader::new(f.path());
+        let manager = make_manager().await;
+        let res = loader.load_once(&manager).await.expect("空清单应成功");
+        assert_eq!((res.success_count, res.failure_count), (0, 0));
+    }
 }

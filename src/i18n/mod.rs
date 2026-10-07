@@ -13,7 +13,8 @@
 //! - [`error_ext`]: error dual-track — canonical English `Display` plus
 //!   `to_localized_string()` via the catalog (dbnexus pattern).
 //! - `i18n_impl` (feature `i18n`): ICU4X DecimalFormatter/PluralRules/
-//!   Collator/DateTimeFormatter behind [`LimiterI18nFormatter`].
+//!   Collator/DateTimeFormatter behind `LimiterI18nFormatter`.
+//!   （该类型受 `i18n` feature 门控，零特性文档构建下无法解析，故不用 intra-doc 链接）
 //!
 //! The catalog/locale/error-ext base is always compiled (the error dual
 //! track and the CLI/admin exits consume it without feature gating); only

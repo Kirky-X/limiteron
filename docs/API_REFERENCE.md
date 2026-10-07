@@ -24,6 +24,7 @@
   - [BanFileLoader](#banfileloader)
 - [📊 配额控制](#-配额控制)
 - [🔌 熔断器](#-熔断器)
+- [🔁 重试](#-重试)
 - [🎛️ Governor](#️-governor)
 - [🔍 匹配器](#-匹配器)
 - [💾 存储后端](#-存储后端)
@@ -459,12 +460,12 @@ println!("剩余 {}，使用率 {:.1}%", result.remaining, result.usage_percent)
 ### CircuitBreaker
 
 ```rust
-pub fn new(config: CircuitBreakerConfig) -> Self
+pub fn new(config: CircuitBreakerConfig<E>) -> Self
 ```
 
 `CircuitBreaker<E = LimiteronError>` 同时实现 `Default`（默认配置，仅默认错误类型实例化）。
 
-> **注意**：不存在 `new(failure_threshold, timeout_secs)` 参数化签名，也不存在 `with_config()` 方法。自定义配置请构造 `CircuitBreakerConfig` 后传入 `new()`，或使用 `CircuitBreaker::builder()`。
+> **注意**：`CircuitBreaker` 本身不存在 `new(failure_threshold, timeout_secs)` 参数化签名，也不存在 `with_config()` 方法——自定义配置请构造 `CircuitBreakerConfig` 后传入 `new()`，或使用 `CircuitBreaker::builder()`。（三参构造器在**配置类型**上：`CircuitBreakerConfig::new`，下表。）
 
 #### `CircuitBreakerConfig`
 
@@ -512,6 +513,9 @@ pub struct CircuitBreakerConfig<E = LimiteronError> {
 | `execute(op).await` | 执行操作，返回 `Result<T, CircuitCallError<E>>`（`op` 返回 `Result<T, E>`） |
 | `get_state().await` | 查询当前状态（`CircuitState`：Closed / Open / HalfOpen） |
 | `config()` | 读取生效配置 |
+| `CircuitBreaker::builder()` | 链式构建器（`CircuitBreakerBuilder`），无需先组装配置结构体 |
+| `CircuitBreakerConfig::new(failure_threshold: u64, success_threshold: u64, timeout: Duration)` | 三参构造配置（仅覆盖三个核心阈值，其余字段取 `Default`），仅对默认错误类型 `LimiteronError` 可用 |
+| `CircuitBreakerConfig::with_error_classifier(classifier: Arc<dyn FailureClassifier<E>>)` | 带自定义分类器构造配置（泛型错误类型入口，其余字段取 `Default`） |
 
 **示例：**
 
@@ -525,6 +529,117 @@ let breaker = CircuitBreaker::new(CircuitBreakerConfig::default());
 let state = breaker.get_state().await;
 println!("当前状态: {:?}", state);
 ```
+
+---
+
+## 🔁 重试
+
+需要启用 `retry` 特性。模块位于 `limiteron::retry`，与熔断互补：熔断保护下游、重试消化瞬时抖动。
+
+### `RetryPolicy`
+
+字段全部私有，经链式方法配置（`derive(Debug, Clone)`；重试钩子为方法参数而非策略字段，钩子记账状态由调用方闭包自行捕获）：
+
+| 方法 | 签名 | 默认值 |
+|------|------|--------|
+| `new` | `fn new(max_retries: u32, initial_delay: Duration) -> Self` | 其余取 `Default`（factor 2.0 / max_delay 60s / 无抖动） |
+| `with_factor` | `fn with_factor(self, factor: f64) -> Self` | 2.0 |
+| `with_max_delay` | `fn with_max_delay(self, max_delay: Duration) -> Self` | 60 秒 |
+| `with_jitter` | `fn with_jitter(self, jitter: f64) -> Self` | 0.0（值域 0.0–1.0） |
+| `with_budget_ratio` | `fn with_budget_ratio(self, ratio: f64) -> Self` | `None`（不启用预算） |
+| `max_retries` | `fn max_retries(&self) -> u32` | 3 |
+
+`Default` 配置：`max_retries = 3`、`initial_delay = 500ms`、`factor = 2.0`、`max_delay = 60s`、`jitter = 0.0`、`budget_ratio = None`。
+`max_retries` 不含首次调用（0 = 不重试，只执行一次）；执行入口对操作最多跑 `max_retries + 1` 次，
+第 `n` 次重试前等 `min(initial × factor^(n-1), max_delay)` 并叠加抖动。
+`budget_ratio` 是重试次数占「总调用次数」的比例上限，超预算的重试立即放弃（重试风暴防护：
+下游故障时重试流量不超过 总请求 × budget_ratio）。
+
+### 执行入口
+
+| 方法 | 签名 | 特性要求 |
+|------|------|----------|
+| `execute` | `async fn execute<F, Fut, T, E, P>(&self, op: F, is_retryable: P) -> Result<T, E>`，`F: FnMut() -> Fut`、`Fut: Future<Output = Result<T, E>>`、`P: Fn(&E) -> bool` | 无 |
+| `execute_notify` | `async fn execute_notify<F, Fut, T, E, P, N>(&self, op: F, is_retryable: P, on_retry: N) -> Result<T, E>`，`N: Fn(u32, &E)` | 无 |
+| `execute_with` | `async fn execute_with<F, Fut, T, E, D>(&self, op: F, decide: D) -> Result<T, E>`，`D: Fn(u32, &E) -> RetryDecision` | 无 |
+| `execute_with_breaker` | `async fn execute_with_breaker<F, Fut, T, E, P>(&self, breaker: &CircuitBreaker, op: F, is_retryable: P) -> Result<T, E>` | `circuit-breaker` |
+
+语义要点：
+
+- `op` 为每次重试都重新调用的异步操作工厂；返回值为重试耗尽时的最后一次错误，或首个不可重试错误。
+- `execute_notify` 的 `on_retry(attempt, err)` 仅对**实际发生**的重试回调（在该次退避等待前，`attempt` 从 1 起）；
+  不可重试错误与重试耗尽不回调，错误经返回值上报。`execute` 即 `execute_notify` 以空钩子的包装。
+- `execute_with` **无独立 `is_retryable` 分类器**：能否重试由决策回调全权判定（不可重试错误返回 `Stop`）；
+  循环硬约束（次数/预算）耗尽时分类器不再被咨询，与 `execute` 同口径。
+- `execute_with_breaker`：熔断已打开（或进入半开冷却）时只执行一次操作、错误如实返回，
+  不再向已判故障的下游注入重试流量。
+
+### `RetryDecision`
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetryDecision {
+    RetryAfter(Duration), // 按上游指示的时长等待后重试
+    Retry,                // 按策略默认退避档位等待后重试
+    Stop,                 // 立即放弃重试，原样返回触发错误
+}
+```
+
+- `RetryAfter(d)` 用于错误携带权威等待时间的场景（限流应答的 `Retry-After`、GCRA 结果的
+  `GcraCheckResult::retry_after_us`（`gcra` 特性）等）；与 `Retry` **完全同等记账**重试预算。
+- 实际等待直接睡上游指示值——**不加抖动、不封顶 `max_delay`**（封顶会让消费端早于上游指定时刻
+  重试，违反指示契约：限流应答会再次拒绝并给出同样等待）；指示值的合理性由决策回调负责
+  （例如对 HTTP `Retry-After` 自行设上限）；重试次数仍受 `max_retries` 硬封顶，总时长因此有上界。
+- 抖动链的 `prev_delay` 按策略自身档位记账（而非上游指示值），decorrelated 抖动的 `prev × 3`
+  上界始终锚定策略退避序列，不因单次上游指示而塌缩或膨胀。
+
+### `delay_for_attempt`（自由函数）
+
+```rust
+pub fn delay_for_attempt(
+    attempt: u32,
+    initial: Duration,
+    factor: f64,
+    max_delay: Duration,
+    jitter: f64,
+) -> Duration
+```
+
+纯函数：`base = initial × factor^(attempt-1)`（`attempt` 从 1 起），叠加比例抖动
+`[1, 1+jitter]`（线性同余伪随机，仅用于打散重试尖峰，**非安全用途**），封顶 `max_delay`（封顶为
+绝对上限：抖动在封顶前施加，否则抖动会突破 `max_delay`）。供自管重试循环的消费者按 attempt 号
+取延迟，与 `RetryPolicy::execute` 的内部退避共用同一公式；`RetryPolicy` 启用 `jitter` 时在其上
+另加 decorrelated 约束（`attempt > 1` 时延迟上界同时受前次延迟 × 3 限制）。
+
+**示例：**
+
+```rust
+use limiteron::retry::{RetryDecision, RetryPolicy};
+use std::time::Duration;
+
+let policy = RetryPolicy::new(3, Duration::from_millis(200))
+    .with_factor(2.0)
+    .with_max_delay(Duration::from_secs(5))
+    .with_jitter(0.2)
+    .with_budget_ratio(0.1); // 重试流量不超过总请求的 10%
+
+// 上游给出 Retry-After 时按其指示等待，其余错误自行判定能否重试
+let result = policy
+    .execute_with(
+        || fetch_upstream(),
+        |attempt, err| match err {
+            UpstreamError::RateLimited { retry_after } if attempt < 3 => {
+                RetryDecision::RetryAfter(Duration::from_secs(retry_after))
+            }
+            UpstreamError::Transient(_) => RetryDecision::Retry,
+            _ => RetryDecision::Stop,
+        },
+    )
+    .await?;
+```
+
+> `execute` / `execute_notify` 与 `execute_with` 的选择：错误分类信息有限时用 `is_retryable` 分类器走
+> `execute`；需要逐次读取错误携带的等待时长或做 attempt 级判断时用 `execute_with`。
 
 ---
 

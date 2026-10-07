@@ -258,6 +258,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 | [🏗️ 架构文档](docs/ARCHITECTURE.md) | 设计理念、模块划分与扩展机制 |
 | [❓ FAQ](docs/FAQ.md) | 常见问题解答与故障排除 |
 | [🧪 测试指南](docs/TESTING.md) | 测试分类、运行命令与覆盖率说明 |
+| [📈 基准测试规程](docs/BENCHMARKS.md) | `cargo bench` 口径、基线刷新时机与 criterion 对比用法 |
 | [🧬 测试场景固化](docs/TEST_SCENARIOS.md) | 测试金字塔基线与 E2E 场景定义 |
 | [📈 覆盖率报告](docs/COVERAGE_REPORT.md) | 历史基线数据（v0.1.0 时期生成，待 CI 覆盖率更新） |
 | [🔒 安全文档](docs/SECURITY.md) | 安全设计、版本支持策略与漏洞报告流程 |
@@ -347,15 +348,17 @@ Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式
 
 | 统计项 | 数量 |
 |--------|------|
-| 库内测试函数（`src/`） | 2,295（#[test] 1,495 + #[tokio::test] 800） |
-| 外部测试函数（`tests/`） | 601（#[test] 157 + #[tokio::test] 444） |
+| 库内测试函数（`src/`） | 2,489（#[test] 1,551 + #[tokio::test] 938） |
+| 外部测试函数（`tests/`） | 607（#[test] 158 + #[tokio::test] 449） |
+| 宏 crate 测试（`macros/`） | 47（#[test]） |
+| 集成适配 crate 测试（`integrations/`） | 21（#[test] 5 + #[tokio::test] 16） |
 | 属性测试组（proptest） | 4 |
 
 ---
 
 ## 📊 性能
 
-> **说明**：以下数据为 2026-01-19 综合性能测试的实际结果。
+> **说明**：下表为 2026-01-19（v0.1.0 时期）的实测数据，**口径早于 criterion 基准接入**——`harness = false` 缺失导致基线直到 2026-09-30 才首次真实产出（见[基准规程](docs/BENCHMARKS.md)）。下表数字保留作为历史对照，当前可复现基线请以 [docs/BENCHMARKS.md](docs/BENCHMARKS.md) 的命令与同机复测结果为准。
 
 <table>
 <tr>
@@ -470,7 +473,7 @@ cargo bench --features full
 ### 🐛 报告问题
 
 发现了 Bug？<br>
-[创建 Issue](../../issues)
+[创建 Issue](https://github.com/Kirky-X/limiteron/issues)
 
 </td>
 <td width="33%" align="center">
@@ -478,7 +481,7 @@ cargo bench --features full
 ### 💡 功能建议
 
 有好想法？<br>
-[发起讨论](../../discussions)
+[发起讨论](https://github.com/Kirky-X/limiteron/discussions)
 
 </td>
 <td width="33%" align="center">
@@ -486,7 +489,7 @@ cargo bench --features full
 ### 🔧 提交代码
 
 想参与开发？<br>
-[Fork & PR](../../pulls)
+[Fork & PR](https://github.com/Kirky-X/limiteron/pulls)
 
 </td>
 </tr>

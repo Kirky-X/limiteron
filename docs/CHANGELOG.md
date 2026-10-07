@@ -51,6 +51,16 @@
 - **Governor shutdown 完整实现**：五阶段优雅关闭编排——停止配置热重载 watcher（`register_config_watcher_token` 注册、多 watcher 全取消）、取消 shutdown 令牌、统计快照落盘（`GovernorBuilder::with_shutdown_snapshot_dir` 显式启用，JSON 原子写，临时文件 O_EXCL 独占创建 + 0600 权限防符号链接覆写，冲突退避 pid 后缀）、停止 BanManager 自动解封任务（取消信号优雅排空 5s，超时 abort）、审计日志器摘除（尽力 `Arc::try_unwrap` 优雅排空）
 - **`impl Drop for Governor`**：同步兜底无条件取消 shutdown 与已注册 watcher 令牌（幂等）
 - **`BanManager::is_auto_unban_running()`**：自动解封后台任务运行状态观测
+- **重试决策回调与延迟覆盖执行（`retry`）**：新增 `RetryDecision`（`RetryAfter(Duration)` / `Retry` / `Stop`）
+  与 `RetryPolicy::execute_with(op, decide)`——`decide(attempt, err)` 在每次失败后判定能否重试并按上游指示
+  时长等待（消费限流应答的 `Retry-After`、GCRA 结果的 `retry_after_us` 等生产端给出的值）。语义钉定：
+  `RetryAfter` 与 `Retry` 完全同等记账重试预算；实际等待不加抖动、不封顶 `max_delay`（封顶会早于上游
+  指定时刻重试而违反指示契约），指示值合理性由回调自守，次数仍受 `max_retries` 硬封顶；抖动链的
+  `prev_delay` 按策略自身档位记账，decorrelated 抖动的 `prev × 3` 上界不因单次上游指示而收缩或膨胀；
+  `execute_with` 无独立 `is_retryable` 分类器（能否重试由回调全权判定），循环硬约束耗尽时不再咨询回调。
+  文档：`API_REFERENCE.md` 新增「🔁 重试」节（`RetryPolicy` 链式配置项与 `Default` 值、`execute` /
+  `execute_notify` / `execute_with` / `execute_with_breaker` 四个入口签名与泛型约束、`delay_for_attempt`
+  公式），`USER_GUIDE.md` 常见模式新增「重试退避与上游 `Retry-After` 协同」
 
 ### 新增
 

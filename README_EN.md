@@ -259,6 +259,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 | [🏗️ Architecture](docs/ARCHITECTURE.md) | Design philosophy, module breakdown, and extension mechanisms |
 | [❓ FAQ](docs/FAQ.md) | Frequently asked questions and troubleshooting |
 | [🧪 Testing Guide](docs/TESTING.md) | Test categories, commands, and coverage notes |
+| [📈 Benchmark Procedure](docs/BENCHMARKS.md) | `cargo bench` methodology, baseline refresh timing, and criterion comparison usage |
 | [🧬 Test Scenarios](docs/TEST_SCENARIOS.md) | Test pyramid baseline and E2E scenario definitions |
 | [📈 Coverage Report](docs/COVERAGE_REPORT.md) | Historical baseline data (generated in the v0.1.0 era, pending CI coverage refresh) |
 | [🔒 Security](docs/SECURITY.md) | Security design, version support policy, and vulnerability reporting process |
@@ -336,6 +337,8 @@ Additionally, the `i18n` feature integrates [ICU4X](https://github.com/unicode-o
 
 The workspace member [`integrations/limiteron-sdforge`](integrations/limiteron-sdforge/) provides the reverse direction — a guard layer: the limiteron side exposes rate limiting / circuit breaking / bans to sdforge applications behind a tri-state `Guard` decision surface (adapted to `ForgeRateLimiter` under that crate's own sdforge feature), opposite in direction to sdforge's existing consumer adapter and independently versioned.
 
+The workspace member [`integrations/limiteron-dbnexus`](integrations/limiteron-dbnexus/) adapts the rate-limiting port extracted by dbnexus 0.6.0-rc.6 (`dbnexus-limiter-port`, `Limiter::check(key)`): decisions run through the per-key token bucket in `LimiterManager` (a deny carries `Retry-After`, backend failures are reported explicitly, and fail-open / fail-closed is decided by the consumer) — dbnexus applications inject it at the composition root via `RateLimitBackend::External`; like the sdforge bridge it is not published to crates.io and follows the limiteron release cadence.
+
 ---
 
 ## 🧪 Testing
@@ -346,15 +349,17 @@ The testing strategy matrix (unit / integration & E2E / property / doc / benchma
 
 | Metric | Count |
 |--------|-------|
-| In-library test functions (`src/`) | 2,295 (#[test] 1,495 + #[tokio::test] 800) |
-| External test functions (`tests/`) | 601 (#[test] 157 + #[tokio::test] 444) |
+| In-library test functions (`src/`) | 2,489 (#[test] 1,551 + #[tokio::test] 938) |
+| External test functions (`tests/`) | 607 (#[test] 158 + #[tokio::test] 449) |
+| Macro crate tests (`macros/`) | 47 (#[test]) |
+| Integration adapter crate tests (`integrations/`) | 21 (#[test] 5 + #[tokio::test] 16) |
 | Property test groups (proptest) | 4 |
 
 ---
 
 ## 📊 Performance
 
-> **Note:** The following data represents actual results from comprehensive testing on 2026-01-19.
+> **Note:** The table below shows measurements from 2026-01-19 (the v0.1.0 era), **taken before the criterion benchmark harness was wired up** — the missing `harness = false` meant no baseline was actually produced until 2026-09-30 (see the [benchmark procedure](docs/BENCHMARKS.md)). The numbers are kept as a historical reference; for reproducible current baselines follow the commands and same-machine re-measurements in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 <table>
 <tr>
@@ -469,7 +474,7 @@ Contributions of any kind are welcome! See [CONTRIBUTING.md](docs/CONTRIBUTING.m
 ### 🐛 Report Issues
 
 Found a bug?<br>
-[Create Issue](../../issues)
+[Create Issue](https://github.com/Kirky-X/limiteron/issues)
 
 </td>
 <td width="33%" align="center">
@@ -477,7 +482,7 @@ Found a bug?<br>
 ### 💡 Feature Requests
 
 Have a suggestion?<br>
-[Start Discussion](../../discussions)
+[Start Discussion](https://github.com/Kirky-X/limiteron/discussions)
 
 </td>
 <td width="33%" align="center">
@@ -485,7 +490,7 @@ Have a suggestion?<br>
 ### 🔧 Submit Code
 
 Want to contribute?<br>
-[Fork & PR](../../pulls)
+[Fork & PR](https://github.com/Kirky-X/limiteron/pulls)
 
 </td>
 </tr>

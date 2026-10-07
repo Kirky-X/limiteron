@@ -757,6 +757,43 @@ curl -X DELETE "http://localhost:8080/api/v1/ban/192.168.1.1" \
 
 ---
 
+### 模式 5：重试退避与上游 `Retry-After` 协同（`retry`）
+
+上游自身带限流时，重试不应自估退避——直接消费上游给出的等待时长，并用 `budget_ratio` 给重试流量封顶，
+避免下游故障时重试风暴反过来放大故障：
+
+```rust
+use limiteron::retry::{RetryDecision, RetryPolicy};
+use std::time::Duration;
+
+let policy = RetryPolicy::new(3, Duration::from_millis(200))
+    .with_jitter(0.2)          // 打散重试尖峰（非安全用途的伪随机）
+    .with_budget_ratio(0.1);   // 重试不超过总调用量的 10%
+
+let resp = policy
+    .execute_with(
+        || call_upstream(),
+        |_attempt, err| match err {
+            // 上游 429 携带 retry_after（或 GCRA 的 retry_after_us）：按其指示等待
+            UpstreamError::RateLimited { retry_after } => {
+                RetryDecision::RetryAfter(Duration::from_secs(*retry_after))
+            }
+            UpstreamError::Transient(_) => RetryDecision::Retry,
+            // 4xx 语义类错误不可重试，立即短路
+            _ => RetryDecision::Stop,
+        },
+    )
+    .await?;
+```
+
+要点：`RetryAfter` 与 `Retry` 完全同等记账重试预算，但**实际等待不加抖动、不封顶 `max_delay`**
+（封顶会早于上游指定时刻重试，得回同样的 429 白多打一轮）；指示值的合理性（上限）由决策回调自守。
+若只关心能否重试而不需逐次读等待时长，用 `execute(op, is_retryable)` 的布尔分类器；
+需记账/告警重试次数时用 `execute_notify` 的 `on_retry(attempt, err)` 钩子（仅对实际发生的重试回调）。
+下游已接熔断时改走 `execute_with_breaker`：熔断打开期只跑一次，不向已判故障的下游注入重试流量。
+
+---
+
 ## 🔧 故障排除
 
 <details>

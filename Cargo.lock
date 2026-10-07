@@ -3944,10 +3944,11 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "sdforge"
-version = "0.5.0-rc.5"
+version = "0.5.0-rc.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "678394737868a422cac83a685f8fdc09246f6013fda68aa0863c7ee29169ca6a"
+checksum = "1c0bf794c28c924e027cfb5b506fd9afdf760f32fa0fce59cfaefbd35b32a724"
 dependencies = [
+ "async-trait",
  "fluent-bundle",
  "log",
  "sdforge-macros",
@@ -3961,9 +3962,9 @@ dependencies = [
 
 [[package]]
 name = "sdforge-macros"
-version = "0.5.0-rc.5"
+version = "0.5.0-rc.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "681b005a3788c688e86f422991cc16b06d2cc4aafb0b1851873d1ff062afc709"
+checksum = "60e8f56f39e9c6b83890b060b0d16a70866e310c60b83f30111f653a86356480"
 dependencies = [
  "proc-macro2",
  "quote",

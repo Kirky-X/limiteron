@@ -28,14 +28,14 @@
 //! ```
 //!
 //! 菱形合法：Cargo 对同一 semver 兼容区间合并为单一构建（本 workspace
-//! 的 limiteron `0.3.0-rc.6` 满足 sdforge 声明的 `0.3.0-rc.4` 下界）。
-//! 两侧 optional 钉版统一为同一策略——**钉对方已发布的 rc 版本下界 +
-//! `default-features = false`**：
+//! 的 limiteron `0.3.0-rc.6` 与 sdforge 声明的 `0.3.0-rc.6` 同版本，区间
+//! 重合，不产生二次构建）。两侧 optional 钉版统一为同一策略——**钉
+//! 对方已发布的 rc 版本下界 + `default-features = false`**：
 //!
-//! - sdforge 侧（既有）：`limiteron = { version = "0.3.0-rc.4", default-features = false }`
-//! - 本 crate（新增）：`sdforge = { version = "0.5.0-rc.5", default-features = false, optional = true }`
+//! - sdforge 侧（既有）：`limiteron = { version = "0.3.0-rc.6", default-features = false }`
+//! - 本 crate：`sdforge = { version = "0.5.0-rc.6", default-features = false, optional = true }`
 //!
-//! rc.5 的存在性证据：crates.io 解包验证 `sdforge::domain::{ForgeError,
+//! rc.6 的存在性证据：crates.io 解包验证 `sdforge::domain::{ForgeError,
 //! ForgeRateLimiter}` 已存在、`domain` 模块无条件编译（无 feature 门控）、
 //! `ForgeError::internal(impl Display)` 构造器可用。
 

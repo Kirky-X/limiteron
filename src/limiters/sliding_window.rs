@@ -5,6 +5,7 @@
 //! 使用滑动窗口算法实现速率限制。
 
 use super::traits::{Limiter, RateLimitSnapshot, validate_cost};
+use crate::clock::{Clock, SystemClock};
 use crate::error::LimiteronError;
 use async_trait::async_trait;
 use parking_lot::Mutex;
@@ -35,6 +36,8 @@ pub struct SlidingWindowLimiter {
     max_requests: u64,
     /// 请求时间戳队列
     requests: Arc<Mutex<VecDeque<Instant>>>,
+    /// 可控时钟：窗口时间读取口（生产默认 `SystemClock`，测试可注入 `MockClock`）
+    clock: Arc<dyn Clock>,
 }
 
 impl SlidingWindowLimiter {
@@ -53,6 +56,17 @@ impl SlidingWindowLimiter {
     /// ```
     #[deprecated(since = "0.1.1", note = "Use `ShardedSlidingWindowLimiter` instead.")]
     pub fn new(window_size: Duration, max_requests: u64) -> Self {
+        Self::with_clock(window_size, max_requests, Arc::new(SystemClock))
+    }
+
+    /// 使用自定义时钟创建滑动窗口限流器
+    ///
+    /// # 参数
+    /// * `window_size` - Time window duration
+    /// * `max_requests` - Maximum requests allowed in the window
+    /// * `clock` - 时钟实现，用于时间注入（测试用）
+    #[deprecated(since = "0.1.1", note = "Use `ShardedSlidingWindowLimiter` instead.")]
+    pub fn with_clock(window_size: Duration, max_requests: u64, clock: Arc<dyn Clock>) -> Self {
         Self {
             window_size,
             max_requests,
@@ -60,6 +74,7 @@ impl SlidingWindowLimiter {
             // 急切预分配——构造一个 max=10M 的限流器（工厂允许的上限）
             // 即使窗口全空也立即吃掉 ~160MB 内存。
             requests: Arc::new(Mutex::new(VecDeque::with_capacity(16))),
+            clock,
         }
     }
 
@@ -81,7 +96,7 @@ impl Limiter for SlidingWindowLimiter {
     async fn allow(&self, cost: u64) -> Result<bool, LimiteronError> {
         validate_cost(cost)?;
 
-        let now = Instant::now();
+        let now = self.clock.now();
         let mut requests = self.requests.lock();
 
         // 移除过期的请求记录
@@ -124,7 +139,7 @@ impl Limiter for SlidingWindowLimiter {
 impl SlidingWindowLimiter {
     /// 读取当前快照（清理过期记录但不追加）
     fn current_snapshot(&self) -> RateLimitSnapshot {
-        let now = Instant::now();
+        let now = self.clock.now();
         let mut requests = self.requests.lock();
         let cutoff = now - self.window_size;
         while let Some(&front) = requests.front() {
@@ -226,5 +241,26 @@ mod tests {
             limiter.requests.lock().capacity() < 1024,
             "构造期急切预分配 max_requests 容量"
         );
+    }
+
+    #[tokio::test]
+    async fn test_sliding_window_with_mock_clock() {
+        use crate::clock::MockClock;
+        let mock = Arc::new(MockClock::new());
+        let limiter = SlidingWindowLimiter::with_clock(
+            Duration::from_secs(1),
+            2,
+            mock.clone() as Arc<dyn crate::clock::Clock>,
+        );
+
+        assert!(limiter.allow(1).await.unwrap());
+        assert!(limiter.allow(1).await.unwrap());
+        assert!(!limiter.allow(1).await.unwrap());
+
+        // 虚拟推进越过完整窗口，替代真实 sleep
+        mock.advance(Duration::from_millis(1100));
+        assert!(limiter.allow(1).await.unwrap());
+        assert!(limiter.allow(1).await.unwrap());
+        assert!(!limiter.allow(1).await.unwrap());
     }
 }

@@ -88,7 +88,7 @@ impl DbnexusLimiter {
     /// 的配额随之归零**，高基数 key 洪峰可把活跃 key 挤出缓存以重置其配额
     /// （引擎文档点名的绕窗口手段）——key 须取有限受信集合（如角色 ID），
     /// 基数按清理阈值留余量评估，安全敏感场景调大上限。超 256 字节的 key
-    /// 经 [`manager_key`] 确定性哈希为定长标识，防单条目内存无界。
+    /// 经 `manager_key` 确定性哈希为定长标识，防单条目内存无界。
     #[must_use]
     pub fn with_manager(manager: Arc<LimiterManager>, amount: u64, unit_secs: u64) -> Self {
         Self {

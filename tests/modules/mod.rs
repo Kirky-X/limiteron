@@ -4,7 +4,7 @@
 //!
 //! 导出所有功能模块的测试
 //!
-//! 注意：storage测试已移除，存储由dbnexus完全接管
+//! 存储面由 dbnexus 接管，本目录不含存储后端测试
 
 #[allow(unused_imports)]
 pub mod adapters;

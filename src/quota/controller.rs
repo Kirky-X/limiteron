@@ -1193,7 +1193,7 @@ mod tests {
         assert_eq!(controller.config().limit, 1000);
     }
 
-    /// T002 钉住测试：时钟注入经 controller 可观测到虚拟时间；
+    /// 钉住测试：时钟注入经 controller 可观测到虚拟时间；
     /// builder 缺省为 SystemClock（活时钟，随真实时间推进）。
     #[tokio::test]
     async fn test_clock_injection_observable() {

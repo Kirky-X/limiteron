@@ -138,7 +138,8 @@ pub(crate) const MAX_PATH_LENGTH: usize = 2048;
 /// Maximum ban reason length (500 characters).
 ///
 /// Prevents overly long ban reasons that could cause display issues.
-#[cfg(feature = "validation")]
+/// 不挂 validation 门：create_ban 的原因校验自包含、feature 关闭时仍执行
+///（见 ban/types.rs create_ban 内注释），门控会在非 validation 组合下断编译。
 pub(crate) const MAX_BAN_REASON_LENGTH: usize = 500;
 
 /// Maximum user ID length (256 characters).

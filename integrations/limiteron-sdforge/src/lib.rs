@@ -4,7 +4,7 @@
 //!
 //! limiteron 侧提供的独立防护层：把 limiteron 的限流 / 熔断 / 封禁能力
 //! 以最小依赖面暴露给 sdforge 应用。核心 [`guard`] 协议无关、不依赖
-//! sdforge；启用 `sdforge` feature 后，[`sdforge_adapter`] 把 guard 适配
+//! sdforge；启用 `sdforge` feature 后，`sdforge_adapter` 模块把 guard 适配
 //! 为 `sdforge::domain::ForgeRateLimiter`。
 //!
 //! ## 与 sdforge 侧 `LimiteronForgeAdapter` 的分工（两仓 CHANGELOG 同步留痕）

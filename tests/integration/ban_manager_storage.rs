@@ -23,6 +23,14 @@ mod ban_manager_tests {
             .unwrap()
     }
 
+    /// 创建带可控时钟的测试用 BanManager（封禁过期行为可经 MockClock 确定驱动）
+    async fn create_ban_manager_with_clock(clock: Arc<dyn limiteron::Clock>) -> BanManager {
+        let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::with_clock(clock));
+        BanManager::with_dependencies(storage, BanManagerConfig::default())
+            .await
+            .unwrap()
+    }
+
     // ==================== 封禁操作测试 ====================
 
     /// 测试添加封禁记录 - IP 封禁
@@ -100,7 +108,8 @@ mod ban_manager_tests {
     /// 测试封禁过期自动解除
     #[tokio::test]
     async fn test_ban_expiration() {
-        let manager = create_ban_manager().await;
+        let mock = Arc::new(limiteron::MockClock::new());
+        let manager = create_ban_manager_with_clock(mock.clone()).await;
 
         // 添加短期封禁（1秒）
         let target = limiteron::BanTarget::Ip("192.168.1.50".to_string());
@@ -110,8 +119,8 @@ mod ban_manager_tests {
         // 立即检查应该被封禁
         assert!(manager.is_banned(&target).await.unwrap().is_some());
 
-        // 等待过期
-        tokio::time::sleep(Duration::from_millis(1100)).await;
+        // 虚拟推进越过 1 秒有效期，替代真实 sleep 1100ms
+        mock.advance(Duration::from_millis(1100));
 
         // 过期后应该自动解除
         assert!(
@@ -299,7 +308,8 @@ mod ban_manager_tests {
     /// 禁用 auto-unban 后台任务以避免后台清理干扰测试断言。
     #[tokio::test]
     async fn test_cleanup_expired_bans() {
-        let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+        let mock = Arc::new(limiteron::MockClock::new());
+        let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::with_clock(mock.clone()));
         let config = BanManagerConfig {
             enable_auto_unban: false,
             ..Default::default()
@@ -318,8 +328,8 @@ mod ban_manager_tests {
         let short_record = create_ban_record(short_target.clone(), 0, "short");
         manager.add_ban(short_record).await.unwrap();
 
-        // 等待短期封禁过期
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // 虚拟推进越过 0 秒有效期，替代真实 sleep 200ms
+        mock.advance(Duration::from_millis(200));
 
         // 执行清理（通过 storage 而非 manager）
         let cleaned = storage.cleanup_expired_bans().await.unwrap();

@@ -245,6 +245,12 @@ pub struct Governor {
     /// 版本比较零锁；本锁仅拒绝路径的合并落账持有——监控 feature 门控
     #[cfg(feature = "prometheus")]
     exported_rejections: parking_lot::Mutex<ExportedRejections>,
+
+    /// 可控时钟：贯通给拥有 `with_clock` 的限流器类型（生产默认
+    /// `SystemClock`，测试可注入 `MockClock` 使窗口/令牌补充等
+    /// 时间行为确定可测）。无时钟类型（gcra/concurrency/quota_limiter
+    /// 等）保持各自时间源，不受此字段影响。
+    clock: Arc<dyn crate::clock::Clock>,
 }
 
 /// per-limiter 拒绝增量导出的 Governor 侧状态（监控 feature 门控）
@@ -330,6 +336,8 @@ pub struct GovernorBuilder {
     tenant_resolver: Option<Arc<dyn crate::tenant::TenantResolver>>,
     /// 关闭时状态快照落盘目录（可选，默认不落盘）
     shutdown_snapshot_dir: Option<std::path::PathBuf>,
+    /// 可控时钟（可选，缺省 `SystemClock`；见 `with_clock`）
+    clock: Option<Arc<dyn crate::clock::Clock>>,
 }
 
 impl GovernorBuilder {
@@ -363,6 +371,7 @@ impl GovernorBuilder {
             #[cfg(feature = "multi-tenant")]
             tenant_resolver: None,
             shutdown_snapshot_dir: None,
+            clock: None,
         }
     }
 
@@ -430,6 +439,18 @@ impl GovernorBuilder {
         quota_storage: Arc<dyn crate::storage::QuotaStorage>,
     ) -> Self {
         self.quota_storage = Some(quota_storage);
+        self
+    }
+
+    /// 设置可控时钟（缺省 `SystemClock`）
+    ///
+    /// 时钟贯通给拥有 `with_clock` 的限流器类型（TokenBucket、SlidingWindow、
+    /// FixedWindow、SlidingWindowLog、LeakyBucket、PriorityQueue、AdmissionControl），
+    /// 注入 `MockClock` 后窗口滑动/令牌补充等时间行为可在测试中确定驱动；
+    /// **无时钟类型（gcra/concurrency/quota_limiter 等）保持各自时间源，
+    /// 不受此时钟影响**。
+    pub fn with_clock(mut self, clock: Arc<dyn crate::clock::Clock>) -> Self {
+        self.clock = Some(clock);
         self
     }
 
@@ -599,9 +620,14 @@ impl GovernorBuilder {
             .unwrap_or_else(|| Arc::new(tokio::sync::RwLock::new(None)));
 
         // 使用 RuleBuilder 创建规则对应的决策链
+        let clock: Arc<dyn crate::clock::Clock> = self
+            .clock
+            .clone()
+            .unwrap_or_else(|| Arc::new(crate::clock::SystemClock));
         let rule_chains_map = RuleBuilder::build_rule_chains_with_quota_storage(
             &config,
             self.quota_storage.as_ref(),
+            clock.clone(),
         )?;
         let rule_chains = Arc::new(tokio::sync::RwLock::new(rule_chains_map));
 
@@ -685,6 +711,7 @@ impl GovernorBuilder {
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
             #[cfg(feature = "prometheus")]
             exported_rejections: parking_lot::Mutex::new(ExportedRejections::default()),
+            clock,
         })
     }
 }
@@ -841,6 +868,7 @@ impl Governor {
             is_shutdown: std::sync::atomic::AtomicBool::new(false),
             #[cfg(feature = "prometheus")]
             exported_rejections: parking_lot::Mutex::new(ExportedRejections::default()),
+            clock: Arc::new(crate::clock::SystemClock),
         })
     }
 
@@ -2098,6 +2126,7 @@ impl Governor {
         let new_chains = RuleBuilder::build_rule_chains_with_quota_storage(
             &new_config,
             self.quota_storage.as_ref(),
+            Arc::clone(&self.clock),
         )?;
         let new_hash = new_config.compute_hash();
         let new_version = new_config.version.clone();

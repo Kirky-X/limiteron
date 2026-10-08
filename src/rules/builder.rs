@@ -10,6 +10,7 @@
 //! - 从 FlowControlConfig 构建决策链映射
 //! - 时长字符串解析
 
+use crate::clock::{Clock, SystemClock};
 use crate::config::{FlowControlConfig, LimiterConfig, LimiterTypeName, Matcher as ConfigMatcher};
 use crate::decision_chain::{DecisionChain, DecisionNode};
 use crate::error::LimiteronError;
@@ -102,7 +103,7 @@ impl RuleBuilder {
     pub fn build_rule_chains(
         config: &FlowControlConfig,
     ) -> Result<DashMap<String, DecisionChain>, LimiteronError> {
-        Self::build_rule_chains_with_quota_storage(config, None)
+        Self::build_rule_chains_with_quota_storage(config, None, Arc::new(SystemClock))
     }
 
     /// 构建规则决策链（可选注入共享配额账本）
@@ -110,6 +111,11 @@ impl RuleBuilder {
     /// 注入 `quota_storage` 后，配置中的 Quota 限流器以 storage-backed 模式
     /// 构建：配额裁决委托后端原子 consume（跨实例一致、账本持久化），
     /// resource 维度取规则 ID。未注入时保持纯内存 QuotaLimiter（单实例语义）。
+    ///
+    /// `clock` 贯通给拥有 `with_clock` 的限流器类型（TokenBucket、SlidingWindow、
+    /// SlidingWindowLog、LeakyBucket、PriorityQueue、AdmissionControl、FixedWindow）；
+    /// 无时钟类型（gcra/concurrency/quota_limiter/custom 等）保持原构造——
+    /// Governor 时钟仅对时钟感知类型生效。
     pub fn build_rule_chains_with_quota_storage(
         config: &FlowControlConfig,
         // 唯一消费点在 quota-control 门控分支内；非 quota-control 子集下
@@ -117,6 +123,7 @@ impl RuleBuilder {
         #[cfg_attr(not(feature = "quota-control"), allow(unused_variables))] quota_storage: Option<
             &Arc<dyn crate::storage::QuotaStorage>,
         >,
+        clock: Arc<dyn Clock>,
     ) -> Result<DashMap<String, DecisionChain>, LimiteronError> {
         let chains = DashMap::new();
 
@@ -130,7 +137,11 @@ impl RuleBuilder {
                         capacity,
                         refill_rate,
                     } => (
-                        Arc::new(TokenBucketLimiter::new(*capacity, *refill_rate)),
+                        Arc::new(TokenBucketLimiter::with_clock(
+                            *capacity,
+                            *refill_rate,
+                            clock.clone(),
+                        )),
                         LimiterTypeName::TokenBucket,
                     ),
                     LimiterConfig::SlidingWindow {
@@ -139,7 +150,11 @@ impl RuleBuilder {
                     } => {
                         let duration = Self::parse_duration(window_size)?;
                         (
-                            Arc::new(ShardedSlidingWindowLimiter::new(duration, *max_requests)),
+                            Arc::new(ShardedSlidingWindowLimiter::with_clock(
+                                duration,
+                                *max_requests,
+                                clock.clone(),
+                            )),
                             LimiterTypeName::SlidingWindow,
                         )
                     }
@@ -149,7 +164,11 @@ impl RuleBuilder {
                     } => {
                         let duration = Self::parse_duration(window_size)?;
                         (
-                            Arc::new(FixedWindowLimiter::new(duration, *max_requests)),
+                            Arc::new(FixedWindowLimiter::with_clock(
+                                duration,
+                                *max_requests,
+                                clock.clone(),
+                            )),
                             LimiterTypeName::FixedWindow,
                         )
                     }
@@ -220,9 +239,13 @@ impl RuleBuilder {
                         capacity,
                         leak_rate,
                     } => (
-                        Arc::new(crate::limiters::leaky_bucket::LeakyBucketLimiter::new(
-                            *capacity, *leak_rate,
-                        )?),
+                        Arc::new(
+                            crate::limiters::leaky_bucket::LeakyBucketLimiter::with_clock(
+                                *capacity,
+                                *leak_rate,
+                                clock.clone(),
+                            )?,
+                        ),
                         LimiterTypeName::LeakyBucket,
                     ),
                     LimiterConfig::SlidingWindowLog {
@@ -232,9 +255,10 @@ impl RuleBuilder {
                         let duration = Self::parse_duration(window_size)?;
                         (
                             Arc::new(
-                                crate::limiters::sliding_window_log::SlidingWindowLogLimiter::new(
+                                crate::limiters::sliding_window_log::SlidingWindowLogLimiter::with_clock(
                                     *max_requests,
                                     duration,
+                                    clock.clone(),
                                 )?,
                             ),
                             LimiterTypeName::SlidingWindowLog,
@@ -265,7 +289,7 @@ impl RuleBuilder {
                         {
                             let window = Self::parse_duration(window_size)?;
                             let limiter =
-                                crate::limiters::priority_queue::PriorityQueueLimiter::new(
+                                crate::limiters::priority_queue::PriorityQueueLimiter::with_clock(
                                     crate::limiters::priority_queue::PriorityQueueConfig {
                                         window,
                                         total_per_window: *total_per_window,
@@ -274,6 +298,7 @@ impl RuleBuilder {
                                             level_weights.len().saturating_sub(1)
                                         }),
                                     },
+                                    clock.clone(),
                                 )?;
                             (Arc::new(limiter), LimiterTypeName::PriorityQueue)
                         }
@@ -293,11 +318,12 @@ impl RuleBuilder {
                         #[cfg(feature = "admission-control")]
                         {
                             let limiter =
-                                crate::limiters::admission_control::AdmissionController::new(
+                                crate::limiters::admission_control::AdmissionController::with_clock(
                                     crate::limiters::admission_control::AdmissionControlConfig {
                                         max_concurrent: *max_concurrent,
                                         max_per_second: *max_per_second,
                                     },
+                                    clock.clone(),
                                 );
                             (Arc::new(limiter), LimiterTypeName::AdmissionControl)
                         }
@@ -847,11 +873,13 @@ mod tests {
         let chains_a = RuleBuilder::build_rule_chains_with_quota_storage(
             &make_config(),
             Some(&(ledger.clone() as Arc<dyn crate::storage::QuotaStorage>)),
+            Arc::new(SystemClock),
         )
         .unwrap();
         let chains_b = RuleBuilder::build_rule_chains_with_quota_storage(
             &make_config(),
             Some(&(ledger.clone() as Arc<dyn crate::storage::QuotaStorage>)),
+            Arc::new(SystemClock),
         )
         .unwrap();
 

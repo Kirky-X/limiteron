@@ -59,6 +59,37 @@ mod quota_control_tests {
         QuotaController::with_dependencies(storage, config)
     }
 
+    /// 创建带自定义告警配置的 QuotaController（含共享 MockClock，用于虚拟时间推进）
+    ///
+    /// 存储后端窗口为 3600s（测试内永不过期），只需推进控制器侧去重时钟，
+    /// 故存储保持墙钟、控制器注入 MockClock 即可确定化。
+    fn create_quota_controller_with_alerts_and_clock(
+        limit: u64,
+        thresholds: Vec<u8>,
+        dedup_window: u64,
+    ) -> (QuotaController, Arc<limiteron::MockClock>) {
+        use limiteron::Clock;
+        let mock = Arc::new(limiteron::MockClock::new());
+        let clock: Arc<dyn Clock> = mock.clone();
+        let storage: Arc<dyn limiteron::QuotaStorage> =
+            Arc::new(CacheQuotaStorage::new(Arc::new(dashmap_memory())));
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: true,
+                thresholds,
+                channels: vec![AlertChannel::Log],
+                dedup_window,
+            },
+        };
+        let controller = QuotaController::with_dependencies_clock(storage, config, clock);
+        (controller, mock)
+    }
+
     /// 创建禁用告警的 QuotaController
     fn create_quota_controller_no_alerts(limit: u64) -> QuotaController {
         let storage: Arc<dyn limiteron::QuotaStorage> =
@@ -152,14 +183,14 @@ mod quota_control_tests {
     /// 测试告警去重窗口过期后重新触发
     #[tokio::test]
     async fn test_alert_dedup_window_expiry() {
-        let controller = create_quota_controller_with_alerts(100, vec![80], 1); // 1 秒去重窗口
+        let (controller, mock) = create_quota_controller_with_alerts_and_clock(100, vec![80], 1); // 1 秒去重窗口
 
         // 第一次达到 80%，触发告警
         let result = controller.consume("user1", "resource1", 80).await.unwrap();
         assert!(result.alert_triggered);
 
-        // 等待去重窗口过期
-        tokio::time::sleep(Duration::from_millis(1100)).await;
+        // 虚拟推进越过去重窗口（1s），替代真实 sleep 1100ms
+        mock.advance(Duration::from_millis(1100));
 
         // 清理过期的去重记录
         controller.cleanup_alert_dedup();
@@ -172,27 +203,28 @@ mod quota_control_tests {
     /// 测试多级告警阈值
     #[tokio::test]
     async fn test_multi_level_alert_thresholds() {
-        let controller = create_quota_controller_with_alerts(100, vec![50, 75, 90, 100], 1);
+        let (controller, mock) =
+            create_quota_controller_with_alerts_and_clock(100, vec![50, 75, 90, 100], 1);
 
         // 50% 告警
         let result = controller.consume("user1", "resource1", 50).await.unwrap();
         assert!(result.alert_triggered, "达到 50% 应该触发告警");
 
-        tokio::time::sleep(Duration::from_millis(1100)).await;
+        mock.advance(Duration::from_millis(1100));
         controller.cleanup_alert_dedup();
 
         // 75% 告警
         let result = controller.consume("user1", "resource1", 25).await.unwrap();
         assert!(result.alert_triggered, "达到 75% 应该触发告警");
 
-        tokio::time::sleep(Duration::from_millis(1100)).await;
+        mock.advance(Duration::from_millis(1100));
         controller.cleanup_alert_dedup();
 
         // 90% 告警
         let result = controller.consume("user1", "resource1", 15).await.unwrap();
         assert!(result.alert_triggered, "达到 90% 应该触发告警");
 
-        tokio::time::sleep(Duration::from_millis(1100)).await;
+        mock.advance(Duration::from_millis(1100));
         controller.cleanup_alert_dedup();
 
         // 100% 告警

@@ -26,6 +26,7 @@ pub const DEFAULT_DEDUP_CLEANUP_INTERVAL_SECS: u64 = 300;
 /// 防止 Webhook 慢/挂时内存与连接无限增长导致 OOM。
 pub const DEFAULT_ALERT_CONCURRENCY: usize = 8;
 
+use crate::clock::{Clock, SystemClock};
 use crate::config::QuotaType;
 use crate::error::{ConsumeResult, LimiteronError};
 use crate::i18n::t;
@@ -158,6 +159,9 @@ pub struct QuotaController {
     /// CancellationToken 克隆共享同一状态，若无此计数，克隆体先行
     /// drop 就会把原始实例的后台清理任务一并取消。
     live_handles: Arc<AtomicUsize>,
+    /// 可控时钟：窗口计算/告警去重/后台清理的时间读取口。
+    /// 生产默认 `SystemClock`，测试可注入 `MockClock`。
+    clock: Arc<dyn Clock>,
 }
 
 impl Clone for QuotaController {
@@ -170,6 +174,7 @@ impl Clone for QuotaController {
             alert_semaphore: self.alert_semaphore.clone(),
             cleanup_token: self.cleanup_token.clone(),
             live_handles: self.live_handles.clone(),
+            clock: self.clock.clone(),
         }
     }
 }
@@ -215,6 +220,7 @@ impl Drop for QuotaController {
 pub struct QuotaControllerBuilder {
     storage: Option<Arc<dyn QuotaStorage>>,
     config: Option<QuotaConfig>,
+    clock: Option<Arc<dyn Clock>>,
 }
 
 #[cfg(feature = "quota-control")]
@@ -224,6 +230,7 @@ impl QuotaControllerBuilder {
         Self {
             storage: None,
             config: None,
+            clock: None,
         }
     }
 
@@ -239,12 +246,21 @@ impl QuotaControllerBuilder {
         self
     }
 
+    /// 注入可控时钟（测试注入 `MockClock`，缺省为 `SystemClock`）
+    pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
+        self.clock = Some(clock);
+        self
+    }
+
     /// 构建 QuotaController 实例
     pub fn build(self) -> Result<QuotaController, LimiteronError> {
         let storage = self.storage.expect("storage is required");
         let config = self.config.unwrap_or_default();
+        let clock: Arc<dyn Clock> = self.clock.unwrap_or_else(|| Arc::new(SystemClock));
 
-        Ok(QuotaController::with_dependencies(storage, config))
+        Ok(QuotaController::with_dependencies_clock(
+            storage, config, clock,
+        ))
     }
 }
 
@@ -312,6 +328,20 @@ impl QuotaController {
     /// }
     /// ```
     pub fn with_dependencies(storage: Arc<dyn QuotaStorage>, config: QuotaConfig) -> Self {
+        Self::with_dependencies_clock(storage, config, Arc::new(SystemClock))
+    }
+
+    /// 使用依赖注入（含可控时钟）创建 QuotaController 实例
+    ///
+    /// # 参数
+    /// - `storage`: 配额存储后端
+    /// - `config`: 配额控制器配置
+    /// - `clock`: 可控时钟（生产传 `SystemClock`，测试传 `MockClock`）
+    pub fn with_dependencies_clock(
+        storage: Arc<dyn QuotaStorage>,
+        config: QuotaConfig,
+        clock: Arc<dyn Clock>,
+    ) -> Self {
         let alert_dedup = Arc::new(DashMap::new());
         let alert_semaphore = Arc::new(Semaphore::new(DEFAULT_ALERT_CONCURRENCY));
         let cleanup_token = CancellationToken::new();
@@ -320,6 +350,7 @@ impl QuotaController {
         let dedup_clone = alert_dedup.clone();
         let token_clone = cleanup_token.clone();
         let dedup_window = config.alert_config.dedup_window;
+        let clock_clone = clock.clone();
 
         tokio::spawn(async move {
             let cleanup_interval = StdDuration::from_secs(DEFAULT_DEDUP_CLEANUP_INTERVAL_SECS);
@@ -332,7 +363,7 @@ impl QuotaController {
                         break;
                     }
                     _ = interval.tick() => {
-                        let now = Utc::now();
+                        let now = clock_clone.now_datetime();
                         let window = Duration::seconds(dedup_window as i64);
                         let before = dedup_clone.len();
                         dedup_clone.retain(|_, last_alert_time| {
@@ -358,6 +389,7 @@ impl QuotaController {
             alert_semaphore,
             cleanup_token,
             live_handles: Arc::new(AtomicUsize::new(1)),
+            clock,
         }
     }
 
@@ -643,7 +675,7 @@ impl QuotaController {
         }
 
         // 创建新的配额状态
-        let now = Utc::now();
+        let now = self.clock.now_datetime();
         let window_start = now;
         let window_end = now + Duration::seconds(self.config.window_size as i64);
 
@@ -662,7 +694,7 @@ impl QuotaController {
         &self,
         state: QuotaState,
     ) -> Result<QuotaState, LimiteronError> {
-        let now = Utc::now();
+        let now = self.clock.now_datetime();
 
         // 如果当前时间在窗口内，不需要重置
         if now < state.window_end {
@@ -759,7 +791,7 @@ impl QuotaController {
             if usage_percent >= threshold {
                 // 检查是否需要去重
                 let dedup_key = format!("{}:{}:{}", user_id, resource, threshold);
-                let now = Utc::now();
+                let now = self.clock.now_datetime();
 
                 // entry API 原子完成「检查 + 占位」（A7）：旧实现
                 // get → await send_alert → insert，await 窗口内并发的同键
@@ -892,7 +924,7 @@ impl QuotaController {
 
     /// 清理过期的告警去重记录
     pub fn cleanup_alert_dedup(&self) {
-        let now = Utc::now();
+        let now = self.clock.now_datetime();
         let dedup_window = Duration::seconds(self.config.alert_config.dedup_window as i64);
 
         self.alert_dedup.retain(|_, last_alert_time| {
@@ -993,12 +1025,21 @@ mod tests {
     /// 测试用的配额存储实现
     struct TestQuotaStorage {
         quotas: Mutex<HashMap<String, QuotaInfo>>,
+        clock: Arc<dyn Clock>,
     }
 
     impl TestQuotaStorage {
         fn new() -> Self {
             Self {
                 quotas: Mutex::new(HashMap::new()),
+                clock: Arc::new(SystemClock),
+            }
+        }
+
+        fn with_clock(clock: Arc<dyn Clock>) -> Self {
+            Self {
+                quotas: Mutex::new(HashMap::new()),
+                clock,
             }
         }
     }
@@ -1026,7 +1067,7 @@ mod tests {
             let mut quotas = self.quotas.lock();
 
             let quota_info = quotas.entry(key.clone()).or_insert_with(|| {
-                let now = Utc::now();
+                let now = self.clock.now_datetime();
                 QuotaInfo {
                     consumed: 0,
                     limit,
@@ -1038,7 +1079,7 @@ mod tests {
             });
 
             // 检查窗口是否过期
-            let now = Utc::now();
+            let now = self.clock.now_datetime();
             if now >= quota_info.window_end {
                 // 窗口已过期，重置消费量
                 quota_info.consumed = 0;
@@ -1092,7 +1133,7 @@ mod tests {
             if let Some(quota_info) = quotas.get_mut(&key) {
                 quota_info.consumed = 0;
                 quota_info.limit = limit;
-                let now = Utc::now();
+                let now = self.clock.now_datetime();
                 quota_info.window_start = now;
                 quota_info.window_end = now
                     + Duration::from_std(window)
@@ -1150,6 +1191,59 @@ mod tests {
         let controller = QuotaController::with_dependencies(storage, config);
 
         assert_eq!(controller.config().limit, 1000);
+    }
+
+    /// T002 钉住测试：时钟注入经 controller 可观测到虚拟时间；
+    /// builder 缺省为 SystemClock（活时钟，随真实时间推进）。
+    #[tokio::test]
+    async fn test_clock_injection_observable() {
+        use crate::clock::MockClock;
+
+        let storage = Arc::new(TestQuotaStorage::new());
+        let mock = Arc::new(MockClock::new());
+        let clock: Arc<dyn Clock> = mock.clone();
+        let controller =
+            QuotaController::with_dependencies_clock(storage, QuotaConfig::default(), clock);
+
+        let before = controller.clock.now_datetime();
+        mock.advance(std::time::Duration::from_secs(10));
+        let after = controller.clock.now_datetime();
+        assert_eq!(after - before, chrono::Duration::seconds(10));
+
+        // builder 缺省路径：生产默认 SystemClock 为活时钟（与系统墙钟同源，
+        // 经标准库 SystemTime 做 oracle，不直读 Utc::now，避免 quota 模块残留墙钟直读）。
+        let storage2 = Arc::new(TestQuotaStorage::new());
+        let default_built = QuotaController::builder()
+            .with_storage(storage2)
+            .with_config(QuotaConfig::default())
+            .build()
+            .unwrap();
+        let wall_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let clock_secs = default_built.clock.unix_timestamp();
+        let skew = wall_secs.abs_diff(clock_secs);
+        assert!(
+            skew < 5,
+            "SystemClock 应与系统墙钟同源，偏差须 < 5s, got {skew}s"
+        );
+
+        // builder 显式注入 MockClock 同样可观测
+        let storage3 = Arc::new(TestQuotaStorage::new());
+        let mock3 = Arc::new(MockClock::new());
+        let via_builder = QuotaController::builder()
+            .with_storage(storage3)
+            .with_config(QuotaConfig::default())
+            .with_clock(mock3.clone())
+            .build()
+            .unwrap();
+        let b_before = via_builder.clock.now_datetime();
+        mock3.advance(std::time::Duration::from_millis(1500));
+        assert_eq!(
+            via_builder.clock.now_datetime() - b_before,
+            chrono::Duration::milliseconds(1500)
+        );
     }
 
     /// I2 回归测试：user_id/resource 含 ':' 会被拒绝，防止
@@ -1274,7 +1368,9 @@ mod tests {
     /// 测试滑动窗口重置
     #[tokio::test]
     async fn test_sliding_window_reset() {
-        let storage = Arc::new(TestQuotaStorage::new());
+        use crate::clock::MockClock;
+        let mock = Arc::new(MockClock::new());
+        let storage = Arc::new(TestQuotaStorage::with_clock(mock.clone()));
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -1287,23 +1383,21 @@ mod tests {
             },
         };
 
-        let controller = QuotaController::with_dependencies(storage, config);
+        let controller = QuotaController::with_dependencies_clock(storage, config, mock.clone());
 
         // 消费 50 个配额
         let result = controller.consume("user1", "resource1", 50).await.unwrap();
         assert!(result.allowed);
         assert_eq!(result.remaining, 50);
 
-        // 等待窗口过期（超过一个完整窗口）
-        tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+        // 虚拟推进 1100ms 越过完整窗口（1s），替代真实 sleep
+        mock.advance(std::time::Duration::from_millis(1100));
 
-        // 现在应该可以消费配额了（滑动窗口会完全重置）
+        // 现在应该可以消费配额了（固定窗口整窗清零：上一窗 50 全部过期，
+        // 本窗消费 30 后剩余精确为 100-30=70）
         let result = controller.consume("user1", "resource1", 30).await.unwrap();
         assert!(result.allowed);
-        // 窗口已经完全过期，所以应该有 100 - 30 = 70 剩余
-        // 但由于滑动窗口的特性，可能会有部分保留
-        // 所以我们只检查是否允许消费
-        assert!(result.allowed);
+        assert_eq!(result.remaining, 70);
     }
 
     /// 测试告警触发
@@ -1345,7 +1439,9 @@ mod tests {
     /// 测试告警去重
     #[tokio::test]
     async fn test_alert_dedup() {
-        let storage = Arc::new(TestQuotaStorage::new());
+        use crate::clock::MockClock;
+        let mock = Arc::new(MockClock::new());
+        let storage = Arc::new(TestQuotaStorage::with_clock(mock.clone()));
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -1360,7 +1456,7 @@ mod tests {
             },
         };
 
-        let controller = QuotaController::with_dependencies(storage, config);
+        let controller = QuotaController::with_dependencies_clock(storage, config, mock.clone());
 
         // 消费 80 个配额，应该触发告警
         let result = controller.consume("user1", "resource1", 80).await.unwrap();
@@ -1372,8 +1468,8 @@ mod tests {
         assert!(result.allowed);
         assert!(!result.alert_triggered);
 
-        // 等待去重窗口过期
-        tokio::time::sleep(tokio::time::Duration::from_millis(5100)).await;
+        // 虚拟推进 6s 越过去重窗口（5s），替代真实 sleep 5100ms
+        mock.advance(std::time::Duration::from_secs(6));
 
         // 清理过期的去重记录
         controller.cleanup_alert_dedup();
@@ -1614,7 +1710,9 @@ mod tests {
     /// 测试滑动窗口重置 - 跨越多个窗口
     #[tokio::test]
     async fn test_sliding_window_multiple_periods() {
-        let storage = Arc::new(TestQuotaStorage::new());
+        use crate::clock::MockClock;
+        let mock = Arc::new(MockClock::new());
+        let storage = Arc::new(TestQuotaStorage::with_clock(mock.clone()));
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -1627,18 +1725,21 @@ mod tests {
             },
         };
 
-        let controller = QuotaController::with_dependencies(storage, config);
+        let controller = QuotaController::with_dependencies_clock(storage, config, mock.clone());
 
         // 第一轮消费
         let result = controller.consume("user1", "resource1", 50).await.unwrap();
         assert!(result.allowed);
+        assert_eq!(result.remaining, 50);
 
-        // 等待超过一个完整窗口
-        tokio::time::sleep(tokio::time::Duration::from_millis(1200)).await;
+        // 虚拟推进 1200ms 越过完整窗口（1s），替代真实 sleep 1200ms
+        mock.advance(std::time::Duration::from_millis(1200));
 
-        // 第二轮消费 - 窗口应该已重置
+        // 第二轮消费 - 窗口应该已重置：固定窗口整窗清零，
+        // 上一窗 50 全部过期，本窗消费 60 后剩余精确为 100-60=40
         let result = controller.consume("user1", "resource1", 60).await.unwrap();
         assert!(result.allowed, "窗口重置后应该可以消费");
+        assert_eq!(result.remaining, 40, "窗口重置后剩余应为 100-60=40");
     }
 
     /// 测试透支功能 - 边界条件
@@ -1710,7 +1811,9 @@ mod tests {
     /// 测试多级告警触发 - 所有阈值
     #[tokio::test]
     async fn test_multi_level_alerts() {
-        let storage = Arc::new(TestQuotaStorage::new());
+        use crate::clock::MockClock;
+        let mock = Arc::new(MockClock::new());
+        let storage = Arc::new(TestQuotaStorage::with_clock(mock.clone()));
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -1725,15 +1828,15 @@ mod tests {
             },
         };
 
-        let controller = QuotaController::with_dependencies(storage, config);
+        let controller = QuotaController::with_dependencies_clock(storage, config, mock.clone());
 
         // 消费 50% - 应该触发 50% 告警
         let result = controller.consume("user1", "resource1", 50).await.unwrap();
         assert!(result.allowed);
         assert!(result.alert_triggered, "达到 50% 应该触发告警");
 
-        // 等待去重窗口过期
-        tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+        // 虚拟推进越过去重窗口（1s），替代真实 sleep 1100ms
+        mock.advance(std::time::Duration::from_millis(1100));
         controller.cleanup_alert_dedup();
 
         // 消费到 75% - 应该触发 75% 告警
@@ -1741,8 +1844,8 @@ mod tests {
         assert!(result.allowed);
         assert!(result.alert_triggered, "达到 75% 应该触发告警");
 
-        // 等待去重窗口过期
-        tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+        // 虚拟推进越过去重窗口（1s），替代真实 sleep 1100ms
+        mock.advance(std::time::Duration::from_millis(1100));
         controller.cleanup_alert_dedup();
 
         // 消费到 90% - 应该触发 90% 告警
@@ -1750,8 +1853,8 @@ mod tests {
         assert!(result.allowed);
         assert!(result.alert_triggered, "达到 90% 应该触发告警");
 
-        // 等待去重窗口过期
-        tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+        // 虚拟推进越过去重窗口（1s），替代真实 sleep 1100ms
+        mock.advance(std::time::Duration::from_millis(1100));
         controller.cleanup_alert_dedup();
 
         // 消费到 100% - 应该触发 100% 告警
@@ -2327,8 +2430,8 @@ mod tests {
             // 控制器在此处被 drop，cleanup_token.cancel() 被调用
         }
 
-        // 给后台任务一点时间来处理取消信号
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        // 给后台任务机会处理取消信号（显式让出调度，不用真实 sleep）
+        tokio::task::yield_now().await;
     }
 
     /// 测试 Webhook 告警通道 - 使用无效 URL 触发错误路径
@@ -2363,14 +2466,16 @@ mod tests {
         assert!(result.allowed);
         assert!(result.alert_triggered);
 
-        // 确保 spawned 的 webhook 任务执行完毕
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        // 让 spawned 的 webhook 任务有机会执行完毕（显式让出调度，不用真实 sleep）
+        tokio::task::yield_now().await;
     }
 
     /// 测试多次触发不同 Webhook URL（测试 send_webhook_alert 被多次调用）
     #[tokio::test]
     async fn test_alert_webhook_multiple_thresholds() {
-        let storage = Arc::new(TestQuotaStorage::new());
+        use crate::clock::MockClock;
+        let mock = Arc::new(MockClock::new());
+        let storage = Arc::new(TestQuotaStorage::with_clock(mock.clone()));
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -2387,15 +2492,15 @@ mod tests {
             },
         };
 
-        let controller = QuotaController::with_dependencies(storage, config);
+        let controller = QuotaController::with_dependencies_clock(storage, config, mock.clone());
 
         // 消费到 50% - 触发 50% 阈值 webhook
         let result = controller.consume("user1", "resource1", 50).await.unwrap();
         assert!(result.allowed);
         assert!(result.alert_triggered);
 
-        // 等待去重窗口过期
-        tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+        // 虚拟推进越过去重窗口（1s），替代真实 sleep 1100ms
+        mock.advance(std::time::Duration::from_millis(1100));
         controller.cleanup_alert_dedup();
 
         // 消费到 80% - 触发 80% 阈值 webhook
@@ -2403,15 +2508,17 @@ mod tests {
         assert!(result.allowed);
         assert!(result.alert_triggered);
 
-        // 确保 spawned 的 webhook 任务执行完毕
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        // 让 spawned 的 webhook 任务有机会执行完毕（显式让出调度，不用真实 sleep）
+        tokio::task::yield_now().await;
     }
 
     /// 测试 check_and_reset_window 的按比例保留消费量分支
     /// 覆盖 line 548: windows_passed < 1 时按比例保留消费量
     #[tokio::test]
     async fn test_check_and_reset_window_proportional_retain() {
-        let storage = Arc::new(TestQuotaStorage::new());
+        use crate::clock::MockClock;
+        let mock = Arc::new(MockClock::new());
+        let storage = Arc::new(TestQuotaStorage::with_clock(mock.clone()));
         let config = QuotaConfig {
             quota_type: QuotaType::Count,
             limit: 100,
@@ -2423,12 +2530,13 @@ mod tests {
                 ..Default::default()
             },
         };
-        let controller = QuotaController::with_dependencies(storage, config);
+        let controller = QuotaController::with_dependencies_clock(storage, config, mock.clone());
 
         // 构造一个不一致的 QuotaState：
         // window_start 在 2 秒前，window_end 在 1 秒前（已过期，但远小于 window_size=3600s）
         // 这样 now >= window_end（触发重置），但 elapsed < window_duration（windows_passed=0）
-        let now = Utc::now();
+        // 时间基座取注入时钟，保证与业务时间源同钟。
+        let now = mock.now_datetime();
         let state = QuotaState {
             consumed: 100,
             window_start: now - Duration::seconds(2),

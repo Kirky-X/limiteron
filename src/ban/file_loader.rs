@@ -550,6 +550,7 @@ bans:
     }
 
     #[tokio::test]
+    #[cfg(feature = "validation")]
     async fn test_load_once_partial_failure() {
         // 第一条 IP 无效，第二条有效
         let yaml = r#"
@@ -603,6 +604,7 @@ bans:
     }
 
     #[tokio::test]
+    #[cfg(feature = "validation")]
     async fn test_load_once_invalid_geo() {
         let yaml = r#"
 bans:

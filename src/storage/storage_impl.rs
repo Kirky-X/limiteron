@@ -1900,18 +1900,21 @@ mod memory_ban_storage_tests {
             .unwrap();
         assert!(hit.is_some(), "203.0.113.50 应命中网段封禁");
 
-        // 非法 CIDR 被校验拒绝
-        let err = manager
-            .create_ban(
-                BanTarget::Cidr("not-a-net".to_string()),
-                "t604 invalid".to_string(),
-                BanSource::Manual {
-                    operator: "tester".to_string(),
-                },
-                serde_json::json!({}),
-                None,
-            )
-            .await;
-        assert!(err.is_err(), "非法 CIDR 应被校验拒绝");
+        // 非法 CIDR 被校验拒绝（目标校验依赖 validation feature，关闭时跳过）
+        #[cfg(feature = "validation")]
+        {
+            let err = manager
+                .create_ban(
+                    BanTarget::Cidr("not-a-net".to_string()),
+                    "t604 invalid".to_string(),
+                    BanSource::Manual {
+                        operator: "tester".to_string(),
+                    },
+                    serde_json::json!({}),
+                    None,
+                )
+                .await;
+            assert!(err.is_err(), "非法 CIDR 应被校验拒绝");
+        }
     }
 }

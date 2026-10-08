@@ -311,6 +311,9 @@ pub struct MemoryBanStorage {
     bans: RwLock<HashMap<BanTarget, BanRecord>>,
     /// Expiration tracking (target -> expires_at timestamp)
     expiration: RwLock<HashMap<BanTarget, i64>>,
+    /// 可控时钟：过期判定与清理的时间读取口（生产默认 `SystemClock`，
+    /// 测试可注入 `MockClock` 使封禁过期行为确定可测）
+    clock: Arc<dyn crate::clock::Clock>,
 }
 
 /// 进程内配额账本记录（epoch 对齐的固定窗口）

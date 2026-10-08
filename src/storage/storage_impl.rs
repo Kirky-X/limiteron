@@ -8,6 +8,7 @@
 //! implementations for Arc.
 
 use super::*;
+use crate::clock::SystemClock;
 
 impl MemoryQuotaStorage {
     /// 创建进程内配额账本
@@ -237,10 +238,7 @@ impl Storage for MemoryStorage {
 impl MemoryBanStorage {
     /// Creates a new MemoryBanStorage instance
     pub fn new() -> Self {
-        Self {
-            bans: RwLock::new(HashMap::new()),
-            expiration: RwLock::new(HashMap::new()),
-        }
+        Self::with_clock(Arc::new(SystemClock))
     }
 
     /// Creates a new MemoryBanStorage instance with pre-allocated capacity
@@ -248,6 +246,19 @@ impl MemoryBanStorage {
         Self {
             bans: RwLock::new(HashMap::with_capacity(capacity)),
             expiration: RwLock::new(HashMap::with_capacity(capacity)),
+            clock: Arc::new(SystemClock),
+        }
+    }
+
+    /// 使用自定义时钟创建实例
+    ///
+    /// 过期判定（`is_banned`）与清理（`cleanup_expired_bans`/`list_bans`）
+    /// 的时间读取全部经此时钟；注入 `MockClock` 可在测试中确定驱动过期。
+    pub fn with_clock(clock: Arc<dyn crate::clock::Clock>) -> Self {
+        Self {
+            bans: RwLock::new(HashMap::new()),
+            expiration: RwLock::new(HashMap::new()),
+            clock,
         }
     }
 
@@ -268,7 +279,7 @@ impl Default for MemoryBanStorage {
 #[async_trait]
 impl BanStorage for MemoryBanStorage {
     async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, StorageError> {
-        let now = Utc::now().timestamp();
+        let now = self.clock.now_datetime().timestamp();
 
         // Check expiration first
         let expires_at = self.expiration.read().await.get(target).copied();
@@ -383,7 +394,7 @@ impl BanStorage for MemoryBanStorage {
     }
 
     async fn cleanup_expired_bans(&self) -> Result<u64, StorageError> {
-        let now = Utc::now().timestamp();
+        let now = self.clock.now_datetime().timestamp();
 
         // 单次读锁：收集所有已过期的 target
         let expired_targets: Vec<BanTarget> = self
@@ -425,7 +436,7 @@ impl BanStorage for MemoryBanStorage {
         offset: u64,
         limit: u64,
     ) -> Result<Vec<BanRecord>, StorageError> {
-        let now = Utc::now().timestamp();
+        let now = self.clock.now_datetime().timestamp();
 
         // Cleanup expired bans first if active_only
         if active_only {
@@ -1164,6 +1175,51 @@ mod memory_ban_storage_tests {
         // Check removed
         let found = BanStorage::is_banned(&storage, &rec.target).await.unwrap();
         assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_memory_ban_storage_with_mock_clock_expiry_and_cleanup() {
+        use crate::clock::{Clock, MockClock};
+
+        let mock = Arc::new(MockClock::new());
+        let storage = MemoryBanStorage::with_clock(mock.clone());
+
+        // 两条 1 秒封禁，时间基座取注入时钟（与存储判定同钟）
+        for ip in ["192.0.2.10", "192.0.2.11"] {
+            let rec = BanRecord {
+                target: BanTarget::Ip(ip.to_string()),
+                ban_times: 1,
+                duration: Duration::from_secs(1),
+                banned_at: mock.now_datetime(),
+                expires_at: mock.now_datetime() + chrono::Duration::seconds(1),
+                is_manual: false,
+                reason: "mock clock expiry".to_string(),
+            };
+            BanStorage::save(&storage, &rec).await.unwrap();
+        }
+
+        let target = BanTarget::Ip("192.0.2.10".to_string());
+        assert!(
+            BanStorage::is_banned(&storage, &target)
+                .await
+                .unwrap()
+                .is_some(),
+            "封禁在有效期内应命中"
+        );
+
+        // 虚拟推进越过 expires_at：is_banned 应解除
+        mock.advance(std::time::Duration::from_millis(1100));
+        assert!(
+            BanStorage::is_banned(&storage, &target)
+                .await
+                .unwrap()
+                .is_none(),
+            "过期后 is_banned 应返回 None"
+        );
+
+        // 清理路径：另一条同样过期，cleanup 计数应为 1
+        let cleaned = BanStorage::cleanup_expired_bans(&storage).await.unwrap();
+        assert_eq!(cleaned, 1, "应清理 1 条过期封禁");
     }
 
     #[tokio::test]

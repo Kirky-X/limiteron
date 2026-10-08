@@ -60,6 +60,53 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
     governor
 }
 
+/// 创建带可控时钟的 Governor（限流器时间行为可经 MockClock 确定驱动）
+async fn create_governor_with_limiters_and_clock(
+    limiters: Vec<LimiterConfig>,
+    clock: Arc<dyn limiteron::Clock>,
+) -> Arc<limiteron::Governor> {
+    let config = FlowControlConfig {
+        version: "1.0".to_string(),
+        global: limiteron::config::GlobalConfig {
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
+            trusted_proxies: Default::default(),
+        },
+        rules: vec![Rule {
+            id: "test_rule".to_string(),
+            name: "Test Rule".to_string(),
+            priority: 100,
+            matchers: vec![Matcher::User {
+                user_ids: vec!["*".to_string()],
+            }],
+            limiters,
+            action: ActionConfig {
+                on_exceed: Action::Reject,
+                ban: None,
+            },
+        }],
+    };
+
+    let storage: Arc<dyn Storage> = Arc::new(limiteron::storage::MemoryStorage::new());
+    let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+
+    let governor = Arc::new(
+        limiteron::Governor::builder()
+            .with_config(config)
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .with_clock(clock)
+            .build()
+            .await
+            .expect("Failed to create governor"),
+    );
+
+    governor.disable_l1_cache();
+
+    governor
+}
+
 // ==================== 完整决策流程验证 ====================
 
 /// 测试 Governor 完整决策流程 - 允许请求
@@ -267,10 +314,14 @@ async fn test_multiple_limiters_concurrent() {
 /// 测试 TokenBucket 限流器集成
 #[tokio::test]
 async fn test_token_bucket_integration() {
-    let governor = create_governor_with_limiters(vec![LimiterConfig::TokenBucket {
-        capacity: 10,
-        refill_rate: 2,
-    }])
+    let mock = Arc::new(limiteron::MockClock::new());
+    let governor = create_governor_with_limiters_and_clock(
+        vec![LimiterConfig::TokenBucket {
+            capacity: 10,
+            refill_rate: 2,
+        }],
+        mock.clone(),
+    )
     .await;
 
     let ctx = RequestContextBuilder::new()
@@ -295,8 +346,8 @@ async fn test_token_bucket_integration() {
         "Request 11 should be rejected"
     );
 
-    // 等待令牌补充
-    tokio::time::sleep(Duration::from_millis(600)).await;
+    // 虚拟推进补充令牌（2/s × 0.6s ≥ 1），替代真实 sleep 600ms
+    mock.advance(Duration::from_millis(600));
 
     // 等待后应该可以再次请求
     let result = governor.check(&ctx).await.unwrap();
@@ -309,10 +360,14 @@ async fn test_token_bucket_integration() {
 /// 测试 SlidingWindow 限流器集成
 #[tokio::test]
 async fn test_sliding_window_integration() {
-    let governor = create_governor_with_limiters(vec![LimiterConfig::SlidingWindow {
-        window_size: "1s".to_string(),
-        max_requests: 5,
-    }])
+    let mock = Arc::new(limiteron::MockClock::new());
+    let governor = create_governor_with_limiters_and_clock(
+        vec![LimiterConfig::SlidingWindow {
+            window_size: "1s".to_string(),
+            max_requests: 5,
+        }],
+        mock.clone(),
+    )
     .await;
 
     let ctx = RequestContextBuilder::new()
@@ -337,8 +392,8 @@ async fn test_sliding_window_integration() {
         "Request 6 should be rejected"
     );
 
-    // 等待窗口滑动
-    tokio::time::sleep(Duration::from_millis(1100)).await;
+    // 虚拟推进越过窗口（1s），替代真实 sleep 1100ms
+    mock.advance(Duration::from_millis(1100));
 
     // 新窗口应该可以再次请求
     let result = governor.check(&ctx).await.unwrap();

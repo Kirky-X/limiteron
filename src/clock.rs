@@ -10,6 +10,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use chrono::{DateTime, Utc};
+
 /// 时钟 trait
 ///
 /// 提供时间获取接口,支持注入实现用于测试。
@@ -32,6 +34,14 @@ pub trait Clock: Send + Sync {
 
     /// 获取当前 UNIX 时间戳(纳秒)
     fn unix_timestamp_nanos(&self) -> u64;
+
+    /// 获取当前 UTC 墙上时间（配额窗口/告警去重等 `DateTime` 语义的时间读取口）
+    ///
+    /// 默认实现从 [`Clock::unix_timestamp_nanos`] 派生，第三方实现者无需改动
+    /// 即可获得合法语义；`SystemClock` 覆写为直读以避免精度中转。
+    fn now_datetime(&self) -> DateTime<Utc> {
+        DateTime::from_timestamp_nanos(self.unix_timestamp_nanos() as i64)
+    }
 }
 
 /// 系统时钟实现
@@ -57,6 +67,10 @@ impl Clock for SystemClock {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
             .unwrap_or(0)
+    }
+
+    fn now_datetime(&self) -> DateTime<Utc> {
+        Utc::now()
     }
 }
 
@@ -385,5 +399,35 @@ mod tests {
             clock.unix_timestamp_nanos(),
             1_700_000_000u64 * 1_000_000_000
         );
+    }
+
+    #[test]
+    fn test_system_clock_now_datetime_close_to_utc_now() {
+        let clock = SystemClock;
+        let via_clock = clock.now_datetime();
+        let via_utc = Utc::now();
+        let delta = (via_clock - via_utc).num_milliseconds().abs();
+        assert!(
+            delta < 1000,
+            "SystemClock::now_datetime 与 Utc::now 差值须 < 1s, got {delta}ms"
+        );
+    }
+
+    #[test]
+    fn test_mock_clock_now_datetime_advance_10s() {
+        let clock = MockClock::with_instant(Instant::now(), 1_700_000_000);
+        let before = clock.now_datetime();
+        clock.advance(Duration::from_secs(10));
+        let after = clock.now_datetime();
+        assert_eq!(after - before, chrono::Duration::seconds(10));
+    }
+
+    #[test]
+    fn test_mock_clock_now_datetime_advance_subsecond() {
+        let clock = MockClock::with_instant(Instant::now(), 1_700_000_000);
+        let before = clock.now_datetime();
+        clock.advance(Duration::from_millis(1500));
+        let after = clock.now_datetime();
+        assert_eq!(after - before, chrono::Duration::milliseconds(1500));
     }
 }

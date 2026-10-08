@@ -310,13 +310,32 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
 mod tests {
     use super::*;
     use crate::admin::AdminApiConfig;
-    use crate::admin::make_state;
+    use crate::admin::handlers::tests::make_state;
     #[cfg(feature = "ban-manager")]
-    use crate::admin::make_state_with_ban_manager;
+    use crate::admin::handlers::tests::{TestDeps, make_governor, make_state_with};
     use axum::body::Body;
     use axum::http::{Request, StatusCode, header::AUTHORIZATION};
     use http_body_util::BodyExt;
     use tower::ServiceExt;
+
+    /// 构造带 BanManager 的 LimiteronState（用于封禁相关测试）
+    #[cfg(feature = "ban-manager")]
+    async fn make_state_with_ban_manager() -> LimiteronState {
+        use crate::BanManager;
+
+        let ban_manager = Arc::new(
+            BanManager::new()
+                .await
+                .expect("BanManager::new should succeed"),
+        );
+        make_state_with(
+            Arc::new(make_governor().await),
+            TestDeps {
+                ban_manager: Some(ban_manager),
+                ..Default::default()
+            },
+        )
+    }
 
     fn constant_time_eq(a: &str, b: &str) -> bool {
         if a.len() != b.len() {
@@ -722,7 +741,7 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let governor = Arc::new(crate::admin::make_governor().await);
+        let governor = Arc::new(make_governor().await);
         let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
@@ -771,7 +790,7 @@ mod tests {
                 .await
                 .unwrap(),
         );
-        let governor = Arc::new(crate::admin::make_governor().await);
+        let governor = Arc::new(make_governor().await);
         let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
@@ -835,7 +854,7 @@ mod tests {
             .await
             .unwrap();
 
-        let governor = Arc::new(crate::admin::make_governor().await);
+        let governor = Arc::new(make_governor().await);
         let state = LimiteronState {
             governor,
             ban_manager: Some(ban_manager),
@@ -1261,7 +1280,6 @@ mod tests {
     #[cfg(feature = "ban-manager")]
     #[tokio::test]
     async fn test_t605_admin_key_write_ban_succeeds_and_viewer_cannot() {
-        use crate::admin::make_state_with_ban_manager;
         let state = make_state_with_ban_manager().await;
         let config = AdminApiConfig::new("primary-key-16chars!!!")
             .with_api_key_role("viewer-key-16chars!!", AdminRole::Viewer);
@@ -1344,7 +1362,7 @@ mod tests {
 
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        // 规则清单（test_support 配置含 test_rule）
+        // 规则清单（共享夹具 make_valid_config 含 test_rule）
         let rules = json["rules"].as_array().expect("rules 数组");
         assert!(
             rules.iter().any(|r| r["id"] == "test_rule"),

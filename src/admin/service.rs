@@ -505,7 +505,8 @@ impl AdminService for GovernorAdminService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::admin::{LimiteronState, make_state};
+    use crate::admin::LimiteronState;
+    use crate::admin::handlers::tests::make_state;
 
     fn service_from(state: &LimiteronState) -> GovernorAdminService {
         GovernorAdminService::from_state(state)
@@ -592,7 +593,7 @@ mod tests {
         use crate::storage::BanTarget;
 
         // 仅授权 admin 的授权提供者：operator "intruder" 触发 AuthorizationError
-        let governor = Arc::new(crate::admin::make_governor().await);
+        let governor = Arc::new(crate::admin::handlers::tests::make_governor().await);
         let ban_manager = Arc::new(
             BanManager::builder()
                 .with_authorization_provider(Arc::new(SimpleAuthorizationProvider::new(vec![

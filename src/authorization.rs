@@ -8,7 +8,6 @@
 //!
 //! - 授权检查 trait 定义
 //! - 简单授权提供者（基于角色列表）
-//! - 测试用授权提供者（允许/拒绝所有操作）
 //!
 //! # 示例
 //!
@@ -269,51 +268,6 @@ impl AuthorizationProvider for SimpleAuthorizationProvider {
     }
 }
 
-/// 允许所有操作的授权提供者（仅用于测试）
-///
-/// 此提供者允许所有操作，不进行任何授权检查。
-/// 主要用于测试环境。
-///
-/// # 安全警告
-///
-/// **此提供者在非测试构建中不可用**
-#[cfg(test)]
-pub struct AllowAllAuthorizationProvider;
-
-#[cfg(test)]
-#[async_trait]
-impl AuthorizationProvider for AllowAllAuthorizationProvider {
-    async fn check_authorization(
-        &self,
-        _operation: &str,
-        _operator: &str,
-        _target: &str,
-    ) -> Result<(), LimiteronError> {
-        Ok(())
-    }
-}
-
-/// 拒绝所有操作的授权提供者（仅用于测试）
-///
-/// 此提供者拒绝所有操作，用于测试授权失败的场景。
-#[cfg(test)]
-pub struct DenyAllAuthorizationProvider;
-
-#[cfg(test)]
-#[async_trait]
-impl AuthorizationProvider for DenyAllAuthorizationProvider {
-    async fn check_authorization(
-        &self,
-        _operation: &str,
-        _operator: &str,
-        _target: &str,
-    ) -> Result<(), LimiteronError> {
-        Err(LimiteronError::AuthorizationError(
-            "所有操作都被拒绝".to_string(),
-        ))
-    }
-}
-
 /// 基于操作的授权提供者
 ///
 /// 为不同操作配置不同的授权角色。
@@ -453,8 +407,40 @@ impl OperationAuthorizationProviderBuilder {
 // ============================================================================
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// 允许所有操作的授权提供者（仅测试：允许所有操作，不做任何授权检查）
+    pub(crate) struct AllowAllAuthorizationProvider;
+
+    #[async_trait]
+    impl AuthorizationProvider for AllowAllAuthorizationProvider {
+        async fn check_authorization(
+            &self,
+            _operation: &str,
+            _operator: &str,
+            _target: &str,
+        ) -> Result<(), LimiteronError> {
+            Ok(())
+        }
+    }
+
+    /// 拒绝所有操作的授权提供者（仅测试：拒绝所有操作，用于授权失败场景）
+    pub(crate) struct DenyAllAuthorizationProvider;
+
+    #[async_trait]
+    impl AuthorizationProvider for DenyAllAuthorizationProvider {
+        async fn check_authorization(
+            &self,
+            _operation: &str,
+            _operator: &str,
+            _target: &str,
+        ) -> Result<(), LimiteronError> {
+            Err(LimiteronError::AuthorizationError(
+                "所有操作都被拒绝".to_string(),
+            ))
+        }
+    }
 
     #[tokio::test]
     async fn test_simple_authorization_provider_authorized() {

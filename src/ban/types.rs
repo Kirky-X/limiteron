@@ -2601,7 +2601,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_ban_auto_bypasses_authorization() {
-        use crate::authorization::DenyAllAuthorizationProvider;
+        use crate::authorization::tests::DenyAllAuthorizationProvider;
 
         let storage = Arc::new(MockBanStorage::new());
         // 使用拒绝所有操作的授权提供者

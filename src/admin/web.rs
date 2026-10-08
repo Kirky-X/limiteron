@@ -320,7 +320,8 @@ impl WebUiServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::admin::{LimiteronState, make_state};
+    use crate::admin::LimiteronState;
+    use crate::admin::handlers::tests::make_state;
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode};
     use tower::ServiceExt;

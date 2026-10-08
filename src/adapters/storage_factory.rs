@@ -63,10 +63,6 @@ pub enum StorageType {
     /// DBNexus SQLite 存储
     #[serde(rename = "dbnexus_sqlite", alias = "dbnexussqlite")]
     DBNexusSQLite,
-    /// 内存存储（仅用于测试）
-    #[cfg(test)]
-    #[serde(rename = "memory")]
-    Memory,
 }
 
 impl std::fmt::Display for StorageType {
@@ -75,8 +71,6 @@ impl std::fmt::Display for StorageType {
             StorageType::DBNexusPostgres => write!(f, "DBNexus PostgreSQL"),
             StorageType::DBNexusMySQL => write!(f, "DBNexus MySQL"),
             StorageType::DBNexusSQLite => write!(f, "DBNexus SQLite"),
-            #[cfg(test)]
-            StorageType::Memory => write!(f, "Memory"),
         }
     }
 }
@@ -93,8 +87,6 @@ impl StorageType {
             }
             "dbnexus_mysql" | "dbnexusmysql" | "mysql" => Some(Self::DBNexusMySQL),
             "dbnexus_sqlite" | "dbnexussqlite" | "sqlite" => Some(Self::DBNexusSQLite),
-            #[cfg(test)]
-            "memory" => Some(Self::Memory),
             _ => None,
         }
     }
@@ -105,8 +97,6 @@ impl StorageType {
             Self::DBNexusPostgres => "dbnexus_postgres",
             Self::DBNexusMySQL => "dbnexus_mysql",
             Self::DBNexusSQLite => "dbnexus_sqlite",
-            #[cfg(test)]
-            Self::Memory => "memory",
         }
     }
 }
@@ -532,7 +522,6 @@ mod tests {
         );
         assert_eq!(StorageType::DBNexusMySQL.to_string(), "DBNexus MySQL");
         assert_eq!(StorageType::DBNexusSQLite.to_string(), "DBNexus SQLite");
-        assert_eq!(StorageType::Memory.to_string(), "Memory");
     }
 
     #[test]
@@ -573,11 +562,6 @@ mod tests {
     }
 
     #[test]
-    fn test_storage_type_parse_memory() {
-        assert_eq!(StorageType::parse("memory"), Some(StorageType::Memory));
-    }
-
-    #[test]
     fn test_storage_type_parse_case_insensitive() {
         assert_eq!(
             StorageType::parse("POSTGRES"),
@@ -597,7 +581,6 @@ mod tests {
         assert_eq!(StorageType::DBNexusPostgres.as_str(), "dbnexus_postgres");
         assert_eq!(StorageType::DBNexusMySQL.as_str(), "dbnexus_mysql");
         assert_eq!(StorageType::DBNexusSQLite.as_str(), "dbnexus_sqlite");
-        assert_eq!(StorageType::Memory.as_str(), "memory");
     }
 
     #[test]

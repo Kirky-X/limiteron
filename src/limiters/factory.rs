@@ -16,8 +16,6 @@ use super::{
     TokenBucketLimiter,
 };
 use crate::config::LimiterConfig;
-#[cfg(test)]
-use crate::config::QuotaType;
 use crate::config::parse_window_size;
 use crate::constants::{
     MAX_CONCURRENT_REQUESTS, MAX_SLIDING_LOG_REQUESTS, MAX_TOKEN_BUCKET_CAPACITY,
@@ -517,6 +515,7 @@ impl LimiterFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::QuotaType;
     use std::time::Duration;
 
     #[test]

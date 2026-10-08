@@ -174,8 +174,6 @@ pub mod middleware;
 // 重新导出常用类型
 #[cfg(feature = "ban-manager")]
 pub use authorization::OperationAuthorizationProvider;
-#[cfg(test)]
-pub use authorization::{AllowAllAuthorizationProvider, DenyAllAuthorizationProvider};
 pub use authorization::{AuthorizationProvider, SimpleAuthorizationProvider};
 #[cfg(feature = "ban-manager")]
 pub use ban::{

@@ -220,29 +220,6 @@ impl ConcurrencyLimiter {
 
         Ok(permit)
     }
-
-    /// 获取当前可用的许可数（仅用于测试）
-    #[cfg(test)]
-    fn available_permits(&self) -> usize {
-        self.semaphore.available_permits()
-    }
-
-    /// 尝试获取许可（非阻塞）
-    #[cfg(test)]
-    fn try_acquire(&self, cost: u64) -> Result<tokio::sync::SemaphorePermit<'_>, LimiteronError> {
-        let cost_u32 = cost as u32;
-        if cost_u32 as u64 != cost {
-            return Err(LimiteronError::LimitError(t(
-                "concurrency-permits-overflow-u32",
-                &[],
-            )));
-        }
-        validate_cost(cost)?;
-
-        self.semaphore
-            .try_acquire_many(cost_u32)
-            .map_err(|e| LimiteronError::LimitError(format!("获取许可失败: {:?}", e)))
-    }
 }
 
 #[async_trait]
@@ -323,6 +300,32 @@ const CHAIN_LEASE_DURATION: std::time::Duration = std::time::Duration::from_secs
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl ConcurrencyLimiter {
+        /// 获取当前可用的许可数（仅测试断言用）
+        fn available_permits(&self) -> usize {
+            self.semaphore.available_permits()
+        }
+
+        /// 尝试获取许可（非阻塞）
+        fn try_acquire(
+            &self,
+            cost: u64,
+        ) -> Result<tokio::sync::SemaphorePermit<'_>, LimiteronError> {
+            let cost_u32 = cost as u32;
+            if cost_u32 as u64 != cost {
+                return Err(LimiteronError::LimitError(t(
+                    "concurrency-permits-overflow-u32",
+                    &[],
+                )));
+            }
+            validate_cost(cost)?;
+
+            self.semaphore
+                .try_acquire_many(cost_u32)
+                .map_err(|e| LimiteronError::LimitError(format!("获取许可失败: {:?}", e)))
+        }
+    }
 
     #[tokio::test]
     async fn test_concurrency_basic() {

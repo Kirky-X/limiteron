@@ -353,7 +353,7 @@ mod tests {
 
     /// 起一个回环 AdminServer，返回 (base_url, api_key)
     async fn spawn_admin_server() -> (String, &'static str) {
-        let governor = std::sync::Arc::new(crate::admin::make_governor().await);
+        let governor = std::sync::Arc::new(crate::admin::handlers::tests::make_governor().await);
         let config = AdminApiConfig {
             enabled: true,
             api_key: "test-api-key-16chars!!".to_string(),

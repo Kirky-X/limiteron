@@ -148,7 +148,7 @@ impl AdminServer {
 mod tests {
     use super::*;
     use crate::admin::AdminApiConfig;
-    use crate::admin::make_governor;
+    use crate::admin::handlers::tests::make_governor;
 
     #[tokio::test]
     async fn test_admin_server_new() {

@@ -2160,12 +2160,6 @@ impl Governor {
 
     // ==================== 缓存相关方法 ====================
 
-    /// 获取 缓存统计信息
-    #[cfg(test)]
-    pub(crate) async fn l1_cache_stats(&self) -> crate::l1_cache::L1CacheStats {
-        self.l1_cache.stats().await
-    }
-
     /// 启用 缓存
     pub fn enable_l1_cache(&self) {
         self.l1_cache_enabled
@@ -4721,7 +4715,7 @@ mod governor_construction_tests {
     // ============================================================================
 
     #[tokio::test]
-    async fn test_l1_cache_stats_method() {
+    async fn test_l1_cache_stats() {
         let governor = Governor::builder()
             .with_config(create_valid_test_config())
             .with_storage(Arc::new(MemoryStorage::new()))
@@ -4730,7 +4724,8 @@ mod governor_construction_tests {
             .await
             .expect("Governor build should succeed");
 
-        let stats = governor.l1_cache_stats().await;
+        // 测试模块为 Governor 子模块，直访私有字段（原 cfg(test) 方法已删）
+        let stats = governor.l1_cache.stats().await;
         assert_eq!(stats.total_lookups, 0);
         assert_eq!(stats.hits, 0);
         assert_eq!(stats.misses, 0);

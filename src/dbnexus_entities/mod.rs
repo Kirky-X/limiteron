@@ -27,17 +27,5 @@ pub use event_outbox::{
 pub use key_value::{ActiveModel as KeyValueActiveModel, Entity as KeyValueEntity};
 pub use quota_record::{Column as QuotaColumn, Model as QuotaRecordModel, create_quota_key};
 
-// Re-exports for test code only (DDL helpers and unused entity types)
-#[cfg(test)]
-pub use ban_record::create_table_ddl as ban_table_ddl;
-#[cfg(test)]
-pub use key_value::create_table_ddl as key_value_table_ddl;
-#[cfg(test)]
-pub use quota_record::create_table_ddl as quota_table_ddl;
-#[cfg(test)]
-pub use rate_limit::{
-    Model as RateLimitModel, create_rate_key, create_table_ddl as rate_limit_table_ddl,
-};
-
 mod dbnexus_entities_impl;
 pub use dbnexus_entities_impl::{create_all_tables_ddl, create_all_tables_ddl_sqlite};

@@ -106,20 +106,19 @@ fn build_zh_bundle() -> FluentBundle<FluentResource> {
     bundle
 }
 
-/// Extract the message-key set from an FTL source (lines of the form
-/// `key = value`, ignoring comments and blank lines).
-#[cfg(test)]
-fn ftl_keys(ftl: &str) -> std::collections::BTreeSet<String> {
-    ftl.lines()
-        .filter_map(|line| line.split_once(" = "))
-        .filter(|(key, _)| !key.contains(' '))
-        .map(|(key, _)| key.trim().to_string())
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Extract the message-key set from an FTL source (lines of the form
+    /// `key = value`, ignoring comments and blank lines).
+    fn ftl_keys(ftl: &str) -> std::collections::BTreeSet<String> {
+        ftl.lines()
+            .filter_map(|line| line.split_once(" = "))
+            .filter(|(key, _)| !key.contains(' '))
+            .map(|(key, _)| key.trim().to_string())
+            .collect()
+    }
 
     #[test]
     fn test_key_parity_en_zh() {

@@ -488,23 +488,116 @@ pub async fn get_circuit_breaker_status() -> (StatusCode, Json<ApiResponse<()>>)
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use crate::admin::make_state;
-    // 三个依赖注入型测试组各自有 feature 门控；其构造辅助随之门控，
-    // 避免 admin-api 单开（无任何依赖 feature）时的未用导入告警。
-    #[cfg(any(
-        feature = "ban-manager",
-        feature = "quota-control",
-        feature = "circuit-breaker"
-    ))]
-    use crate::admin::{TestDeps, make_governor, make_state_with};
-    #[cfg(any(
-        feature = "ban-manager",
-        feature = "quota-control",
-        feature = "circuit-breaker"
-    ))]
+    use crate::config::{
+        Action, ActionConfig, FlowControlConfig, GlobalConfig, LimiterConfig, Matcher, Rule,
+    };
+    use crate::governor::Governor;
+    use crate::storage::{BanStorage, MemoryBanStorage, MemoryStorage, Storage};
     use std::sync::Arc;
+
+    // ========================================================================
+    // 共享测试夹具：service / server / client / web / routes 的测试
+    // 经 `crate::admin::handlers::tests` 复用以下构造
+    // ========================================================================
+
+    /// 构造包含至少一条规则的合法 FlowControlConfig
+    ///
+    /// `Governor::new()` 现内置兜底规则可直接使用；此函数用于需要
+    /// 自定义规则集（如断言特定规则行为）的测试场景。
+    fn make_valid_config() -> FlowControlConfig {
+        FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "test_rule".to_string(),
+                name: "Test Rule".to_string(),
+                priority: 100,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig {
+                    on_exceed: Action::Reject,
+                    ban: None,
+                },
+            }],
+        }
+    }
+
+    /// 构造可用的 Governor 实例（避免 `Governor::new()` 的空配置 panic）
+    pub(crate) async fn make_governor() -> Governor {
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        let ban_storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
+        Governor::builder()
+            .with_config(make_valid_config())
+            .with_storage(storage)
+            .with_ban_storage(ban_storage)
+            .build()
+            .await
+            .expect("Governor build should succeed with valid config")
+    }
+
+    /// LimiteronState 可选依赖集合
+    ///
+    /// feature 关闭时对应字段整体缺席；调用点用 `..Default::default()` 补空，
+    /// 新增状态字段只需改此处与 `make_state_with` 两个组装点。
+    /// 仅被依赖注入型测试组消费，随之门控，避免 admin-api 单开时 dead_code。
+    #[derive(Default)]
+    #[cfg(any(
+        feature = "ban-manager",
+        feature = "quota-control",
+        feature = "circuit-breaker"
+    ))]
+    pub(crate) struct TestDeps {
+        #[cfg(feature = "ban-manager")]
+        pub(crate) ban_manager: Option<Arc<crate::BanManager>>,
+        #[cfg(feature = "quota-control")]
+        pub(crate) quota_controller: Option<Arc<crate::QuotaController>>,
+        #[cfg(feature = "circuit-breaker")]
+        pub(crate) circuit_breaker: Option<Arc<crate::CircuitBreaker>>,
+        #[cfg(feature = "prometheus")]
+        pub(crate) metrics: Option<Arc<crate::telemetry::Metrics>>,
+    }
+
+    /// 用既有实例组装 LimiteronState（状态组装的唯一入口）
+    #[cfg(any(
+        feature = "ban-manager",
+        feature = "quota-control",
+        feature = "circuit-breaker"
+    ))]
+    pub(crate) fn make_state_with(governor: Arc<Governor>, deps: TestDeps) -> LimiteronState {
+        LimiteronState {
+            governor,
+            #[cfg(feature = "ban-manager")]
+            ban_manager: deps.ban_manager,
+            #[cfg(feature = "quota-control")]
+            quota_controller: deps.quota_controller,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: deps.circuit_breaker,
+            #[cfg(feature = "prometheus")]
+            metrics: deps.metrics,
+        }
+    }
+
+    /// 构造最小可用 LimiteronState（仅 Governor，可选组件均为 None）
+    pub(crate) async fn make_state() -> LimiteronState {
+        LimiteronState {
+            governor: Arc::new(make_governor().await),
+            #[cfg(feature = "ban-manager")]
+            ban_manager: None,
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+            #[cfg(feature = "prometheus")]
+            metrics: None,
+        }
+    }
 
     #[test]
     fn test_api_response_ok_contains_data() {
@@ -1030,7 +1123,7 @@ mod tests {
     // 规则热更新 / 批量检查 / 批量令牌预取
     // ========================================================================
 
-    /// 构造一条合法规则的最小配置（与 test_support::make_valid_config 同构）
+    /// 构造一条合法规则的最小配置（结构同共享夹具 make_valid_config，版本/规则不同以模拟热更新）
     fn t613_valid_config() -> crate::config::FlowControlConfig {
         use crate::config::{Action, ActionConfig, LimiterConfig, Matcher, Rule};
         crate::config::FlowControlConfig {

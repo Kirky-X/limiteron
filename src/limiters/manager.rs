@@ -575,23 +575,6 @@ impl LimiterManager {
         limiter
     }
 
-    /// 清空所有缓存的限流器（仅供测试使用）
-    ///
-    /// 生产代码不应调用此方法——`LimiterManager` 设计为单例累积缓存，
-    /// 由 LRU 机制（`cleanup_*_limiters`）自动管理容量。
-    /// 仅在单元测试中重置全局状态时使用，避免测试间相互污染。
-    #[cfg(test)]
-    pub fn clear_for_test(&self) {
-        self.rate_limiters.clear();
-        self.rate_access_times.clear();
-        #[cfg(feature = "quota-control")]
-        self.quota_limiters.clear();
-        #[cfg(feature = "quota-control")]
-        self.quota_access_times.clear();
-        self.concurrency_limiters.clear();
-        self.concurrency_access_times.clear();
-    }
-
     /// LRU 清理：按访问时间淘汰最旧的 (1 - CLEANUP_RATIO) 比例外的条目
     ///
     /// 当 `rate_limiters.len()` 超过 `CLEANUP_THRESHOLD` 时被调用，
@@ -630,25 +613,6 @@ impl LimiterManager {
             &self.concurrency_access_times,
             max_entries,
         );
-    }
-
-    /// 获取 rate limiter 缓存数量
-    #[cfg(test)]
-    pub fn rate_limiter_count(&self) -> usize {
-        self.rate_limiters.len()
-    }
-
-    /// 获取 quota limiter 缓存数量
-    #[cfg(feature = "quota-control")]
-    #[cfg(test)]
-    pub fn quota_limiter_count(&self) -> usize {
-        self.quota_limiters.len()
-    }
-
-    /// 获取 concurrency limiter 缓存数量
-    #[cfg(test)]
-    pub fn concurrency_limiter_count(&self) -> usize {
-        self.concurrency_limiters.len()
     }
 }
 
@@ -704,6 +668,36 @@ pub static GLOBAL_LIMITER_MANAGER: LazyLock<LimiterManager> = LazyLock::new(Limi
 mod tests {
     use super::*;
     use crate::limiters::Limiter;
+
+    impl LimiterManager {
+        /// 清空所有缓存的限流器（仅供测试使用）
+        ///
+        /// `LimiterManager` 设计为单例累积缓存，由 LRU 机制（`cleanup_*_limiters`）
+        /// 自动管理容量；仅在单元测试中重置状态，避免测试间相互污染。
+        fn clear_for_test(&self) {
+            self.rate_limiters.clear();
+            self.rate_access_times.clear();
+            #[cfg(feature = "quota-control")]
+            self.quota_limiters.clear();
+            #[cfg(feature = "quota-control")]
+            self.quota_access_times.clear();
+            self.concurrency_limiters.clear();
+            self.concurrency_access_times.clear();
+        }
+
+        fn rate_limiter_count(&self) -> usize {
+            self.rate_limiters.len()
+        }
+
+        #[cfg(feature = "quota-control")]
+        fn quota_limiter_count(&self) -> usize {
+            self.quota_limiters.len()
+        }
+
+        fn concurrency_limiter_count(&self) -> usize {
+            self.concurrency_limiters.len()
+        }
+    }
 
     /// `GLOBAL_LIMITER_MANAGER` 是进程级全局单例，`clear_for_test` / `rate_limiter_count`
     /// 操作共享逻辑状态；并行 harness 下各用例互相踩踏 → 以进程级锁将触碰全局状态

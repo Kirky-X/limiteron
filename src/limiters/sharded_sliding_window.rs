@@ -274,23 +274,6 @@ impl ShardedSlidingWindowLimiter {
 
         allowed
     }
-
-    /// 获取当前窗口内的请求数（仅用于测试和监控）
-    #[cfg(test)]
-    pub fn get_window_count(&self) -> u64 {
-        let now_secs = self.current_timestamp_secs();
-        self.calculate_window_count(now_secs)
-    }
-
-    /// 获取指定分片的计数（仅用于测试）
-    #[cfg(test)]
-    pub fn get_shard_count(&self, index: usize) -> u64 {
-        if index < DEFAULT_SHARD_COUNT {
-            self.shards[index].load(Ordering::SeqCst)
-        } else {
-            0
-        }
-    }
 }
 
 #[async_trait]
@@ -354,6 +337,23 @@ impl ShardedSlidingWindowLimiter {
 mod tests {
     use super::*;
     use crate::clock::MockClock;
+
+    impl ShardedSlidingWindowLimiter {
+        /// 获取当前窗口内的请求数（仅测试断言用）
+        fn get_window_count(&self) -> u64 {
+            let now_secs = self.current_timestamp_secs();
+            self.calculate_window_count(now_secs)
+        }
+
+        /// 获取指定分片的计数（仅测试断言用）
+        fn get_shard_count(&self, index: usize) -> u64 {
+            if index < DEFAULT_SHARD_COUNT {
+                self.shards[index].load(Ordering::SeqCst)
+            } else {
+                0
+            }
+        }
+    }
 
     #[tokio::test]
     async fn test_sharded_basic() {

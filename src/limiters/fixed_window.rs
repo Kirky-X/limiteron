@@ -120,14 +120,6 @@ impl FixedWindowLimiter {
             state.count = 0;
         }
     }
-
-    /// 获取当前窗口的计数（仅用于测试）
-    #[cfg(test)]
-    fn get_count(&self) -> u64 {
-        let mut state = self.state.lock();
-        self.advance_expired_window(&mut state);
-        state.count
-    }
 }
 
 #[async_trait]
@@ -192,6 +184,15 @@ mod tests {
     use super::*;
     use crate::clock::MockClock;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    impl FixedWindowLimiter {
+        /// 获取当前窗口的计数（仅测试断言用）
+        fn get_count(&self) -> u64 {
+            let mut state = self.state.lock();
+            self.advance_expired_window(&mut state);
+            state.count
+        }
+    }
 
     #[tokio::test]
     async fn test_fixed_window_basic() {

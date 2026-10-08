@@ -32,14 +32,8 @@ pub mod routes;
 pub mod server;
 #[cfg(feature = "admin-api")]
 pub mod service;
-#[cfg(all(feature = "admin-api", test))]
-mod test_support;
 #[cfg(feature = "admin-ui")]
 pub mod web;
-#[cfg(all(feature = "admin-api", feature = "ban-manager", test))]
-pub use test_support::make_state_with_ban_manager;
-#[cfg(all(feature = "admin-api", test))]
-pub use test_support::{TestDeps, make_governor, make_state, make_state_with};
 
 #[cfg(feature = "admin-api")]
 pub use config::{AdminApiConfig, AdminRole};

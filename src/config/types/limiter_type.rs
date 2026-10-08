@@ -36,24 +36,6 @@ pub enum LimiterTypeName {
 }
 
 impl LimiterTypeName {
-    /// 从字符串解析
-    #[cfg(test)]
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "TokenBucket" => Some(Self::TokenBucket),
-            "SlidingWindow" => Some(Self::SlidingWindow),
-            "FixedWindow" => Some(Self::FixedWindow),
-            "Concurrency" => Some(Self::Concurrency),
-            "LeakyBucket" => Some(Self::LeakyBucket),
-            "SlidingWindowLog" => Some(Self::SlidingWindowLog),
-            "Quota" => Some(Self::Quota),
-            "PriorityQueue" => Some(Self::PriorityQueue),
-            "AdmissionControl" => Some(Self::AdmissionControl),
-            "Custom" => Some(Self::Custom),
-            _ => None,
-        }
-    }
-
     /// 转换为字符串
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -80,6 +62,25 @@ impl std::fmt::Display for LimiterTypeName {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl LimiterTypeName {
+        /// 从字符串解析（仅测试断言用：测试按变体名精确反查）
+        fn parse(s: &str) -> Option<Self> {
+            match s {
+                "TokenBucket" => Some(Self::TokenBucket),
+                "SlidingWindow" => Some(Self::SlidingWindow),
+                "FixedWindow" => Some(Self::FixedWindow),
+                "Concurrency" => Some(Self::Concurrency),
+                "LeakyBucket" => Some(Self::LeakyBucket),
+                "SlidingWindowLog" => Some(Self::SlidingWindowLog),
+                "Quota" => Some(Self::Quota),
+                "PriorityQueue" => Some(Self::PriorityQueue),
+                "AdmissionControl" => Some(Self::AdmissionControl),
+                "Custom" => Some(Self::Custom),
+                _ => None,
+            }
+        }
+    }
 
     #[test]
     fn test_parse_token_bucket() {

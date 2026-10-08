@@ -59,30 +59,6 @@ pub(crate) struct CacheableBanInfo {
 }
 
 impl CacheableDecision {
-    /// 创建允许决策（仅测试用）
-    #[cfg(test)]
-    pub fn allowed() -> Self {
-        Self {
-            decision_type: "allowed".to_string(),
-            reason: None,
-            rule_id: None,
-            ban_info: None,
-            metadata: None,
-        }
-    }
-
-    /// 创建拒绝决策（仅测试用）
-    #[cfg(test)]
-    pub fn rejected(reason: impl Into<String>) -> Self {
-        Self {
-            decision_type: "rejected".to_string(),
-            reason: Some(reason.into()),
-            rule_id: None,
-            ban_info: None,
-            metadata: None,
-        }
-    }
-
     /// 创建封禁决策
     pub fn banned(ban_info: &BanInfo) -> Self {
         Self {
@@ -195,24 +171,6 @@ impl CacheableDecision {
             }
             _ => Decision::allowed_default(),
         }
-    }
-
-    /// 检查是否为允许决策（仅测试用）
-    #[cfg(test)]
-    pub fn is_allowed(&self) -> bool {
-        self.decision_type == "allowed"
-    }
-
-    /// 检查是否为拒绝决策（仅测试用）
-    #[cfg(test)]
-    pub fn is_rejected(&self) -> bool {
-        self.decision_type == "rejected"
-    }
-
-    /// 检查是否为封禁决策（仅测试用）
-    #[cfg(test)]
-    pub fn is_banned(&self) -> bool {
-        self.decision_type == "banned"
     }
 }
 
@@ -847,22 +805,65 @@ where
     pub fn island_config(&self) -> Option<IslandModeConfig> {
         self.island_config.read().clone()
     }
-
-    /// 获取孤岛模式统计信息
-    ///
-    /// 扩展标准统计信息，包含孤岛模式状态。
-    #[cfg(test)]
-    pub(crate) async fn island_stats(&self) -> L1CacheStats {
-        let mut stats = self.stats().await;
-        if self.is_island_mode() {
-            stats.current_size += 1; // 标记位：使用 current_size+1 表示孤岛模式
-        }
-        stats
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    // 以下辅助原为生产 impl 上的 #[cfg(test)] 方法，落位测试模块后
+    // 方法可见性 pub(crate)，governor 的测试仍可调用（跨文件共享断言原语义）。
+    impl CacheableDecision {
+        /// 创建允许决策（仅测试用）
+        pub(crate) fn allowed() -> Self {
+            Self {
+                decision_type: "allowed".to_string(),
+                reason: None,
+                rule_id: None,
+                ban_info: None,
+                metadata: None,
+            }
+        }
+
+        /// 创建拒绝决策（仅测试用）
+        pub(crate) fn rejected(reason: impl Into<String>) -> Self {
+            Self {
+                decision_type: "rejected".to_string(),
+                reason: Some(reason.into()),
+                rule_id: None,
+                ban_info: None,
+                metadata: None,
+            }
+        }
+
+        /// 检查是否为允许决策（仅测试用）
+        pub(crate) fn is_allowed(&self) -> bool {
+            self.decision_type == "allowed"
+        }
+
+        /// 检查是否为拒绝决策（仅测试用）
+        pub(crate) fn is_rejected(&self) -> bool {
+            self.decision_type == "rejected"
+        }
+
+        /// 检查是否为封禁决策（仅测试用）
+        pub(crate) fn is_banned(&self) -> bool {
+            self.decision_type == "banned"
+        }
+    }
+
+    impl<T> L1Cache<T>
+    where
+        T: Serialize + DeserializeOwned + Send + Sync + 'static,
+    {
+        /// 获取孤岛模式统计信息（仅测试用；扩展标准统计信息，包含孤岛模式状态）
+        pub(crate) async fn island_stats(&self) -> L1CacheStats {
+            let mut stats = self.stats().await;
+            if self.is_island_mode() {
+                stats.current_size += 1; // 标记位：使用 current_size+1 表示孤岛模式
+            }
+            stats
+        }
+    }
+
     #[test]
     fn test_cacheable_decision_roundtrip_preserves_headers() {
         // 头字段守恒回归：负缓存往返曾丢失 retry_after/limit/reset——

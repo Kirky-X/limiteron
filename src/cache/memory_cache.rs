@@ -2,59 +2,47 @@
 // SPDX-License-Identifier: MIT
 // MemoryCache - In-memory cache implementation of CacheService
 //
-// Implements the CacheService trait with an in-memory backend using DashMap.
+// Implements the CacheService trait with an in-memory backend backed by
+// oxcache `Cache` (moka TTL backend). The hand-written DashMap entry
+// store and second-resolution expiry are gone: per-entry TTL is handled
+// natively by the backend.
 
 use crate::cache::CacheService;
 use crate::error::StorageError;
 use async_trait::async_trait;
-use dashmap::DashMap;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use oxcache::Cache;
+use oxcache::error::OxCacheError;
+use std::sync::Arc;
+use std::time::Duration;
 
-/// In-memory cache entry with TTL
-#[derive(Clone)]
-struct CacheEntry {
-    value: String,
-    expiry: Option<u64>, // Unix timestamp in seconds
-}
-
-impl CacheEntry {
-    fn new(value: String, ttl_seconds: Option<u64>) -> Self {
-        let expiry = ttl_seconds.map(|ttl| {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
-            now + ttl
-        });
-
-        CacheEntry { value, expiry }
-    }
-
-    fn is_expired(&self) -> bool {
-        if let Some(expiry) = self.expiry {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
-            now >= expiry
-        } else {
-            false
-        }
-    }
-}
-
-/// In-memory cache implementation using DashMap
+/// In-memory cache implementation backed by oxcache `Cache`
+///
+/// TTL 语义：per-entry TTL 由 oxcache 后端（moka）原生承载——
+/// `set(key, value, None)` 走构建期默认 TTL（`CacheBuilder::ttl`）；
+/// `set_with_ttl` 接受任意精度 `Duration`，亚秒 TTL 精确过期
+/// （旧实现的秒级时间戳 clamp `max(1)` 已随 `CacheEntry` 删除，
+/// 行为由"至少存活 1 秒"收紧为"精确亚秒过期"）。
 pub struct MemoryCache {
-    storage: DashMap<String, CacheEntry>,
-    default_ttl: Option<u64>,
+    inner: Arc<Cache<String, String>>,
 }
 
 impl MemoryCache {
     /// Create a new MemoryCache with default TTL
+    ///
+    /// `Some(ttl)` 经 `CacheBuilder::ttl` 设为构建期默认 TTL；
+    /// `None` 不设默认 TTL（条目不过期）。
     pub fn new(default_ttl: Option<u64>) -> Self {
+        let mut builder = Cache::builder();
+        if let Some(ttl) = default_ttl {
+            builder = builder.ttl(Duration::from_secs(ttl));
+        }
+        // 默认 Moka 路径在当前 feature 链（core → ... → memory）下必然
+        // 可用；失败仅发生于 memory feature 缺失的非法组合
+        let cache = builder
+            .build_sync()
+            .unwrap_or_else(|e| panic!("oxcache Cache build failed: {e}"));
         Self {
-            storage: DashMap::new(),
-            default_ttl,
+            inner: Arc::new(cache),
         }
     }
 
@@ -67,35 +55,37 @@ impl MemoryCache {
     pub fn no_expiry() -> Self {
         Self::new(None)
     }
+}
 
-    /// Get a value without checking expiration (internal use)
-    fn get_raw(&self, key: &str) -> Option<String> {
-        // 过期判定与移除分两步：guard 在语句结束释放后再 remove，
-        // 避免持有 DashMap 读 guard 时获取同 shard 写锁导致自死锁
-        if !self.storage.get(key)?.is_expired() {
-            return self.storage.get(key).map(|entry| entry.value.clone());
-        }
-        self.storage.remove(key);
-        None
+/// OxCacheError → StorageError 映射（与 crate 内先例 src/cache/storage.rs 一致）
+fn map_error(e: OxCacheError) -> StorageError {
+    match e {
+        OxCacheError::Connection(_) => StorageError::ConnectionError(e.to_string()),
+        OxCacheError::Timeout(_) => StorageError::ConnectionError(e.to_string()),
+        _ => StorageError::QueryError(e.to_string()),
     }
 }
 
 #[async_trait]
 impl CacheService for MemoryCache {
     async fn get(&self, key: &str) -> Result<Option<String>, StorageError> {
-        Ok(self.get_raw(key))
+        self.inner.get(&key.to_string()).await.map_err(map_error)
     }
 
     async fn set(&self, key: &str, value: &str, ttl: Option<u64>) -> Result<(), StorageError> {
-        let effective_ttl = ttl.or(self.default_ttl);
-        let entry = CacheEntry::new(value.to_string(), effective_ttl);
-        self.storage.insert(key.to_string(), entry);
-        Ok(())
+        // None → builder 默认 TTL（design D4）
+        self.inner
+            .set_with_ttl(
+                &key.to_string(),
+                &value.to_string(),
+                ttl.map(Duration::from_secs),
+            )
+            .await
+            .map_err(map_error)
     }
 
     async fn delete(&self, key: &str) -> Result<(), StorageError> {
-        self.storage.remove(key);
-        Ok(())
+        self.inner.delete(&key.to_string()).await.map_err(map_error)
     }
 
     async fn set_with_ttl(
@@ -104,12 +94,11 @@ impl CacheService for MemoryCache {
         value: &str,
         ttl: Duration,
     ) -> Result<(), StorageError> {
-        // CacheEntry 过期时间为秒级时间戳：亚秒 TTL 至少存活 1 秒，
-        // 避免 as_secs() 截断为 0 导致条目立即过期
-        let ttl_seconds = Some(ttl.as_secs().max(1));
-        let entry = CacheEntry::new(value.to_string(), ttl_seconds);
-        self.storage.insert(key.to_string(), entry);
-        Ok(())
+        // 亚秒 TTL 由后端真实承载：直接传 Duration，删除旧 clamp
+        self.inner
+            .set_with_ttl(&key.to_string(), &value.to_string(), Some(ttl))
+            .await
+            .map_err(map_error)
     }
 }
 
@@ -164,13 +153,16 @@ mod tests {
             .set_with_ttl("specific_key", "specific_value", Duration::from_millis(500))
             .await
             .unwrap();
+        // 500ms 到期前存活
         let result = cache.get("specific_key").await.unwrap();
         assert_eq!(result, Some("specific_value".to_string()));
 
-        // Wait for expiration
-        sleep(Duration::from_secs(1)).await;
+        // 500ms 后精确过期：oxcache 后端真实承载亚秒 TTL。旧实现把亚秒
+        // clamp 到 1 秒且用秒级时间戳判定（实际过期时刻散布于 (0,1]），
+        // 700ms 探针对旧实现为概率性判别；迁移后本断言确定性成立。
+        sleep(Duration::from_millis(700)).await;
         let result = cache.get("specific_key").await.unwrap();
-        assert_eq!(result, None);
+        assert_eq!(result, None, "500ms TTL 应在 700ms 后精确过期");
     }
 
     #[tokio::test]
@@ -188,5 +180,31 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         let result = cache.get("permanent_key").await.unwrap();
         assert_eq!(result, Some("permanent_value".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_default_ttl_keeps_entry_alive() {
+        // Default 300s 默认 TTL 锚：条目在探测窗内存活。墙钟 300s
+        // 无法在单测等待；同一 builder TTL 路径的过期行为由
+        // test_memory_cache_with_ttl（1s）与亚秒精确过期测试覆盖。
+        let cache = MemoryCache::default();
+
+        cache.set("k", "v", None).await.unwrap();
+        sleep(Duration::from_millis(100)).await;
+        assert_eq!(cache.get("k").await.unwrap(), Some("v".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_per_op_ttl_overrides_long_default() {
+        // per-op TTL 覆盖默认值：300s 默认下 set(Some(1)) 仍按 1s 过期
+        let cache = MemoryCache::new(Some(300));
+
+        cache.set("k", "v", Some(1)).await.unwrap();
+        let result = cache.get("k").await.unwrap();
+        assert_eq!(result, Some("v".to_string()));
+
+        sleep(Duration::from_secs(2)).await;
+        let result = cache.get("k").await.unwrap();
+        assert_eq!(result, None);
     }
 }

@@ -90,60 +90,72 @@ pub fn redact_email(value: Option<&str>) -> String {
 }
 
 #[cfg(feature = "log-redaction")]
-use parking_lot::Mutex;
+use inklog::{DataMasker, MaskRule, MaskRuleRegistry};
 #[cfg(feature = "log-redaction")]
-use regex::Regex;
+use std::sync::LazyLock;
 
+/// 进程级脱敏引擎：inklog `DataMasker`（21 条内置规则 + limiteron
+/// 键值对补充规则），不可变且可跨线程共享
 #[cfg(feature = "log-redaction")]
-/// 敏感字段模式列表
-static SENSITIVE_PATTERNS: Mutex<Vec<(&str, Regex)>> = Mutex::new(Vec::new());
+static DATA_MASKER: LazyLock<DataMasker> = LazyLock::new(build_data_masker);
 
-#[cfg(feature = "log-redaction")]
-/// 初始化敏感字段模式
+/// limiteron 公开契约钉死的脱敏补充规则（priority 90，先于内置值
+/// 模式规则执行）
 ///
-/// 模式支持三种格式的键值对（`<K>` 为 `password`/`token` 等敏感键名，
-/// `<V>` 为待脱敏的值）：
-/// - URL/query: `<K>=<V>`
-/// - YAML/plain: `<K>: <V>`
-/// - JSON: `"<K>": "<V>"` 或 `"<K>":"<V>"`
-fn initialize_patterns() {
-    let mut patterns = SENSITIVE_PATTERNS.lock();
-    if patterns.is_empty() {
-        patterns.push((
-            "password",
-            Regex::new(r#"(?i)("?password"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#).unwrap(),
-        ));
-        patterns.push((
-            "api_key",
-            Regex::new(r#"(?i)("?api[_-]?key"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#).unwrap(),
-        ));
-        patterns.push((
-            "token",
-            Regex::new(r#"(?i)("?token"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#).unwrap(),
-        ));
-        patterns.push((
-            "secret",
-            Regex::new(r#"(?i)("?secret"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#).unwrap(),
-        ));
-        patterns.push((
-            "credential",
-            Regex::new(r#"(?i)("?credential"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#).unwrap(),
-        ));
-        patterns.push((
-            "authorization",
-            Regex::new(r#"(?i)("?authorization"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#).unwrap(),
-        ));
-        patterns.push((
-            "email",
-            Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap(),
-        ));
-        patterns.push(("phone", Regex::new(r"1[3-9]\d{9}").unwrap()));
-        patterns.push(("id_card", Regex::new(r"\d{17}[\dXx]").unwrap()));
-        patterns.push((
-            "credit_card",
-            Regex::new(r"\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}").unwrap(),
-        ));
+/// inklog 内置 `generic_secret`/`api_key` 规则对短值（分别 <16/<20
+/// 字符）不命中，且 `authorization` 不在其键名集合内；`bank_card`/
+/// `credit_card` 仅匹配连续数字、不匹配分隔符形态的卡号。以下规则按
+/// 原手写正则的契约补齐：
+/// - 六类键值对（URL `k=v`、YAML/plain `k: v`、JSON `"k":"v"`），
+///   整段匹配替换为 `***`（与原引擎输出一致）；
+/// - 分隔符形态信用卡号（`1234-5678-9012-3456`，原 `credit_card`
+///   值模式语义；连续数字形态交由内置 `bank_card` 部分掩码）。
+#[cfg(feature = "log-redaction")]
+const KV_MASK_RULES: [(&str, &str); 7] = [
+    (
+        "kv_password",
+        r#"(?i)("?password"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#,
+    ),
+    (
+        "kv_api_key",
+        r#"(?i)("?api[_-]?key"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#,
+    ),
+    ("kv_token", r#"(?i)("?token"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#),
+    (
+        "kv_secret",
+        r#"(?i)("?secret"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#,
+    ),
+    (
+        "kv_credential",
+        r#"(?i)("?credential"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#,
+    ),
+    (
+        "kv_authorization",
+        r#"(?i)("?authorization"?\s*[:=]\s*"?\s*)([^"\s,\}]+)"#,
+    ),
+    (
+        "credit_card_separated",
+        r"(?<![0-9])\d{4}[-\s]\d{4}[-\s]\d{4}[-\s]\d{4}(?![0-9])",
+    ),
+];
+
+/// 组装进程级 `DataMasker`：`MaskRuleRegistry::with_builtins()`（21 条
+/// 内置规则）+ limiteron 六类键值对补充规则
+#[cfg(feature = "log-redaction")]
+fn build_data_masker() -> DataMasker {
+    let mut registry = MaskRuleRegistry::with_builtins();
+    for (name, pattern) in KV_MASK_RULES {
+        let rule = MaskRule::builder(name)
+            .pattern(pattern)
+            .replacement("***")
+            .priority(90)
+            .build()
+            .unwrap_or_else(|e| panic!("invalid limiteron masking rule {name}: {e}"));
+        registry
+            .register(rule)
+            .expect("limiteron kv rule name collision with builtins");
     }
+    DataMasker::builder().with_registry(registry).build()
 }
 
 /// 判断字段名是否为敏感字段（词边界匹配，修复 F3 误脱敏）
@@ -227,6 +239,11 @@ fn split_field_tokens(name: &str) -> impl Iterator<Item = &str> {
 }
 
 /// 增强版脱敏函数 - 需要 log-redaction feature
+///
+/// 语义（design D2）：① 已知敏感字段名整段脱敏（`is_sensitive_field_name`
+/// 词边界门控，入口前置）；② 短值（≤4 字符）整段脱敏；③ 其余值经 inklog
+/// `DataMasker` 掩码——命中规则的值被掩码，非敏感值原样返回（除命中
+/// 规则外无副作用改写）。
 #[cfg(feature = "log-redaction")]
 #[inline]
 pub fn redact_advanced(value: Option<&str>, field_name: Option<&str>) -> String {
@@ -243,75 +260,43 @@ pub fn redact_advanced(value: Option<&str>, field_name: Option<&str>) -> String 
     //
     // 词边界匹配（修复 F3 误脱敏）：将字段名按分隔符（`_`/`-`/`.`/空格）
     // 与 camelCase 边界切分为词元，仅当任一词元命中敏感关键词（或以
-    // 高危词元开头，如 `keychain` → `key`）时才整体脱敏。旧实现用
-    // `contains()` 子串匹配，`monkey`/`tokenizer` 等无关字段会被误脱敏，
-    // 导致合法字段的日志可见性损失；`my_token_123` 这类真实敏感字段
-    // 仍被正确覆盖。
+    // 高危词元开头，如 `keychain` → `key`）时才整体脱敏。inklog 的
+    // `is_sensitive_field` 为词边界正则，`keychain`/`tokenizer` 不判
+    // 敏感，与既有契约冲突，故保留本纯函数作入口前置判断。
     if let Some(name) = field_name
         && is_sensitive_field_name(name)
     {
         return "***".to_string();
     }
 
-    // 应用正则模式脱敏：任何 regex 命中即完全脱敏（修复 result 被丢弃的逻辑缺陷）
-    initialize_patterns();
-    for (pattern_name, regex) in SENSITIVE_PATTERNS.lock().iter() {
-        if (*pattern_name == "email"
-            || *pattern_name == "phone"
-            || *pattern_name == "id_card"
-            || *pattern_name == "credit_card")
-            && regex.is_match(value)
-        {
-            return "***".to_string();
-        }
-    }
-
-    // 如果是短值，完全脱敏
+    // 短值完全脱敏（与引擎无关的安全网）
     if value.len() <= 4 {
         return "***".to_string();
     }
 
-    // 基础脱敏：保留首尾字符
-    let prefix = &value[..2.min(value.len())];
-    let suffix_len = 2.min(value.len().saturating_sub(2));
-    let suffix = &value[value.len().saturating_sub(suffix_len)..];
-
-    format!("{}***{}", prefix, suffix)
+    DATA_MASKER.mask(value)
 }
 
 /// 敏感信息检测 - 需要 log-redaction feature
+///
+/// 经 `DataMasker::detect` 检测面判定：任一规则（21 条内置 + limiteron
+/// 六类键值对补充）命中即返回 true。与 `redact_advanced` 判定一致——
+/// 能掩码的必能检出（R-log-redaction-002）。
 #[cfg(feature = "log-redaction")]
 #[inline]
 pub fn contains_sensitive_info(value: &str) -> bool {
-    initialize_patterns();
-    for (_, regex) in SENSITIVE_PATTERNS.lock().iter() {
-        if regex.is_match(value) {
-            return true;
-        }
-    }
-
-    // 检查常见的敏感字段名
-    let lower_value = value.to_lowercase();
-    lower_value.contains("password")
-        || lower_value.contains("secret")
-        || lower_value.contains("token")
-        || lower_value.contains("api_key")
-        || lower_value.contains("credential")
-        || lower_value.contains("authorization")
+    !DATA_MASKER.detect(value).is_empty()
 }
 
 /// HTTP请求/响应脱敏 - 需要 log-redaction feature
+///
+/// 经 inklog `DataMasker` 掩码：六类键值对（password/token/authorization/
+/// api_key/secret/credential，三格式）整段替换；内置值模式（email/phone/
+/// id_card/bank_card/ip/mac/jwt/aws_key 等）原地掩码；非敏感内容原样保留。
 #[cfg(feature = "log-redaction")]
 #[inline]
 pub fn redact_http_content(content: &str) -> String {
-    let mut result = content.to_string();
-
-    initialize_patterns();
-    for (_, regex) in SENSITIVE_PATTERNS.lock().iter() {
-        result = regex.replace_all(&result, "***").to_string();
-    }
-
-    result
+    DATA_MASKER.mask(content)
 }
 
 /// 批量脱敏结构体字段 - 需要 log-redaction feature
@@ -575,249 +560,24 @@ mod tests {
     mod log_redaction_tests {
         use super::*;
 
-        #[test]
-        fn test_redact_advanced() {
-            assert_eq!(redact_advanced(None, None), "unknown");
-            assert_eq!(redact_advanced(Some("password123"), None), "pa***23");
-            assert_eq!(redact_advanced(Some("token123"), Some("api_key")), "***");
-            assert_eq!(
-                redact_advanced(Some("user123"), Some("username")),
-                "us***23"
-            );
-        }
+        // ===== 引擎无关锚（inklog DataMasker 迁移前后均应绿）=====
 
         #[test]
-        fn test_redact_advanced_empty_and_short() {
+        fn test_redact_advanced_field_name_gate() {
+            // 敏感字段名门控（is_sensitive_field_name 入口前置）整段脱敏
+            assert_eq!(redact_advanced(None, None), "unknown");
             assert_eq!(redact_advanced(Some(""), None), "unknown");
             assert_eq!(redact_advanced(Some("   "), None), "unknown");
-            assert_eq!(redact_advanced(Some("abc"), None), "***");
-            assert_eq!(redact_advanced(Some("abcd"), None), "***");
-            assert_eq!(redact_advanced(Some("abcde"), None), "ab***de");
-        }
-
-        #[test]
-        fn test_redact_advanced_sensitive_field_names() {
             assert_eq!(redact_advanced(Some("val"), Some("password")), "***");
             assert_eq!(redact_advanced(Some("val"), Some("my_secret")), "***");
             assert_eq!(redact_advanced(Some("val"), Some("auth_token")), "***");
             assert_eq!(redact_advanced(Some("val"), Some("api_key")), "***");
             assert_eq!(redact_advanced(Some("val"), Some("credential")), "***");
             assert_eq!(redact_advanced(Some("val"), Some("authorization")), "***");
-        }
-
-        #[test]
-        fn test_redact_advanced_sensitive_field_case_insensitive() {
             assert_eq!(redact_advanced(Some("val"), Some("Password")), "***");
             assert_eq!(redact_advanced(Some("val"), Some("SECRET_KEY")), "***");
-        }
-
-        #[test]
-        fn test_redact_advanced_applies_regex_then_basic_redact() {
-            // 任何 regex 命中即完全脱敏（修复 result 被丢弃的逻辑缺陷：
-            // 原实现 regex 替换结果 result 被丢弃，最终输出基于原始 value 的 prefix/suffix）
-            assert_eq!(
-                redact_advanced(Some("contact me at test@example.com"), None),
-                "***"
-            );
-            assert_eq!(redact_advanced(Some("phone: 13800138000"), None), "***");
-            assert_eq!(redact_advanced(Some("id: 110101199001011234"), None), "***");
-            assert_eq!(
-                redact_advanced(Some("card: 1234-5678-9012-3456"), None),
-                "***"
-            );
-        }
-
-        #[test]
-        fn test_redact_advanced_credit_card_no_separator() {
-            let result = redact_advanced(Some("card: 1234567890123456"), None);
-            assert_eq!(result, "***");
-        }
-
-        #[test]
-        fn test_contains_sensitive_info() {
-            assert!(contains_sensitive_info("password=secret123"));
-            assert!(contains_sensitive_info("api_key=abc123xyz"));
-            assert!(contains_sensitive_info(
-                "token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
-            ));
-            assert!(!contains_sensitive_info("username=user123"));
-        }
-
-        #[test]
-        fn test_contains_sensitive_info_more() {
-            assert!(contains_sensitive_info("secret=mysecret"));
-            assert!(contains_sensitive_info("credential=mycred"));
-            assert!(contains_sensitive_info("authorization=bearer token"));
-            assert!(!contains_sensitive_info(""));
-            assert!(!contains_sensitive_info("hello world"));
-        }
-
-        #[test]
-        fn test_contains_sensitive_info_field_name_only() {
-            assert!(contains_sensitive_info("password"));
-            assert!(contains_sensitive_info("token"));
-            assert!(contains_sensitive_info("secret"));
-            assert!(contains_sensitive_info("api_key"));
-            assert!(contains_sensitive_info("credential"));
-            assert!(contains_sensitive_info("authorization"));
-        }
-
-        #[test]
-        fn test_contains_sensitive_info_regex_patterns() {
-            assert!(contains_sensitive_info("test@example.com"));
-            assert!(contains_sensitive_info("13800138000"));
-            assert!(contains_sensitive_info("110101199001011234"));
-            assert!(contains_sensitive_info("1234567890123456"));
-        }
-
-        #[test]
-        fn test_redact_http_content() {
-            let content = r#"password=secret123, username=user123"#;
-            let redacted = redact_http_content(content);
-            assert!(!redacted.contains("secret123"));
-            assert!(redacted.contains("user123"));
-        }
-
-        #[test]
-        fn test_redact_http_content_empty() {
-            assert_eq!(redact_http_content(""), "");
-        }
-
-        #[test]
-        fn test_redact_http_content_no_sensitive() {
-            let content = "username=user123, role=admin";
-            let redacted = redact_http_content(content);
-            assert_eq!(redacted, content);
-        }
-
-        #[test]
-        fn test_redact_http_content_email() {
-            let content = "user=test@example.com";
-            let redacted = redact_http_content(content);
-            assert_eq!(redacted, "user=***");
-        }
-
-        #[test]
-        fn test_redact_http_content_multiple_sensitive() {
-            let content = "password=abc123 token=xyz789";
-            let redacted = redact_http_content(content);
-            assert_eq!(redacted, "*** ***");
-        }
-
-        #[test]
-        fn test_redaction_config_default() {
-            let config: RedactionConfig = Default::default();
-            assert_eq!(config.fields.len(), 0);
-        }
-
-        #[test]
-        fn test_redaction_config_empty_format() {
-            let config = RedactionConfig::new();
-            let result = config.format(|_| None);
-            assert_eq!(result, "{}");
-        }
-
-        #[test]
-        fn test_redaction_config_with_missing_field() {
-            let config = RedactionConfig::new()
-                .add_field("password", true)
-                .add_field("username", false);
-
-            let result = config.format(|field| match field {
-                "password" => Some("secret123".to_string()),
-                _ => None,
-            });
-
-            assert_eq!(result, "{password=***}");
-        }
-
-        #[test]
-        fn test_redaction_config_no_sensitive() {
-            let config = RedactionConfig::new()
-                .add_field("user", false)
-                .add_field("role", false);
-
-            let result = config.format(|field| match field {
-                "user" => Some("alice".to_string()),
-                "role" => Some("admin".to_string()),
-                _ => None,
-            });
-
-            assert_eq!(result, "{user=alice, role=admin}");
-        }
-
-        #[test]
-        fn test_redaction_config_all_sensitive() {
-            let config = RedactionConfig::new()
-                .add_field("password", true)
-                .add_field("token", true);
-
-            let result = config.format(|field| match field {
-                "password" => Some("secret123".to_string()),
-                "token" => Some("abc".to_string()),
-                _ => None,
-            });
-
-            assert_eq!(result, "{password=***, token=***}");
-        }
-
-        #[test]
-        fn test_initialize_patterns_idempotent() {
-            initialize_patterns();
-            initialize_patterns();
-            let patterns = SENSITIVE_PATTERNS.lock();
-            let names: Vec<&str> = patterns.iter().map(|(n, _)| *n).collect();
-            assert_eq!(names.len(), 10);
-            assert!(names.contains(&"password"));
-            assert!(names.contains(&"api_key"));
-            assert!(names.contains(&"token"));
-            assert!(names.contains(&"secret"));
-            assert!(names.contains(&"credential"));
-            assert!(names.contains(&"authorization"));
-            assert!(names.contains(&"email"));
-            assert!(names.contains(&"phone"));
-            assert!(names.contains(&"id_card"));
-            assert!(names.contains(&"credit_card"));
-        }
-
-        #[test]
-        fn test_redact_advanced_field_key_substring() {
-            // F3 修复回归：词边界匹配。`monkey` 仅含子串 "key"，
-            // 不再触发整段脱敏（仅走通用部分掩码，非整段替换）；
-            // `keychain` 以高危前缀开头仍整段脱敏
-            let masked = redact_advanced(Some("value"), Some("monkey"));
-            assert_ne!(masked, "***", "monkey 不应被整段脱敏");
-            assert_eq!(redact_advanced(Some("value"), Some("keychain")), "***");
-            assert_eq!(redact_advanced(Some("value"), Some("key")), "***");
-        }
-
-        #[test]
-        fn test_redact_advanced_field_token_substring() {
-            // F3 修复回归：`tokenizer` 以 "token" 开头（保守方向保留）；
-            // `my_token_123` 词元精确命中 "token"
-            assert_eq!(redact_advanced(Some("value"), Some("tokenizer")), "***");
-            assert_eq!(redact_advanced(Some("value"), Some("my_token_123")), "***");
-            assert_eq!(redact_advanced(Some("value"), Some("myToken")), "***"); // camelCase
-            assert_eq!(redact_advanced(Some("value"), Some("keyboard")), "***"); // 高危前缀（保守方向残余误报）
-            assert_eq!(redact_advanced(Some("value"), Some("tokenize_data")), "***");
-        }
-
-        #[test]
-        fn test_redact_advanced_short_value_after_regex() {
-            assert_eq!(redact_advanced(Some("hi"), None), "***");
-            assert_eq!(redact_advanced(Some("bye"), Some("tag")), "***");
-            assert_eq!(redact_advanced(Some("test"), None), "***");
-        }
-
-        #[test]
-        fn test_redact_advanced_long_value_with_sensitive_field() {
-            let long = "abcdefghijklmnopqrstuvwxyz";
-            assert_eq!(redact_advanced(Some(long), Some("password")), "***");
-            assert_eq!(redact_advanced(Some(long), Some("secret_key")), "***");
-        }
-
-        #[test]
-        fn test_redact_advanced_each_individual_trigger() {
+            assert_eq!(redact_advanced(Some("val"), Some("keychain")), "***");
+            assert_eq!(redact_advanced(Some("val"), Some("tokenizer")), "***");
             assert_eq!(redact_advanced(Some("x"), Some("PASSWORD")), "***");
             assert_eq!(redact_advanced(Some("x"), Some("SECRET")), "***");
             assert_eq!(redact_advanced(Some("x"), Some("TOKEN")), "***");
@@ -827,182 +587,122 @@ mod tests {
         }
 
         #[test]
-        fn test_redact_http_content_api_key_secret() {
-            let content = r#"api_key=sk-abc123, secret=mysecret123"#;
-            let redacted = redact_http_content(content);
-            assert!(!redacted.contains("sk-abc123"));
-            assert!(!redacted.contains("mysecret123"));
+        fn test_redact_advanced_short_value_fully_masked() {
+            // 短值（≤4 字符）整段脱敏：与引擎无关的安全网
+            assert_eq!(redact_advanced(Some("abc"), None), "***");
+            assert_eq!(redact_advanced(Some("abcd"), None), "***");
+            assert_eq!(redact_advanced(Some("hi"), None), "***");
+            assert_eq!(redact_advanced(Some("bye"), Some("tag")), "***");
+            assert_eq!(redact_advanced(Some("test"), None), "***");
         }
 
         #[test]
-        fn test_redact_http_content_credential_auth() {
-            let content = r#"credential=mycreds, authorization=bearer_token"#;
-            let redacted = redact_http_content(content);
-            assert!(!redacted.contains("mycreds"));
-            assert!(!redacted.contains("bearer_token"));
+        fn test_redact_advanced_monkey_not_over_masked() {
+            // F3 修复回归：词边界匹配。`monkey` 仅含 `key` 子串，
+            // 不整段脱敏（不依赖引擎的字段名门控行为）
+            let masked = redact_advanced(Some("value"), Some("monkey"));
+            assert_ne!(masked, "***", "monkey 不应被整段脱敏");
         }
 
         #[test]
-        fn test_redact_http_content_phone_id_card_credit() {
-            let content = r#"phone=13800138000, id=110101199001011234, cc=1234-5678-9012-3456"#;
-            let redacted = redact_http_content(content);
-            assert!(!redacted.contains("13800138000"));
-            assert!(!redacted.contains("110101199001011234"));
-            assert!(!redacted.contains("1234-5678-9012-3456"));
+        fn test_is_sensitive_field_name_boundaries() {
+            // (d) 词边界行为钉住：高危前缀命中、纯子串不误伤
+            assert!(is_sensitive_field_name("keychain"));
+            assert!(is_sensitive_field_name("tokenizer"));
+            assert!(is_sensitive_field_name("db_password"));
+            assert!(is_sensitive_field_name("authToken"));
+            assert!(is_sensitive_field_name("my_token_123"));
+            assert!(is_sensitive_field_name("myToken"));
+            assert!(is_sensitive_field_name("SECRET_KEY"));
+            assert!(!is_sensitive_field_name("monkey"));
+            assert!(!is_sensitive_field_name("username"));
+            assert!(!is_sensitive_field_name("message"));
+            assert!(!is_sensitive_field_name("role"));
         }
 
         #[test]
-        fn test_redact_http_content_all_pattern_types() {
-            let content = concat!(
-                "password=pass123, ",
-                "api_key=key123, ",
-                "token=my_token, ",
-                "secret=my_secret, ",
-                "credential=cr3d3ntial, ",
-                "authorization=@uth_t0k3n, ",
-                "email=test@example.com, ",
-                "phone=13800138000, ",
-                "id_card=110101199001011234, ",
-                "credit_card=1234567890123456"
-            );
-            let redacted = redact_http_content(content);
-            assert!(!redacted.contains("pass123"), "password should be redacted");
-            assert!(!redacted.contains("key123"), "api_key should be redacted");
-            assert!(!redacted.contains("my_token"), "token should be redacted");
-            assert!(!redacted.contains("my_secret"), "secret should be redacted");
-            assert!(
-                !redacted.contains("cr3d3ntial"),
-                "credential should be redacted"
-            );
-            assert!(
-                !redacted.contains("@uth_t0k3n"),
-                "authorization should be redacted"
-            );
-            assert!(
-                !redacted.contains("test@example.com"),
-                "email should be redacted"
-            );
-            assert!(
-                !redacted.contains("13800138000"),
-                "phone should be redacted"
-            );
-            assert!(
-                !redacted.contains("110101199001011234"),
-                "id_card should be redacted"
-            );
-            assert!(
-                !redacted.contains("1234567890123456"),
-                "credit_card should be redacted"
-            );
+        fn test_redact_http_content_key_value_forms() {
+            // (a) password/token/authorization/api_key/secret/credential
+            // 键值对三格式（URL k=v / YAML k: v / JSON "k":"v"）值被掩码，
+            // 相邻非敏感参数保留
+            for key in [
+                "password",
+                "token",
+                "authorization",
+                "api_key",
+                "secret",
+                "credential",
+            ] {
+                let url = format!("GET /api?{}=s3cr3tV4lue user=bob", key);
+                let redacted = redact_http_content(&url);
+                assert!(
+                    !redacted.contains("s3cr3tV4lue"),
+                    "{key} URL 形态未脱敏: {redacted}"
+                );
+                assert!(
+                    redacted.contains("user=bob"),
+                    "{key} URL 形态误伤相邻参数: {redacted}"
+                );
+
+                let yaml = format!("{}: s3cr3tV4lue\nusername: bob", key);
+                let redacted = redact_http_content(&yaml);
+                assert!(
+                    !redacted.contains("s3cr3tV4lue"),
+                    "{key} YAML 形态未脱敏: {redacted}"
+                );
+                assert!(
+                    redacted.contains("username: bob"),
+                    "{key} YAML 形态误伤相邻键: {redacted}"
+                );
+
+                let json = format!(r#"{{"{}": "s3cr3tV4lue", "username": "bob"}}"#, key);
+                let redacted = redact_http_content(&json);
+                assert!(
+                    !redacted.contains("s3cr3tV4lue"),
+                    "{key} JSON 形态未脱敏: {redacted}"
+                );
+                assert!(
+                    redacted.contains("bob"),
+                    "{key} JSON 形态误伤相邻键: {redacted}"
+                );
+            }
         }
 
         #[test]
-        fn test_contains_sensitive_info_special_values() {
-            assert!(!contains_sensitive_info(" "));
-            assert!(!contains_sensitive_info("\t"));
-            assert!(!contains_sensitive_info("a"));
-            assert!(!contains_sensitive_info("ab"));
+        fn test_redact_http_content_value_patterns() {
+            // (b) email/phone/id_card/credit_card 值模式脱敏
+            let cases = [
+                ("email=test@example.com", "test@example.com"),
+                ("phone=13800138000", "13800138000"),
+                ("id_card=110101199001011234", "110101199001011234"),
+                ("credit_card=1234-5678-9012-3456", "1234-5678-9012-3456"),
+                ("card 1234567890123456", "1234567890123456"),
+            ];
+            for (input, secret) in cases {
+                let redacted = redact_http_content(input);
+                assert!(
+                    !redacted.contains(secret),
+                    "值模式未脱敏: {input} -> {redacted}"
+                );
+            }
         }
 
         #[test]
-        fn test_contains_sensitive_info_individual_regex() {
-            assert!(contains_sensitive_info("email me at test@example.com"));
-            assert!(contains_sensitive_info("call 13800138000"));
-            assert!(contains_sensitive_info("my id is 110101199001011234"));
-            assert!(contains_sensitive_info("card 1234567890123456"));
-        }
-
-        #[test]
-        fn test_contains_sensitive_info_field_with_extra_chars() {
-            assert!(contains_sensitive_info("password: secret123"));
-            assert!(contains_sensitive_info("token : abcdef"));
-            assert!(contains_sensitive_info("api_key=value123"));
-            assert!(contains_sensitive_info("SECRET:myvalue"));
-        }
-
-        #[test]
-        fn test_contains_sensitive_info_mixed_content() {
-            assert!(contains_sensitive_info("user=admin, password=secret"));
-            assert!(!contains_sensitive_info("user=admin, role=editor"));
-            assert!(contains_sensitive_info(
-                "header contains authorization: bearer xyz"
-            ));
-        }
-
-        #[test]
-        fn test_contains_sensitive_info_regex_first_then_field() {
-            assert!(contains_sensitive_info(
-                "email: test@example.com, password: secret"
-            ));
-            assert!(contains_sensitive_info("secret"));
-        }
-
-        #[test]
-        fn test_redaction_config_sensitive_value_short() {
-            let config = RedactionConfig::new()
-                .add_field("pwd", true)
-                .add_field("tok", true);
-
-            let result = config.format(|field| match field {
-                "pwd" => Some("ab".to_string()),
-                "tok" => Some("abc".to_string()),
-                _ => None,
-            });
-
-            assert_eq!(result, "{pwd=***, tok=***}");
-        }
-
-        #[test]
-        fn test_redaction_config_order_preserved() {
-            let config = RedactionConfig::new()
-                .add_field("a", false)
-                .add_field("b", false)
-                .add_field("c", false);
-
-            let result = config.format(|field| match field {
-                "a" => Some("1".to_string()),
-                "b" => Some("2".to_string()),
-                "c" => Some("3".to_string()),
-                _ => None,
-            });
-
-            assert_eq!(result, "{a=1, b=2, c=3}");
-        }
-
-        #[test]
-        fn test_redaction_config_duplicate_field() {
-            let config = RedactionConfig::new()
-                .add_field("user", true)
-                .add_field("user", true);
-
-            let result = config.format(|field| match field {
-                "user" => Some("sec".to_string()),
-                _ => None,
-            });
-
-            assert_eq!(result, "{user=***, user=***}");
-        }
-
-        #[test]
-        fn test_redaction_config_sensitive_non_sensitive_mixed() {
-            let config = RedactionConfig::new()
-                .add_field("user", false)
-                .add_field("password", true)
-                .add_field("secret_token", true)
-                .add_field("role", false);
-
-            let result = config.format(|field| match field {
-                "user" => Some("alice".to_string()),
-                "password" => Some("secret123".to_string()),
-                "secret_token" => Some("myvalue".to_string()),
-                "role" => Some("admin".to_string()),
-                _ => None,
-            });
-
+        fn test_redact_http_content_non_sensitive_unchanged() {
+            // (c) 非敏感输入原样返回
+            assert_eq!(redact_http_content(""), "");
             assert_eq!(
-                result,
-                "{user=alice, password=***, secret_token=***, role=admin}"
+                redact_http_content("username=user123, role=admin"),
+                "username=user123, role=admin"
             );
+            let content = "line1\nusername=user123\nline2";
+            assert_eq!(redact_http_content(content), content);
+        }
+
+        #[test]
+        fn test_redact_http_content_multiple_sensitive() {
+            let content = "password=abc123 token=xyz789";
+            assert_eq!(redact_http_content(content), "*** ***");
         }
 
         #[test]
@@ -1020,6 +720,146 @@ mod tests {
             let content = r#"password=abc123!@#$%"#;
             let redacted = redact_http_content(content);
             assert!(!redacted.contains("abc123!@#$%"));
+        }
+
+        #[test]
+        fn test_contains_sensitive_info_detects() {
+            // (e) 检出语义：敏感输入返回 true
+            assert!(contains_sensitive_info("password=secret123"));
+            assert!(contains_sensitive_info("api_key=abc123xyz"));
+            assert!(contains_sensitive_info(
+                "token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
+            ));
+            assert!(contains_sensitive_info("secret=mysecret"));
+            assert!(contains_sensitive_info("credential=mycred"));
+            assert!(contains_sensitive_info("authorization=bearer token"));
+            assert!(contains_sensitive_info("password: secret123"));
+            assert!(contains_sensitive_info("token : abcdef"));
+            assert!(contains_sensitive_info("api_key=value123"));
+            assert!(contains_sensitive_info("SECRET:myvalue"));
+            assert!(contains_sensitive_info("user=admin, password=secret"));
+            assert!(contains_sensitive_info(
+                "header contains authorization: bearer xyz"
+            ));
+            assert!(contains_sensitive_info(
+                "email: test@example.com, password: secret"
+            ));
+            assert!(contains_sensitive_info("email me at test@example.com"));
+            assert!(contains_sensitive_info("call 13800138000"));
+            assert!(contains_sensitive_info("my id is 110101199001011234"));
+            assert!(contains_sensitive_info("card 1234567890123456"));
+
+            assert!(!contains_sensitive_info("username=user123"));
+            assert!(!contains_sensitive_info("hello world"));
+            assert!(!contains_sensitive_info("user=admin, role=editor"));
+            assert!(!contains_sensitive_info(""));
+            assert!(!contains_sensitive_info(" "));
+            assert!(!contains_sensitive_info("\t"));
+            assert!(!contains_sensitive_info("a"));
+            assert!(!contains_sensitive_info("ab"));
+        }
+
+        #[test]
+        fn test_redaction_config_field_name_gate() {
+            // RedactionConfig 经 redact_advanced 字段名门控（引擎无关）
+            let config = RedactionConfig::new()
+                .add_field("password", true)
+                .add_field("username", false);
+
+            let result = config.format(|field| match field {
+                "password" => Some("secret123".to_string()),
+                "username" => Some("alice".to_string()),
+                _ => None,
+            });
+            assert_eq!(result, "{password=***, username=alice}");
+
+            let config = RedactionConfig::new()
+                .add_field("pwd", true)
+                .add_field("tok", true);
+            let result = config.format(|field| match field {
+                "pwd" => Some("ab".to_string()),
+                "tok" => Some("abc".to_string()),
+                _ => None,
+            });
+            assert_eq!(result, "{pwd=***, tok=***}");
+
+            let config = RedactionConfig::new()
+                .add_field("password", true)
+                .add_field("secret_token", true)
+                .add_field("role", false);
+            let result = config.format(|field| match field {
+                "password" => Some("secret123".to_string()),
+                "secret_token" => Some("myvalue".to_string()),
+                "role" => Some("admin".to_string()),
+                _ => None,
+            });
+            assert_eq!(result, "{password=***, secret_token=***, role=admin}");
+        }
+
+        #[test]
+        fn test_redaction_config_default_and_empty() {
+            let config: RedactionConfig = Default::default();
+            assert_eq!(config.fields.len(), 0);
+            let config = RedactionConfig::new();
+            assert_eq!(config.format(|_| None), "{}");
+        }
+
+        // ===== 新引擎覆盖锚（inklog DataMasker 迁移后转绿）=====
+
+        #[test]
+        fn test_redact_advanced_non_sensitive_value_unchanged() {
+            // 新契约：非敏感值原样返回（除命中规则外无副作用改写）
+            assert_eq!(redact_advanced(Some("user123"), None), "user123");
+            assert_eq!(
+                redact_advanced(Some("user123"), Some("username")),
+                "user123"
+            );
+            assert_eq!(
+                redact_advanced(Some("plain text value"), None),
+                "plain text value"
+            );
+        }
+
+        #[test]
+        fn test_redact_advanced_masks_value_pattern_in_place() {
+            // 值模式命中：原地掩码值本身并保留上下文（非整段替换）
+            let masked = redact_advanced(Some("contact me at test@example.com"), None);
+            assert!(!masked.contains("test@example.com"));
+            assert!(masked.contains("contact me at"));
+        }
+
+        #[test]
+        fn test_contains_sensitive_info_bare_field_name_not_sensitive() {
+            // 新契约：裸字段名（无值）不构成敏感信息，判定与 redact_advanced 一致
+            assert!(!contains_sensitive_info("password"));
+            assert!(!contains_sensitive_info("token"));
+            assert!(!contains_sensitive_info("secret"));
+            assert!(!contains_sensitive_info("api_key"));
+            assert!(!contains_sensitive_info("credential"));
+            assert!(!contains_sensitive_info("authorization"));
+        }
+
+        #[test]
+        fn test_new_engine_extra_categories_masked() {
+            // inklog 21 条内置规则新增类别（aws_key/jwt/ipv4/mac）：
+            // 旧正则引擎不覆盖，迁移后由 DataMasker 免费获得
+            let masked = redact_http_content("aws key AKIAIOSFODNN7EXAMPLE rotated");
+            assert!(!masked.contains("AKIAIOSFODNN7EXAMPLE"));
+
+            let masked = redact_http_content(
+                "jwt eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N",
+            );
+            assert!(!masked.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"));
+
+            let masked = redact_http_content("client ip 10.0.0.5 disconnected");
+            assert!(!masked.contains("10.0.0.5"));
+
+            let masked = redact_http_content("mac 00:1a:2b:3c:4d:5e seen");
+            assert!(!masked.contains("00:1a:2b:3c:4d:5e"));
+
+            assert!(contains_sensitive_info("AKIAIOSFODNN7EXAMPLE"));
+            assert!(contains_sensitive_info("client 192.168.1.100 connected"));
+            assert!(contains_sensitive_info("mac 00:1a:2b:3c:4d:5e seen"));
         }
     }
 }

@@ -401,7 +401,10 @@ gcra = []
 # ============================================
 # Security Features (安全功能)
 # ============================================
-log-redaction = ["dep:regex"]
+# 日志脱敏：脱敏引擎经 inklog DataMasker + MaskRuleRegistry 承载
+# （复用 inklog 别名 feature，避免两条开启同一可选依赖的路径）；
+# regex 依赖保留给 matchers / device-matching 等其余消费点
+log-redaction = ["inklog"]
 validation = []
 
 # ============================================

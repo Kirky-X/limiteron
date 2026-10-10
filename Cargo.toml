@@ -227,7 +227,9 @@ optional = true
 [dependencies.confers]
 version = "0.6.0-rc.6"
 default-features = false
-optional = true
+# 配置加载（ConfigLoader::load_from_file）委托 confers loader::load_file：
+# 显式开启三元解析器 feature，不开 dotenv（limiteron 无 .env 契约）
+features = ["toml", "json", "yaml"]
 [dev-dependencies]
 # test-util 仅在测试构建生效：退避等待经 tokio paused time 验证，不真睡
 tokio = { workspace = true, features = ["test-util"] }
@@ -506,8 +508,8 @@ i18n = ["dep:icu", "dep:writeable"]
 inklog = ["dep:inklog"]
 
 # confers configuration integration (three-tier pattern mirroring trait-kit).
-# Base: load FlowControlConfig from confers sources (file/env).
-config-confers = ["dep:confers"]
+# confers 依赖已转必选（config 模块无条件编译），本 feature 保留为兼容名
+config-confers = []
 # Hot-reload: watch config files and atomically swap Governor config.
 config-confers-reload = ["config-confers", "confers/watch"]
 

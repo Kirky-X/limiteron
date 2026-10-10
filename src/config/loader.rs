@@ -4,7 +4,7 @@
 
 use crate::LimiteronError;
 use crate::config::FlowControlConfig;
-use std::fs;
+use confers::loader::{LoaderConfig, load_file};
 use std::path::Path;
 
 /// 配置加载器
@@ -13,46 +13,41 @@ pub struct ConfigLoader;
 impl ConfigLoader {
     /// 从配置文件加载配置
     ///
-    /// 支持 YAML、TOML、JSON 格式,根据文件扩展名自动检测
+    /// 支持 YAML、TOML、JSON 格式，根据文件扩展名自动检测。解析委托
+    /// confers `loader::load_file`：路径穿越防护、大小上限、TOCTOU
+    /// 安全打开与特殊文件拒绝随 confers 免费获得（design D3）。
+    /// 扩展名白名单严格限于 yaml|yml|toml|json——不用 confers 内容
+    /// 嗅探兜底，防止 .txt 等任意内容被误判为合法配置。
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<FlowControlConfig, LimiteronError> {
         let path = path.as_ref();
 
-        if !path.exists() {
-            return Err(LimiteronError::ConfigError(format!(
-                "Config file not found: {}",
-                path.display()
-            )));
-        }
-
-        let content = fs::read_to_string(path).map_err(|e| {
-            LimiteronError::ConfigError(format!("Failed to read config file: {}", e))
-        })?;
-
+        // ① 严格扩展名白名单预检：维持 "Unsupported config file format"
+        // 公开契约（不经 confers 内容嗅探，见 design D3 Alternatives）
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
-
-        let config: FlowControlConfig = match ext.as_str() {
-            "yaml" | "yml" => serde_yaml_ng::from_str(&content).map_err(|e| {
-                LimiteronError::ConfigError(format!("Failed to parse YAML config: {}", e))
-            })?,
-            "toml" => toml::from_str(&content).map_err(|e| {
-                LimiteronError::ConfigError(format!("Failed to parse TOML config: {}", e))
-            })?,
-            "json" => serde_json::from_str(&content).map_err(|e| {
-                LimiteronError::ConfigError(format!("Failed to parse JSON config: {}", e))
-            })?,
+        match ext.as_str() {
+            "yaml" | "yml" | "toml" | "json" => {}
             _ => {
                 return Err(LimiteronError::ConfigError(format!(
                     "Unsupported config file format: {}. Supported: yaml, yml, toml, json",
                     ext
                 )));
             }
-        };
+        }
 
-        Ok(config)
+        // ② confers 加载：路径校验（穿越防护）/大小上限/TOCTOU 安全
+        // 打开/特殊文件拒绝 + 三元格式解析。放开绝对路径与既有公开
+        // 契约一致（测试与调用方均传绝对路径）；穿越组件、URL 编码
+        // 穿越等 confers 防护全部保留。
+        let annotated =
+            load_file(path, &LoaderConfig::default().allow_absolute()).map_err(map_config_error)?;
+
+        // ③ AnnotatedValue → JSON → FlowControlConfig typed 反序列化
+        serde_json::from_value::<FlowControlConfig>(annotated.to_json())
+            .map_err(|e| map_parse_error(&ext, &e))
     }
 
     /// 从配置文件加载配置并应用环境变量覆盖
@@ -110,6 +105,35 @@ impl ConfigLoader {
 
         Ok(config)
     }
+}
+
+/// confers `ConfigError` → limiteron 公开错误契约映射
+///
+/// - `FileNotFound` → "Config file not found: {}"（T009 钉死）；
+/// - `ParseError` → "Failed to parse {FORMAT} config: {}"（FORMAT 为
+///   confers 侧大写 YAML/TOML/JSON，与旧契约一致）；
+/// - 其余（`InvalidValue` 覆盖目录/特殊文件/路径穿越等 confers 防护
+///   命中、`SizeLimitExceeded`、`IoError`）→ "Failed to load config: {}"。
+fn map_config_error(e: confers::ConfigError) -> LimiteronError {
+    match e {
+        confers::ConfigError::FileNotFound { filename, .. } => {
+            LimiteronError::ConfigError(format!("Config file not found: {}", filename.display()))
+        }
+        confers::ConfigError::ParseError {
+            format, message, ..
+        } => LimiteronError::ConfigError(format!("Failed to parse {} config: {}", format, message)),
+        other => LimiteronError::ConfigError(format!("Failed to load config: {}", other)),
+    }
+}
+
+/// typed 反序列化失败的格式名标注：`Failed to parse {YAML|TOML|JSON} config`
+fn map_parse_error(ext: &str, e: &serde_json::Error) -> LimiteronError {
+    let format = match ext {
+        "toml" => "TOML",
+        "json" => "JSON",
+        _ => "YAML",
+    };
+    LimiteronError::ConfigError(format!("Failed to parse {} config: {}", format, e))
 }
 
 #[cfg(test)]
@@ -222,7 +246,12 @@ on_exceed = "degrade"
         let result = ConfigLoader::load_from_file("/tmp/limiteron_nonexistent_config.yaml");
         assert!(result.is_err());
         match result {
-            Err(LimiteronError::ConfigError(msg)) => assert!(msg.contains("not found")),
+            Err(LimiteronError::ConfigError(msg)) => {
+                assert!(
+                    msg.contains("Config file not found"),
+                    "not-found 契约应含 'Config file not found': {msg}"
+                )
+            }
             _ => panic!("expected ConfigError"),
         }
     }
@@ -236,6 +265,12 @@ on_exceed = "degrade"
         let result = ConfigLoader::load_from_file(&path);
         std::fs::remove_file(&path).ok();
         assert!(result.is_err());
+        match result {
+            Err(LimiteronError::ConfigError(msg)) => {
+                assert!(msg.contains("YAML"), "非法 YAML 错误应含格式名 YAML: {msg}")
+            }
+            _ => panic!("expected ConfigError for invalid YAML"),
+        }
     }
 
     #[test]
@@ -248,7 +283,13 @@ on_exceed = "degrade"
         std::fs::remove_file(&path).ok();
         assert!(result.is_err());
         match result {
-            Err(LimiteronError::ConfigError(msg)) => assert!(msg.contains("Unsupported")),
+            Err(LimiteronError::ConfigError(msg)) => {
+                assert!(msg.contains("Unsupported"), "应含 Unsupported: {msg}");
+                assert!(
+                    msg.contains("yaml, yml, toml, json"),
+                    "应列出支持扩展名: {msg}"
+                );
+            }
             _ => panic!("expected ConfigError"),
         }
     }
@@ -293,7 +334,13 @@ on_exceed = "degrade"
         std::fs::remove_file(&path).ok();
         assert!(result.is_err());
         match result {
-            Err(LimiteronError::ConfigError(msg)) => assert!(msg.contains("Unsupported")),
+            Err(LimiteronError::ConfigError(msg)) => {
+                assert!(msg.contains("Unsupported"), "应含 Unsupported: {msg}");
+                assert!(
+                    msg.contains("yaml, yml, toml, json"),
+                    "应列出支持扩展名: {msg}"
+                );
+            }
             _ => panic!("expected ConfigError for no extension"),
         }
     }
@@ -309,18 +356,14 @@ on_exceed = "degrade"
         assert!(result.is_ok());
     }
 
-    // 覆盖 line 30：path 存在但 read_to_string 失败（如目录）
+    // 目录路径：confers 侧拒绝非普通文件，映射后仅断言 Err 存在性
+    // （消息原文由 confers InvalidValue 承载，不作为公开契约钉死）
     #[test]
     fn test_load_directory_as_file() {
         let dir = tempfile::tempdir().unwrap();
         let result = ConfigLoader::load_from_file(dir.path());
         assert!(result.is_err());
-        match result {
-            Err(LimiteronError::ConfigError(msg)) => {
-                assert!(msg.contains("Failed to read"));
-            }
-            _ => panic!("expected ConfigError for directory read failure"),
-        }
+        assert!(matches!(result, Err(LimiteronError::ConfigError(_))));
     }
 
     // ===== load_from_file_with_env 测试 =====

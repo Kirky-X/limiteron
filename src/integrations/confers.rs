@@ -32,27 +32,27 @@
 //! let _guard = watch_and_reload("limiteron.toml", governor_config_handle).await?;
 //! ```
 
-use crate::config::FlowControlConfig;
+use crate::config::{ConfigLoader, FlowControlConfig};
 use crate::error::LimiteronError;
-use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Load [`FlowControlConfig`] from a configuration file.
 ///
-/// Supports TOML, JSON, and YAML formats (auto-detected by file extension).
-/// Uses confers' `load_file` utility for parsing.
+/// Supports TOML, JSON, and YAML formats (detected by file extension).
+/// Delegates to [`ConfigLoader::load_from_file`], which parses via
+/// confers' `load_file` (path traversal protection, size limit and
+/// TOCTOU-safe open). Error contract matches `ConfigLoader`.
 ///
 /// # Errors
 ///
 /// Returns `Err(LimiteronError)` if the file cannot be read or parsed.
 pub async fn load_config_from_file(path: &str) -> Result<FlowControlConfig, LimiteronError> {
-    let content = tokio::fs::read_to_string(path)
+    // confers load_file 为同步阻塞 I/O：经 spawn_blocking 移出异步执行器
+    let path = path.to_string();
+    tokio::task::spawn_blocking(move || ConfigLoader::load_from_file(&path))
         .await
-        .map_err(|e| LimiteronError::ConfigError(format!("failed to read config file: {}", e)))?;
-
-    let format = detect_format(path);
-    parse_config(&content, format)
+        .map_err(|e| LimiteronError::ConfigError(format!("config load task failed: {}", e)))?
 }
 
 /// Handle for atomically swapping the Governor's live config.
@@ -238,84 +238,9 @@ pub async fn watch_and_reload(
 // Internal helpers
 // ============================================================================
 
-#[derive(Debug, Clone, Copy)]
-enum ConfigFormat {
-    Toml,
-    Json,
-    Yaml,
-}
-
-fn detect_format(path: &str) -> ConfigFormat {
-    match Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-    {
-        "json" => ConfigFormat::Json,
-        "yaml" | "yml" => ConfigFormat::Yaml,
-        _ => ConfigFormat::Toml, // default
-    }
-}
-
-fn parse_config(content: &str, format: ConfigFormat) -> Result<FlowControlConfig, LimiteronError> {
-    match format {
-        ConfigFormat::Toml => toml::from_str(content)
-            .map_err(|e| LimiteronError::ConfigError(format!("TOML parse error: {}", e))),
-        ConfigFormat::Json => serde_json::from_str(content)
-            .map_err(|e| LimiteronError::ConfigError(format!("JSON parse error: {}", e))),
-        ConfigFormat::Yaml => serde_yaml_ng::from_str(content)
-            .map_err(|e| LimiteronError::ConfigError(format!("YAML parse error: {}", e))),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_detect_format_toml() {
-        assert!(matches!(detect_format("config.toml"), ConfigFormat::Toml));
-    }
-
-    #[test]
-    fn test_detect_format_json() {
-        assert!(matches!(detect_format("config.json"), ConfigFormat::Json));
-    }
-
-    #[test]
-    fn test_detect_format_yaml() {
-        assert!(matches!(detect_format("config.yaml"), ConfigFormat::Yaml));
-        assert!(matches!(detect_format("config.yml"), ConfigFormat::Yaml));
-    }
-
-    #[test]
-    fn test_detect_format_default() {
-        assert!(matches!(detect_format("config"), ConfigFormat::Toml));
-        assert!(matches!(detect_format("config.txt"), ConfigFormat::Toml));
-    }
-
-    #[test]
-    fn test_parse_config_json_valid() {
-        let json = r#"{
-            "version": "0.1.0",
-            "global": {
-                "storage": "memory",
-                "cache": "memory",
-                "metrics": "prometheus"
-            },
-            "rules": []
-        }"#;
-        let result = parse_config(json, ConfigFormat::Json);
-        assert!(result.is_ok());
-        let config = result.unwrap();
-        assert_eq!(config.version, "0.1.0");
-    }
-
-    #[test]
-    fn test_parse_config_json_invalid() {
-        let result = parse_config("not json", ConfigFormat::Json);
-        assert!(result.is_err());
-    }
 
     #[tokio::test]
     async fn test_load_config_from_file_not_found() {
@@ -341,5 +266,61 @@ mod tests {
         let result = load_config_from_file(path.to_str().unwrap()).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().version, "1.0.0");
+    }
+
+    #[tokio::test]
+    async fn test_load_config_from_file_yaml_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_config.yaml");
+        let config_yaml = r#"
+version: "2.0.0"
+global:
+  storage: memory
+  cache: memory
+  metrics: none
+rules: []
+"#;
+        std::fs::write(&path, config_yaml).unwrap();
+
+        let result = load_config_from_file(path.to_str().unwrap()).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().version, "2.0.0");
+    }
+
+    #[tokio::test]
+    async fn test_load_config_from_file_toml_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test_config.toml");
+        let config_toml = r#"
+version = "3.0.0"
+rules = []
+
+[global]
+storage = "memory"
+cache = "memory"
+metrics = "none"
+"#;
+        std::fs::write(&path, config_toml).unwrap();
+
+        let result = load_config_from_file(path.to_str().unwrap()).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().version, "3.0.0");
+    }
+
+    #[tokio::test]
+    async fn test_load_config_from_file_unsupported_extension() {
+        // 与 ConfigLoader 同一扩展名白名单契约：无扩展名/不支持扩展名均拒绝
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config");
+        std::fs::write(&path, b"version = \"1.0.0\"\n").unwrap();
+
+        let result = load_config_from_file(path.to_str().unwrap()).await;
+        assert!(result.is_err());
+        match result {
+            Err(LimiteronError::ConfigError(msg)) => {
+                assert!(msg.contains("Unsupported"), "应含 Unsupported: {msg}")
+            }
+            other => panic!("expected ConfigError, got {other:?}"),
+        }
     }
 }

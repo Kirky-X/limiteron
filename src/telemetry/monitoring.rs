@@ -7,10 +7,18 @@
 use super::Tracer;
 use crate::i18n::t;
 use log::{debug, error, info, warn};
+use oxcache::infra::metrics::{
+    CacheOpResult, CacheOpType, CacheOperation, HistogramData, MetricValue,
+    OPERATION_LATENCY_HISTOGRAM,
+};
+use oxcache::{CacheLayer, UnifiedMetricsRecorder};
 use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::time::{Duration, Instant};
+
+/// limiteron 请求指标在 oxcache service 维度的归因名（R9 service 标签）
+const METRICS_SERVICE: &str = "limiteron";
 
 /// 告警级别
 #[derive(Debug, Clone, PartialEq)]
@@ -65,8 +73,15 @@ pub struct MetricsSnapshot {
     pub total_requests: u64,
     pub successful_requests: u64,
     pub failed_requests: u64,
+    /// 平均请求延迟（毫秒）：延迟直方图 sum/count 均值
     pub avg_latency_ms: u64,
+    /// P95 延迟（毫秒）——直方图桶近似值
+    ///
+    /// 环排序精确值已随 `LatencySamples` 删除：延迟样本经 oxcache
+    /// 标准命名直方图（`oxcache_operation_duration_seconds`）承载，
+    /// 分位数由累积桶插值估计，精度受桶边界限制（design D1）。
     pub p95_latency_ms: u64,
+    /// P99 延迟（毫秒）——直方图桶近似值（降级原因同 `p95_latency_ms`）
     pub p99_latency_ms: u64,
     pub concurrent_requests: u64,
     pub cache_hit_rate: f64,
@@ -75,76 +90,6 @@ pub struct MetricsSnapshot {
     pub error_rate: f64,
     pub cpu_usage: f64,
     pub memory_usage: f64,
-}
-
-/// 延迟样本收集器
-///
-/// 用于计算真正的 P95/P99 延迟百分位数
-struct LatencySamples {
-    samples: Vec<u64>,
-    max_samples: usize,
-    /// 环形写入起点：缓冲填满后覆盖最旧样本（J3：O(1) 替代
-    /// `Vec::remove(0)` 的 O(n) 前移，后者在每个成功请求上执行）
-    head: usize,
-}
-
-impl std::fmt::Debug for LatencySamples {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LatencySamples")
-            .field("samples_count", &self.samples.len())
-            .field("max_samples", &self.max_samples)
-            .finish()
-    }
-}
-
-impl Default for LatencySamples {
-    fn default() -> Self {
-        Self {
-            samples: Vec::new(),
-            max_samples: 10000,
-            head: 0,
-        }
-    }
-}
-
-impl LatencySamples {
-    fn new(max_samples: usize) -> Self {
-        Self {
-            samples: Vec::with_capacity(max_samples),
-            max_samples,
-            head: 0,
-        }
-    }
-
-    fn add_sample(&mut self, latency_ms: u64) {
-        if self.samples.len() < self.max_samples {
-            self.samples.push(latency_ms);
-        } else {
-            // 缓冲已满：环形覆盖最旧样本
-            self.samples[self.head] = latency_ms;
-            self.head = (self.head + 1) % self.max_samples;
-        }
-    }
-
-    /// 一次排序计算多个百分位数
-    ///
-    /// （J4：旧实现 p95/p99 各自 clone 全量样本并排序，在每个成功
-    /// 请求的锁内做两次 O(n log n)）
-    fn percentiles(&self, ps: &[f64]) -> Vec<u64> {
-        if self.samples.is_empty() {
-            return vec![0; ps.len()];
-        }
-
-        let mut sorted = self.samples.clone();
-        sorted.sort_unstable();
-
-        ps.iter()
-            .map(|&p| {
-                let index = ((sorted.len() as f64) * p / 100.0) as usize;
-                sorted.get(index).copied().unwrap_or(0)
-            })
-            .collect()
-    }
 }
 
 #[derive(Debug, Default)]
@@ -246,25 +191,16 @@ fn read_memory_usage() -> f64 {
 }
 
 /// 性能指标
-#[derive(Debug, Default)]
+///
+/// 请求计数与延迟经 oxcache [`UnifiedMetricsRecorder`] 承载（service 归因
+/// `limiteron`）：成功请求为 op 命中计数、失败请求为 op 未命中计数，延迟
+/// 样本写入 oxcache 标准命名延迟直方图（`oxcache_operation_duration_seconds`）。
+/// p95/p99 由直方图累积桶插值近似（非环排序精确值，design D1）。
+#[derive(Debug)]
 pub struct PerformanceMetrics {
-    /// 请求总数
-    total_requests: AtomicU64,
-
-    /// 成功请求数
-    successful_requests: AtomicU64,
-
-    /// 失败请求数
-    failed_requests: AtomicU64,
-
-    /// 平均请求延迟
-    avg_latency_ms: AtomicU64,
-
-    /// P95 延迟
-    p95_latency_ms: AtomicU64,
-
-    /// P99 延迟
-    p99_latency_ms: AtomicU64,
+    /// 请求计数与延迟直方图的承载 recorder（全局 unified metrics +
+    /// `limiteron` service 维度归因）
+    recorder: UnifiedMetricsRecorder,
 
     /// 并发请求数
     concurrent_requests: AtomicU64,
@@ -278,56 +214,68 @@ pub struct PerformanceMetrics {
     /// 当前活跃连接数
     active_connections: AtomicU64,
 
-    /// 延迟样本（用于计算真正的百分位数）
-    latency_samples: ParkingMutex<LatencySamples>,
-
     system_sampler: ParkingMutex<SystemMetricsSampler>,
 }
+
 impl PerformanceMetrics {
     /// 创建新的性能指标
     pub fn new() -> Self {
         Self {
-            total_requests: AtomicU64::new(0),
-            successful_requests: AtomicU64::new(0),
-            failed_requests: AtomicU64::new(0),
-            avg_latency_ms: AtomicU64::new(0),
-            p95_latency_ms: AtomicU64::new(0),
-            p99_latency_ms: AtomicU64::new(0),
+            recorder: UnifiedMetricsRecorder::global_tagged(METRICS_SERVICE),
             concurrent_requests: AtomicU64::new(0),
             cache_hit_rate: 0.0,
             circuit_breaker_trips: AtomicU64::new(0),
             active_connections: AtomicU64::new(0),
-            latency_samples: ParkingMutex::new(LatencySamples::new(1000)), // 保存最近1000个样本
             system_sampler: ParkingMutex::new(SystemMetricsSampler::default()),
         }
     }
 
+    /// 记录一次成功请求（op 命中计数，service 归因 `limiteron`）
+    fn record_request_success(&self) {
+        self.recorder.metrics().record_operation_with_service(
+            &CacheOperation {
+                layer: CacheLayer::L1,
+                op_type: CacheOpType::Get,
+                result: CacheOpResult::Hit,
+            },
+            METRICS_SERVICE,
+        );
+    }
+
+    /// 记录一次失败请求（op 未命中计数；失败不带延迟样本）
+    fn record_request_failure(&self) {
+        self.recorder.metrics().record_operation_with_service(
+            &CacheOperation {
+                layer: CacheLayer::L1,
+                op_type: CacheOpType::Get,
+                result: CacheOpResult::Miss,
+            },
+            METRICS_SERVICE,
+        );
+    }
+    /// 记录一次延迟样本（毫秒）到 oxcache 标准命名延迟直方图
+    fn record_latency_sample(&self, latency_ms: u64) {
+        self.recorder
+            .metrics()
+            .record_latency_seconds(latency_ms as f64 / 1000.0);
+    }
+
     /// 获取指标快照
     pub fn snapshot(&self) -> MetricsSnapshot {
-        let total = self
-            .total_requests
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let failed = self
-            .failed_requests
-            .load(std::sync::atomic::Ordering::Relaxed);
+        let counters = self.recorder.metrics().get_counters();
+        let total = counters.total_operations;
+        let failed = counters.l1_misses;
         let cpu_usage = self.system_sampler.lock().read_cpu_usage();
         let memory_usage = read_memory_usage();
+        let (avg_latency_ms, p95_latency_ms, p99_latency_ms) = self.latency_stats_ms();
 
         MetricsSnapshot {
             total_requests: total,
-            successful_requests: self
-                .successful_requests
-                .load(std::sync::atomic::Ordering::Relaxed),
+            successful_requests: counters.l1_hits,
             failed_requests: failed,
-            avg_latency_ms: self
-                .avg_latency_ms
-                .load(std::sync::atomic::Ordering::Relaxed),
-            p95_latency_ms: self
-                .p95_latency_ms
-                .load(std::sync::atomic::Ordering::Relaxed),
-            p99_latency_ms: self
-                .p99_latency_ms
-                .load(std::sync::atomic::Ordering::Relaxed),
+            avg_latency_ms,
+            p95_latency_ms,
+            p99_latency_ms,
             concurrent_requests: self
                 .concurrent_requests
                 .load(std::sync::atomic::Ordering::Relaxed),
@@ -347,6 +295,61 @@ impl PerformanceMetrics {
             memory_usage,
         }
     }
+
+    /// 从标准命名延迟直方图计算 avg/p95/p99（毫秒）
+    ///
+    /// 无延迟样本时三项均为 0。
+    fn latency_stats_ms(&self) -> (u64, u64, u64) {
+        let dynamic = self.recorder.metrics().get_dynamic_metrics();
+        let Some(MetricValue::Histogram(hist)) = dynamic.get(OPERATION_LATENCY_HISTOGRAM) else {
+            return (0, 0, 0);
+        };
+        let avg = if hist.count > 0 {
+            (hist.sum / hist.count as f64 * 1000.0).round() as u64
+        } else {
+            0
+        };
+        (
+            avg,
+            histogram_quantile_ms(hist, 95.0),
+            histogram_quantile_ms(hist, 99.0),
+        )
+    }
+}
+
+impl Default for PerformanceMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 从延迟直方图累积桶插值估计分位数（毫秒）
+///
+/// `rank = p/100 × count`：定位首个累积计数 ≥ rank 的桶，在
+/// [前一边界, 本边界] 区间线性插值；rank 超出全部桶时以样本最大值
+/// 为近似上界。分位数为桶近似值——精确环排序已随 `LatencySamples`
+/// 删除（design D1、R-telemetry-monitoring-002）。
+fn histogram_quantile_ms(hist: &HistogramData, p: f64) -> u64 {
+    if hist.count == 0 {
+        return 0;
+    }
+    let rank = (p / 100.0) * hist.count as f64;
+    let mut lower = 0.0;
+    let mut cum_prev = 0u64;
+    for &(boundary, cum) in &hist.buckets {
+        if (cum as f64) >= rank {
+            let span = cum.saturating_sub(cum_prev) as f64;
+            let fraction = if span > 0.0 {
+                ((rank - cum_prev as f64) / span).clamp(0.0, 1.0)
+            } else {
+                1.0
+            };
+            return ((lower + fraction * (boundary - lower)) * 1000.0).round() as u64;
+        }
+        cum_prev = cum;
+        lower = boundary;
+    }
+    (hist.max * 1000.0).round() as u64
 }
 
 /// 监控系统
@@ -395,12 +398,7 @@ impl MonitoringSystem {
     pub fn record_request_success(&self, timer: RequestTimer) -> Duration {
         let request_id = timer.request_id.clone();
         let latency = timer.finish();
-        self.metrics
-            .successful_requests
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.metrics
-            .total_requests
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.metrics.record_request_success();
         self.update_latency_stats(latency.as_millis() as u64);
 
         debug!(
@@ -413,53 +411,19 @@ impl MonitoringSystem {
 
     /// 记录请求失败
     pub fn record_request_failure(&self, timer: RequestTimer) {
-        self.metrics
-            .failed_requests
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.metrics
-            .total_requests
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.metrics.record_request_failure();
 
         debug!("request failed: {}", timer.request_id);
     }
 
-    /// 更新延迟统计
+    /// 更新延迟统计：延迟样本写入 oxcache 标准命名直方图，
+    /// p95/p99 由快照侧的累积桶插值近似（见 `MetricsSnapshot` doc）
     fn update_latency_stats(&self, latency_ms: u64) {
-        let current_avg = self
-            .metrics
-            .avg_latency_ms
-            .load(std::sync::atomic::Ordering::Relaxed);
-        let new_avg = ((current_avg * 9) + latency_ms) / 10;
-        self.metrics
-            .avg_latency_ms
-            .store(new_avg, std::sync::atomic::Ordering::Relaxed);
-
-        // 添加延迟样本
-        {
-            let mut samples = self.metrics.latency_samples.lock();
-            samples.add_sample(latency_ms);
-
-            // 计算真正的 P95 和 P99（单次排序同时得出，J4）
-            let mut ps = samples.percentiles(&[95.0, 99.0]);
-            let p99 = ps.pop().unwrap_or(0);
-            let p95 = ps.pop().unwrap_or(0);
-
-            self.metrics
-                .p95_latency_ms
-                .store(p95, std::sync::atomic::Ordering::Relaxed);
-            self.metrics
-                .p99_latency_ms
-                .store(p99, std::sync::atomic::Ordering::Relaxed);
-        }
+        self.metrics.record_latency_sample(latency_ms);
 
         debug!(
-            "latency stats updated: P95={}ms, P99={}ms",
-            self.metrics
-                .p95_latency_ms
-                .load(std::sync::atomic::Ordering::Relaxed),
-            self.metrics
-                .p99_latency_ms
-                .load(std::sync::atomic::Ordering::Relaxed)
+            "latency stats updated: {}ms (histogram bucket approximation)",
+            latency_ms
         );
     }
 
@@ -698,7 +662,9 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_monitoring_system() {
+        reset_global_metrics();
         let metrics = Arc::new(PerformanceMetrics::default());
         let tracer = Arc::new(Tracer::new(false));
         let alert_config = AlertConfig {
@@ -762,54 +728,122 @@ mod tests {
         assert!(alerts.contains(&AlertLevel::Warning));
     }
 
-    fn pctl(samples: &LatencySamples, p: f64) -> u64 {
-        samples.percentiles(&[p])[0]
+    // -- oxcache UnifiedMetricsRecorder 承载语义锚 --
+
+    /// 计数与延迟断言依赖全局 unified 指标状态：序列化并先复位，
+    /// 避免并行测试相互污染（oxcache recorder 为进程级共享收集器）
+    fn reset_global_metrics() {
+        oxcache::infra::convenience::reset();
     }
 
-    // -- LatencySamples tests --
-
-    #[test]
-    fn test_latency_samples_new_custom_size() {
-        let samples = LatencySamples::new(50);
-        assert!(pctl(&samples, 95.0) == 0);
-        assert!(pctl(&samples, 95.0) == 0);
-        assert!(pctl(&samples, 99.0) == 0);
-    }
-
-    #[test]
-    fn test_latency_samples_empty_percentile() {
-        let samples = LatencySamples::default();
-        assert_eq!(pctl(&samples, 50.0), 0);
-        assert_eq!(pctl(&samples, 95.0), 0);
-        assert_eq!(pctl(&samples, 99.0), 0);
-    }
-
-    #[test]
-    fn test_latency_samples_fifo_eviction() {
-        let mut samples = LatencySamples::new(5);
-        for i in 0..10 {
-            samples.add_sample(i);
+    fn alert_config_with(jitter: u32) -> AlertConfig {
+        AlertConfig {
+            cpu_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            memory_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            latency_thresholds_ms: AlertThresholdU64 {
+                warning: 999999,
+                critical: 9999999,
+            },
+            error_rate_thresholds: AlertThresholdF64 {
+                warning: 2.0,
+                critical: 3.0,
+            },
+            cache_hit_rate_thresholds: AlertThresholdF64 {
+                warning: -1.0,
+                critical: -2.0,
+            },
+            alert_cooldown: Duration::ZERO,
+            jitter_suppression_count: jitter,
         }
-        // Oldest 5 (0-4) evicted, remaining [5,6,7,8,9]
-        // sorted[5*0/100=0] = 5, sorted[5*60/100=3] = 8, sorted[5*50/100=2] = 7
-        assert_eq!(pctl(&samples, 0.0), 5);
-        assert_eq!(pctl(&samples, 60.0), 8);
-        assert_eq!(pctl(&samples, 50.0), 7);
     }
 
-    #[test]
-    fn test_latency_samples_percentile_exact() {
-        let mut samples = LatencySamples::new(10);
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_request_counts_recorded_via_recorder() {
+        reset_global_metrics();
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        let monitoring = MonitoringSystem::new(metrics.clone(), tracer, alert_config_with(1));
+
         for i in 0..10 {
-            samples.add_sample(i as u64);
+            let timer = monitoring.record_request_start(&format!("ok_{}", i));
+            monitoring.record_request_success(timer);
         }
-        // sorted: [0,1,2,3,4,5,6,7,8,9]
-        // p95 index = (10 * 95/100) = 9 -> value 9
-        assert_eq!(pctl(&samples, 95.0), 9);
-        // p99 index = (10 * 99/100) = 9 -> value 9
-        assert_eq!(pctl(&samples, 99.0), 9);
-        // p50 index = (10 * 50/100) = 5 -> value 5
-        assert_eq!(pctl(&samples, 50.0), 5);
+        for i in 0..3 {
+            let timer = monitoring.record_request_start(&format!("fail_{}", i));
+            monitoring.record_request_failure(timer);
+        }
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.successful_requests, 10);
+        assert_eq!(snapshot.failed_requests, 3);
+        assert_eq!(snapshot.total_requests, 13);
+        assert!((snapshot.error_rate - 3.0 / 13.0).abs() < 1e-9);
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_percentiles_are_histogram_bucket_approximations() {
+        reset_global_metrics();
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        let monitoring = MonitoringSystem::new(metrics.clone(), tracer, alert_config_with(1));
+
+        // 20 条 120ms 已知量级延迟：分位数必须落在对应直方图桶
+        // 边界区间 (100ms, 250ms] 内，而非环排序精确值 120
+        for _ in 0..20 {
+            monitoring.update_latency_stats(120);
+        }
+
+        let snapshot = metrics.snapshot();
+        assert!(
+            snapshot.p95_latency_ms > 100 && snapshot.p95_latency_ms <= 250,
+            "p95={}ms 应落在 (100, 250] 桶区间",
+            snapshot.p95_latency_ms
+        );
+        assert!(
+            snapshot.p99_latency_ms > 100 && snapshot.p99_latency_ms <= 250,
+            "p99={}ms 应落在 (100, 250] 桶区间",
+            snapshot.p99_latency_ms
+        );
+        assert!(
+            snapshot.avg_latency_ms > 50 && snapshot.avg_latency_ms <= 150,
+            "avg={}ms 应接近 120ms",
+            snapshot.avg_latency_ms
+        );
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn test_export_prometheus_format_contains_latency_histogram() {
+        reset_global_metrics();
+        let metrics = Arc::new(PerformanceMetrics::default());
+        let tracer = Arc::new(Tracer::new(false));
+        let monitoring = MonitoringSystem::new(metrics, tracer, alert_config_with(1));
+
+        for _ in 0..20 {
+            monitoring.update_latency_stats(120);
+        }
+
+        let output = oxcache::export_prometheus_format();
+        assert!(
+            output.contains("oxcache_operation_duration_seconds_histogram_sum"),
+            "导出应含延迟直方图 sum"
+        );
+        assert!(
+            output.contains("oxcache_operation_duration_seconds_histogram_count"),
+            "导出应含延迟直方图 count"
+        );
+        assert!(
+            output.contains("oxcache_operation_duration_seconds_histogram_bucket"),
+            "导出应含延迟直方图 bucket"
+        );
     }
 
     // -- Threshold evaluation tests --
@@ -1280,7 +1314,9 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_check_alerts_error_rate_critical() {
+        reset_global_metrics();
         let metrics = Arc::new(PerformanceMetrics::default());
         let tracer = Arc::new(Tracer::new(false));
         // Trigger only error rate
@@ -1325,7 +1361,9 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_check_alerts_latency_critical() {
+        reset_global_metrics();
         let metrics = Arc::new(PerformanceMetrics::default());
         let tracer = Arc::new(Tracer::new(false));
         let alert_config = AlertConfig {
@@ -1368,7 +1406,9 @@ mod tests {
     // -- PerformanceMetrics tests --
 
     #[test]
+    #[serial_test::serial]
     fn test_performance_metrics_new() {
+        reset_global_metrics();
         let metrics = PerformanceMetrics::new();
         let snapshot = metrics.snapshot();
         assert_eq!(snapshot.total_requests, 0);
@@ -1379,7 +1419,9 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_snapshot_error_rate_with_total() {
+        reset_global_metrics();
         let metrics = Arc::new(PerformanceMetrics::default());
         // Manually set values through recorded events
         // fail 3, no success -> total=3
@@ -1454,14 +1496,6 @@ mod tests {
     // -- Debug formatting tests --
 
     #[test]
-    fn test_latency_samples_debug() {
-        let samples = LatencySamples::new(100);
-        let debug_str = format!("{:?}", samples);
-        assert!(debug_str.contains("samples_count"));
-        assert!(debug_str.contains("max_samples"));
-    }
-
-    #[test]
     fn test_metrics_snapshot_debug_clone() {
         let snapshot = MetricsSnapshot {
             total_requests: 100,
@@ -1484,7 +1518,9 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_check_alerts_multiple_checks() {
+        reset_global_metrics();
         let metrics = Arc::new(PerformanceMetrics::default());
         let tracer = Arc::new(Tracer::new(false));
         let alert_config = AlertConfig {

@@ -153,16 +153,41 @@ mod tests {
             .set_with_ttl("specific_key", "specific_value", Duration::from_millis(500))
             .await
             .unwrap();
-        // 500ms 到期前存活
+        // 500ms 到期前存活（400ms 探针，收紧"在此之前存活"断言）
+        sleep(Duration::from_millis(400)).await;
         let result = cache.get("specific_key").await.unwrap();
         assert_eq!(result, Some("specific_value".to_string()));
 
         // 500ms 后精确过期：oxcache 后端真实承载亚秒 TTL。旧实现把亚秒
         // clamp 到 1 秒且用秒级时间戳判定（实际过期时刻散布于 (0,1]），
         // 700ms 探针对旧实现为概率性判别；迁移后本断言确定性成立。
-        sleep(Duration::from_millis(700)).await;
+        sleep(Duration::from_millis(300)).await;
         let result = cache.get("specific_key").await.unwrap();
         assert_eq!(result, None, "500ms TTL 应在 700ms 后精确过期");
+    }
+
+    /// Default 300s 默认 TTL 的全时长锚（R-memory-cache-002）：
+    /// 墙钟 300s 无法进常规单测，按需运行 `cargo test -- --ignored`。
+    #[tokio::test]
+    #[ignore = "wall-clock 301s; run explicitly for the full-duration default TTL anchor"]
+    async fn test_default_ttl_300s_full_duration() {
+        let cache = MemoryCache::default();
+
+        cache.set("k", "v", None).await.unwrap();
+        // 300 秒窗口内存活（299s 探针）
+        sleep(Duration::from_secs(299)).await;
+        assert_eq!(
+            cache.get("k").await.unwrap(),
+            Some("v".to_string()),
+            "Default 300s TTL 条目应在 299s 时仍存活"
+        );
+        // 超过 300 秒后过期（累计 302s）
+        sleep(Duration::from_secs(3)).await;
+        assert_eq!(
+            cache.get("k").await.unwrap(),
+            None,
+            "Default 300s TTL 条目应在 302s 时过期"
+        );
     }
 
     #[tokio::test]

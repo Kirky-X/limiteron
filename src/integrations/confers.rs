@@ -318,7 +318,10 @@ metrics = "none"
         assert!(result.is_err());
         match result {
             Err(LimiteronError::ConfigError(msg)) => {
-                assert!(msg.contains("Unsupported"), "应含 Unsupported: {msg}")
+                assert!(
+                    msg.contains("Unsupported"),
+                    "must contain Unsupported: {msg}"
+                )
             }
             other => panic!("expected ConfigError, got {other:?}"),
         }

@@ -82,59 +82,59 @@ pub fn openapi_document() -> serde_json::Value {
         "info": {
             "title": TITLE,
             "version": API_VERSION,
-            "description": "Limiteron 管理控制面：限流状态、封禁管理、配额调整、熔断器状态与规则热更新。除探针/指标端点外均需 Bearer API key。",
+            "description": "Limiteron admin control plane: rate limit status, ban management, quota adjustment, circuit breaker status and rule hot reload. All endpoints except probes/metrics require a Bearer API key.",
         },
         "paths": {
-            "/healthz": operation("存活探针", "probes", serde_json::json!({
+            "/healthz": operation("Liveness probe", "probes", serde_json::json!({
                 "get": {
                     "responses": {
-                        "200": { "description": "进程存活", "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string" } } } } } }
+                        "200": { "description": "Process is alive", "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string" } } } } } }
                     }
                 }
             })),
-            "/readyz": operation("就绪探针（组件级聚合）", "probes", serde_json::json!({
+            "/readyz": operation("Readiness probe (component-level aggregation)", "probes", serde_json::json!({
                 "get": {
                     "responses": {
-                        "200": { "description": "全部组件健康" },
-                        "503": { "description": "任一组件不健康，响应体含明细" }
+                        "200": { "description": "All components healthy" },
+                        "503": { "description": "One or more components unhealthy; response body contains details" }
                     }
                 }
             })),
-            "/metrics": operation("Prometheus 文本格式指标", "probes", serde_json::json!({
+            "/metrics": operation("Prometheus text-format metrics", "probes", serde_json::json!({
                 "get": {
                     "responses": {
                         "200": { "description": "text/plain; version=0.0.4 exposition" }
                     }
                 }
             })),
-            "/api/v1/status": operation("系统整体状态", "status", serde_json::json!({
+            "/api/v1/status": operation("Overall system status", "status", serde_json::json!({
                 "get": {
                     "security": bearer,
                     "responses": {
-                        "200": ok_json("系统状态", "#/components/schemas/SystemStatus"),
-                        "401": error_response("鉴权失败")
+                        "200": ok_json("System status", "#/components/schemas/SystemStatus"),
+                        "401": error_response("Authentication failed")
                     }
                 }
             })),
-            "/api/v1/status/circuit-breaker": operation("熔断器状态", "status", serde_json::json!({
+            "/api/v1/status/circuit-breaker": operation("Circuit breaker status", "status", serde_json::json!({
                 "get": {
                     "security": bearer,
                     "responses": {
-                        "200": ok_json("熔断器状态", "#/components/schemas/CircuitBreakerStatus"),
-                        "503": error_response("未配置 circuit-breaker")
+                        "200": ok_json("Circuit breaker status", "#/components/schemas/CircuitBreakerStatus"),
+                        "503": error_response("circuit-breaker not configured")
                     }
                 }
             })),
-            "/api/v1/introspect": operation("运行时自省快照（规则/决策链/封禁/熔断聚合）", "status", serde_json::json!({
+            "/api/v1/introspect": operation("Runtime introspection snapshot (rules, decision chains, bans and circuit breakers aggregated)", "status", serde_json::json!({
                 "get": {
                     "security": bearer,
                     "responses": {
-                        "200": { "description": "自省快照 JSON（结构随 feature 组合扩展）",
+                        "200": { "description": "Introspection snapshot JSON (structure extends with the feature combination)",
                                  "content": { "application/json": { "schema": { "type": "object" } } } }
                     }
                 }
             })),
-            "/api/v1/config": operation("规则热更新（原子换配置，失败保留旧配置）", "config", serde_json::json!({
+            "/api/v1/config": operation("Rule hot reload (atomic config swap; previous config retained on failure)", "config", serde_json::json!({
                 "post": {
                     "security": bearer,
                     "requestBody": {
@@ -142,12 +142,12 @@ pub fn openapi_document() -> serde_json::Value {
                         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FlowControlConfig" } } }
                     },
                     "responses": {
-                        "200": { "description": "应用报告", "content": { "application/json": { "schema": { "type": "object" } } } },
-                        "400": error_response("校验失败，旧配置原样保留")
+                        "200": { "description": "Application report", "content": { "application/json": { "schema": { "type": "object" } } } },
+                        "400": error_response("Validation failed; previous config retained")
                     }
                 }
             })),
-            "/api/v1/check/batch": operation("批量检查（N 个 key 一次决策）", "decision", serde_json::json!({
+            "/api/v1/check/batch": operation("Batch check (N keys decided in one request)", "decision", serde_json::json!({
                 "post": {
                     "security": bearer,
                     "requestBody": {
@@ -155,12 +155,12 @@ pub fn openapi_document() -> serde_json::Value {
                         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchCheckBody" } } }
                     },
                     "responses": {
-                        "200": { "description": "逐项决策结果", "content": { "application/json": { "schema": { "type": "object" } } } },
-                        "400": error_response("空批次或超过 1000 条上限")
+                        "200": { "description": "Per-item decision results", "content": { "application/json": { "schema": { "type": "object" } } } },
+                        "400": error_response("Empty batch or above the 1000-item limit")
                     }
                 }
             })),
-            "/api/v1/tokens/prefetch": operation("批量令牌预取", "decision", serde_json::json!({
+            "/api/v1/tokens/prefetch": operation("Batch token prefetch", "decision", serde_json::json!({
                 "post": {
                     "security": bearer,
                     "requestBody": {
@@ -168,12 +168,12 @@ pub fn openapi_document() -> serde_json::Value {
                         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenPrefetchBody" } } }
                     },
                     "responses": {
-                        "200": { "description": "逐项 granted 与汇总", "content": { "application/json": { "schema": { "type": "object" } } } },
-                        "400": error_response("空批次或超过 1000 条上限")
+                        "200": { "description": "Per-item granted results and summary", "content": { "application/json": { "schema": { "type": "object" } } } },
+                        "400": error_response("Empty batch or above the 1000-item limit")
                     }
                 }
             })),
-            "/api/v1/ban": operation("创建封禁（ip/user/mac/geo）", "ban", serde_json::json!({
+            "/api/v1/ban": operation("Create ban (ip/user/mac/geo)", "ban", serde_json::json!({
                 "post": {
                     "security": bearer,
                     "requestBody": {
@@ -181,15 +181,15 @@ pub fn openapi_document() -> serde_json::Value {
                         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateBanRequest" } } }
                     },
                     "responses": {
-                        "201": ok_json("封禁详情", "#/components/schemas/BanResponse"),
-                        "400": error_response("目标/原因校验失败"),
-                        "403": error_response("operator 无授权"),
-                        "500": error_response("内部错误"),
-                        "503": error_response("未配置 ban-manager")
+                        "201": ok_json("Ban details", "#/components/schemas/BanResponse"),
+                        "400": error_response("Target or reason validation failed"),
+                        "403": error_response("Operator not authorized"),
+                        "500": error_response("Internal error"),
+                        "503": error_response("ban-manager not configured")
                     }
                 }
             })),
-            "/api/v1/ban/{target}": operation("解除封禁（?type=ip|user|mac|geo|cidr）", "ban", serde_json::json!({
+            "/api/v1/ban/{target}": operation("Remove ban (?type=ip|user|mac|geo|cidr)", "ban", serde_json::json!({
                 "delete": {
                     "security": bearer,
                     "parameters": [
@@ -202,15 +202,15 @@ pub fn openapi_document() -> serde_json::Value {
                         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UnbanRequest" } } }
                     },
                     "responses": {
-                        "200": ok_json("解除结果", "#/components/schemas/Unit"),
-                        "400": error_response("不支持的 type"),
-                        "404": error_response("封禁不存在"),
-                        "500": error_response("内部错误"),
-                        "503": error_response("未配置 ban-manager")
+                        "200": ok_json("Removal result", "#/components/schemas/Unit"),
+                        "400": error_response("Unsupported type"),
+                        "404": error_response("Ban not found"),
+                        "500": error_response("Internal error"),
+                        "503": error_response("ban-manager not configured")
                     }
                 }
             })),
-            "/api/v1/quota/{user_id}": operation("按 user 重置配额使用量（new_limit=0）/ 拒绝 per-tenant 上限更新", "quota", serde_json::json!({
+            "/api/v1/quota/{user_id}": operation("Reset a user's quota usage (new_limit=0); rejects per-tenant quota limit updates", "quota", serde_json::json!({
                 "put": {
                     "security": bearer,
                     "parameters": [
@@ -221,10 +221,10 @@ pub fn openapi_document() -> serde_json::Value {
                         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateQuotaRequest" } } }
                     },
                     "responses": {
-                        "200": ok_json("操作结果", "#/components/schemas/UpdateQuotaResponse"),
-                        "400": error_response("不支持的操作"),
-                        "500": error_response("内部错误"),
-                        "503": error_response("未配置 quota-control")
+                        "200": ok_json("Operation result", "#/components/schemas/UpdateQuotaResponse"),
+                        "400": error_response("Unsupported operation"),
+                        "500": error_response("Internal error"),
+                        "503": error_response("quota-control not configured")
                     }
                 }
             }))
@@ -243,8 +243,8 @@ pub fn openapi_document() -> serde_json::Value {
                         "total_requests": { "type": "integer", "format": "int64" },
                         "blocked_requests": { "type": "integer", "format": "int64" },
                         "success_rate": { "type": "number", "format": "double" },
-                        "active_bans": { "type": "integer", "description": "ban-manager feature 下存在" },
-                        "circuit_breaker": { "type": "string", "description": "circuit-breaker feature 下存在" }
+                        "active_bans": { "type": "integer", "description": "Present when the ban-manager feature is enabled" },
+                        "circuit_breaker": { "type": "string", "description": "Present when the circuit-breaker feature is enabled" }
                     }
                 },
                 "CircuitBreakerStatus": {
@@ -264,7 +264,7 @@ pub fn openapi_document() -> serde_json::Value {
                         "global": { "type": "object" },
                         "rules": { "type": "array", "items": { "type": "object" } }
                     },
-                    "description": "完整 FlowControlConfig（字段见 config 模块；此处保留顶层骨架）"
+                    "description": "Full FlowControlConfig (fields are defined in the config module; only the top-level skeleton is kept here)"
                 },
                 "BatchCheckBody": {
                     "type": "object",
@@ -306,7 +306,7 @@ pub fn openapi_document() -> serde_json::Value {
                 "BanTarget": {
                     "type": "object",
                     "required": ["type", "value"],
-                    "description": "ip/user/mac 为字符串 value；geo 为 {country_code}；cidr 为字符串 value",
+                    "description": "ip/user/mac use a string value; geo uses an object with a country_code field; cidr uses a string value",
                     "properties": {
                         "type": { "type": "string", "enum": ["ip", "user", "mac", "geo", "cidr"] },
                         "value": {}
@@ -318,7 +318,7 @@ pub fn openapi_document() -> serde_json::Value {
                     "properties": {
                         "target": { "$ref": "#/components/schemas/BanTarget" },
                         "reason": { "type": "string" },
-                        "operator": { "type": "string", "nullable": true, "description": "已弃用：服务端忽略，身份由 API key mapping 决定" },
+                        "operator": { "type": "string", "nullable": true, "description": "Deprecated: ignored by the server; identity is determined by the API key mapping" },
                         "duration_secs": { "type": "integer", "format": "int64", "nullable": true }
                     }
                 },
@@ -336,7 +336,7 @@ pub fn openapi_document() -> serde_json::Value {
                     "type": "object",
                     "properties": {
                         "reason": { "type": "string", "nullable": true },
-                        "operator": { "type": "string", "nullable": true, "description": "已弃用：服务端忽略" }
+                        "operator": { "type": "string", "nullable": true, "description": "Deprecated: ignored by the server" }
                     }
                 },
                 "UpdateQuotaRequest": {
@@ -344,7 +344,7 @@ pub fn openapi_document() -> serde_json::Value {
                     "required": ["resource", "new_limit"],
                     "properties": {
                         "resource": { "type": "string" },
-                        "new_limit": { "type": "integer", "format": "int64", "description": "0 = 重置信号" },
+                        "new_limit": { "type": "integer", "format": "int64", "description": "0 = reset signal" },
                         "duration_secs": { "type": "integer", "format": "int64", "nullable": true }
                     }
                 },
@@ -384,7 +384,7 @@ mod tests {
         assert_eq!(
             paths.len(),
             12,
-            "路由清单须与 create_router 同步: {paths:?}"
+            "route list must stay in sync with create_router: {paths:?}"
         );
         for key in [
             "/healthz",
@@ -400,7 +400,7 @@ mod tests {
             "/api/v1/ban/{target}",
             "/api/v1/quota/{user_id}",
         ] {
-            assert!(paths.contains_key(key), "缺少路由 {key}");
+            assert!(paths.contains_key(key), "missing route {key}");
         }
     }
 
@@ -419,7 +419,7 @@ mod tests {
             let name = &rest[..end];
             assert!(
                 name.is_empty() || schemas.contains_key(name),
-                "悬空 $ref: {name}"
+                "dangling $ref: {name}"
             );
             search_from = start;
         }

@@ -25,7 +25,10 @@ fn main() {
     match serde_json::to_string_pretty(&invocation.output) {
         Ok(json) => println!("{json}"),
         Err(e) => {
-            eprintln!("limiteron-cli: failed to serialize output: {e}");
+            eprintln!(
+                "{}",
+                limiteron::i18n::t("cli-error-serialize-output", &[("reason", e.to_string())],)
+            );
             std::process::exit(2);
         }
     }

@@ -260,7 +260,7 @@ mod tests {
             for _ in 0..MAX {
                 assert!(
                     limiter.allow(1).await.unwrap(),
-                    "round {round} 灌满阶段误拒"
+                    "round {round} fill phase false rejection"
                 );
             }
             assert!(!limiter.allow(1).await.unwrap());
@@ -288,17 +288,17 @@ mod tests {
             assert_eq!(
                 allowed.load(Ordering::SeqCst),
                 MAX,
-                "round {round} 新窗口放行数偏离"
+                "round {round} new-window allowance deviates"
             );
             assert_eq!(
                 limiter.get_count(),
                 MAX,
-                "round {round} 账实不符：递增被翻转清零吞并"
+                "round {round} ledger mismatch: the increment was swallowed by the flip reset"
             );
             // 窗口已满，下一个必须拒绝（账被吞并时会错误放行）
             assert!(
                 !limiter.allow(1).await.unwrap(),
-                "round {round} 翻转竞态导致超发"
+                "round {round} flip race causes over-issuance"
             );
         }
     }

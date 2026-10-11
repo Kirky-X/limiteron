@@ -19,7 +19,7 @@ use std::time::Duration;
     not(feature = "mysql"),
     expect(
         dead_code,
-        reason = "契约套件按后端逐步接入，mysql 之外的组合暂无调用方"
+        reason = "contract suite is wired per backend; combinations other than mysql have no callers yet"
     )
 )]
 pub async fn storage_contract(storage: &Arc<dyn Storage>) -> Result<(), StorageError> {
@@ -27,12 +27,16 @@ pub async fn storage_contract(storage: &Arc<dyn Storage>) -> Result<(), StorageE
     assert_eq!(
         storage.get("contract:key").await?,
         Some("v1".to_string()),
-        "set 后 get 应返回写入值"
+        "get should return the written value after set"
     );
 
     storage.set("contract:ttl", "gone", Some(1)).await?;
     storage.delete("contract:key").await?;
-    assert_eq!(storage.get("contract:key").await?, None, "删除后应 miss");
+    assert_eq!(
+        storage.get("contract:key").await?,
+        None,
+        "should miss after delete"
+    );
 
     assert_eq!(storage.get("contract:ttl").await?, Some("gone".to_string()));
 
@@ -41,7 +45,7 @@ pub async fn storage_contract(storage: &Arc<dyn Storage>) -> Result<(), StorageE
     assert_eq!(
         storage.get("contract:ttl").await?,
         None,
-        "TTL=1s 的 key 到期后应过期 miss"
+        "TTL=1s key should expire and miss"
     );
 
     Ok(())
@@ -52,7 +56,7 @@ pub async fn storage_contract(storage: &Arc<dyn Storage>) -> Result<(), StorageE
     not(feature = "mysql"),
     expect(
         dead_code,
-        reason = "契约套件按后端逐步接入，mysql 之外的组合暂无调用方"
+        reason = "contract suite is wired per backend; combinations other than mysql have no callers yet"
     )
 )]
 pub async fn ban_contract(bans: &Arc<dyn BanStorage>) -> Result<(), StorageError> {
@@ -70,14 +74,14 @@ pub async fn ban_contract(bans: &Arc<dyn BanStorage>) -> Result<(), StorageError
     let hit = bans
         .is_banned(&BanTarget::Ip("203.0.113.77".to_string()))
         .await?;
-    assert!(hit.is_some(), "已封禁目标应可查询");
+    assert!(hit.is_some(), "banned target should be queryable");
 
     let listed = bans.list_bans(true, 0, 100).await?;
     assert!(
         listed
             .iter()
             .any(|r| r.target == BanTarget::Ip("203.0.113.77".to_string())),
-        "list_bans 应包含契约封禁"
+        "list_bans should contain the contract ban"
     );
 
     bans.remove_ban(&BanTarget::Ip("203.0.113.77".to_string()))
@@ -85,7 +89,7 @@ pub async fn ban_contract(bans: &Arc<dyn BanStorage>) -> Result<(), StorageError
     let miss = bans
         .is_banned(&BanTarget::Ip("203.0.113.77".to_string()))
         .await?;
-    assert!(miss.is_none(), "解封后应 miss");
+    assert!(miss.is_none(), "should miss after unban");
     Ok(())
 }
 
@@ -94,18 +98,18 @@ pub async fn ban_contract(bans: &Arc<dyn BanStorage>) -> Result<(), StorageError
     not(feature = "mysql"),
     expect(
         dead_code,
-        reason = "契约套件按后端逐步接入，mysql 之外的组合暂无调用方"
+        reason = "contract suite is wired per backend; combinations other than mysql have no callers yet"
     )
 )]
 pub async fn quota_contract(quota: &Arc<dyn QuotaStorage>) -> Result<(), StorageError> {
     let ConsumeResult { allowed, .. } = quota
         .consume("contract_user", "api", 2, 10, Duration::from_secs(60))
         .await?;
-    assert!(allowed, "额度内消费应放行");
+    assert!(allowed, "consumption within quota should be allowed");
 
     let info: Option<QuotaInfo> = quota.get_quota("contract_user", "api").await?;
-    let info = info.expect("消费后应有配额记录");
-    assert_eq!(info.consumed, 2, "消费量应记录 2");
+    let info = info.expect("there should be a quota record after consumption");
+    assert_eq!(info.consumed, 2, "consumed should be recorded as 2");
 
     quota
         .reset("contract_user", "api", 10, Duration::from_secs(60))
@@ -113,7 +117,7 @@ pub async fn quota_contract(quota: &Arc<dyn QuotaStorage>) -> Result<(), Storage
     let after = quota.get_quota("contract_user", "api").await?;
     assert!(
         after.map(|i| i.consumed).unwrap_or(0) == 0,
-        "reset 后消费量应归零"
+        "consumed should reset to zero after reset"
     );
     Ok(())
 }

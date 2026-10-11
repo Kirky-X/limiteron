@@ -41,7 +41,7 @@ fn create_simple_config() -> FlowControlConfig {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== 优雅关闭示例 ===");
+    println!("=== Graceful shutdown example ===");
 
     // 使用 builder 模式创建 Governor（带有效配置）
     let governor = Governor::builder()
@@ -51,12 +51,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .await
         .expect("Governor build should succeed");
-    println!("Governor 已启动");
+    println!("Governor started");
 
     // 检查健康状态
     let health = governor.health_status().await;
     println!(
-        "初始健康状态: storage={}, ban_storage={}, cache={}, bg_tasks={}",
+        "Initial health status: storage={}, ban_storage={}, cache={}, bg_tasks={}",
         health.storage_healthy,
         health.ban_storage_healthy,
         health.cache_healthy,
@@ -70,10 +70,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    println!("后台任务: 心跳");
+                    println!("Background task: heartbeat");
                 }
                 _ = token.cancelled() => {
-                    println!("后台任务: 收到关闭信号，退出");
+                    println!("Background task: shutdown signal received, exiting");
                     break;
                 }
             }
@@ -86,38 +86,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     context = context.with_path("/api/demo");
     for i in 0..3 {
         let decision = governor.check(&context).await?;
-        println!("处理请求 {}: {:?}", i, decision);
+        println!("Handling request {}: {:?}", i, decision);
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
 
     // 监听 Ctrl+C 信号（带 2 秒超时，便于非交互式运行）
-    println!("\n等待关闭信号 (Ctrl+C 或 2 秒超时)...");
+    println!("\nWaiting for shutdown signal (Ctrl+C or 2s timeout)...");
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
-            println!("收到 Ctrl+C 信号");
+            println!("Received Ctrl+C signal");
         }
         _ = tokio::time::sleep(Duration::from_secs(2)) => {
-            println!("超时触发关闭（非交互式模式）");
+            println!("Timeout triggered shutdown (non-interactive mode)");
         }
     }
 
     // 调用 shutdown() 优雅关闭
     governor.shutdown().await?;
-    println!("Governor shutdown() 调用完成");
+    println!("Governor shutdown() call complete");
 
     // 验证幂等性：再次调用 shutdown() 应返回 Ok
     let result = governor.shutdown().await;
-    assert!(result.is_ok(), "shutdown() 应幂等返回 Ok");
-    println!("第二次 shutdown() 幂等返回 Ok ✓");
+    assert!(result.is_ok(), "shutdown() should return Ok idempotently");
+    println!("Second shutdown() returned Ok idempotently ✓");
 
     // 等待后台任务退出
     bg_handle.await?;
-    println!("后台任务已退出");
+    println!("Background task exited");
 
     // 验证关闭后的健康状态
     let health_after = governor.health_status().await;
     println!(
-        "关闭后健康状态: storage={}, ban_storage={}, cache={}, bg_tasks={}",
+        "Post-shutdown health status: storage={}, ban_storage={}, cache={}, bg_tasks={}",
         health_after.storage_healthy,
         health_after.ban_storage_healthy,
         health_after.cache_healthy,
@@ -125,10 +125,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     assert!(
         !health_after.background_tasks_alive,
-        "关闭后 background_tasks_alive 应为 false"
+        "background_tasks_alive should be false after shutdown"
     );
     println!("background_tasks_alive=false ✓");
 
-    println!("\n示例完成! 优雅关闭成功");
+    println!("\nExample complete! Graceful shutdown succeeded");
     Ok(())
 }

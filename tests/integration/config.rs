@@ -309,10 +309,11 @@ fn test_config_serialization() {
     };
 
     // 序列化为 YAML
-    let yaml = serde_yaml_ng::to_string(&config).expect("序列化失败");
+    let yaml = serde_yaml_ng::to_string(&config).expect("serialization failed");
 
     // 反序列化
-    let deserialized: FlowControlConfig = serde_yaml_ng::from_str(&yaml).expect("反序列化失败");
+    let deserialized: FlowControlConfig =
+        serde_yaml_ng::from_str(&yaml).expect("deserialization failed");
 
     assert_eq!(config.version, deserialized.version);
     assert_eq!(config.rules.len(), deserialized.rules.len());
@@ -333,10 +334,11 @@ fn test_config_serialization_json() {
     };
 
     // 序列化为 JSON
-    let json = serde_json::to_string(&config).expect("序列化失败");
+    let json = serde_json::to_string(&config).expect("serialization failed");
 
     // 反序列化
-    let deserialized: FlowControlConfig = serde_json::from_str(&json).expect("反序列化失败");
+    let deserialized: FlowControlConfig =
+        serde_json::from_str(&json).expect("deserialization failed");
 
     assert_eq!(config.version, deserialized.version);
 }

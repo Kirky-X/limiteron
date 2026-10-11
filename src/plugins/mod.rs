@@ -406,9 +406,12 @@ mod tests {
 
         // 卸载后不再触发
         assert!(registry.unregister("counter"));
-        assert!(!registry.unregister("counter"), "重复卸载应返回 false");
+        assert!(
+            !registry.unregister("counter"),
+            "repeated unregister must return false"
+        );
         registry.dispatch_admit(&event("e")).await;
-        assert_eq!(counter.admits(), 2, "卸载后不再分发");
+        assert_eq!(counter.admits(), 2, "no more dispatching after unregister");
         assert!(registry.is_empty());
     }
 
@@ -428,7 +431,7 @@ mod tests {
         assert_eq!(
             err,
             PluginError::AlreadyRegistered("logging".to_string()),
-            "同名插件注册必须显性报错而非静默覆盖"
+            "a same-name plugin registration must error explicitly instead of silently overwriting"
         );
         assert_eq!(registry.len(), 1);
     }
@@ -469,7 +472,7 @@ mod tests {
         assert_eq!(
             *log.lock().unwrap(),
             vec!['c', 'a', 'b'],
-            "分发顺序应与注册顺序一致"
+            "the dispatch order must match the registration order"
         );
     }
 
@@ -492,7 +495,7 @@ mod tests {
         assert_eq!(
             registry.list_names(),
             vec!["zeta".to_string(), "alpha".to_string(), "mid".to_string()],
-            "list_names 应按注册顺序输出（与分发顺序同一口径）"
+            "list_names must output in registration order (same basis as the dispatch order)"
         );
 
         // 卸载后剩余插件仍保持注册序相对次序
@@ -524,7 +527,11 @@ mod tests {
 
         // panicky 插件 panic 被隔离：计数器仍收到事件，panic 计数 +1
         registry.dispatch_reject(&event("k")).await;
-        assert_eq!(counter.rejects(), 1, "后续插件不应被 panic 中断");
+        assert_eq!(
+            counter.rejects(),
+            1,
+            "subsequent plugins must not be interrupted by a panic"
+        );
         assert_eq!(registry.panicked_dispatches(), 1);
     }
 

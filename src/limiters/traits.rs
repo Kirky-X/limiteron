@@ -350,11 +350,11 @@ mod tests {
         let limiter = BareLimiter;
         assert!(
             limiter.peek(1).await.is_err(),
-            "默认 peek 应返回 Err（未支持）"
+            "the default peek must return Err (unsupported)"
         );
         assert!(
             limiter.remaining().await.is_err(),
-            "默认 remaining 应返回 Err（未支持）"
+            "the default remaining must return Err (unsupported)"
         );
     }
 
@@ -365,9 +365,15 @@ mod tests {
             remaining: 42,
             reset_secs: 7,
         };
-        assert!(snapshot.allows(42), "remaining == cost 应判定可行");
+        assert!(
+            snapshot.allows(42),
+            "remaining == cost should be judged feasible"
+        );
         assert!(snapshot.allows(1));
-        assert!(!snapshot.allows(43), "remaining < cost 应判定不可行");
+        assert!(
+            !snapshot.allows(43),
+            "remaining < cost should be judged infeasible"
+        );
 
         let headers = snapshot.headers();
         assert_eq!(headers[0], ("RateLimit-Limit", "100".to_string()));
@@ -382,16 +388,22 @@ mod tests {
         let limiter = TokenBucketLimiter::new(100, 10);
         let before = limiter.peek(10).await.unwrap();
         assert_eq!(before.limit, 100);
-        assert_eq!(before.remaining, 100, "满桶 peek 剩余应为容量");
+        assert_eq!(
+            before.remaining, 100,
+            "a full bucket's peek remaining should equal the capacity"
+        );
 
         // peek 之后 allow 的结果与 peek 判定一致（peek 零副作用）
         assert!(before.allows(10));
         assert!(limiter.allow(10).await.unwrap());
 
         let after = limiter.peek(10).await.unwrap();
-        assert_eq!(after.remaining, 90, "peek 不得重复扣减，allow 恰好扣减一次");
+        assert_eq!(
+            after.remaining, 90,
+            "peek must not deduct twice; allow deducts exactly once"
+        );
         assert_eq!(after.limit, 100);
-        assert!(after.reset_secs <= 1, "缺口 10/速率 10 → 重置 ≤1s");
+        assert!(after.reset_secs <= 1, "gap 10 / rate 10 -> reset <= 1s");
     }
 
     #[tokio::test]
@@ -410,11 +422,11 @@ mod tests {
         let fw = FixedWindowLimiter::new(Duration::from_secs(60), 10);
         Limiter::allow(&fw, 4).await.unwrap();
         let snap = fw.remaining().await.unwrap();
-        assert_eq!(snap.remaining, 6, "固定窗口 remaining = max - count");
+        assert_eq!(snap.remaining, 6, "fixed window remaining = max - count");
         assert_eq!(snap.limit, 10);
         assert!(
             snap.reset_secs <= 60 && snap.reset_secs > 0,
-            "重置时间应在窗口内"
+            "the reset time must be within the window"
         );
     }
 

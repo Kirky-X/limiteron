@@ -963,9 +963,13 @@ mod tests {
             "flowguard_negative_cache_hits_total",
         ];
         for name in expected {
-            assert!(names.contains(name), "register() 缺少指标 {name}");
+            assert!(names.contains(name), "register() is missing metric {name}");
         }
-        assert_eq!(names.len(), expected.len(), "注册面应与内建 registry 一致");
+        assert_eq!(
+            names.len(),
+            expected.len(),
+            "the registration surface must match the built-in registry"
+        );
     }
 
     #[test]
@@ -1477,13 +1481,13 @@ mod tests_prometheus {
             output.contains(
                 "flowguard_rule_checks_total{outcome=\"rejected\",rule=\"rule_alpha\"} 1"
             ),
-            "per-rule outcome 指标应含 rule/outcome 标签: {output}"
+            "the per-rule outcome metrics must carry the rule/outcome labels: {output}"
         );
         assert!(
             output.contains(
                 "flowguard_rule_limiter_rejections_total{limiter=\"token_bucket\",rule=\"rule_alpha\"} 1"
             ),
-            "per-limiter 拒绝指标应含 rule/limiter 标签: {output}"
+            "the per-limiter rejection metrics must carry the rule/limiter labels: {output}"
         );
         assert!(output.contains("flowguard_degraded_checks_total 1"));
     }

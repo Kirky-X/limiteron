@@ -159,7 +159,7 @@ async fn e2e_ban_user_cannot_access() {
     ban_manager
         .create_ban(
             target.clone(),
-            "违规操作".to_string(),
+            "rule-violating operation".to_string(),
             BanSource::Manual {
                 operator: "admin@example.com".to_string(),
             },
@@ -177,7 +177,7 @@ async fn e2e_ban_user_cannot_access() {
     assert!(is_banned.is_some(), "User should be banned");
 
     let ban_record = is_banned.unwrap();
-    assert_eq!(ban_record.reason, "违规操作");
+    assert_eq!(ban_record.reason, "rule-violating operation");
     assert!(ban_record.is_manual);
 }
 
@@ -202,7 +202,7 @@ async fn e2e_ban_expired_user_can_access() {
     ban_manager
         .create_ban(
             target.clone(),
-            "临时封禁".to_string(),
+            "temporary ban".to_string(),
             BanSource::Auto,
             serde_json::json!({"auto_ban": true}),
             Some(Duration::from_secs(1)),
@@ -252,7 +252,7 @@ async fn e2e_ban_ip_address() {
     ban_manager
         .create_ban(
             ip_target.clone(),
-            "恶意攻击来源".to_string(),
+            "malicious attack source".to_string(),
             BanSource::Auto,
             serde_json::json!({"attack_type": "DDoS", "attempts": 1000}),
             Some(Duration::from_secs(86400)),
@@ -269,7 +269,7 @@ async fn e2e_ban_ip_address() {
 
     let ban_record = is_banned.unwrap();
     assert_eq!(ban_record.target, ip_target);
-    assert_eq!(ban_record.reason, "恶意攻击来源");
+    assert_eq!(ban_record.reason, "malicious attack source");
 }
 
 /// 场景 4: 手动解封测试
@@ -293,7 +293,7 @@ async fn e2e_ban_manual_unban() {
     ban_manager
         .create_ban(
             target.clone(),
-            "测试封禁".to_string(),
+            "test ban".to_string(),
             BanSource::Manual {
                 operator: "admin@example.com".to_string(),
             },
@@ -349,7 +349,7 @@ async fn e2e_ban_history_tracking() {
     ban_manager
         .create_ban(
             target.clone(),
-            "第一次违规".to_string(),
+            "first violation".to_string(),
             BanSource::Auto,
             serde_json::json!({"count": 1}),
             Some(Duration::from_secs(60)),
@@ -397,7 +397,7 @@ async fn e2e_ban_update() {
     ban_manager
         .create_ban(
             target.clone(),
-            "初始原因".to_string(),
+            "initial reason".to_string(),
             BanSource::Auto,
             serde_json::json!({}),
             Some(Duration::from_secs(300)),
@@ -407,13 +407,13 @@ async fn e2e_ban_update() {
 
     // 更新封禁原因
     let updated = ban_manager
-        .update_ban(&target, Some("更新后的原因".to_string()), None, None)
+        .update_ban(&target, Some("updated reason".to_string()), None, None)
         .await
         .expect("Failed to update ban");
 
     assert!(updated.is_some(), "Update should return the updated record");
     let record = updated.unwrap();
-    assert_eq!(record.reason, "更新后的原因");
+    assert_eq!(record.reason, "updated reason");
 }
 
 /// 场景 7: 批量封禁列表查询
@@ -437,7 +437,7 @@ async fn e2e_ban_list_active_bans() {
         ban_manager
             .create_ban(
                 target,
-                format!("封禁原因 {}", i),
+                format!("ban reason {}", i),
                 BanSource::Auto,
                 serde_json::json!({"index": i}),
                 Some(Duration::from_secs(3600)),

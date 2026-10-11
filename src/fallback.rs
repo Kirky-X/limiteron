@@ -669,7 +669,7 @@ mod tests {
         assert_eq!(
             result.unwrap(),
             "degraded-value",
-            "FailOpen 应返回备用操作的放行值"
+            "FailOpen should return the fallback operation's allow value"
         );
     }
 

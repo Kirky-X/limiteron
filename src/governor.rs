@@ -1725,7 +1725,13 @@ impl Governor {
                 decision: decision.to_string(),
             });
             if let Err(e) = emitter.emit(event).await {
-                log::error!("Failed to emit rate limit event: {}", e);
+                error!(
+                    "{}",
+                    t(
+                        "governor-emit-rate-limit-event-failed",
+                        &[("error", e.to_string())]
+                    )
+                );
             }
         }
     }
@@ -3891,7 +3897,7 @@ mod governor_construction_tests {
         let result = governor.check(&ctx).await.expect("check should not error");
         assert!(
             matches!(result, Decision::Rejected(_)),
-            "第 101 个请求应被内置兜底规则限流"
+            "the 101st request must be limited by the built-in fallback rule"
         );
     }
 
@@ -5166,15 +5172,15 @@ mod governor_feature_gated_tests {
         let output = metrics.gather();
         assert!(
             output.contains("flowguard_rule_checks_total"),
-            "维度指标应注册进 registry: {output}"
+            "dimension metrics must be registered in the registry: {output}"
         );
         assert!(
             output.contains("rule=\"test_rule\""),
-            "应有 test_rule 标签序列: {output}"
+            "there should be a test_rule label series: {output}"
         );
         assert!(
             output.contains("outcome=\"allowed\""),
-            "应有 allowed outcome 序列: {output}"
+            "there should be an allowed outcome series: {output}"
         );
     }
 
@@ -5230,12 +5236,12 @@ mod governor_feature_gated_tests {
         assert!(
             output
                 .contains("flowguard_rule_checks_total{outcome=\"rejected\",rule=\"test_rule\"} 2"),
-            "负缓存命中的拒绝应按裁决规则计入 per-rule 序列（链上 1 + 缓存命中 1）: {output}"
+            "rejections from negative-cache hits must be counted into the per-rule series per the decision rule (1 on-chain + 1 cache hit): {output}"
         );
         assert_eq!(
             metrics.negative_cache_hits_total.get(),
             0,
-            "可归因到规则的命中不应重复计入 negative_cache_hits_total"
+            "a rule-attributable hit must not be counted twice into negative_cache_hits_total"
         );
     }
 
@@ -5265,7 +5271,7 @@ mod governor_feature_gated_tests {
         let output = metrics.gather();
         assert!(
             !output.contains("flowguard_rule_checks_total{"),
-            "关闭后不应有 rule 维度序列: {output}"
+            "there should be no rule dimension series after shutdown: {output}"
         );
         // 全局计数仍工作
         assert!(metrics.requests_total.get() >= 1.0);
@@ -5334,7 +5340,11 @@ mod governor_feature_gated_tests {
 
         // 链上直接制造拒绝（绕过 Governor 负缓存）：首查耗尽令牌，其后拒绝
         let _ = chain.check().await.unwrap();
-        assert_eq!(chain.stats_sync().rejected_count, 0, "首查应耗尽令牌放行");
+        assert_eq!(
+            chain.stats_sync().rejected_count,
+            0,
+            "the first check must exhaust the tokens and allow"
+        );
         chain.check().await.unwrap();
         chain.check().await.unwrap();
         let actual = chain.stats_sync().node_rejections[0].1;
@@ -5344,12 +5354,12 @@ mod governor_feature_gated_tests {
         assert_eq!(
             exported_total(&metrics),
             actual,
-            "首次导出应恰好等于真实拒绝数"
+            "the first export must exactly equal the true reject count"
         );
         assert_eq!(
             chain.exported_rejections_version(),
             chain.node_rejections_version(),
-            "导出后落账版本应追平链版本"
+            "the exported ledger version must catch up with the chain version"
         );
 
         // 线程二迟到闯入：持合并前的旧观测重复导出（并发导出方已落账同
@@ -5358,7 +5368,7 @@ mod governor_feature_gated_tests {
         assert_eq!(
             exported_total(&metrics),
             actual,
-            "同版本重复导出不得重复计数"
+            "repeated exports of the same version must not double count"
         );
 
         // 新增真实拒绝后仅导出新增 delta
@@ -5368,7 +5378,7 @@ mod governor_feature_gated_tests {
         assert_eq!(
             exported_total(&metrics),
             actual,
-            "再次导出应恰好覆盖新增拒绝"
+            "the next export must exactly cover the new rejections"
         );
     }
 
@@ -5459,7 +5469,10 @@ mod governor_feature_gated_tests {
                 })
                 .sum()
         };
-        assert_eq!(exported, actual, "并发导出不得双算或漏算");
+        assert_eq!(
+            exported, actual,
+            "concurrent exports must not double count or miss"
+        );
     }
 
     /// 负缓存无归因命中（缓存条目 rule_id=None，如旧版本写入的共享缓存
@@ -5525,7 +5538,7 @@ mod governor_feature_gated_tests {
             .into_iter()
             .cloned()
             .collect();
-        assert!(!matched_rules.is_empty(), "规则应匹配");
+        assert!(!matched_rules.is_empty(), "the rule should match");
         let identifier = Identifier::UserId("u_noattr".to_string());
         let cache_key = governor.build_cache_key_multi(&identifier, &matched_rules);
         governor
@@ -5537,12 +5550,12 @@ mod governor_feature_gated_tests {
         let decision = governor.check(&ctx).await.expect("check should succeed");
         assert!(
             matches!(decision, Decision::Rejected(_)),
-            "应命中缓存拒绝: {decision:?}"
+            "should hit the cached rejection: {decision:?}"
         );
         assert_eq!(
             metrics.negative_cache_hits_total.get(),
             1,
-            "无归因命中应退独立计数"
+            "an unattributable hit should fall back to an independent count"
         );
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -5553,7 +5566,7 @@ mod governor_feature_gated_tests {
             }
             assert!(
                 tokio::time::Instant::now() < deadline,
-                "5s 内未收到 OTLP 导出"
+                "no OTLP export received within 5s"
             );
             tokio::time::sleep(Duration::from_millis(10)).await;
         };
@@ -5570,11 +5583,15 @@ mod governor_feature_gated_tests {
                         .to_string()
                 })
         };
-        assert_eq!(attribute("rule.id"), None, "无归因命中不应虚构 rule.id");
+        assert_eq!(
+            attribute("rule.id"),
+            None,
+            "an unattributable hit must not fabricate rule.id"
+        );
         assert_eq!(
             attribute("rule.outcome").as_deref(),
             Some("rejected"),
-            "无归因命中应保留结果信号"
+            "an unattributable hit must keep the result signal"
         );
     }
 
@@ -5605,7 +5622,7 @@ mod governor_feature_gated_tests {
         assert_eq!(
             metrics.degraded_checks_total.get(),
             0,
-            "主路径成功不应计降级"
+            "success on the main path must not count as degraded"
         );
 
         // 配置 fallback_manager + 无标识符请求：降级闭包执行但错误为配置类，
@@ -5631,7 +5648,7 @@ mod governor_feature_gated_tests {
         assert_eq!(
             metrics_fb.degraded_checks_total.get(),
             0,
-            "配置类错误触发降级不应计 degraded_checks_total"
+            "a config-class error triggering degradation must not count into degraded_checks_total"
         );
     }
 
@@ -5657,7 +5674,11 @@ mod governor_feature_gated_tests {
         governor.note_degraded_check(&Err(LimiteronError::StorageError(
             StorageError::ConnectionError("redis down".to_string()),
         )));
-        assert_eq!(metrics.degraded_checks_total.get(), 1, "存储类错误应计降级");
+        assert_eq!(
+            metrics.degraded_checks_total.get(),
+            1,
+            "a storage-class error must count as degraded"
+        );
 
         governor.note_degraded_check(&Err(LimiteronError::ConfigError(
             "no identifier".to_string(),
@@ -5666,7 +5687,7 @@ mod governor_feature_gated_tests {
         assert_eq!(
             metrics.degraded_checks_total.get(),
             1,
-            "配置类错误与成功结果不应计降级"
+            "config-class errors and successful results must not count as degraded"
         );
     }
 
@@ -5722,7 +5743,11 @@ mod governor_feature_gated_tests {
         let counter = metrics
             .rule_limiter_rejections_total
             .with_label_values(&["test_rule", "test_rule_limiter_0"]);
-        assert_eq!(counter.get(), 1, "旧链 1 次链上拒绝应导出为 1");
+        assert_eq!(
+            counter.get(),
+            1,
+            "1 on-chain rejection from the old chain must export as 1"
+        );
 
         // 热更新换新链（同规则 ID）：链内计数归零，快照同步清零
         governor
@@ -5737,7 +5762,7 @@ mod governor_feature_gated_tests {
         assert_eq!(
             counter.get(),
             2,
-            "热更新后新链拒绝应立即导出（快照已随换装清零）"
+            "after a hot swap, the new chain's rejections must export immediately (the snapshot is cleared with the swap)"
         );
     }
 
@@ -6409,14 +6434,27 @@ mod governor_feature_gated_tests {
                 count: 0,
             };
             for i in 0..5u64 {
-                assert!(c.try_acquire(5, 60, 100 + i), "第 {} 个应放行", i + 1);
+                assert!(
+                    c.try_acquire(5, 60, 100 + i),
+                    "request {} should be allowed",
+                    i + 1
+                );
             }
-            assert!(!c.try_acquire(5, 60, 105), "窗口内超限应拒绝");
+            assert!(
+                !c.try_acquire(5, 60, 105),
+                "over-limit within the window must be rejected"
+            );
             // 窗口翻转：重置后恢复放行
-            assert!(c.try_acquire(5, 60, 160), "窗口翻转后应重置放行");
+            assert!(
+                c.try_acquire(5, 60, 160),
+                "the window flip should reset and allow"
+            );
             // 窗口回拨（时钟异常）：不重置窗口、计数继续有界累计
             //（window_start 只前推，回拨不产生新窗口容量）
-            assert!(c.try_acquire(5, 60, 120), "回拨不重置窗口，容量仍有界(2/5)");
+            assert!(
+                c.try_acquire(5, 60, 120),
+                "a clock turn-back does not reset the window, capacity stays bounded (2/5)"
+            );
         }
     }
 }
@@ -6522,13 +6560,17 @@ mod governor_tenant_ban_tests {
         let mut kinds: Vec<String> = Vec::new();
         for (cfg, expected) in &cases {
             let got = limiter_kind(cfg);
-            assert_eq!(got, *expected, "limiter_kind 映射漂移");
+            assert_eq!(got, *expected, "limiter_kind mapping drift");
             kinds.push(got);
         }
         let mut uniq = kinds.clone();
         uniq.sort();
         uniq.dedup();
-        assert_eq!(uniq.len(), cases.len(), "限流器类型标签必须互不相同");
+        assert_eq!(
+            uniq.len(),
+            cases.len(),
+            "limiter type labels must be mutually distinct"
+        );
     }
 
     /// 租户限定封禁键契约：非默认命名空间加前缀落库、默认命名空间保持全局键、
@@ -6556,7 +6598,10 @@ mod governor_tenant_ban_tests {
         // 非默认命名空间的限定键含租户标识且不同于原键
         let qualified = ns.qualify_key("u1");
         assert_ne!(qualified, "u1");
-        assert!(qualified.contains("t1"), "限定键应含租户标识: {qualified}");
+        assert!(
+            qualified.contains("t1"),
+            "the qualified key must carry the tenant id: {qualified}"
+        );
 
         // 按命名空间封禁 → 经 is_identifier_banned 可见（全局键路径）
         governor
@@ -6590,7 +6635,7 @@ mod governor_tenant_ban_tests {
                 .expect_err("unsupported identifier must fail loudly");
             assert!(
                 matches!(err, LimiteronError::ValidationError(_)),
-                "应为 ValidationError: {err:?}"
+                "should be ValidationError: {err:?}"
             );
         }
 

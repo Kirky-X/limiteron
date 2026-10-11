@@ -1762,7 +1762,7 @@ mod tests {
 
         assert!(
             validate_header_value("").is_err(),
-            "空值在 Prefix 模式下语义翻转为通配符，应拒绝"
+            "an empty value semantically flipping to a wildcard in Prefix mode must be rejected"
         );
         assert!(validate_header_value("valid-value").is_ok());
     }
@@ -1814,7 +1814,10 @@ mod tests {
             .await
             .unwrap();
         let result = registry.get("test").await;
-        assert!(result.is_some(), "已注册的匹配器必须能被 get 到");
+        assert!(
+            result.is_some(),
+            "a registered matcher must be retrievable by get"
+        );
         assert_eq!(result.unwrap().name(), "time_window");
     }
 
@@ -2064,7 +2067,7 @@ mod tests {
                 .matches(&ctx_with_header("X-Tenant", "team-a-prod"))
                 .await
                 .unwrap(),
-            "默认相等模式不得因前缀命中而放行超串"
+            "the default exact mode must not allow a superstring via a prefix hit"
         );
         assert!(
             matcher
@@ -2084,7 +2087,7 @@ mod tests {
                 .matches(&ctx_with_header("X-Tenant", "TEAM-A-prod"))
                 .await
                 .unwrap(),
-            "默认不区分大小写：前缀比较应忽略大小写"
+            "case-insensitive by default: prefix comparison must ignore case"
         );
     }
 
@@ -2099,7 +2102,7 @@ mod tests {
                 .matches(&ctx_with_header("X-Tenant", "team-a-prod"))
                 .await
                 .unwrap(),
-            "区分大小写模式下前缀必须逐字符一致"
+            "in case-sensitive mode the prefix must match character by character"
         );
     }
 
@@ -2115,7 +2118,7 @@ mod tests {
                 .matches(&ctx_with_header("X-Tenant", "TEAM-A-prod"))
                 .await
                 .unwrap(),
-            "ASCII 大写头值应经零分配快路径命中"
+            "an ASCII uppercase header value must hit via the zero-allocation fast path"
         );
         assert!(
             !matcher
@@ -2129,14 +2132,14 @@ mod tests {
                 .matches(&ctx_with_header("X-Tenant", "TEAM-A"))
                 .await
                 .unwrap(),
-            "Exact ASCII 大写头值应经快路径命中"
+            "an Exact ASCII uppercase header value must hit via the fast path"
         );
         assert!(
             !exact
                 .matches(&ctx_with_header("X-Tenant", "team-a-prod"))
                 .await
                 .unwrap(),
-            "Exact 快路径不得因前缀命中放行超串"
+            "the Exact fast path must not allow a superstring via a prefix hit"
         );
     }
 
@@ -2151,7 +2154,11 @@ mod tests {
         )
         .unwrap()
         .with_match_mode(HeaderMatchMode::Prefix);
-        assert_eq!(matcher.values_ascii, [false, true], "ASCII 标志应逐值对齐");
+        assert_eq!(
+            matcher.values_ascii,
+            [false, true],
+            "the ASCII flag must align per value"
+        );
         // 非 ASCII 值走原路径：'ſpecial' 经 to_lowercase 原样保留（'ſ' 已是
         // 小写），前缀精确匹配命中
         assert!(
@@ -2177,7 +2184,7 @@ mod tests {
                 .matches(&ctx_with_header("X-Tenant", "MÄ-TEAM-prod"))
                 .await
                 .unwrap(),
-            "非 ASCII 头值经 to_lowercase 原路径折叠命中"
+            "a non-ASCII header value must fold via to_lowercase on the original path"
         );
         let lookalike = HeaderMatcher::new("X-Tenant", vec!["team-a".to_string()])
             .unwrap()
@@ -2187,7 +2194,7 @@ mod tests {
                 .matches(&ctx_with_header("X-Tenant", "team-ä-prod"))
                 .await
                 .unwrap(),
-            "ä ≠ a：Unicode 折叠后仍不命中，不得误放"
+            "a-umlaut != a: after Unicode folding it must still not match, no false pass"
         );
     }
 
@@ -2222,7 +2229,7 @@ mod tests {
                 .matches(&ctx_with_header("X-Tenant", "team-42"))
                 .await
                 .unwrap(),
-            "load_config 换装前缀模式后应生效"
+            "load_config swapping in the prefix mode should take effect"
         );
     }
 
@@ -2230,7 +2237,10 @@ mod tests {
     fn test_header_matcher_load_config_invalid_match_mode() {
         let mut matcher = HeaderMatcher::new("X-Tenant", vec!["a".to_string()]).unwrap();
         let result = matcher.load_config(serde_json::json!({"match_mode": "fuzzy"}));
-        assert!(result.is_err(), "非法 match_mode 应显性报错");
+        assert!(
+            result.is_err(),
+            "an illegal match_mode must error explicitly"
+        );
     }
 
     #[test]
@@ -2254,7 +2264,10 @@ mod tests {
 
     #[test]
     fn test_method_matcher_empty_rejected() {
-        assert!(MethodMatcher::new(vec![]).is_err(), "空方法列表应拒绝");
+        assert!(
+            MethodMatcher::new(vec![]).is_err(),
+            "an empty method list must be rejected"
+        );
     }
 
     #[test]
@@ -2262,7 +2275,10 @@ mod tests {
         let methods: Vec<String> = (0..=MAX_ALLOWED_VALUES_COUNT)
             .map(|i| format!("M{i}"))
             .collect();
-        assert!(MethodMatcher::new(methods).is_err(), "超上限应拒绝");
+        assert!(
+            MethodMatcher::new(methods).is_err(),
+            "over-limit must be rejected"
+        );
     }
 
     #[tokio::test]
@@ -2309,7 +2325,7 @@ mod tests {
                 .matches(&RequestContext::new().with_method("GET"))
                 .await
                 .unwrap(),
-            "load_config 应整体替换方法列表"
+            "load_config must replace the method list wholesale"
         );
     }
 
@@ -2331,7 +2347,7 @@ mod tests {
         registry.unregister("method").await.unwrap();
         assert!(!registry.contains("method").await);
         let result = registry.match_with("method", &ctx).await;
-        assert!(result.is_err(), "注销后 match_with 应显性报错");
+        assert!(result.is_err(), "unregistering must error explicitly");
     }
 
     // ==================== RegexPathMatcher（regex-matching feature） ====================
@@ -2369,7 +2385,10 @@ mod tests {
     #[test]
     fn test_regex_path_matcher_invalid_pattern_rejected() {
         assert!(RegexPathMatcher::new("(unclosed", false).is_err());
-        assert!(RegexPathMatcher::new("", false).is_err(), "空模式应拒绝");
+        assert!(
+            RegexPathMatcher::new("", false).is_err(),
+            "an empty pattern must be rejected"
+        );
     }
 
     #[cfg(feature = "regex-matching")]
@@ -2423,7 +2442,10 @@ mod tests {
                 Box::new(MethodMatcher::new(vec!["POST".to_string()]).unwrap()),
             )
             .await;
-        assert!(second.is_err(), "重名注册应拒绝");
+        assert!(
+            second.is_err(),
+            "duplicate-name registration must be rejected"
+        );
         // 原注册不受影响
         assert!(
             registry
@@ -2437,7 +2459,10 @@ mod tests {
     async fn test_registry_unregister_missing_rejected() {
         let registry = CustomMatcherRegistry::new();
         let result = registry.unregister("nonexistent").await;
-        assert!(result.is_err(), "注销不存在的匹配器应显性报错");
+        assert!(
+            result.is_err(),
+            "unregistering a non-existent matcher must error explicitly"
+        );
     }
 
     #[test]

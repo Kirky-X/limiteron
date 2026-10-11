@@ -36,7 +36,7 @@ mod tests {
         let mut factory = StorageFactory::new(StorageFactoryConfig::mysql(MYSQL_DSN));
         factory.initialize(None).await.map_err(|e| {
             StorageError::ConnectionError(format!(
-                "Failed to connect to MySQL at {MYSQL_DSN}: {e}. 请先启动 MySQL 实例"
+                "Failed to connect to MySQL at {MYSQL_DSN}: {e}. Please start a MySQL instance first"
             ))
         })?;
         let storage = factory.create_storage().await?;
@@ -50,7 +50,10 @@ mod tests {
     #[serial]
     async fn test_mysql_storage_connection() {
         let result = create_mysql_factory().await;
-        assert!(result.is_ok(), "MySQL 连接失败：请先启动 MySQL 实例");
+        assert!(
+            result.is_ok(),
+            "MySQL connection failed: please start a MySQL instance first"
+        );
     }
 
     #[tokio::test]
@@ -60,7 +63,7 @@ mod tests {
         let (_f, storage, _ban, _quota) = create_mysql_factory().await.unwrap();
         super::super::contract::storage_contract(&storage)
             .await
-            .expect("Storage 契约");
+            .expect("Storage contract");
     }
 
     #[tokio::test]
@@ -70,7 +73,7 @@ mod tests {
         let (_f, _storage, ban, _quota) = create_mysql_factory().await.unwrap();
         super::super::contract::ban_contract(&ban)
             .await
-            .expect("BanStorage 契约");
+            .expect("BanStorage contract");
     }
 
     #[tokio::test]
@@ -80,7 +83,7 @@ mod tests {
         let (_f, _storage, _ban, quota) = create_mysql_factory().await.unwrap();
         super::super::contract::quota_contract(&quota)
             .await
-            .expect("QuotaStorage 契约");
+            .expect("QuotaStorage contract");
     }
 
     /// 配置解析层契约：无需真实连接（非 ignored，门控编译即验证）

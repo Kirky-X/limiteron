@@ -160,18 +160,18 @@ async fn e2e_quota_tracking_correct() {
 
     // 消费 30 个配额
     let result = controller.consume("user1", "api_calls", 30).await.unwrap();
-    assert!(result.allowed, "第一次消费应该被允许");
-    assert_eq!(result.remaining, 70, "剩余配额应该是 70");
+    assert!(result.allowed, "first consumption should be allowed");
+    assert_eq!(result.remaining, 70, "remaining quota should be 70");
 
     // 消费 20 个配额
     let result = controller.consume("user1", "api_calls", 20).await.unwrap();
-    assert!(result.allowed, "第二次消费应该被允许");
-    assert_eq!(result.remaining, 50, "剩余配额应该是 50");
+    assert!(result.allowed, "second consumption should be allowed");
+    assert_eq!(result.remaining, 50, "remaining quota should be 50");
 
     // 消费 50 个配额
     let result = controller.consume("user1", "api_calls", 50).await.unwrap();
-    assert!(result.allowed, "第三次消费应该被允许");
-    assert_eq!(result.remaining, 0, "剩余配额应该是 0");
+    assert!(result.allowed, "third consumption should be allowed");
+    assert_eq!(result.remaining, 0, "remaining quota should be 0");
 }
 
 /// 场景 2: 配额耗尽拒绝
@@ -196,13 +196,19 @@ async fn e2e_quota_exhaustion_denied() {
 
     // 消费全部配额
     let result = controller.consume("user1", "api_calls", 50).await.unwrap();
-    assert!(result.allowed, "消费全部配额应该被允许");
-    assert_eq!(result.remaining, 0, "剩余配额应该是 0");
+    assert!(
+        result.allowed,
+        "consuming the entire quota should be allowed"
+    );
+    assert_eq!(result.remaining, 0, "remaining quota should be 0");
 
     // 尝试再消费 1 个配额
     let result = controller.consume("user1", "api_calls", 1).await.unwrap();
-    assert!(!result.allowed, "配额耗尽后应该被拒绝");
-    assert_eq!(result.remaining, 0, "拒绝时剩余配额应该是 0");
+    assert!(
+        !result.allowed,
+        "should be rejected after quota is exhausted"
+    );
+    assert_eq!(result.remaining, 0, "remaining quota should be 0");
 }
 
 /// 场景 3: 告警正确触发
@@ -229,17 +235,20 @@ async fn e2e_quota_alert_triggered() {
 
     // 消费 80 个配额，应该触发 80% 告警
     let result = controller.consume("user1", "api_calls", 80).await.unwrap();
-    assert!(result.allowed, "消费应该被允许");
-    assert!(result.alert_triggered, "达到 80% 阈值应该触发告警");
+    assert!(result.allowed, "consumption should be allowed");
+    assert!(
+        result.alert_triggered,
+        "reaching the 80% threshold should trigger an alert"
+    );
 
     // 继续消费 10 个，达到 90%
     let result = controller.consume("user1", "api_calls", 10).await.unwrap();
-    assert!(result.allowed, "消费应该被允许");
+    assert!(result.allowed, "consumption should be allowed");
     // 由于去重窗口，可能不会触发新告警
 
     // 继续消费 10 个，达到 100%
     let result = controller.consume("user1", "api_calls", 10).await.unwrap();
-    assert!(result.allowed, "消费应该被允许");
+    assert!(result.allowed, "consumption should be allowed");
 }
 
 /// 场景 4: 不同用户配额独立
@@ -269,12 +278,15 @@ async fn e2e_quota_independent_per_user() {
 
     // 用户 A 再消费应该被拒绝
     let result = controller.consume("user_a", "api_calls", 1).await.unwrap();
-    assert!(!result.allowed, "用户 A 配额耗尽应该被拒绝");
+    assert!(
+        !result.allowed,
+        "user A should be rejected after quota exhaustion"
+    );
 
     // 用户 B 应该可以正常消费
     let result = controller.consume("user_b", "api_calls", 30).await.unwrap();
-    assert!(result.allowed, "用户 B 应该可以消费");
-    assert_eq!(result.remaining, 20, "用户 B 剩余配额应该是 20");
+    assert!(result.allowed, "user B should be able to consume");
+    assert_eq!(result.remaining, 20, "user B remaining quota should be 20");
 }
 
 /// 场景 5: 配额重置
@@ -307,8 +319,11 @@ async fn e2e_quota_reset() {
 
     // 重置后应该可以重新消费
     let result = controller.consume("user1", "api_calls", 50).await.unwrap();
-    assert!(result.allowed, "重置后应该可以消费");
-    assert_eq!(result.remaining, 50, "重置后剩余配额应该是 50");
+    assert!(result.allowed, "should be able to consume after reset");
+    assert_eq!(
+        result.remaining, 50,
+        "remaining quota after reset should be 50"
+    );
 }
 
 /// 场景 6: 透支功能
@@ -333,18 +348,30 @@ async fn e2e_quota_overdraft() {
 
     // 消费到原始上限
     let result = controller.consume("user1", "api_calls", 100).await.unwrap();
-    assert!(result.allowed, "消费到上限应该被允许");
+    assert!(
+        result.allowed,
+        "consuming up to the limit should be allowed"
+    );
     // 剩余包含透支额度: 120 - 100 = 20
-    assert_eq!(result.remaining, 20, "剩余应该包含透支额度");
+    assert_eq!(
+        result.remaining, 20,
+        "remaining should include overdraft allowance"
+    );
 
     // 消费透支额度
     let result = controller.consume("user1", "api_calls", 15).await.unwrap();
-    assert!(result.allowed, "透支额度内应该被允许");
-    assert_eq!(result.remaining, 5, "剩余透支额度应该是 5");
+    assert!(
+        result.allowed,
+        "should be allowed within the overdraft allowance"
+    );
+    assert_eq!(result.remaining, 5, "remaining overdraft should be 5");
 
     // 超过透支上限
     let result = controller.consume("user1", "api_calls", 10).await.unwrap();
-    assert!(!result.allowed, "超过透支上限应该被拒绝");
+    assert!(
+        !result.allowed,
+        "should be rejected beyond the overdraft limit"
+    );
 }
 
 /// 场景 7: 不同资源独立配额
@@ -374,12 +401,18 @@ async fn e2e_quota_independent_per_resource() {
 
     // 资源 A 再消费应该被拒绝
     let result = controller.consume("user1", "resource_a", 1).await.unwrap();
-    assert!(!result.allowed, "资源 A 配额耗尽应该被拒绝");
+    assert!(
+        !result.allowed,
+        "resource A should be rejected after quota exhaustion"
+    );
 
     // 资源 B 应该可以正常消费
     let result = controller.consume("user1", "resource_b", 30).await.unwrap();
-    assert!(result.allowed, "资源 B 应该可以消费");
-    assert_eq!(result.remaining, 20, "资源 B 剩余配额应该是 20");
+    assert!(result.allowed, "resource B should be able to consume");
+    assert_eq!(
+        result.remaining, 20,
+        "resource B remaining quota should be 20"
+    );
 }
 
 /// 场景 8: 并发消费安全性
@@ -429,18 +462,18 @@ async fn e2e_quota_concurrent_safety() {
     // 总消费量不应该超过限制
     assert!(
         total_consumed <= 100,
-        "总消费量 {} 不应该超过限制 100",
+        "total consumption {} should not exceed the limit of 100",
         total_consumed
     );
 
     // 应该有部分请求被拒绝
-    assert!(denied_count > 0, "应该有部分请求被拒绝");
+    assert!(denied_count > 0, "some requests should be denied");
 
     // 允许的请求数 * 10 应该等于总消费量
     assert_eq!(
         allowed_count * 10,
         total_consumed as usize,
-        "允许的请求数与总消费量应该一致"
+        "allowed request count should match total consumption"
     );
 }
 
@@ -469,7 +502,7 @@ async fn e2e_quota_usage_percent() {
     assert!(result.allowed);
     assert!(
         (result.usage_percent - 25.0).abs() < 0.1,
-        "使用率应该是 25%，实际是 {}%",
+        "usage should be 25%, actual {}%",
         result.usage_percent
     );
 
@@ -478,7 +511,7 @@ async fn e2e_quota_usage_percent() {
     assert!(result.allowed);
     assert!(
         (result.usage_percent - 50.0).abs() < 0.1,
-        "使用率应该是 50%，实际是 {}%",
+        "usage should be 50%, actual {}%",
         result.usage_percent
     );
 
@@ -487,7 +520,7 @@ async fn e2e_quota_usage_percent() {
     assert!(result.allowed);
     assert!(
         (result.usage_percent - 100.0).abs() < 0.1,
-        "使用率应该是 100%，实际是 {}%",
+        "usage should be 100%, actual {}%",
         result.usage_percent
     );
 }
@@ -513,7 +546,7 @@ async fn e2e_quota_different_types() {
     };
     let controller = QuotaController::with_dependencies(storage, config);
     let result = controller.consume("user1", "tokens", 100).await.unwrap();
-    assert!(result.allowed, "Token 类型消费应该被允许");
+    assert!(result.allowed, "Token-type consumption should be allowed");
 
     // Money 类型
     let storage: Arc<dyn QuotaStorage> = Arc::new(TestQuotaStorage::new());
@@ -530,7 +563,7 @@ async fn e2e_quota_different_types() {
     };
     let controller = QuotaController::with_dependencies(storage, config);
     let result = controller.consume("user2", "payments", 500).await.unwrap();
-    assert!(result.allowed, "Money 类型消费应该被允许");
+    assert!(result.allowed, "Money-type consumption should be allowed");
 
     // Count 类型
     let storage: Arc<dyn QuotaStorage> = Arc::new(TestQuotaStorage::new());
@@ -547,5 +580,5 @@ async fn e2e_quota_different_types() {
     };
     let controller = QuotaController::with_dependencies(storage, config);
     let result = controller.consume("user3", "requests", 10).await.unwrap();
-    assert!(result.allowed, "Count 类型消费应该被允许");
+    assert!(result.allowed, "Count-type consumption should be allowed");
 }

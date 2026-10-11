@@ -411,7 +411,7 @@ mod tests {
         let tokens = limiter.tokens();
         assert_eq!(
             tokens, 5,
-            "10×500ms@3/s 积分守恒应精确累积 15-消费 10=5 个令牌"
+            "10x500ms@3/s integral conservation should accumulate exactly 15 - consumed 10 = 5 tokens"
         );
     }
 
@@ -439,7 +439,11 @@ mod tests {
         // 再 +2s：桶始终贴着容量运行，积压积分不得"找回"造成突放
         mock_clock.advance(Duration::from_secs(2));
         let _ = limiter.allow(1).await;
-        assert_eq!(limiter.tokens(), 9, "封顶后的积压积分应已丢弃");
+        assert_eq!(
+            limiter.tokens(),
+            9,
+            "the backlog integral above the cap must already be discarded"
+        );
     }
 
     #[tokio::test]
@@ -459,13 +463,21 @@ mod tests {
         let snap = limiter.remaining().await.unwrap();
         assert_eq!(snap.remaining, 10);
         // 但桶的真实状态必须原封不动（修复前此处 tokens 已被真实补充为 10）
-        assert_eq!(limiter.tokens(), 0, "remaining() 不得修改桶状态");
+        assert_eq!(
+            limiter.tokens(),
+            0,
+            "remaining() must not modify the bucket state"
+        );
 
         // 连续 peek ×100 状态仍不变
         for _ in 0..100 {
             let _ = limiter.peek(1).await.unwrap();
         }
-        assert_eq!(limiter.tokens(), 0, "peek() 不得修改桶状态");
+        assert_eq!(
+            limiter.tokens(),
+            0,
+            "peek() must not modify the bucket state"
+        );
 
         // 纯粹性下的行为一致性：peek 报告的余额，随后 allow 真实可得
         assert!(limiter.allow(10).await.unwrap());

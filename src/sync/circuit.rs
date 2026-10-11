@@ -329,10 +329,16 @@ mod tests {
         let b = SyncCircuitBreaker::with_clock(clock.clone(), 1, Duration::from_secs(10));
         b.record_failure();
         clock.advance(Duration::from_secs(10));
-        assert!(b.admit(), "首个到期调用成为探针");
-        assert!(!b.admit(), "探针在途期间其余调用被拒绝");
+        assert!(b.admit(), "the first due call becomes the probe");
+        assert!(
+            !b.admit(),
+            "other calls are rejected while the probe is in flight"
+        );
         b.record_success();
-        assert!(b.admit(), "探针成功闭合后恢复放行");
+        assert!(
+            b.admit(),
+            "allow resumes after the probe closes successfully"
+        );
     }
 
     #[test]
@@ -356,7 +362,7 @@ mod tests {
         circuit.record_success();
         assert!(
             matches!(&*circuit.state.lock(), State::Open { .. }),
-            "Open 态迟到成功不得关闭熔断"
+            "a late success in the Open state must not close the circuit"
         );
     }
 }

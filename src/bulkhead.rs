@@ -310,21 +310,25 @@ mod tests {
 
         // 池 A 占满（直接持许可，确定性饱和）
         let bh_a = registry.bulkhead("group-a");
-        let p1 = bh_a.try_acquire().expect("空载应可占用");
-        let p2 = bh_a.try_acquire().expect("第二个槽位应可占用");
+        let p1 = bh_a
+            .try_acquire()
+            .expect("an idle pool should be acquirable");
+        let p2 = bh_a
+            .try_acquire()
+            .expect("the second slot should be acquirable");
 
         // 池 A 已满 → 新请求快速失败
         let err = registry
             .execute("group-a", async { 3 })
             .await
-            .expect_err("池 A 满后应快速失败");
+            .expect_err("pool A must fail fast once full");
         assert_eq!(err, BulkheadError::Full("group-a".to_string()));
 
         // 池 B 独立预算，不受 A 饱和影响
         let out = registry
             .execute("group-b", async { "ok" })
             .await
-            .expect("池 B 不应受池 A 饱和影响");
+            .expect("pool B must not be affected by pool A saturation");
         assert_eq!(out, "ok");
 
         drop((p1, p2));
@@ -342,7 +346,10 @@ mod tests {
         // 槽位应全部归还（max=2，连续执行 3 次不失败）
         registry.execute("p", async {}).await.unwrap();
         let stats = registry.stats("p").unwrap();
-        assert_eq!(stats.active, 0, "完成后在途应归零");
+        assert_eq!(
+            stats.active, 0,
+            "in-flight must return to zero after completion"
+        );
         assert_eq!(stats.admitted, 3);
     }
 
@@ -367,7 +374,10 @@ mod tests {
         let registry = registry();
         let a = registry.bulkhead("x");
         let b = registry.bulkhead("x");
-        assert!(Arc::ptr_eq(&a, &b), "同名池应 get-or-create 同一实例");
+        assert!(
+            Arc::ptr_eq(&a, &b),
+            "same-named pools must get-or-create the same instance"
+        );
         assert_eq!(registry.pool_names(), vec!["x".to_string()]);
     }
 
@@ -405,10 +415,10 @@ mod tests {
         let err = registry
             .execute("cb-pool", async { 1 })
             .await
-            .expect_err("熔断打开的池应快速失败");
+            .expect_err("a pool with an open circuit must fail fast");
         assert!(
             matches!(err, BulkheadError::CircuitOpen(ref n) if n == "cb-pool"),
-            "应返回 CircuitOpen，实际: {err:?}"
+            "should return CircuitOpen, got: {err:?}"
         );
 
         // 其他池不受该池熔断影响

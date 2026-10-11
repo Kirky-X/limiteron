@@ -734,7 +734,7 @@ mod tests {
             .unwrap();
         assert!(
             !rules3[0].condition.evaluate(&beta_ctx),
-            "Pending 的自定义匹配器必须按不匹配处理（不得挂死）"
+            "a Pending custom matcher must be treated as non-matching (no hang)"
         );
     }
 
@@ -893,7 +893,7 @@ mod tests {
         assert!(node_a.allow(6).await.unwrap());
         assert!(
             !node_b.allow(6).await.unwrap(),
-            "共享账本下链 B 应看到链 A 的消耗"
+            "chain B should see chain A's consumption under the shared ledger"
         );
 
         // 未注入时保持纯内存模式：各自独立

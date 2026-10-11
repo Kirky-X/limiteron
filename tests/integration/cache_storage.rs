@@ -158,7 +158,7 @@ async fn test_mock_storage_high_concurrency() {
             assert_eq!(
                 result,
                 Some(format!("value_{}_{}", i, j)),
-                "数据完整性验证失败: key_{}_{}",
+                "data integrity check failed: key_{}_{}",
                 i,
                 j
             );

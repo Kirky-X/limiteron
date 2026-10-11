@@ -120,7 +120,10 @@ mod quota_control_tests {
         // 消费 80 个配额（80%）
         let result = controller.consume("user1", "resource1", 80).await.unwrap();
         assert!(result.allowed);
-        assert!(result.alert_triggered, "达到 80% 阈值应该触发告警");
+        assert!(
+            result.alert_triggered,
+            "reaching the 80% threshold should trigger an alert"
+        );
         assert!((result.usage_percent - 80.0).abs() < 0.1);
     }
 
@@ -135,7 +138,10 @@ mod quota_control_tests {
         // 再消费 10 个（达到 90%）
         let result = controller.consume("user1", "resource1", 10).await.unwrap();
         assert!(result.allowed);
-        assert!(result.alert_triggered, "达到 90% 阈值应该触发告警");
+        assert!(
+            result.alert_triggered,
+            "reaching the 90% threshold should trigger an alert"
+        );
         assert!((result.usage_percent - 90.0).abs() < 0.1);
     }
 
@@ -147,7 +153,10 @@ mod quota_control_tests {
         // 消费全部配额
         let result = controller.consume("user1", "resource1", 100).await.unwrap();
         assert!(result.allowed);
-        assert!(result.alert_triggered, "达到 100% 阈值应该触发告警");
+        assert!(
+            result.alert_triggered,
+            "reaching the 100% threshold should trigger an alert"
+        );
         assert!((result.usage_percent - 100.0).abs() < 0.1);
     }
 
@@ -159,7 +168,10 @@ mod quota_control_tests {
         // 消费 79 个配额（79%，低于 80% 阈值）
         let result = controller.consume("user1", "resource1", 79).await.unwrap();
         assert!(result.allowed);
-        assert!(!result.alert_triggered, "低于阈值不应该触发告警");
+        assert!(
+            !result.alert_triggered,
+            "below threshold should not trigger an alert"
+        );
     }
 
     /// 测试告警去重 - 同一阈值不重复触发
@@ -169,15 +181,24 @@ mod quota_control_tests {
 
         // 第一次达到 80%，触发告警
         let result = controller.consume("user1", "resource1", 80).await.unwrap();
-        assert!(result.alert_triggered, "首次达到阈值应该触发告警");
+        assert!(
+            result.alert_triggered,
+            "first threshold crossing should trigger an alert"
+        );
 
         // 继续消费到 85%，不应该再次触发（去重）
         let result = controller.consume("user1", "resource1", 5).await.unwrap();
-        assert!(!result.alert_triggered, "同一去重窗口内不应该重复触发告警");
+        assert!(
+            !result.alert_triggered,
+            "should not repeat the alert within the same dedup window"
+        );
 
         // 继续消费到 90%，不应该再次触发（去重）
         let result = controller.consume("user1", "resource1", 5).await.unwrap();
-        assert!(!result.alert_triggered, "同一去重窗口内不应该重复触发告警");
+        assert!(
+            !result.alert_triggered,
+            "should not repeat the alert within the same dedup window"
+        );
     }
 
     /// 测试告警去重窗口过期后重新触发
@@ -197,7 +218,10 @@ mod quota_control_tests {
 
         // 再次消费，应该触发告警
         let result = controller.consume("user1", "resource1", 5).await.unwrap();
-        assert!(result.alert_triggered, "去重窗口过期后应该重新触发告警");
+        assert!(
+            result.alert_triggered,
+            "should trigger the alert again after the dedup window expires"
+        );
     }
 
     /// 测试多级告警阈值
@@ -208,28 +232,40 @@ mod quota_control_tests {
 
         // 50% 告警
         let result = controller.consume("user1", "resource1", 50).await.unwrap();
-        assert!(result.alert_triggered, "达到 50% 应该触发告警");
+        assert!(
+            result.alert_triggered,
+            "reaching the 50% threshold should trigger an alert"
+        );
 
         mock.advance(Duration::from_millis(1100));
         controller.cleanup_alert_dedup();
 
         // 75% 告警
         let result = controller.consume("user1", "resource1", 25).await.unwrap();
-        assert!(result.alert_triggered, "达到 75% 应该触发告警");
+        assert!(
+            result.alert_triggered,
+            "reaching the 75% threshold should trigger an alert"
+        );
 
         mock.advance(Duration::from_millis(1100));
         controller.cleanup_alert_dedup();
 
         // 90% 告警
         let result = controller.consume("user1", "resource1", 15).await.unwrap();
-        assert!(result.alert_triggered, "达到 90% 应该触发告警");
+        assert!(
+            result.alert_triggered,
+            "reaching the 90% threshold should trigger an alert"
+        );
 
         mock.advance(Duration::from_millis(1100));
         controller.cleanup_alert_dedup();
 
         // 100% 告警
         let result = controller.consume("user1", "resource1", 10).await.unwrap();
-        assert!(result.alert_triggered, "达到 100% 应该触发告警");
+        assert!(
+            result.alert_triggered,
+            "reaching the 100% threshold should trigger an alert"
+        );
     }
 
     /// 测试告警禁用
@@ -240,7 +276,10 @@ mod quota_control_tests {
         // 消费全部配额
         let result = controller.consume("user1", "resource1", 100).await.unwrap();
         assert!(result.allowed);
-        assert!(!result.alert_triggered, "告警禁用时不应触发告警");
+        assert!(
+            !result.alert_triggered,
+            "alert should not fire when alerts are disabled"
+        );
     }
 
     /// 测试不同用户独立告警
@@ -254,7 +293,10 @@ mod quota_control_tests {
 
         // 用户2 达到 80%（独立触发）
         let result = controller.consume("user2", "resource1", 80).await.unwrap();
-        assert!(result.alert_triggered, "不同用户应该独立触发告警");
+        assert!(
+            result.alert_triggered,
+            "different users should trigger alerts independently"
+        );
     }
 
     /// 测试不同资源独立告警
@@ -268,7 +310,10 @@ mod quota_control_tests {
 
         // 资源2 达到 80%（独立触发）
         let result = controller.consume("user1", "resource2", 80).await.unwrap();
-        assert!(result.alert_triggered, "不同资源应该独立触发告警");
+        assert!(
+            result.alert_triggered,
+            "different resources should trigger alerts independently"
+        );
     }
 
     /// 测试配额耗尽后的告警状态
@@ -302,7 +347,10 @@ mod quota_control_tests {
         // 重新消费，应该重新触发告警
         let result = controller.consume("user1", "resource1", 80).await.unwrap();
         assert!(result.allowed);
-        assert!(result.alert_triggered, "重置后应该重新触发告警");
+        assert!(
+            result.alert_triggered,
+            "alert should trigger again after reset"
+        );
     }
 
     /// 测试透支模式下的告警
@@ -357,7 +405,7 @@ mod quota_control_tests {
                 .unwrap();
             assert!(
                 (result.usage_percent - expected_percent).abs() < 0.1,
-                "消费 {} 后使用率应为 {}%，实际为 {}%",
+                "usage after consuming {} should be {}%, actual {}%",
                 cost,
                 expected_percent,
                 result.usage_percent
@@ -392,7 +440,10 @@ mod quota_control_tests {
             .count();
 
         // 第一个达到阈值的请求应该触发告警
-        assert!(alert_count >= 1, "至少应该有一个请求触发告警");
+        assert!(
+            alert_count >= 1,
+            "at least one request should trigger an alert"
+        );
     }
 
     /// 测试零消费不触发告警
@@ -403,7 +454,10 @@ mod quota_control_tests {
         // 零消费
         let result = controller.consume("user1", "resource1", 0).await.unwrap();
         assert!(result.allowed);
-        assert!(!result.alert_triggered, "零消费不应触发告警");
+        assert!(
+            !result.alert_triggered,
+            "zero consumption should not trigger an alert"
+        );
         assert_eq!(result.usage_percent, 0.0);
     }
 
@@ -429,11 +483,14 @@ mod quota_control_tests {
 
         // 消费 79 个（79%，低于阈值）
         let result = controller.consume("user1", "resource1", 79).await.unwrap();
-        assert!(!result.alert_triggered, "79% 不应触发 80% 阈值告警");
+        assert!(
+            !result.alert_triggered,
+            "79% should not trigger the 80% threshold alert"
+        );
 
         // 再消费 1 个（达到 80%）
         let result = controller.consume("user1", "resource1", 1).await.unwrap();
-        assert!(result.alert_triggered, "80% 应该触发告警");
+        assert!(result.alert_triggered, "80% should trigger an alert");
     }
 
     /// 测试多阈值同时触发
@@ -444,7 +501,7 @@ mod quota_control_tests {
         // 一次性消费 100%，应该触发所有阈值
         let result = controller.consume("user1", "resource1", 100).await.unwrap();
         assert!(result.allowed);
-        assert!(result.alert_triggered, "应该触发告警");
+        assert!(result.alert_triggered, "should trigger an alert");
     }
 
     /// 测试不同配额类型的告警
@@ -498,6 +555,6 @@ mod quota_control_tests {
     #[test]
     fn test_quota_control_feature_not_enabled() {
         // 当特性未启用时，测试通过
-        println!("quota-control 特性未启用，跳过测试");
+        println!("quota-control feature not enabled; skipping test");
     }
 }

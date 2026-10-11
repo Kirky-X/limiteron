@@ -97,6 +97,15 @@ window-size-overflow = 窗口大小溢出: { $number } * { $factor } 秒超出 u
 cli-warning-version-format = 版本 '{ $version }' 不是 x.y.z 数字形态（语义化版本建议）
 cli-warning-duplicate-priority = 规则 '{ $rule_id }' 的 priority { $priority } 与其他规则重复（匹配顺序歧义）
 
+# ---- CLI 错误（活跃键） ----
+cli-error-missing-config-file = 缺少 <config-file> 参数
+cli-error-unknown-command = 未知子命令
+cli-error-config-serialization-failed = 配置序列化失败: { $reason }
+cli-error-serialize-output = limiteron-cli: 序列化输出失败: { $reason }
+cli-error-out-requires-file = --out 需要一个文件参数
+cli-error-unknown-option = 未知选项 '{ $option }'
+cli-error-write-output-failed = 写入规范化配置到 '{ $path }' 失败: { $reason }
+
 # ---- 错误消息抽象（SafeErrorMessage 双轨，T025） ----
 safe-error-config = 配置错误: { $message }
 safe-error-storage = 存储错误: { $message }
@@ -250,6 +259,7 @@ governor-health-check = 健康检查
 governor-already-shutdown = Governor 已关闭，shutdown() 幂等返回 Ok
 governor-shutdown-started = 开始优雅关闭 Governor
 governor-shutdown-complete = Governor 优雅关闭完成
+governor-emit-rate-limit-event-failed = 发送限流事件失败: { $error }
 
 # ---- 降级策略管理器（T025） ----
 fallback-manager-created = 创建降级策略管理器
@@ -293,6 +303,92 @@ admin-api-disabled = 管理API已禁用
 admin-api-started = 管理API服务器已启动: http://{ $address }
 admin-api-key-operator-fallback = API key 未配置 operator 映射，回退到默认 'admin-api'；建议通过 AdminApiConfig::with_api_key_operator 配置显式映射以防止 operator 身份伪造
 admin-rbac-denied = RBAC 拒绝：role={ $role } 无权访问 { $method } { $path }
+
+# ---- Admin API / Web UI 消息（活跃键） ----
+admin-config-applied = 配置已应用
+admin-batch-check-allowed = { $allowed }/{ $total } 个通过
+admin-tokens-prefetch-granted = { $granted }/{ $total } 个已预留
+admin-ban-manager-not-configured = Ban manager 未配置
+admin-quota-controller-not-configured = 配额控制器未配置
+admin-circuit-breaker-not-configured = 熔断器未配置
+admin-service-not-configured = { $what } 未配置
+admin-ui-title = Limiteron 管理快照（只读）
+admin-ui-meta = 本页仅发起 GET 请求；自动刷新 5s。数据源：/snapshot、/circuit-breaker。
+admin-ui-header-metric = 指标
+admin-ui-header-value = 值
+admin-ui-stat-rejected-requests = 拒绝请求
+admin-ui-message-ok = 正常
+admin-ui-circuit-breaker-not-configured = circuit-breaker 未配置
+admin-ui-unhandled-route = 未处理的路由表条目: { $path }
+admin-ui-heading-stats = 聚合统计
+admin-ui-heading-health = 健康
+admin-ui-header-component = 组件
+admin-ui-header-status = 状态
+admin-ui-heading-rules = 规则与决策链
+admin-ui-header-rule = 规则
+admin-ui-header-priority = 优先级
+admin-ui-header-matcher = 匹配器
+admin-ui-header-limiter = 限流器
+admin-ui-header-nodes = 节点
+admin-ui-heading-circuit-breaker = 熔断器
+admin-ui-header-state = 状态
+admin-ui-header-failure-rate = 失败率
+admin-ui-header-slow-call-rate = 慢调用率
+admin-ui-stat-total-requests = 总请求
+admin-ui-stat-banned-requests = 封禁请求
+admin-ui-stat-active-keys = 活跃限流键
+admin-ui-stat-config-version = 配置版本
+admin-ui-stat-shutdown = 已关闭
+
+# ---- OpenAPI 文档（canonical mirror：构造点英文规范串，本目录提供本地化面） ----
+openapi-info-description = Limiteron 管理控制面：限流状态、封禁管理、配额调整、熔断器状态与规则热更新。除探针/指标端点外均需 Bearer API key。
+openapi-healthz-summary = 存活探针
+openapi-readyz-summary = 就绪探针（组件级聚合）
+openapi-readyz-200-description = 全部组件健康
+openapi-readyz-503-description = 任一组件不健康，响应体含明细
+openapi-status-summary = 系统整体状态
+openapi-status-200-description = 系统状态
+openapi-quota-reset-summary = 按 user 重置配额使用量（new_limit=0）/ 拒绝 per-tenant 上限更新
+openapi-ban-delete-404-description = 封禁不存在
+openapi-system-status-active-bans = ban-manager feature 下存在
+openapi-create-ban-operator = 已弃用：服务端忽略，身份由 API key mapping 决定
+openapi-healthz-200-description = 进程存活
+openapi-metrics-summary = Prometheus 文本格式指标
+openapi-status-401-description = 鉴权失败
+openapi-circuit-breaker-summary = 熔断器状态
+openapi-circuit-breaker-200-description = 熔断器状态
+openapi-circuit-breaker-503-description = circuit-breaker 未配置
+openapi-introspect-summary = 运行时自省快照（规则/决策链/封禁/熔断聚合）
+openapi-introspect-200-description = 自省快照 JSON（结构随 feature 组合扩展）
+openapi-config-summary = 规则热更新（原子换配置，失败保留旧配置）
+openapi-config-200-description = 应用报告
+openapi-config-400-description = 校验失败，旧配置原样保留
+openapi-check-batch-summary = 批量检查（N 个 key 一次决策）
+openapi-check-batch-200-description = 逐项决策结果
+openapi-check-batch-400-description = 空批次或超过 1000 条上限
+openapi-tokens-prefetch-summary = 批量令牌预取
+openapi-tokens-prefetch-200-description = 逐项 granted 与汇总
+openapi-tokens-prefetch-400-description = 空批次或超过 1000 条上限
+openapi-ban-summary = 创建封禁（ip/user/mac/geo）
+openapi-ban-201-description = 封禁详情
+openapi-ban-400-description = 目标/原因校验失败
+openapi-ban-403-description = operator 无授权
+openapi-ban-500-description = 内部错误
+openapi-ban-503-description = ban-manager 未配置
+openapi-ban-delete-summary = 解除封禁（?type=ip|user|mac|geo|cidr）
+openapi-ban-delete-200-description = 解除结果
+openapi-ban-delete-400-description = 不支持的 type
+openapi-ban-delete-500-description = 内部错误
+openapi-ban-delete-503-description = ban-manager 未配置
+openapi-quota-put-200-description = 操作结果
+openapi-quota-put-400-description = 不支持的操作
+openapi-quota-put-500-description = 内部错误
+openapi-quota-put-503-description = quota-control 未配置
+openapi-system-status-circuit-breaker = circuit-breaker feature 下存在
+openapi-flow-control-config-description = 完整 FlowControlConfig（字段见 config 模块；此处保留顶层骨架）
+openapi-ban-target-description = ip/user/mac 为字符串 value；geo 为 country_code 对象；cidr 为字符串 value
+openapi-unban-request-operator = 已弃用：服务端忽略
+openapi-update-quota-new-limit = 0 = 重置信号
 
 # ---- 审计日志（T025） ----
 audit-batch-task-panic = 审计日志批处理任务异常: { $reason }

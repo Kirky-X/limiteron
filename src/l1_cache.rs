@@ -878,7 +878,10 @@ mod tests {
         let cached = CacheableDecision::from_decision(&original);
         match cached.to_decision() {
             Decision::Rejected(m) => {
-                assert_eq!(m.retry_after, 30, "Retry-After 不得在缓存往返中丢失为 0");
+                assert_eq!(
+                    m.retry_after, 30,
+                    "Retry-After must not be lost as 0 in a cache round trip"
+                );
                 assert_eq!(m.limit, 100);
                 assert_eq!(m.reset_at, 1_800_000_000);
             }

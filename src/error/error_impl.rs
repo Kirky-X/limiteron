@@ -951,53 +951,64 @@ mod tests {
             sorted.sort_unstable();
             let n = sorted.len();
             sorted.dedup();
-            assert_eq!(sorted.len(), n, "重复的 message_key（同组内）");
+            assert_eq!(
+                sorted.len(),
+                n,
+                "duplicate message_key (within the same group)"
+            );
         }
 
         let mut all: Vec<Box<dyn LocalizedMsg>> = Vec::new();
         for (e, k) in storage {
-            assert_eq!(e.message_key(), k, "键映射漂移");
+            assert_eq!(e.message_key(), k, "key mapping drift");
             all.push(Box::new(e));
         }
         for (e, k) in limiteron {
-            assert_eq!(e.message_key(), k, "键映射漂移");
+            assert_eq!(e.message_key(), k, "key mapping drift");
             all.push(Box::new(e));
         }
         for (e, k) in config_safe {
-            assert_eq!(e.message_key(), k, "键映射漂移");
+            assert_eq!(e.message_key(), k, "key mapping drift");
             all.push(Box::new(e));
         }
         for (e, k) in storage_safe {
-            assert_eq!(e.message_key(), k, "键映射漂移");
+            assert_eq!(e.message_key(), k, "key mapping drift");
             all.push(Box::new(e));
         }
         for (e, k) in limit_safe {
-            assert_eq!(e.message_key(), k, "键映射漂移");
+            assert_eq!(e.message_key(), k, "key mapping drift");
             all.push(Box::new(e));
         }
         for (e, k) in ban_safe {
-            assert_eq!(e.message_key(), k, "键映射漂移");
+            assert_eq!(e.message_key(), k, "key mapping drift");
             all.push(Box::new(e));
         }
         for (e, k) in validation_safe {
-            assert_eq!(e.message_key(), k, "键映射漂移");
+            assert_eq!(e.message_key(), k, "key mapping drift");
             all.push(Box::new(e));
         }
         for (e, k) in general_safe {
-            assert_eq!(e.message_key(), k, "键映射漂移");
+            assert_eq!(e.message_key(), k, "key mapping drift");
             all.push(Box::new(e));
         }
         for (e, k) in safe_message {
-            assert_eq!(e.message_key(), k, "键映射漂移");
+            assert_eq!(e.message_key(), k, "key mapping drift");
             all.push(Box::new(e));
         }
-        assert!(all.len() >= 70, "错误面覆盖不全，仅 {0} 个变体", all.len());
+        assert!(
+            all.len() >= 70,
+            "incomplete error surface coverage, only {0} variants",
+            all.len()
+        );
 
         for e in &all {
             let key = e.message_key();
             let text = translate_en(key, &e.message_args());
-            assert!(!text.is_empty(), "目录文案为空: {key}");
-            assert_ne!(text, key, "该键未登记在英文 ftl 目录中: {key}");
+            assert!(!text.is_empty(), "catalog text is empty: {key}");
+            assert_ne!(
+                text, key,
+                "the key is not registered in the English ftl catalog: {key}"
+            );
         }
     }
 
@@ -1020,17 +1031,23 @@ mod tests {
             StorageError::ValidationError("x".into()),
         ];
         for e in &transient {
-            assert!(e.is_transient(), "{e:?} 应为可重试");
-            assert!(!e.is_permanent(), "{e:?} 不应同时为永久错误");
+            assert!(e.is_transient(), "{e:?} should be retryable");
+            assert!(
+                !e.is_permanent(),
+                "{e:?} should not be permanent at the same time"
+            );
         }
         for e in &permanent {
-            assert!(e.is_permanent(), "{e:?} 应为永久错误");
-            assert!(!e.is_transient(), "{e:?} 不应同时为可重试");
+            assert!(e.is_permanent(), "{e:?} should be permanent");
+            assert!(
+                !e.is_transient(),
+                "{e:?} should not be retryable at the same time"
+            );
         }
         for e in &neither {
             assert!(
                 !e.is_transient() && !e.is_permanent(),
-                "{e:?} 两者皆非，分类不得扩张"
+                "{e:?} is neither; the classification must not expand"
             );
         }
     }

@@ -766,7 +766,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         let pruned = storage.cleanup_expired_bans().await.unwrap();
-        assert_eq!(pruned, 1, "应剔除 1 条被 TTL 驱逐的索引条目");
+        assert_eq!(pruned, 1, "1 index entry evicted by TTL should be pruned");
 
         // 索引收敛：list_bans 不再返回已驱逐记录
         let listed = storage.list_bans(true, 0, 100).await.unwrap();

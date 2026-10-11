@@ -163,7 +163,10 @@ mod tests {
         // 700ms 探针对旧实现为概率性判别；迁移后本断言确定性成立。
         sleep(Duration::from_millis(300)).await;
         let result = cache.get("specific_key").await.unwrap();
-        assert_eq!(result, None, "500ms TTL 应在 700ms 后精确过期");
+        assert_eq!(
+            result, None,
+            "a 500ms TTL must expire precisely after 700ms"
+        );
     }
 
     /// Default 300s 默认 TTL 的全时长锚（R-memory-cache-002）：
@@ -179,14 +182,14 @@ mod tests {
         assert_eq!(
             cache.get("k").await.unwrap(),
             Some("v".to_string()),
-            "Default 300s TTL 条目应在 299s 时仍存活"
+            "Default 300s TTL entry must stay alive at 299s"
         );
         // 超过 300 秒后过期（累计 302s）
         sleep(Duration::from_secs(3)).await;
         assert_eq!(
             cache.get("k").await.unwrap(),
             None,
-            "Default 300s TTL 条目应在 302s 时过期"
+            "Default 300s TTL entry must expire at 302s"
         );
     }
 

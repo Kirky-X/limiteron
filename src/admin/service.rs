@@ -560,7 +560,7 @@ mod tests {
         let result = service.apply_config(config).await;
         assert!(
             matches!(result, Err(AdminServiceError::Invalid(_))),
-            "重复 rule id 应被拒绝: {result:?}"
+            "duplicate rule id must be rejected: {result:?}"
         );
     }
 
@@ -624,7 +624,7 @@ mod tests {
             )
             .await;
         let Err(err) = result else {
-            panic!("未授权 operator 的 create_ban 应失败");
+            panic!("create_ban for an unauthorized operator must fail");
         };
 
         // 响应体契约逐位一致：消息保持旧版 "Authorization error: {msg}"
@@ -632,15 +632,15 @@ mod tests {
         let message = err.to_string();
         assert!(
             message.starts_with("Authorization error: "),
-            "403 响应体消息应保持旧版契约，got: {message}"
+            "403 response body message must keep the legacy contract, got: {message}"
         );
         assert!(
             message.contains("intruder"),
-            "消息应携带 operator 明细: {message}"
+            "message must carry the operator detail: {message}"
         );
         assert!(
             matches!(err, AdminServiceError::Forbidden { .. }),
-            "AuthorizationError 应映射为 Forbidden(403): {err:?}"
+            "AuthorizationError must map to Forbidden(403): {err:?}"
         );
     }
 

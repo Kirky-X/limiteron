@@ -349,7 +349,11 @@ mod tests {
         for _ in 0..4 {
             limiter.record_success(Duration::from_millis(1));
         }
-        assert_eq!(limiter.current_max(), 9, "无错窗口应加性增 1（8 → 9）");
+        assert_eq!(
+            limiter.current_max(),
+            9,
+            "an error-free window must add 1 (8 -> 9)"
+        );
     }
 
     #[test]
@@ -363,7 +367,7 @@ mod tests {
         assert_eq!(
             limiter.current_max(),
             4,
-            "错误率达阈值的窗口应乘性减半（8 → 4）"
+            "a window at the error-rate threshold must multiply by half (8 -> 4)"
         );
     }
 
@@ -375,7 +379,10 @@ mod tests {
         limiter.record_success(Duration::from_millis(1));
         limiter.record_success(Duration::from_millis(500));
         limiter.record_success(Duration::from_millis(500));
-        assert!(limiter.current_max() < 8, "慢调用率过半应收紧窗口（8 → 4）");
+        assert!(
+            limiter.current_max() < 8,
+            "a slow-call rate over half must tighten the window (8 -> 4)"
+        );
     }
 
     #[test]
@@ -385,7 +392,11 @@ mod tests {
         for _ in 0..12 {
             limiter.record_error();
         }
-        assert_eq!(limiter.current_max(), 2, "乘性减不得低于 min_max 下限");
+        assert_eq!(
+            limiter.current_max(),
+            2,
+            "multiplicative decrease must not go below the min_max floor"
+        );
     }
 
     #[test]
@@ -394,19 +405,30 @@ mod tests {
         for _ in 0..400 {
             limiter.record_success(Duration::from_millis(1));
         }
-        assert_eq!(limiter.current_max(), 16, "加性增不得超过 max_limit 上限");
+        assert_eq!(
+            limiter.current_max(),
+            16,
+            "additive increase must not exceed the max_limit ceiling"
+        );
     }
 
     #[tokio::test]
     async fn test_t610_reject_when_window_exhausted() {
         let limiter = Arc::new(AdaptiveConcurrencyLimiter::new(config()));
         let permit = limiter.try_acquire(8);
-        assert!(permit.is_some(), "空载应可占满窗口");
+        assert!(permit.is_some(), "an idle window should fill up");
         let second = limiter.try_acquire(1);
-        assert!(second.is_none(), "窗口占满后应拒绝");
+        assert!(second.is_none(), "should reject once the window is full");
         drop(permit);
-        assert_eq!(limiter.in_flight(), 0, "许可 Drop 后应自动释放");
-        assert!(limiter.try_acquire(1).is_some(), "释放后应可再占用");
+        assert_eq!(
+            limiter.in_flight(),
+            0,
+            "the permit should release automatically on Drop"
+        );
+        assert!(
+            limiter.try_acquire(1).is_some(),
+            "should be acquirable again after release"
+        );
     }
 
     #[test]
@@ -438,12 +460,19 @@ mod tests {
         let _ = cb
             .execute(|| async { Err::<(), _>(LimiteronError::Other("boom".to_string())) })
             .await;
-        assert_eq!(cb.get_state().await, CircuitState::Open, "熔断应已打开");
+        assert_eq!(
+            cb.get_state().await,
+            CircuitState::Open,
+            "the circuit breaker should already be open"
+        );
 
         let allowed = <AdaptiveConcurrencyLimiter as Limiter>::allow(&*limiter, 1)
             .await
             .unwrap();
-        assert!(!allowed, "熔断打开期间自适应限流器应拒绝");
+        assert!(
+            !allowed,
+            "the adaptive limiter must reject while the circuit is open"
+        );
     }
     #[tokio::test]
     async fn test_aimd_cooldown_suppresses_growth_after_degrade() {
@@ -469,16 +498,28 @@ mod tests {
         // 窗口 B：全成功（冷却第 1 窗）→ 不扩容
         limiter.record_success(Duration::ZERO);
         limiter.record_success(Duration::ZERO);
-        assert_eq!(limiter.current_max(), 8, "冷却期窗口不得扩容");
+        assert_eq!(
+            limiter.current_max(),
+            8,
+            "the window must not expand during cooldown"
+        );
 
         // 窗口 C：全成功（冷却第 2 窗）→ 仍不扩容
         limiter.record_success(Duration::ZERO);
         limiter.record_success(Duration::ZERO);
-        assert_eq!(limiter.current_max(), 8, "冷却期最后一窗不得扩容");
+        assert_eq!(
+            limiter.current_max(),
+            8,
+            "the last window of cooldown must not expand"
+        );
 
         // 窗口 D：全成功（冷却结束）→ 恢复加性增 8→10
         limiter.record_success(Duration::ZERO);
         limiter.record_success(Duration::ZERO);
-        assert_eq!(limiter.current_max(), 10, "冷却期满应恢复扩容");
+        assert_eq!(
+            limiter.current_max(),
+            10,
+            "expansion should resume once cooldown ends"
+        );
     }
 }

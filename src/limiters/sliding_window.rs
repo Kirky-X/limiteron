@@ -239,7 +239,7 @@ mod tests {
         let limiter = SlidingWindowLimiter::new(Duration::from_secs(60), 10_000_000);
         assert!(
             limiter.requests.lock().capacity() < 1024,
-            "构造期急切预分配 max_requests 容量"
+            "eager preallocation of max_requests capacity at construction"
         );
     }
 

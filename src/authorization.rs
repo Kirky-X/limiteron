@@ -474,7 +474,7 @@ pub(crate) mod tests {
             Err(LimiteronError::AuthorizationError(msg)) => {
                 assert!(msg.contains("user"));
             }
-            _ => panic!("期望 AuthorizationError"),
+            _ => panic!("expected AuthorizationError"),
         }
     }
 

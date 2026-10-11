@@ -47,22 +47,22 @@ const INITIAL_YAML: &str = r#"bans:
   - target:
       type: ip
       value: "192.168.1.100"
-    reason: "恶意请求"
+    reason: "Malicious request"
     duration_secs: 3600
   - target:
       type: user
       value: "user-001"
-    reason: "违规用户"
+    reason: "Rule-violating user"
     duration_secs: 7200
   - target:
       type: mac
       value: "00:1A:2B:3C:4D:5E"
-    reason: "设备封禁"
+    reason: "Device ban"
   - target:
       type: geo
       value:
         country_code: "CN"
-    reason: "地区封禁"
+    reason: "Region ban"
 "#;
 
 /// 修改后的 YAML 文件内容：追加一条 IP 封禁，触发热重载
@@ -70,26 +70,26 @@ const UPDATED_YAML: &str = r#"bans:
   - target:
       type: ip
       value: "192.168.1.100"
-    reason: "恶意请求"
+    reason: "Malicious request"
     duration_secs: 3600
   - target:
       type: user
       value: "user-001"
-    reason: "违规用户"
+    reason: "Rule-violating user"
     duration_secs: 7200
   - target:
       type: mac
       value: "00:1A:2B:3C:4D:5E"
-    reason: "设备封禁"
+    reason: "Device ban"
   - target:
       type: geo
       value:
         country_code: "CN"
-    reason: "地区封禁"
+    reason: "Region ban"
   - target:
       type: ip
       value: "10.0.0.50"
-    reason: "热重载新增封禁"
+    reason: "Ban added by hot reload"
 "#;
 
 #[tokio::main]
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     temp_file.write_all(INITIAL_YAML.as_bytes())?;
     temp_file.flush()?;
     let file_path = temp_file.path().to_path_buf();
-    println!("1. 已创建临时 YAML 文件: {}", file_path.display());
+    println!("1. Created temp YAML file: {}", file_path.display());
 
     // 2. 创建 BanManager（使用内存存储）
     let storage: Arc<dyn BanStorage> = Arc::new(MemoryBanStorage::new());
@@ -110,25 +110,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..BanManagerConfig::default()
     };
     let ban_manager = BanManager::with_dependencies(storage, config).await?;
-    println!("2. 已创建 BanManager (内存存储)\n");
+    println!("2. Created BanManager (memory storage)\n");
 
     // 3. 使用 BanFileLoader::load_once 一次性加载封禁规则
-    println!("3. 执行 load_once 加载封禁规则...");
+    println!("3. Running load_once to load ban rules...");
     let loader = BanFileLoader::new(&file_path);
     let result = loader.load_once(&ban_manager).await?;
     println!(
-        "   加载完成: 成功 {} 条, 失败 {} 条",
+        "   Load complete: {} succeeded, {} failed",
         result.success_count, result.failure_count
     );
     if !result.errors.is_empty() {
         for err in &result.errors {
-            println!("   失败: target={}, error={}", err.target_desc, err.error);
+            println!("   Failed: target={}, error={}", err.target_desc, err.error);
         }
     }
     println!();
 
     // 4. 验证加载结果：检查 4 种目标是否已写入
-    println!("4. 验证加载结果:");
+    println!("4. Verifying load results:");
     let targets_to_check = vec![
         ("IP", "192.168.1.100"),
         ("User", "user-001"),
@@ -142,7 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => unreachable!(),
         };
         let is_banned = ban_manager.is_banned(&target).await?.is_some();
-        println!("   {} [{}] 封禁状态: {}", label, value, is_banned);
+        println!("   {} [{}] ban status: {}", label, value, is_banned);
     }
     let geo_banned = ban_manager
         .is_banned(&limiteron::BanTarget::Geo {
@@ -150,43 +150,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await?
         .is_some();
-    println!("   Geo [CN] 封禁状态: {}", geo_banned);
+    println!("   Geo [CN] ban status: {}", geo_banned);
     println!();
 
     // 5. 启动文件热重载（start_watching）
-    println!("5. 启动文件热重载 (start_watching)...");
+    println!("5. Starting file hot reload (start_watching)...");
     loader.start_watching(ban_manager.clone()).await?;
-    println!("   热重载已启动，监听文件变更\n");
+    println!("   Hot reload started; watching for file changes\n");
 
     // 等待监听就绪
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // 6. 修改文件触发热重载
-    println!("6. 修改 YAML 文件，追加一条 IP 封禁 (10.0.0.50)...");
+    println!("6. Modifying YAML file to append an IP ban (10.0.0.50)...");
     std::fs::write(&file_path, UPDATED_YAML)?;
-    println!("   文件已修改，等待热重载触发...\n");
+    println!("   File modified; waiting for hot reload to trigger...\n");
 
     // 等待 notify 触发 + 防抖（500ms）+ 重载完成
     // notify 轮询间隔 2s + 防抖 500ms，需等待足够时间
     tokio::time::sleep(Duration::from_secs(4)).await;
 
     // 7. 验证热重载结果
-    println!("7. 验证热重载结果:");
+    println!("7. Verifying hot reload results:");
     let new_target = limiteron::BanTarget::Ip("10.0.0.50".to_string());
     let new_ban = ban_manager.is_banned(&new_target).await?;
     match new_ban {
         Some(record) => {
             println!(
-                "   新封禁已加载: target={:?}, reason={}",
+                "   New ban loaded: target={:?}, reason={}",
                 record.target, record.reason
             );
         }
         None => {
-            println!("   警告: 热重载未在预期时间内完成（notify 轮询间隔可能较长）");
-            println!("   手动重新加载以演示 load_once 的幂等性...");
+            println!(
+                "   Warning: hot reload did not finish in the expected time (notify polling interval may be long)"
+            );
+            println!("   Reloading manually to demonstrate load_once idempotency...");
             let reload_result = loader.load_once(&ban_manager).await?;
             println!(
-                "   手动重载完成: 成功 {} 条, 失败 {} 条",
+                "   Manual reload complete: {} succeeded, {} failed",
                 reload_result.success_count, reload_result.failure_count
             );
         }
@@ -194,11 +196,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // 8. 停止监听
-    println!("8. 停止文件热重载 (stop_watching)");
+    println!("8. Stopping file hot reload (stop_watching)");
     loader.stop_watching().await;
-    println!("   热重载已停止\n");
+    println!("   Hot reload stopped\n");
 
-    println!("=== BanFileLoader Demo 完成 ===");
+    println!("=== BanFileLoader Demo complete ===");
 
     // 显式关闭临时文件以清理
     drop(temp_file);

@@ -752,7 +752,7 @@ mod tests {
         // capacity=10, refill_rate=10/s
         let limiter = manager.get_rate_limiter("test_allow", 10, 1);
         for _ in 0..10 {
-            assert!(limiter.allow(1).await.unwrap(), "应允许 10 个请求");
+            assert!(limiter.allow(1).await.unwrap(), "should allow 10 requests");
         }
     }
 
@@ -813,14 +813,14 @@ mod tests {
         for i in 0..3 {
             assert!(
                 limiter.check("quota_test").await.is_ok(),
-                "请求 {} 应成功",
+                "request {} should succeed",
                 i
             );
         }
         // 第 4 个请求应失败（QuotaExceeded）
         assert!(
             limiter.check("quota_test").await.is_err(),
-            "第 4 个请求应失败"
+            "the 4th request should fail"
         );
     }
 
@@ -963,10 +963,10 @@ mod tests {
         let manager = LimiterManager::new();
         let l1 = manager
             .try_get_quota_limiter("try_qkey", std::time::Duration::from_secs(3600), 1000)
-            .expect("首次获取应成功");
+            .expect("the first acquisition should succeed");
         let l2 = manager
             .try_get_quota_limiter("try_qkey", std::time::Duration::from_secs(3600), 1000)
-            .expect("同参数重复获取应成功");
+            .expect("repeated acquisition with the same parameters should succeed");
         assert!(Arc::ptr_eq(&l1, &l2));
         assert_eq!(manager.quota_limiter_count(), 1);
     }
@@ -986,18 +986,18 @@ mod tests {
             200,
         ) {
             Err(e) => e,
-            Ok(_) => panic!("参数不一致应返回 Err 而非 panic"),
+            Ok(_) => panic!("a parameter mismatch must return Err, not panic"),
         };
         match err {
             crate::error::LimiteronError::ParamMismatch(msg) => {
                 assert!(
                     msg.contains("already exists with different params"),
-                    "错误消息应描述参数冲突,实际: {msg}"
+                    "the error message must describe the parameter conflict, got: {msg}"
                 );
                 // key 已脱敏,不应包含原文
                 assert!(!msg.contains("try_mismatch_quota"));
             }
-            other => panic!("应为 ParamMismatch 变体,实际: {other:?}"),
+            other => panic!("should be the ParamMismatch variant, got: {other:?}"),
         }
     }
 
@@ -1007,12 +1007,12 @@ mod tests {
         let manager = LimiterManager::new();
         let first = manager
             .try_get_quota_limiter("try_keep", std::time::Duration::from_secs(60), 10)
-            .expect("首次获取应成功");
+            .expect("the first acquisition should succeed");
         let _ = manager.try_get_quota_limiter("try_keep", std::time::Duration::from_secs(60), 999);
         // Err 路径不得污染缓存:原参数再次获取应命中同一实例
         let again = manager
             .try_get_quota_limiter("try_keep", std::time::Duration::from_secs(60), 10)
-            .expect("原参数再次获取应成功");
+            .expect("re-acquiring with the original parameters should succeed");
         assert!(Arc::ptr_eq(&first, &again));
         assert_eq!(manager.quota_limiter_count(), 1);
     }

@@ -509,7 +509,10 @@ mod fallback_strategy {
         //（旧实现返回 Err(FallbackError) 名不副实——没有任何调用方把它
         // 映射为放行，实际表现为拒绝；见 src/fallback.rs 历史教训注释）
         match result {
-            Ok(value) => assert_eq!(value, "fallback", "FailOpen 应返回降级闭包的 Ok 值"),
+            Ok(value) => assert_eq!(
+                value, "fallback",
+                "FailOpen should return the fallback closure's Ok value"
+            ),
             other => panic!("FailOpen should return fallback value, got {:?}", other),
         }
     }
@@ -537,8 +540,9 @@ mod fallback_strategy {
             Err(LimiteronError::StorageError(limiteron::error::StorageError::ConnectionError(
                 msg,
             ))) => {
+                let closed_msg = limiteron::i18n::translate("fallback-fail-closed-error", &[]);
                 assert!(
-                    msg.contains("拒绝") || msg.contains("rejected"),
+                    msg.contains("rejected") || msg.contains(closed_msg.as_str()),
                     "FailClosed message should indicate denied: {}",
                     msg
                 );
@@ -1343,14 +1347,17 @@ mod t602_tenant_governor {
         let id = Identifier::UserId("u1".to_string());
         let key_acme = governor.decision_key(&tenant_ctx("acme", "u1"), &id);
         let key_globex = governor.decision_key(&tenant_ctx("globex", "u1"), &id);
-        assert_ne!(key_acme, key_globex, "两租户同 key 的决策键必须不同");
+        assert_ne!(
+            key_acme, key_globex,
+            "decision keys for the same key across tenants must differ"
+        );
         assert!(
             key_acme.contains("acme"),
-            "决策键应包含租户标识: {key_acme}"
+            "decision key should contain the tenant identifier: {key_acme}"
         );
         assert!(
             key_acme.contains(&id.key()),
-            "决策键应包含原始 key: {key_acme}"
+            "decision key should contain the original key: {key_acme}"
         );
     }
 
@@ -1370,7 +1377,7 @@ mod t602_tenant_governor {
         assert_eq!(
             governor.decision_key(&tenant_ctx("acme", "u1"), &id),
             id.key(),
-            "无 resolver 时决策键不得变化"
+            "decision key must not change when no resolver is set"
         );
     }
 
@@ -1401,10 +1408,10 @@ mod t602_tenant_governor {
             .is_identifier_banned(&tenant_ctx("globex", "u1"), &id)
             .await
             .expect("read globex");
-        assert!(banned_acme.is_some(), "acme 租户的 u1 应已被封禁");
+        assert!(banned_acme.is_some(), "u1 in tenant acme should be banned");
         assert!(
             banned_globex.is_none(),
-            "globex 租户的 u1 不应受 acme 封禁影响"
+            "u1 in tenant globex should not be affected by acme's ban"
         );
     }
 
@@ -1435,7 +1442,7 @@ mod t602_tenant_governor {
             .expect("read acme");
         assert!(
             banned_acme.is_some(),
-            "默认命名空间封禁必须以无前缀键写入，非默认租户读侧经回退查询命中"
+            "default-namespace bans must be written with unprefixed keys; non-default tenants hit them via the fallback query"
         );
     }
 
@@ -1460,7 +1467,7 @@ mod t602_tenant_governor {
         assert_eq!(
             governor.decision_key(&RequestContext::new(), &id),
             id.key(),
-            "默认命名空间决策键必须无前缀"
+            "decision keys in the default namespace must be unprefixed"
         );
     }
 
@@ -1554,19 +1561,25 @@ mod t602_tenant_governor {
                 .consume_for_tenant("acme", "u1", "api", 1)
                 .await
                 .unwrap();
-            assert!(r.allowed, "acme 前 5 次消费应放行");
+            assert!(r.allowed, "acme's first 5 consumptions should be allowed");
         }
         let exhausted = controller
             .consume_for_tenant("acme", "u1", "api", 1)
             .await
             .unwrap();
-        assert!(!exhausted.allowed, "acme 第 6 次消费应被拒绝");
+        assert!(
+            !exhausted.allowed,
+            "acme's 6th consumption should be rejected"
+        );
 
         // globex 租户的同名 u1 配额不受影响
         let other = controller
             .consume_for_tenant("globex", "u1", "api", 1)
             .await
             .unwrap();
-        assert!(other.allowed, "globex 的 u1 配额不应受 acme 消耗影响");
+        assert!(
+            other.allowed,
+            "globex's u1 quota should not be affected by acme's consumption"
+        );
     }
 }

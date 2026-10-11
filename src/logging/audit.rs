@@ -1928,12 +1928,12 @@ mod tests {
         assert_eq!(
             entries.len(),
             2,
-            "落盘的两条审计日志必须能全部解析并通过签名验证"
+            "both audit logs written to disk must parse and verify under the signature"
         );
         assert_eq!(
             stats.verification_failures(),
             0,
-            "审计验证不得对自身写出的日志产生验证失败"
+            "audit verification must not fail on the logs it wrote itself"
         );
     }
 
@@ -2065,7 +2065,7 @@ mod tests {
         let chain = t609_build_chain(5, key);
         assert!(
             AuditLogEntry::verify_chain(&chain, key).unwrap(),
-            "完整链必须通过校验"
+            "the complete chain must pass verification"
         );
         assert_eq!(chain[0].chain_prev.as_deref(), Some(AuditLogEntry::GENESIS));
         assert!(chain[0].chain_hash.is_some());
@@ -2076,7 +2076,7 @@ mod tests {
         let key = "t609-signing-key";
         assert!(
             AuditLogEntry::verify_chain(&[], key).unwrap(),
-            "空序列视为完整链"
+            "an empty sequence counts as a complete chain"
         );
     }
 
@@ -2090,7 +2090,7 @@ mod tests {
         }
         assert!(
             !AuditLogEntry::verify_chain(&chain, key).unwrap(),
-            "篡改 payload 必须被检出"
+            "a tampered payload must be detected"
         );
     }
 
@@ -2101,7 +2101,7 @@ mod tests {
         chain.remove(1); // 删除中间记录
         assert!(
             !AuditLogEntry::verify_chain(&chain, key).unwrap(),
-            "删除中间条目必须因链接断裂被检出"
+            "deleting a middle entry must be detected via a broken link"
         );
     }
 
@@ -2112,7 +2112,7 @@ mod tests {
         chain.swap(0, 2);
         assert!(
             !AuditLogEntry::verify_chain(&chain, key).unwrap(),
-            "重排序列必须被检出（首条不再是 GENESIS）"
+            "a reordered sequence must be detected (the first entry is no longer GENESIS)"
         );
     }
 
@@ -2121,7 +2121,7 @@ mod tests {
         let chain = t609_build_chain(3, "correct-key");
         assert!(
             !AuditLogEntry::verify_chain(&chain, "wrong-key").unwrap(),
-            "错误密钥必须校验失败"
+            "the wrong key must fail verification"
         );
     }
 
@@ -2133,7 +2133,7 @@ mod tests {
         chain.push(AuditLogEntry::with_signature(t609_entry("forged"), key));
         assert!(
             !AuditLogEntry::verify_chain(&chain, key).unwrap(),
-            "未串链的追加记录必须被检出"
+            "an appended record that was not chained must be detected"
         );
     }
 }

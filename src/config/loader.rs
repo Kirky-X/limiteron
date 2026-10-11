@@ -249,7 +249,7 @@ on_exceed = "degrade"
             Err(LimiteronError::ConfigError(msg)) => {
                 assert!(
                     msg.contains("Config file not found"),
-                    "not-found 契约应含 'Config file not found': {msg}"
+                    "the not-found contract must contain 'Config file not found': {msg}"
                 )
             }
             _ => panic!("expected ConfigError"),
@@ -267,7 +267,10 @@ on_exceed = "degrade"
         assert!(result.is_err());
         match result {
             Err(LimiteronError::ConfigError(msg)) => {
-                assert!(msg.contains("YAML"), "非法 YAML 错误应含格式名 YAML: {msg}")
+                assert!(
+                    msg.contains("YAML"),
+                    "the invalid YAML error must contain the format name YAML: {msg}"
+                )
             }
             _ => panic!("expected ConfigError for invalid YAML"),
         }
@@ -284,10 +287,13 @@ on_exceed = "degrade"
         assert!(result.is_err());
         match result {
             Err(LimiteronError::ConfigError(msg)) => {
-                assert!(msg.contains("Unsupported"), "应含 Unsupported: {msg}");
+                assert!(
+                    msg.contains("Unsupported"),
+                    "must contain Unsupported: {msg}"
+                );
                 assert!(
                     msg.contains("yaml, yml, toml, json"),
-                    "应列出支持扩展名: {msg}"
+                    "should list the supported extensions: {msg}"
                 );
             }
             _ => panic!("expected ConfigError"),
@@ -335,10 +341,13 @@ on_exceed = "degrade"
         assert!(result.is_err());
         match result {
             Err(LimiteronError::ConfigError(msg)) => {
-                assert!(msg.contains("Unsupported"), "应含 Unsupported: {msg}");
+                assert!(
+                    msg.contains("Unsupported"),
+                    "must contain Unsupported: {msg}"
+                );
                 assert!(
                     msg.contains("yaml, yml, toml, json"),
-                    "应列出支持扩展名: {msg}"
+                    "should list the supported extensions: {msg}"
                 );
             }
             _ => panic!("expected ConfigError for no extension"),

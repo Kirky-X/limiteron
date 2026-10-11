@@ -321,9 +321,9 @@ mod tests {
             }
             validate_cost(cost)?;
 
-            self.semaphore
-                .try_acquire_many(cost_u32)
-                .map_err(|e| LimiteronError::LimitError(format!("获取许可失败: {:?}", e)))
+            self.semaphore.try_acquire_many(cost_u32).map_err(|e| {
+                LimiteronError::LimitError(format!("failed to acquire permit: {:?}", e))
+            })
         }
     }
 
@@ -346,9 +346,12 @@ mod tests {
         let permit2 = limiter.try_acquire(1);
         let permit3 = limiter.try_acquire(1);
 
-        assert!(permit1.is_ok(), "第一次获取应该成功");
-        assert!(permit2.is_ok(), "第二次获取应该成功");
-        assert!(permit3.is_err(), "第三次获取应该失败，因为已达上限");
+        assert!(permit1.is_ok(), "the first acquisition should succeed");
+        assert!(permit2.is_ok(), "the second acquisition should succeed");
+        assert!(
+            permit3.is_err(),
+            "the third acquisition should fail, the limit is reached"
+        );
 
         // permit1 和 permit2 在此处 drop，释放许可
     }
@@ -518,10 +521,22 @@ mod tests {
         // 零值校验回归：acquire_many(0) 会静默成功（零许可），
         // 并发限制形同虚设，所有入口必须显式拒绝零成本。
         let limiter = ConcurrencyLimiter::new(10);
-        assert!(limiter.acquire(0).await.is_err(), "acquire(0) 应校验拒绝");
-        assert!(limiter.try_acquire(0).is_err(), "try_acquire(0) 应校验拒绝");
-        assert!(limiter.allow(0).await.is_err(), "allow(0) 应校验拒绝");
-        assert!(limiter.peek(0).await.is_err(), "peek(0) 应校验拒绝");
+        assert!(
+            limiter.acquire(0).await.is_err(),
+            "acquire(0) must be rejected by validation"
+        );
+        assert!(
+            limiter.try_acquire(0).is_err(),
+            "try_acquire(0) must be rejected by validation"
+        );
+        assert!(
+            limiter.allow(0).await.is_err(),
+            "allow(0) must be rejected by validation"
+        );
+        assert!(
+            limiter.peek(0).await.is_err(),
+            "peek(0) must be rejected by validation"
+        );
         // 正常成本不受影响
         assert!(limiter.allow(1).await.unwrap());
     }

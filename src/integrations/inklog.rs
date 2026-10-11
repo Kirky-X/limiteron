@@ -297,7 +297,7 @@ mod sink_rate_limit_tests {
         assert!(lim.try_acquire(&record("INFO", "app::a")));
         assert!(
             !lim.try_acquire(&record("INFO", "app::a")),
-            "预算耗尽必须拒绝"
+            "budget exhaustion must reject"
         );
         assert_eq!(lim.available("app::a"), 0);
     }
@@ -311,10 +311,14 @@ mod sink_rate_limit_tests {
         for _ in 0..5 {
             assert!(
                 lim.try_acquire(&record("ERROR", "app::b")),
-                "ERROR 必须直通"
+                "ERROR must pass through"
             );
         }
-        assert_eq!(lim.available("app::b"), 0, "ERROR 直通不消费预算");
+        assert_eq!(
+            lim.available("app::b"),
+            0,
+            "ERROR pass-through consumes no budget"
+        );
     }
 
     /// 按 target 隔离：不同模块预算互不影响
@@ -326,7 +330,7 @@ mod sink_rate_limit_tests {
         assert!(!lim.try_acquire(&record("INFO", "mod::x")));
         assert!(
             lim.try_acquire(&record("INFO", "mod::y")),
-            "兄弟 target 不受影响"
+            "the sibling target is unaffected"
         );
         assert_eq!(lim.tracked_targets(), 2);
     }
@@ -339,7 +343,11 @@ mod sink_rate_limit_tests {
         assert!(lim.try_acquire(&rec));
         assert!(!lim.try_acquire(&rec));
         lim.report(&rec, SinkWriteOutcome::Failed);
-        assert_eq!(lim.available("app::c"), 1, "写失败必须归还预算");
+        assert_eq!(
+            lim.available("app::c"),
+            1,
+            "a write failure must return the budget"
+        );
         assert!(lim.try_acquire(&rec));
         // Written/Rejected 报告不改变预算
         lim.report(&rec, SinkWriteOutcome::Written);
@@ -365,7 +373,7 @@ mod sink_rate_limit_tests {
         std::thread::sleep(std::time::Duration::from_millis(120));
         assert!(
             lim.available("app::d") >= 5,
-            "120ms @ 100/s 应至少恢复 ~12 个预算（时钟偏移留裕量）"
+            "120ms @ 100/s should restore at least ~12 budget (margin for clock skew)"
         );
         assert!(lim.try_acquire(&rec));
     }

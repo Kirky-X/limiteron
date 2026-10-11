@@ -76,10 +76,14 @@ async fn get(path: &str) -> (StatusCode, String) {
 #[tokio::test]
 async fn test_healthz_returns_200_without_auth() {
     let (status, body) = get("/healthz").await;
-    assert_eq!(status, StatusCode::OK, "/healthz 应 200 且无需认证");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "/healthz should be 200 without auth"
+    );
     assert!(
         body.contains("ok") || body.contains("healthy"),
-        "/healthz 内容应表达存活状态，实际: {body}"
+        "/healthz body should indicate liveness, actual: {body}"
     );
 }
 
@@ -89,23 +93,27 @@ async fn test_readyz_returns_200_when_governor_healthy() {
     assert_eq!(
         status,
         StatusCode::OK,
-        "健康 Governor 的 /readyz 应 200，实际: {body}"
+        "/readyz for a healthy Governor should be 200, actual: {body}"
     );
     assert!(
         body.contains("ready") || body.contains("healthy"),
-        "/readyz 内容应表达就绪状态，实际: {body}"
+        "/readyz body should indicate readiness, actual: {body}"
     );
 }
 
 #[tokio::test]
 async fn test_metrics_returns_200_prometheus_format() {
     let (status, body) = get("/metrics").await;
-    assert_eq!(status, StatusCode::OK, "/metrics 应 200 且无需认证");
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "/metrics should be 200 without auth"
+    );
     // Prometheus 文本格式以 HELP/TYPE 注释或样本行呈现；无监控 feature 时
     // 也必须返回合法的空 exposition（注释行）。
     assert!(
         body.starts_with('#') || body.contains("_total") || body.contains("limiteron"),
-        "/metrics 应为 Prometheus 文本格式，实际: {body}"
+        "/metrics should be Prometheus text format, actual: {body}"
     );
 }
 
@@ -141,7 +149,7 @@ async fn test_probe_endpoints_bypass_auth_but_business_endpoints_still_require_i
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "{path} 应 bypass 认证");
+        assert_eq!(resp.status(), StatusCode::OK, "{path} should bypass auth");
     }
 }
 
@@ -158,7 +166,7 @@ async fn test_metrics_with_prometheus_feature_renders_registered_counters() {
     assert_eq!(status, StatusCode::OK);
     assert!(
         body.contains("flowguard_check_duration_seconds"),
-        "prometheus 启用时 /metrics 应渲染注册的直方图，实际前 200 字节: {}",
+        "with prometheus enabled, /metrics should render the registered histogram (first 200 bytes): {}",
         body.chars().take(200).collect::<String>()
     );
 }

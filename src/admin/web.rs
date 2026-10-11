@@ -110,7 +110,7 @@ async fn serve_snapshot(
             let body = match source.circuit_breaker_status().await {
                 Ok(status) => serde_json::json!({
                     "success": true,
-                    "message": "OK",
+                    "message": crate::i18n::t_simple("admin-ui-message-ok"),
                     "data": status,
                 }),
                 Err(e) => serde_json::json!({
@@ -125,25 +125,28 @@ async fn serve_snapshot(
         "/circuit-breaker" => {
             axum::response::IntoResponse::into_response(Json(serde_json::json!({
                 "success": false,
-                "message": "circuit-breaker not configured",
+                "message": crate::i18n::t_simple("admin-ui-circuit-breaker-not-configured"),
                 "data": serde_json::Value::Null,
             })))
         }
         // 路由表驱动注册下不可达；显性留痕防表与分派漂移
         other => axum::response::IntoResponse::into_response(Json(serde_json::json!({
             "success": false,
-            "message": format!("unhandled route table entry: {other}"),
+            "message": crate::i18n::t(
+                "admin-ui-unhandled-route",
+                &[("path", other.to_string())],
+            ),
         }))),
     }
 }
 
 /// 内嵌单页（无构建链）：fetch `/snapshot` 与 `/circuit-breaker` 渲染
 pub(crate) const INDEX_HTML: &str = r#"<!DOCTYPE html>
-<html lang="zh">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Limiteron 管理快照（只读）</title>
+<title>Limiteron admin snapshot (read-only)</title>
 <style>
   :root { color-scheme: light dark; }
   body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 60rem; padding: 0 1rem; }
@@ -157,16 +160,16 @@ pub(crate) const INDEX_HTML: &str = r#"<!DOCTYPE html>
 </style>
 </head>
 <body>
-<h1>Limiteron 管理快照（只读）</h1>
-<p class="meta">本页仅发起 GET 请求；自动刷新 <span id="refresh">5</span>s。数据源：/snapshot、/circuit-breaker。</p>
-<h2>聚合统计</h2>
-<table id="stats"><thead><tr><th>指标</th><th>值</th></tr></thead><tbody></tbody></table>
-<h2>健康</h2>
-<table id="health"><thead><tr><th>组件</th><th>状态</th></tr></thead><tbody></tbody></table>
-<h2>规则与决策链</h2>
-<table id="rules"><thead><tr><th>规则</th><th>优先级</th><th>匹配器</th><th>限流器</th><th>节点</th></tr></thead><tbody></tbody></table>
-<h2>熔断器</h2>
-<table id="cb"><thead><tr><th>状态</th><th>失败率</th><th>慢调用率</th></tr></thead><tbody></tbody></table>
+<h1>Limiteron admin snapshot (read-only)</h1>
+<p class="meta">This page issues GET requests only; auto-refresh <span id="refresh">5</span>s. Data sources: /snapshot, /circuit-breaker.</p>
+<h2>Aggregate statistics</h2>
+<table id="stats"><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody></tbody></table>
+<h2>Health</h2>
+<table id="health"><thead><tr><th>Component</th><th>Status</th></tr></thead><tbody></tbody></table>
+<h2>Rules and decision chains</h2>
+<table id="rules"><thead><tr><th>Rule</th><th>Priority</th><th>Matcher</th><th>Limiter</th><th>Nodes</th></tr></thead><tbody></tbody></table>
+<h2>Circuit breaker</h2>
+<table id="cb"><thead><tr><th>State</th><th>Failure rate</th><th>Slow call rate</th></tr></thead><tbody></tbody></table>
 <script>
 function put(id, rows) {
   const tb = document.querySelector(id + ' tbody');
@@ -184,12 +187,12 @@ async function refresh() {
     const snap = await (await fetch('/snapshot')).json();
     const s = snap.stats || {};
     put('#stats', [
-      ['总请求', s.total_requests ?? '-'],
-      ['拒绝请求', s.rejected_requests ?? '-'],
-      ['封禁请求', s.banned_requests ?? '-'],
-      ['活跃限流键', s.active_keys ?? '-'],
-      ['配置版本', snap.config_version ?? '-'],
-      ['已关闭', snap.is_shutdown ?? '-', snap.is_shutdown ? 'bad' : 'ok'],
+      ['Total requests', s.total_requests ?? '-'],
+      ['Rejected requests', s.rejected_requests ?? '-'],
+      ['Banned requests', s.banned_requests ?? '-'],
+      ['Active limit keys', s.active_keys ?? '-'],
+      ['Config version', snap.config_version ?? '-'],
+      ['Shutdown', snap.is_shutdown ?? '-', snap.is_shutdown ? 'bad' : 'ok'],
     ]);
     const h = snap.health || {};
     const healthy = (v) => v === true || v === 'healthy';
@@ -352,7 +355,7 @@ mod tests {
             assert_ne!(
                 response.status(),
                 StatusCode::NOT_FOUND,
-                "路由表路径 {path} 未注册（表与 Router 漂移）"
+                "route table path {path} is not registered (table drifted from Router)"
             );
         }
     }
@@ -379,7 +382,7 @@ mod tests {
                 assert_eq!(
                     response.status(),
                     StatusCode::METHOD_NOT_ALLOWED,
-                    "{method} {path} 必须被拒（只读守卫）"
+                    "{method} {path} must be rejected (read-only guard)"
                 );
             }
         }
@@ -402,10 +405,13 @@ mod tests {
             .await
             .unwrap();
         let html = String::from_utf8_lossy(&body);
-        assert!(html.contains("只读"), "内嵌单页应自述只读属性");
+        assert!(
+            html.contains("read-only"),
+            "the embedded single page should state its read-only nature"
+        );
         assert!(
             !html.contains("POST") && !html.contains("DELETE"),
-            "页面脚本不得包含写方法调用"
+            "the page script must not contain write method calls"
         );
 
         let snapshot = router
@@ -417,7 +423,10 @@ mod tests {
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(json.get("stats").is_some(), "快照应含统计面");
+        assert!(
+            json.get("stats").is_some(),
+            "the snapshot should include the stats surface"
+        );
     }
 
     #[test]

@@ -34,7 +34,7 @@ mod circuit_breaker_tests {
             let _ = breaker
                 .execute(|| async {
                     Err::<(), limiteron::error::LimiteronError>(
-                        limiteron::error::LimiteronError::BanError("错误".to_string()),
+                        limiteron::error::LimiteronError::BanError("error".to_string()),
                     )
                 })
                 .await;
@@ -67,7 +67,7 @@ mod circuit_breaker_tests {
             let _ = breaker
                 .execute(|| async {
                     Err::<(), limiteron::error::LimiteronError>(
-                        limiteron::error::LimiteronError::BanError("服务错误".to_string()),
+                        limiteron::error::LimiteronError::BanError("service error".to_string()),
                     )
                 })
                 .await;
@@ -99,7 +99,7 @@ mod circuit_breaker_tests {
             let _ = breaker
                 .execute(|| async {
                     Err::<(), limiteron::error::LimiteronError>(
-                        limiteron::error::LimiteronError::BanError(format!("错误 {}", i)),
+                        limiteron::error::LimiteronError::BanError(format!("error {}", i)),
                     )
                 })
                 .await;
@@ -113,7 +113,7 @@ mod circuit_breaker_tests {
         let _ = breaker
             .execute(|| async {
                 Err::<(), limiteron::error::LimiteronError>(
-                    limiteron::error::LimiteronError::BanError("触发熔断".to_string()),
+                    limiteron::error::LimiteronError::BanError("trip circuit breaker".to_string()),
                 )
             })
             .await;
@@ -135,7 +135,7 @@ mod circuit_breaker_tests {
                 let _ = breaker
                     .execute(|| async {
                         Err::<(), limiteron::error::LimiteronError>(
-                            limiteron::error::LimiteronError::BanError(format!("错误 {}", cycle)),
+                            limiteron::error::LimiteronError::BanError(format!("error {}", cycle)),
                         )
                     })
                     .await;
@@ -143,7 +143,7 @@ mod circuit_breaker_tests {
 
             assert!(
                 breaker.is_open().await,
-                "第 {} 次循环: 熔断器应该打开",
+                "iteration {}: circuit breaker should be open",
                 cycle
             );
 
@@ -159,7 +159,7 @@ mod circuit_breaker_tests {
 
             assert!(
                 breaker.is_closed().await,
-                "第 {} 次循环: 熔断器应该恢复",
+                "iteration {}: circuit breaker should be closed again",
                 cycle
             );
         }
@@ -175,7 +175,7 @@ mod circuit_breaker_tests {
             let _ = breaker
                 .execute(|| async {
                     Err::<(), limiteron::error::LimiteronError>(
-                        limiteron::error::LimiteronError::BanError("错误".to_string()),
+                        limiteron::error::LimiteronError::BanError("error".to_string()),
                     )
                 })
                 .await;
@@ -304,6 +304,6 @@ mod no_feature_tests {
     #[test]
     fn test_circuit_breaker_fallback_features_not_enabled() {
         // 当特性未启用时，测试通过
-        println!("CircuitBreaker 和 Fallback 特性未启用，跳过测试");
+        println!("CircuitBreaker and Fallback features not enabled; skipping test");
     }
 }

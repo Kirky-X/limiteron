@@ -61,7 +61,7 @@ async fn make_ban_manager() -> BanManager {
     };
     BanManager::with_dependencies(storage, config)
         .await
-        .expect("创建 BanManager 失败")
+        .expect("failed to create BanManager")
 }
 
 /// 构建 Governor（需提供至少一条规则的非空配置，否则内部 panic）
@@ -74,7 +74,7 @@ async fn make_governor() -> Governor {
         .token_bucket(100, 10)
         .on_reject()
         .build()
-        .expect("构建规则失败");
+        .expect("failed to build rules");
 
     let config = FlowControlConfig {
         version: "0.2.0".to_string(),
@@ -89,7 +89,7 @@ async fn make_governor() -> Governor {
         .with_ban_storage(ban_storage)
         .build()
         .await
-        .expect("构建 Governor 失败")
+        .expect("failed to build Governor")
 }
 
 /// 构造 POST /api/v1/ban 请求体（4 种 target 类型）
@@ -107,7 +107,7 @@ fn make_create_ban_body(target_type: &str, value: &str, reason: &str) -> serde_j
             "duration_secs": 86400,
             "operator": "demo-operator",
         }),
-        _ => panic!("不支持的 target 类型: {}", target_type),
+        _ => panic!("unsupported target type: {}", target_type),
     }
 }
 
@@ -133,12 +133,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
     let base_url = format!("http://{}", addr);
-    println!("1. AdminServer 已在 {} 启动", base_url);
+    println!("1. AdminServer started at {}", base_url);
 
     // 后台运行 HTTP 服务器
     let server_handle = tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, router).await {
-            eprintln!("AdminServer 错误: {}", e);
+            eprintln!("AdminServer error: {}", e);
         }
     });
 
@@ -146,12 +146,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
 
     // 5. 演示 POST /api/v1/ban 创建 4 种类型的封禁
-    println!("\n2. POST /api/v1/ban 创建封禁:");
+    println!("\n2. POST /api/v1/ban (create ban):");
     let ban_cases = [
-        ("ip", "192.168.1.100", "恶意 IP 请求"),
-        ("user", "user-001", "违规用户"),
-        ("mac", "00:1A:2B:3C:4D:5E", "设备封禁"),
-        ("geo", "CN", "地区封禁"),
+        ("ip", "192.168.1.100", "Malicious IP request"),
+        ("user", "user-001", "Rule-violating user"),
+        ("mac", "00:1A:2B:3C:4D:5E", "Device ban"),
+        ("geo", "CN", "Region ban"),
     ];
 
     let mut created_targets: Vec<(String, String)> = Vec::new();
@@ -179,7 +179,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 6. 演示 GET /api/v1/status 查询系统状态
-    println!("\n3. GET /api/v1/status 查询状态:");
+    println!("\n3. GET /api/v1/status (query status):");
     let resp = client
         .get(format!("{}/api/v1/status", base_url))
         .bearer_auth(API_KEY)
@@ -194,11 +194,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // 7. 演示 DELETE /api/v1/ban/{target}?type= 解除封禁
-    println!("\n4. DELETE /api/v1/ban/{{target}}?type= 解除封禁:");
+    println!("\n4. DELETE /api/v1/ban/{{target}}?type= (remove ban):");
     for (target_type, value) in &created_targets {
         let unban_body = serde_json::json!({
             "operator": "demo-admin",
-            "reason": "示例解封"
+            "reason": "sample unban"
         });
         let url = format!("{}/api/v1/ban/{}?type={}", base_url, value, target_type);
         let resp = client
@@ -221,7 +221,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 8. 验证解封后的状态
-    println!("\n5. 验证解封后的系统状态:");
+    println!("\n5. Verifying system status after unban:");
     let resp = client
         .get(format!("{}/api/v1/status", base_url))
         .bearer_auth(API_KEY)
@@ -229,26 +229,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     let json: serde_json::Value = resp.json().await?;
     println!(
-        "   active_bans={} (解封后应为 0)",
+        "   active_bans={} (expected 0 after unban)",
         json["data"]["active_bans"].as_u64().unwrap_or(0)
     );
 
     // 9. 演示错误场景：缺少 Authorization header → 401
-    println!("\n6. 错误场景演示: 缺少 Authorization header");
+    println!("\n6. Error scenario demo: missing Authorization header");
     let resp = client
         .get(format!("{}/api/v1/status", base_url))
         .send()
         .await?;
     println!(
-        "   status={} (预期 401 Unauthorized)",
+        "   status={} (expected 401 Unauthorized)",
         resp.status().as_u16()
     );
 
     // 10. 演示错误场景：无效 target 类型 → 400
-    println!("\n7. 错误场景演示: 无效的 IP 地址 → 400");
+    println!("\n7. Error scenario demo: invalid IP address → 400");
     let bad_body = serde_json::json!({
         "target": {"type": "ip", "value": "999.999.999.999"},
-        "reason": "无效 IP 测试"
+        "reason": "invalid IP test"
     });
     let resp = client
         .post(format!("{}/api/v1/ban", base_url))
@@ -266,7 +266,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 停止服务器
     server_handle.abort();
-    println!("\n=== Ban HTTP API Demo 完成 ===");
+    println!("\n=== Ban HTTP API Demo complete ===");
 
     Ok(())
 }

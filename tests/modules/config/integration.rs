@@ -54,7 +54,10 @@ fn make_valid_config(version: &str, rules: Vec<Rule>) -> FlowControlConfig {
 #[tokio::test]
 async fn test_valid_config_passes_validation() {
     let config = make_valid_config("1.0.0", vec![make_valid_rule("rule_001", "Test Rule")]);
-    assert!(config.validate().is_ok(), "有效配置应通过验证");
+    assert!(
+        config.validate().is_ok(),
+        "valid config should pass validation"
+    );
 }
 
 // ============================================================================
@@ -75,7 +78,10 @@ async fn test_empty_version_fails_validation() {
     };
 
     let result = config.validate();
-    assert!(result.is_err(), "空版本号配置应校验失败");
+    assert!(
+        result.is_err(),
+        "config with empty version should fail validation"
+    );
     assert_eq!(result.unwrap_err(), "Version cannot be empty");
 }
 
@@ -89,7 +95,7 @@ async fn test_duplicate_rule_ids_fail_validation() {
     let config = make_valid_config("1.0.0", vec![rule.clone(), rule]);
 
     let result = config.validate();
-    assert!(result.is_err(), "重复规则ID应校验失败");
+    assert!(result.is_err(), "duplicate rule ID should fail validation");
     assert!(
         result
             .unwrap_err()
@@ -118,7 +124,7 @@ async fn test_storage_type_default() {
 
     // 有效配置应该验证通过
     let result = config.validate();
-    assert!(result.is_ok(), "有效配置应校验通过");
+    assert!(result.is_ok(), "valid config should pass validation");
 }
 
 // ============================================================================
@@ -133,7 +139,7 @@ async fn test_version_compare_equal() {
     assert_eq!(
         config1.compare_version(&config2),
         std::cmp::Ordering::Equal,
-        "相同版本应返回 Equal"
+        "same version should compare Equal"
     );
 }
 
@@ -149,7 +155,7 @@ async fn test_version_compare_greater() {
     assert_eq!(
         config1.compare_version(&config2),
         std::cmp::Ordering::Greater,
-        "较新版本应返回 Greater"
+        "newer version should compare Greater"
     );
 }
 
@@ -165,7 +171,7 @@ async fn test_version_compare_less() {
     assert_eq!(
         config1.compare_version(&config2),
         std::cmp::Ordering::Less,
-        "较旧版本应返回 Less"
+        "older version should compare Less"
     );
 }
 
@@ -190,7 +196,10 @@ async fn test_invalid_version_format_no_panic() {
     let ordering = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         config1.compare_version(&config2)
     }));
-    assert!(ordering.is_ok(), "无效版本格式比较不应 panic");
+    assert!(
+        ordering.is_ok(),
+        "comparing invalid version formats should not panic"
+    );
 
     // 同样格式不同内容也应不 panic
     let ordering2 = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -206,7 +215,10 @@ async fn test_invalid_version_format_no_panic() {
         };
         c1.compare_version(&c2)
     }));
-    assert!(ordering2.is_ok(), "纯字母版本字符串比较不应 panic");
+    assert!(
+        ordering2.is_ok(),
+        "comparing pure-alpha version strings should not panic"
+    );
 }
 
 // ============================================================================
@@ -224,7 +236,7 @@ async fn test_config_builder_minimal_valid() {
         })
         .build();
 
-    assert!(config.is_ok(), "最小有效配置应构建成功");
+    assert!(config.is_ok(), "minimal valid config should build");
     let cfg = config.unwrap();
     assert_eq!(cfg.version, "0.1.0");
     assert_eq!(cfg.global.storage, StorageType::Memory);
@@ -267,7 +279,7 @@ async fn test_config_builder_with_multiple_rules() {
         })
         .build();
 
-    assert!(config.is_ok(), "多规则配置应构建成功");
+    assert!(config.is_ok(), "multi-rule config should build");
     let cfg = config.unwrap();
     assert_eq!(cfg.rules.len(), 3);
     assert_eq!(cfg.rules[0].priority, 100);
@@ -277,15 +289,15 @@ async fn test_config_builder_with_multiple_rules() {
     // 验证各个规则的限流器类型
     match &cfg.rules[0].limiters[0] {
         LimiterConfig::TokenBucket { .. } => {}
-        _ => panic!("第一个规则应为 TokenBucket"),
+        _ => panic!("first rule should be TokenBucket"),
     }
     match &cfg.rules[1].limiters[0] {
         LimiterConfig::FixedWindow { .. } => {}
-        _ => panic!("第二个规则应为 FixedWindow"),
+        _ => panic!("second rule should be FixedWindow"),
     }
     match &cfg.rules[2].limiters[0] {
         LimiterConfig::SlidingWindow { .. } => {}
-        _ => panic!("第三个规则应为 SlidingWindow"),
+        _ => panic!("third rule should be SlidingWindow"),
     }
 }
 
@@ -363,7 +375,7 @@ async fn test_config_builder_method_chaining() {
         })
         .build();
 
-    assert!(config.is_ok(), "链式调用应正常工作");
+    assert!(config.is_ok(), "chained calls should work");
     let cfg = config.unwrap();
     assert_eq!(cfg.global.storage, StorageType::Memory);
     assert_eq!(cfg.global.cache, CacheBackend::Memory);
@@ -383,7 +395,7 @@ async fn test_identical_configs_same_hash() {
     assert_eq!(
         config1.compute_hash(),
         config2.compute_hash(),
-        "相同配置应产生相同哈希"
+        "same config should produce the same hash"
     );
 }
 
@@ -405,7 +417,7 @@ async fn test_different_configs_different_hashes() {
     assert_ne!(
         config1.compute_hash(),
         config2.compute_hash(),
-        "不同配置应产生不同哈希"
+        "different configs should produce different hashes"
     );
 }
 
@@ -421,9 +433,9 @@ async fn test_hash_is_deterministic() {
     let hash2 = config.compute_hash();
     let hash3 = config.compute_hash();
 
-    assert_eq!(hash1, hash2, "哈希第一次和第二次应一致");
-    assert_eq!(hash2, hash3, "哈希第二次和第三次应一致");
-    assert_eq!(hash1, hash3, "哈希三次都应一致");
+    assert_eq!(hash1, hash2, "first and second hash should match");
+    assert_eq!(hash2, hash3, "second and third hash should match");
+    assert_eq!(hash1, hash3, "hashes should all match");
 }
 
 // ============================================================================
@@ -463,7 +475,7 @@ async fn test_change_record_identifies_added_rules() {
 
     assert!(
         record.changes.iter().any(|c| c.contains("Rules added")),
-        "变更记录应包含新增规则: {:?}",
+        "change record should contain the added rule: {:?}",
         record.changes
     );
 }
@@ -492,7 +504,7 @@ async fn test_change_record_identifies_removed_rules() {
 
     assert!(
         record.changes.iter().any(|c| c.contains("Rules removed")),
-        "变更记录应包含移除规则: {:?}",
+        "change record should contain the removed rule: {:?}",
         record.changes
     );
 }
@@ -533,7 +545,7 @@ async fn test_change_record_identifies_modified_rules() {
             .changes
             .iter()
             .any(|c| c.contains("Global configuration")),
-        "变更记录应包含全局配置变更: {:?}",
+        "change record should contain the global config change: {:?}",
         record.changes
     );
 }
@@ -553,7 +565,10 @@ async fn test_unique_rule_ids_accepted() {
         ],
     );
 
-    assert!(config.validate().is_ok(), "唯一规则ID应被接受");
+    assert!(
+        config.validate().is_ok(),
+        "unique rule ID should be accepted"
+    );
 }
 
 // ============================================================================
@@ -588,7 +603,7 @@ async fn test_case_sensitive_rule_id_comparison() {
 
     assert!(
         config.validate().is_ok(),
-        "大小写不同的规则ID应被视为不同的规则"
+        "rule IDs differing only in case should be treated as different rules"
     );
 }
 
@@ -612,7 +627,7 @@ async fn test_config_history_basic_operations() {
         old_hash: None,
         new_hash: "abc123".to_string(),
         source: ChangeSource::Poll,
-        changes: vec!["初始配置".to_string()],
+        changes: vec!["initial config".to_string()],
     };
 
     let record2 = ConfigChangeRecord {
@@ -622,7 +637,7 @@ async fn test_config_history_basic_operations() {
         old_hash: Some("abc123".to_string()),
         new_hash: "def456".to_string(),
         source: ChangeSource::Api,
-        changes: vec!["版本变更: 0.1.0 -> 0.2.0".to_string()],
+        changes: vec!["version change: 0.1.0 -> 0.2.0".to_string()],
     };
 
     history.add_record(record1.clone());
@@ -848,10 +863,11 @@ async fn test_serialization_roundtrip_json() {
     };
 
     // 序列化
-    let json = serde_json::to_string(&original).expect("序列化应成功");
+    let json = serde_json::to_string(&original).expect("serialization should succeed");
 
     // 反序列化
-    let deserialized: FlowControlConfig = serde_json::from_str(&json).expect("反序列化应成功");
+    let deserialized: FlowControlConfig =
+        serde_json::from_str(&json).expect("deserialization should succeed");
 
     // 验证往返后数据完整
     assert_eq!(deserialized.version, original.version);
@@ -877,14 +893,14 @@ async fn test_serialization_roundtrip_json() {
     if let Matcher::Geo { countries } = &complex.matchers[0] {
         assert_eq!(countries.len(), 2);
     } else {
-        panic!("第一个匹配器应为 Geo");
+        panic!("first matcher should be Geo");
     }
 
     // 验证哈希一致
     assert_eq!(
         deserialized.compute_hash(),
         original.compute_hash(),
-        "往返序列化后哈希应一致"
+        "hash should match after a serialization round-trip"
     );
 }
 
@@ -897,11 +913,14 @@ async fn test_deserialize_invalid_json_fails() {
     let invalid_json = r#"{ "version": "1.0.0", "global": "not an object" }"#;
 
     let result: Result<FlowControlConfig, _> = serde_json::from_str(invalid_json);
-    assert!(result.is_err(), "无效JSON应反序列化失败");
+    assert!(result.is_err(), "invalid JSON should fail deserialization");
 
     let malformed_json = r#"this is not json at all"#;
     let result2: Result<FlowControlConfig, _> = serde_json::from_str(malformed_json);
-    assert!(result2.is_err(), "畸形JSON应反序列化失败");
+    assert!(
+        result2.is_err(),
+        "malformed JSON should fail deserialization"
+    );
 }
 
 // ============================================================================
@@ -935,7 +954,7 @@ async fn test_deserialize_missing_optional_fields() {
     });
 
     let config: FlowControlConfig =
-        serde_json::from_value(minimal_json).expect("最小化JSON应能反序列化");
+        serde_json::from_value(minimal_json).expect("minimal JSON should deserialize");
 
     assert_eq!(config.version, "1.0.0");
     assert_eq!(config.rules[0].id, "minimal");
@@ -1003,7 +1022,10 @@ async fn test_global_config_validation_valid_types() {
             metrics,
             trusted_proxies: Default::default(),
         };
-        assert!(global.validate().is_ok(), "有效配置应校验通过");
+        assert!(
+            global.validate().is_ok(),
+            "valid config should pass validation"
+        );
     }
 }
 
@@ -1039,7 +1061,10 @@ async fn test_global_config_various_type_combinations() {
             metrics,
             trusted_proxies: Default::default(),
         };
-        assert!(global.validate().is_ok(), "有效组合应通过验证");
+        assert!(
+            global.validate().is_ok(),
+            "valid combination should pass validation"
+        );
     }
 }
 
@@ -1121,11 +1146,11 @@ async fn test_is_same_as_method() {
 
     assert!(
         config1.is_same_as(&config2),
-        "相同配置 is_same_as 应返回 true"
+        "is_same_as should return true for the same config"
     );
     assert!(
         !config1.is_same_as(&config3),
-        "不同配置 is_same_as 应返回 false"
+        "is_same_as should return false for different configs"
     );
 }
 
@@ -1151,7 +1176,7 @@ async fn test_config_builder_with_concurrency_limiter() {
         LimiterConfig::Concurrency { max_concurrent } => {
             assert_eq!(*max_concurrent, 50);
         }
-        _ => panic!("应为 Concurrency 限流器"),
+        _ => panic!("should be a Concurrency limiter"),
     }
 }
 

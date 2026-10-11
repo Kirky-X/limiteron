@@ -369,15 +369,19 @@ mod tests {
         let start = clock.now();
 
         clock.advance(Duration::from_millis(900));
-        assert_eq!(clock.unix_timestamp(), 1_000, "亚秒前进不得进位秒");
+        assert_eq!(
+            clock.unix_timestamp(),
+            1_000,
+            "a sub-second advance must not carry into seconds"
+        );
         assert_eq!(
             clock.unix_timestamp_nanos(),
             1_000 * 1_000_000_000 + 900_000_000,
-            "unix_timestamp_nanos 应携带亚秒部分"
+            "unix_timestamp_nanos must carry the sub-second part"
         );
 
         clock.advance(Duration::from_millis(600)); // 累计 1.5s
-        assert_eq!(clock.unix_timestamp(), 1_001, "跨秒进位");
+        assert_eq!(clock.unix_timestamp(), 1_001, "cross-second carry");
         assert_eq!(
             clock.unix_timestamp_nanos(),
             1_000 * 1_000_000_000 + 1_500_000_000
@@ -409,7 +413,7 @@ mod tests {
         let delta = (via_clock - via_utc).num_milliseconds().abs();
         assert!(
             delta < 1000,
-            "SystemClock::now_datetime 与 Utc::now 差值须 < 1s, got {delta}ms"
+            "SystemClock::now_datetime vs Utc::now difference must be < 1s, got {delta}ms"
         );
     }
 

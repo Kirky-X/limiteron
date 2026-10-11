@@ -487,7 +487,7 @@ mod tests {
         let err = c.validate().unwrap_err();
         assert!(
             matches!(err, LimiteronError::ConfigError(ref m) if m.contains("min_samples_for_adjust")),
-            "错误信息应含字段名: {err}"
+            "the error message must contain the field name: {err}"
         );
 
         let mut c = config();
@@ -512,7 +512,7 @@ mod tests {
         let err = c.validate().unwrap_err();
         assert!(
             matches!(err, LimiteronError::ConfigError(ref m) if m.contains("error_rate_increase_threshold")),
-            "错误信息应含字段名: {err}"
+            "the error message must contain the field name: {err}"
         );
 
         let mut c = config();
@@ -554,7 +554,7 @@ mod tests {
         }
         assert!(
             !tokio_test_block_on(limiter.allow(1)).unwrap(),
-            "计满后应拒绝"
+            "must reject once the count is full"
         );
 
         // 窗口未滚动前维持拒绝（重置只发生在 window_samples 边界）
@@ -566,7 +566,7 @@ mod tests {
         }
         assert!(
             !tokio_test_block_on(limiter.allow(1)).unwrap(),
-            "窗口未滚动前不得恢复放行"
+            "must not resume allowing before the window rolls"
         );
 
         // 窗口滚动（第 4 个样本）→ 配额周期重置 → 恢复放行
@@ -578,7 +578,7 @@ mod tests {
         }
         assert!(
             tokio_test_block_on(limiter.allow(1)).unwrap(),
-            "窗口滚动后应恢复放行"
+            "should resume allowing after the window rolls"
         );
 
         // 周期性：再次计满 → 下一次窗口滚动再次恢复（非一次性修补）
@@ -594,7 +594,7 @@ mod tests {
         }
         assert!(
             tokio_test_block_on(limiter.allow(1)).unwrap(),
-            "第二次窗口滚动应再次恢复放行"
+            "the second window roll should resume allowing again"
         );
     }
 
@@ -607,7 +607,11 @@ mod tests {
             ok: false,
             latency_ms: 1,
         });
-        assert_eq!(limiter.current_limit(), 3, "判定点之间不得调整");
+        assert_eq!(
+            limiter.current_limit(),
+            3,
+            "must not adjust between decision points"
+        );
 
         // 第 2 个样本构成判定点：错误率 100% ≥ 50% → 下调 3→1（钳在 min_limit）
         limiter.report(Feedback {
@@ -663,7 +667,11 @@ mod tests {
                 latency_ms: 1,
             });
         }
-        assert_eq!(limiter.current_limit(), 50, "冷却期内不得继续下调");
+        assert_eq!(
+            limiter.current_limit(),
+            50,
+            "must not keep lowering during cooldown"
+        );
 
         // 冷却期结束后第 10 个样本触发第二次下调 50→25
         limiter.report(Feedback {
@@ -679,7 +687,7 @@ mod tests {
                 latency_ms: 1,
             });
         }
-        assert_eq!(limiter.current_limit(), 20, "不得低于 min_limit");
+        assert_eq!(limiter.current_limit(), 20, "must not go below min_limit");
     }
 
     #[test]
@@ -696,7 +704,11 @@ mod tests {
                 });
             }
         }
-        assert_eq!(limiter.current_limit(), 200, "加性增应钳制在 max_limit");
+        assert_eq!(
+            limiter.current_limit(),
+            200,
+            "additive increase must clamp at max_limit"
+        );
         assert_eq!(limiter.last_adjustment(), Adjustment::Increased(200));
     }
 
@@ -724,13 +736,17 @@ mod tests {
                 latency_ms: 10,
             });
         }
-        assert_eq!(limiter.current_limit(), 50, "冷却期内不得上调");
+        assert_eq!(
+            limiter.current_limit(),
+            50,
+            "must not raise during cooldown"
+        );
         assert!(
             matches!(
                 limiter.last_adjustment(),
                 Adjustment::Decreased(50) | Adjustment::Cooling(_)
             ),
-            "冷却期调整动作应保持/显示冷却: {:?}",
+            "the cooldown adjustment action must keep/show cooldown: {:?}",
             limiter.last_adjustment()
         );
 
@@ -741,7 +757,11 @@ mod tests {
                 latency_ms: 10,
             });
         }
-        assert_eq!(limiter.current_limit(), 60, "冷却期结束后应恢复加性增");
+        assert_eq!(
+            limiter.current_limit(),
+            60,
+            "additive increase should resume after cooldown ends"
+        );
     }
 
     #[test]
@@ -755,7 +775,11 @@ mod tests {
                 latency_ms: 800,
             });
         }
-        assert_eq!(limiter.current_limit(), 50, "延迟劣化应独立触发收紧");
+        assert_eq!(
+            limiter.current_limit(),
+            50,
+            "delayed degradation must trigger tightening independently"
+        );
     }
 
     #[test]
@@ -769,7 +793,11 @@ mod tests {
                 latency_ms: 900,
             });
         }
-        assert_eq!(limiter.current_limit(), 100, "冷启动期不得抖动");
+        assert_eq!(
+            limiter.current_limit(),
+            100,
+            "must not jitter during cold start"
+        );
         assert_eq!(limiter.last_adjustment(), Adjustment::None);
     }
 

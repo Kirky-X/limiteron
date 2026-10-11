@@ -505,7 +505,10 @@ mod tests {
         let limiter = QuotaLimiter::new(config);
 
         for _ in 0..50 {
-            assert!(limiter.allow(0).await.unwrap(), "cost=0 应放行且不落账");
+            assert!(
+                limiter.allow(0).await.unwrap(),
+                "cost=0 should allow without accounting"
+            );
         }
         // 账面未被零成本请求侵蚀：正常成本额度完整
         for _ in 0..10 {
@@ -652,10 +655,13 @@ mod tests {
         assert!(a.allow(6).await.unwrap());
         assert!(
             !b.allow(6).await.unwrap(),
-            "共享账本下 B 应看到 A 的消耗(6+6>10)"
+            "B should see A's consumption under the shared ledger (6+6>10)"
         );
         assert!(b.allow(4).await.unwrap());
-        assert!(!b.allow(1).await.unwrap(), "账本已满 10/10,应拒绝");
+        assert!(
+            !b.allow(1).await.unwrap(),
+            "the ledger is full 10/10, must reject"
+        );
 
         // 纯内存实例与账本无关
         let solo = QuotaLimiter::new(create_test_config());
@@ -681,7 +687,7 @@ mod tests {
         assert_eq!(snap.remaining, 7);
         assert!(snap.reset_secs <= 60);
         let peeked = limiter.peek(1).await.unwrap();
-        assert_eq!(peeked.remaining, 7, "peek 不扣减");
+        assert_eq!(peeked.remaining, 7, "peek does not deduct");
     }
 
     #[tokio::test]
@@ -711,7 +717,7 @@ mod tests {
 
         assert!(
             limiter.check_retry_after("ra_user").await.is_ok(),
-            "配额充足应放行"
+            "sufficient quota should allow"
         );
     }
 
@@ -728,7 +734,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
         assert!(
             limiter.check_retry_after("ra_reset").await.is_ok(),
-            "窗口翻转后应重置放行"
+            "the window flip should reset and allow"
         );
     }
 
@@ -744,10 +750,10 @@ mod tests {
         let remaining = limiter
             .check_retry_after("ra_remaining")
             .await
-            .expect_err("配额耗尽应返回 Err");
+            .expect_err("quota exhaustion must return Err");
         assert!(
             (1..=60).contains(&remaining),
-            "剩余秒数应在 (0, 60] 内，实际 {remaining}"
+            "the remaining seconds must be within (0, 60], got {remaining}"
         );
     }
 
@@ -767,7 +773,10 @@ mod tests {
         match limiter.check_retry_after("ra_zero").await {
             // 窗口已翻转：重置放行，属正确语义的另一分支
             Ok(()) => {}
-            Err(remaining) => assert_eq!(remaining, 0, "窗口未翻转且剩余 <1s 应截断为 0"),
+            Err(remaining) => assert_eq!(
+                remaining, 0,
+                "with no window flip and remaining < 1s, truncate to 0"
+            ),
         }
     }
 }

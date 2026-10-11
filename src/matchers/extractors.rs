@@ -1499,7 +1499,7 @@ mod tests {
         assert_eq!(
             extractor.extract(&ctx),
             Some(Identifier::Ip("203.0.113.99".into())),
-            "非可信代理直连时必须忽略 X-Forwarded-For，使用直接对端 IP"
+            "a direct connection from a non-trusted proxy must ignore X-Forwarded-For and use the direct peer IP"
         );
     }
 
@@ -1520,7 +1520,7 @@ mod tests {
         assert_eq!(
             extractor.extract(&ctx),
             Some(Identifier::Ip("203.0.113.5".into())),
-            "可信代理直连时应正常解析 X-Forwarded-For 链"
+            "a direct connection from a trusted proxy must parse the X-Forwarded-For chain normally"
         );
     }
 
@@ -1539,7 +1539,7 @@ mod tests {
         assert_eq!(
             extractor.extract(&ctx),
             Some(Identifier::Ip("5.6.7.8".into())),
-            "未启用可信代理时必须忽略 X-Forwarded-For，使用直接对端 IP"
+            "with trusted proxies not enabled, X-Forwarded-For must be ignored and the direct peer IP used"
         );
     }
 
@@ -1564,7 +1564,7 @@ mod tests {
         assert_eq!(
             extractor.extract(&ctx),
             Some(Identifier::Ip("8.8.8.8".into())),
-            "非可信代理直连时伪造的代理链必须被拒绝"
+            "a forged proxy chain from a non-trusted proxy direct connection must be rejected"
         );
     }
 
@@ -1586,7 +1586,7 @@ mod tests {
         assert_eq!(
             extractor.extract(&ctx),
             None,
-            "缺少直接对端地址时必须忽略 X-Forwarded-For"
+            "a missing direct peer address must cause X-Forwarded-For to be ignored"
         );
     }
 
@@ -1606,7 +1606,7 @@ mod tests {
         assert_eq!(
             extractor.extract(&ctx),
             Some(Identifier::Ip("203.0.113.50".into())),
-            "可信代理直连时单个 IP 头应正常解析"
+            "a trusted proxy direct connection with a single IP header must parse normally"
         );
     }
 
@@ -1626,7 +1626,7 @@ mod tests {
         assert_eq!(
             extractor.extract(&ctx),
             Some(Identifier::Ip("203.0.113.5".into())),
-            "对端在 CIDR 可信代理范围内时应解析 X-Forwarded-For"
+            "with the peer inside the trusted proxy CIDR range, X-Forwarded-For must be parsed"
         );
     }
 
@@ -1646,7 +1646,7 @@ mod tests {
         assert_eq!(
             extractor.extract(&ctx),
             Some(Identifier::Ip("10.0.0.2".into())),
-            "可信代理直连且链全为可信代理时，使用最右 IP"
+            "a trusted proxy direct connection with an all-trusted-proxy chain must use the rightmost IP"
         );
     }
 

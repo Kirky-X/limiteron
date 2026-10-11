@@ -2046,7 +2046,10 @@ mod tests {
 
         // 检查过期封禁应该返回 None
         let banned = ban_manager.read_ban(&target).await.unwrap();
-        assert!(banned.is_none(), "过期的封禁记录应该自动解除");
+        assert!(
+            banned.is_none(),
+            "an expired ban record should be lifted automatically"
+        );
     }
 
     #[tokio::test]
@@ -2209,7 +2212,7 @@ mod tests {
             BanSource::Manual { operator } => {
                 assert_eq!(operator, "admin");
             }
-            BanSource::Auto => panic!("期望手动封禁"),
+            BanSource::Auto => panic!("expected a manual ban"),
         }
     }
 
@@ -2595,7 +2598,7 @@ mod tests {
             Err(LimiteronError::AuthorizationError(msg)) => {
                 assert!(msg.contains("unauthorized_user"));
             }
-            _ => panic!("期望 AuthorizationError"),
+            _ => panic!("expected AuthorizationError"),
         }
     }
 
@@ -2680,7 +2683,7 @@ mod tests {
             Err(LimiteronError::AuthorizationError(msg)) => {
                 assert!(msg.contains("unauthorized_user"));
             }
-            _ => panic!("期望 AuthorizationError"),
+            _ => panic!("expected AuthorizationError"),
         }
     }
 
@@ -2757,7 +2760,7 @@ mod tests {
             Err(LimiteronError::ValidationError(msg)) => {
                 assert!(msg.contains("不能为空") || msg.contains("cannot be empty"));
             }
-            _ => panic!("期望 ValidationError"),
+            _ => panic!("expected ValidationError"),
         }
     }
 
@@ -2782,7 +2785,7 @@ mod tests {
             Err(LimiteronError::ValidationError(msg)) => {
                 assert!(msg.contains("过长") || msg.contains("too long"));
             }
-            _ => panic!("期望 ValidationError"),
+            _ => panic!("expected ValidationError"),
         }
     }
 
@@ -2805,7 +2808,7 @@ mod tests {
             Err(LimiteronError::ValidationError(msg)) => {
                 assert!(msg.contains("非法字符") || msg.contains("illegal characters"));
             }
-            _ => panic!("期望 ValidationError"),
+            _ => panic!("expected ValidationError"),
         }
     }
 
@@ -3141,7 +3144,7 @@ mod tests {
         let result = manager.check_ban_priority(&targets).await.unwrap();
         assert!(
             result.is_some(),
-            "首个完成的目标未封禁时不得丢弃其余检查（漏判）"
+            "checks must not be dropped when the first completed target is unbanned (missed verdict)"
         );
         assert_eq!(
             result.unwrap().target,
@@ -3178,9 +3181,12 @@ mod tests {
 
         assert_eq!(
             detail_a1.id, detail_a2.id,
-            "同一目标的 BanDetail id 必须稳定"
+            "BanDetail id for the same target must be stable"
         );
-        assert_ne!(detail_a1.id, detail_b.id, "不同目标的 id 必须不同");
+        assert_ne!(
+            detail_a1.id, detail_b.id,
+            "ids for different targets must differ"
+        );
         // 仍为合法 UUID 字符串
         assert!(uuid::Uuid::parse_str(&detail_a1.id).is_ok());
     }

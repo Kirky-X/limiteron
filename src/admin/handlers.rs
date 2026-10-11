@@ -31,6 +31,21 @@ pub(crate) fn service_error_status(e: &AdminServiceError) -> StatusCode {
     }
 }
 
+/// 服务错误 → HTTP 响应体消息（协议适配层的消息映射点）
+///
+/// 双轨：`AdminServiceError` 的 Display 恒为英文规范串（见 `service.rs`），
+/// NotConfigured 的响应体本地化面经 FTL 键渲染；其余变体载荷本身已是英文
+/// 规范串，直出 Display。
+pub(crate) fn service_error_message(e: &AdminServiceError) -> String {
+    match e {
+        AdminServiceError::NotConfigured(what) => crate::i18n::t(
+            "admin-service-not-configured",
+            &[("what", (*what).to_string())],
+        ),
+        other => other.to_string(),
+    }
+}
+
 // ==================== 响应类型 ====================
 
 /// 通用响应
@@ -167,13 +182,13 @@ pub async fn apply_config(
             StatusCode::OK,
             Json(ApiResponse {
                 success: true,
-                message: "config applied".to_string(),
+                message: crate::i18n::t_simple("admin-config-applied"),
                 data: Some(data),
             }),
         ),
         Err(e) => (
             service_error_status(&e),
-            Json(ApiResponse::error(e.to_string())),
+            Json(ApiResponse::error(service_error_message(&e))),
         ),
     }
 }
@@ -211,13 +226,19 @@ pub async fn check_batch(
             StatusCode::OK,
             Json(ApiResponse {
                 success: true,
-                message: format!("{allowed_count}/{} allowed", results.len()),
+                message: crate::i18n::t(
+                    "admin-batch-check-allowed",
+                    &[
+                        ("allowed", allowed_count.to_string()),
+                        ("total", results.len().to_string()),
+                    ],
+                ),
                 data: Some(serde_json::json!({ "results": results })),
             }),
         ),
         Err(e) => (
             service_error_status(&e),
-            Json(ApiResponse::error(e.to_string())),
+            Json(ApiResponse::error(service_error_message(&e))),
         ),
     }
 }
@@ -260,13 +281,19 @@ pub async fn prefetch_tokens(
             StatusCode::OK,
             Json(ApiResponse {
                 success: true,
-                message: format!("{granted_count}/{} granted", results.len()),
+                message: crate::i18n::t(
+                    "admin-tokens-prefetch-granted",
+                    &[
+                        ("granted", granted_count.to_string()),
+                        ("total", results.len().to_string()),
+                    ],
+                ),
                 data: Some(serde_json::Value::Array(results)),
             }),
         ),
         Err(e) => (
             service_error_status(&e),
-            Json(ApiResponse::error(e.to_string())),
+            Json(ApiResponse::error(service_error_message(&e))),
         ),
     }
 }
@@ -327,7 +354,7 @@ pub async fn delete_ban(
         ),
         Err(e) => (
             service_error_status(&e),
-            Json(ApiResponse::error(e.to_string())),
+            Json(ApiResponse::error(service_error_message(&e))),
         ),
     }
 }
@@ -340,7 +367,9 @@ pub async fn delete_ban(
 ) -> (StatusCode, Json<ApiResponse<()>>) {
     (
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(ApiResponse::error("Ban manager not configured")),
+        Json(ApiResponse::error(crate::i18n::t_simple(
+            "admin-ban-manager-not-configured",
+        ))),
     )
 }
 
@@ -390,7 +419,7 @@ pub async fn create_ban(
         Ok(ban) => (StatusCode::CREATED, Json(ApiResponse::ok(ban))),
         Err(e) => (
             service_error_status(&e),
-            Json(ApiResponse::error(e.to_string())),
+            Json(ApiResponse::error(service_error_message(&e))),
         ),
     }
 }
@@ -400,7 +429,9 @@ pub async fn create_ban(
 pub async fn create_ban() -> (StatusCode, Json<ApiResponse<()>>) {
     (
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(ApiResponse::error("Ban manager not configured")),
+        Json(ApiResponse::error(crate::i18n::t_simple(
+            "admin-ban-manager-not-configured",
+        ))),
     )
 }
 
@@ -436,7 +467,7 @@ pub async fn update_quota(
         Ok(resp) => (StatusCode::OK, Json(ApiResponse::ok(resp))),
         Err(e) => (
             service_error_status(&e),
-            Json(ApiResponse::error(e.to_string())),
+            Json(ApiResponse::error(service_error_message(&e))),
         ),
     }
 }
@@ -448,7 +479,9 @@ pub async fn update_quota(
 ) -> (StatusCode, Json<ApiResponse<UpdateQuotaResponse>>) {
     (
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(ApiResponse::error("Quota controller not configured")),
+        Json(ApiResponse::error(crate::i18n::t_simple(
+            "admin-quota-controller-not-configured",
+        ))),
     )
 }
 
@@ -473,7 +506,7 @@ pub async fn get_circuit_breaker_status(
         Ok(status) => (StatusCode::OK, Json(ApiResponse::ok(status))),
         Err(e) => (
             service_error_status(&e),
-            Json(ApiResponse::error(e.to_string())),
+            Json(ApiResponse::error(service_error_message(&e))),
         ),
     }
 }
@@ -483,7 +516,9 @@ pub async fn get_circuit_breaker_status(
 pub async fn get_circuit_breaker_status() -> (StatusCode, Json<ApiResponse<()>>) {
     (
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(ApiResponse::error("Circuit breaker not configured")),
+        Json(ApiResponse::error(crate::i18n::t_simple(
+            "admin-circuit-breaker-not-configured",
+        ))),
     )
 }
 

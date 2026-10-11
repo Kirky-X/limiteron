@@ -229,7 +229,11 @@ mod tests {
 
         // 单笔注入超过桶容量，即使空桶也必须拒绝（漏桶硬顶）
         assert!(!limiter.allow(11).await.unwrap());
-        assert_eq!(limiter.water_level().await, 0, "拒绝的注入不得改变水位");
+        assert_eq!(
+            limiter.water_level().await,
+            0,
+            "a rejected injection must not change the water level"
+        );
     }
 
     #[tokio::test]
@@ -277,7 +281,11 @@ mod tests {
         // 只注入 1 单位，随后远超漏空所需时间
         assert!(limiter.allow(1).await.unwrap());
         mock_clock.advance(Duration::from_secs(100));
-        assert_eq!(limiter.water_level().await, 0, "漏出受水位封顶，不得为负");
+        assert_eq!(
+            limiter.water_level().await,
+            0,
+            "leak is capped by the water level, must not go negative"
+        );
 
         // 漏空后不得凭历史积压时间「找回」突放空间：立即注入恰容量即满
         assert!(limiter.allow(10).await.unwrap());
@@ -295,13 +303,16 @@ mod tests {
 
         for _ in 0..10 {
             tokio::time::sleep(Duration::from_millis(500)).await;
-            assert!(limiter.allow(1).await.unwrap(), "低速率漏桶应持续放行");
+            assert!(
+                limiter.allow(1).await.unwrap(),
+                "a low-rate leaky bucket should keep allowing"
+            );
         }
 
         let water = limiter.water_level().await;
         assert!(
             water <= 5,
-            "10×500ms@3/s 积分守恒应漏出 ~15 单位(毛注入 10-漏出 ~15≤0)，实际积压 {water}"
+            "10x500ms@3/s integral conservation should leak ~15 units (gross injection 10 - leak ~15 <= 0), actual backlog {water}"
         );
     }
 
@@ -319,7 +330,7 @@ mod tests {
         assert_eq!(snap.limit, 10);
         assert_eq!(
             snap.remaining, 10,
-            "10@5/s 漏 10，虚拟推演后桶已空，剩余可入桶空间应为满容量"
+            "10@5/s leaks 10; after virtual rollout the bucket is empty, the remaining entry space should be full capacity"
         );
 
         // 真实状态必须原封不动：水位记账仍在 2s 前，直接再推演应同值
@@ -365,8 +376,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_leaky_bucket_invalid_config_rejected() {
-        assert!(LeakyBucketLimiter::new(0, 5).is_err(), "容量 0 应拒绝");
-        assert!(LeakyBucketLimiter::new(10, 0).is_err(), "漏速 0 应拒绝");
+        assert!(
+            LeakyBucketLimiter::new(0, 5).is_err(),
+            "capacity 0 must be rejected"
+        );
+        assert!(
+            LeakyBucketLimiter::new(10, 0).is_err(),
+            "leak rate 0 must be rejected"
+        );
     }
 
     #[tokio::test]
@@ -375,11 +392,11 @@ mod tests {
         // u128→u64 转换失真，构造期即拒绝
         assert!(
             LeakyBucketLimiter::new(MAX_TOKEN_BUCKET_CAPACITY + 1, 5).is_err(),
-            "超上限容量应拒绝"
+            "over-limit capacity must be rejected"
         );
         assert!(
             LeakyBucketLimiter::new(10, MAX_TOKEN_BUCKET_REFILL_RATE + 1).is_err(),
-            "超上限漏速应拒绝"
+            "over-limit leak rate must be rejected"
         );
         assert!(
             LeakyBucketLimiter::new(MAX_TOKEN_BUCKET_CAPACITY, MAX_TOKEN_BUCKET_REFILL_RATE)
@@ -415,7 +432,7 @@ mod tests {
         assert_eq!(
             admitted.load(std::sync::atomic::Ordering::Relaxed),
             100,
-            "并发注入总量必须恰好等于桶容量"
+            "the total concurrent injection must exactly equal the bucket capacity"
         );
         assert_eq!(limiter.water_level().await, 100);
     }
@@ -434,6 +451,9 @@ mod tests {
         assert!(limiter.check("any_key").await.is_ok());
         // 桶满后 check() 须将 Ok(false) 映射为 Err（不得静默吞掉）
         let result = limiter.check("any_key").await;
-        assert!(result.is_err(), "桶满后 check 应返回 Err");
+        assert!(
+            result.is_err(),
+            "check must return Err once the bucket is full"
+        );
     }
 }

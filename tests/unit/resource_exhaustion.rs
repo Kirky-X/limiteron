@@ -35,7 +35,9 @@ impl Storage for BoundedStorage {
     async fn set(&self, key: &str, value: &str, _ttl: Option<u64>) -> Result<(), StorageError> {
         let mut data = self.data.write().unwrap();
         if data.len() >= self.max_entries && !data.contains_key(key) {
-            return Err(StorageError::QueryError("超过最大条目限制".to_string()));
+            return Err(StorageError::QueryError(
+                "maximum entry limit exceeded".to_string(),
+            ));
         }
         data.insert(key.to_string(), value.to_string());
         Ok(())

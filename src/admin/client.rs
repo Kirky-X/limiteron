@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(health["status"], "ok");
 
         let status = client.status().await.unwrap();
-        assert!(status.success, "status 响应应成功: {status:?}");
+        assert!(status.success, "status response should succeed: {status:?}");
         let data = status.data.expect("status data");
         assert_eq!(data["total_requests"], 0);
     }
@@ -454,7 +454,7 @@ mod tests {
         let c = AdminClient::new("http://admin.internal:foo", "k");
         assert!(
             matches!(c.host(), Err(AdminClientError::InvalidBaseUrl(_))),
-            "端口解析失败应显性报错: {:?}",
+            "port parse failure must error explicitly: {:?}",
             c.host()
         );
 
@@ -471,7 +471,7 @@ mod tests {
         let err = client.status().await.unwrap_err();
         assert!(
             matches!(err, AdminClientError::InvalidBaseUrl(ref m) if m.contains("https")),
-            "https base_url 应显性报错: {err:?}"
+            "https base_url must error explicitly: {err:?}"
         );
     }
 }

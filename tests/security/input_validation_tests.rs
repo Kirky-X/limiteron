@@ -44,7 +44,7 @@ async fn test_x_forwarded_for_spoofing() {
     assert_eq!(
         result.unwrap(),
         Identifier::Ip("203.0.113.99".to_string()),
-        "非可信代理直连时必须忽略 X-Forwarded-For，使用直接对端 IP"
+        "must ignore X-Forwarded-For for direct connections from untrusted peers; use the direct peer IP"
     );
 
     // 场景2: 攻击者直连但未提供 client_ip（无 socket 信息）
@@ -53,7 +53,7 @@ async fn test_x_forwarded_for_spoofing() {
     let result = extractor.extract(&ctx);
     assert!(
         result.is_none(),
-        "缺少直接对端地址时必须忽略 X-Forwarded-For"
+        "must ignore X-Forwarded-For when the direct peer address is missing"
     );
 
     // 场景3: 可信代理转发，攻击者在头左边添加伪造 IP
@@ -74,7 +74,7 @@ async fn test_x_forwarded_for_spoofing() {
     assert_eq!(
         result.unwrap(),
         Identifier::Ip("192.168.1.100".to_string()),
-        "可信代理转发时应从右向左跳过可信代理，取真实客户端 IP（而非伪造的最左 IP）"
+        "trusted-proxy forwards should skip trusted peers right-to-left and take the real client IP (not the spoofed leftmost IP)"
     );
 }
 
@@ -117,11 +117,31 @@ async fn test_invalid_ip_injection() {
             // 这些恶意输入应被拒绝或返回 None
             if let Some(ip) = result {
                 // 如果返回了结果，确保不是恶意内容
-                assert!(!ip.as_str().contains(';'), "SQL注入未过滤: {}", invalid_ip);
-                assert!(!ip.as_str().contains('\n'), "换行符未过滤: {}", invalid_ip);
-                assert!(!ip.as_str().contains('\r'), "回车符未过滤: {}", invalid_ip);
-                assert!(!ip.as_str().contains('<'), "XSS未过滤: {}", invalid_ip);
-                assert!(!ip.as_str().contains('$'), "模板注入未过滤: {}", invalid_ip);
+                assert!(
+                    !ip.as_str().contains(';'),
+                    "SQL injection not filtered: {}",
+                    invalid_ip
+                );
+                assert!(
+                    !ip.as_str().contains('\n'),
+                    "newline not filtered: {}",
+                    invalid_ip
+                );
+                assert!(
+                    !ip.as_str().contains('\r'),
+                    "carriage return not filtered: {}",
+                    invalid_ip
+                );
+                assert!(
+                    !ip.as_str().contains('<'),
+                    "XSS not filtered: {}",
+                    invalid_ip
+                );
+                assert!(
+                    !ip.as_str().contains('$'),
+                    "template injection not filtered: {}",
+                    invalid_ip
+                );
             }
         }
     }
@@ -198,12 +218,12 @@ async fn test_ip_list_parsing_security() {
     // 超过 max_hops 限制：X-Forwarded-For 头被拒绝，回退到直接对端 IP
     assert!(
         result.is_some(),
-        "超过 max_hops 限制时应回退到直接对端 IP，不应返回 None"
+        "exceeding the max_hops limit should fall back to the direct peer IP, not return None"
     );
     assert_eq!(
         result.unwrap(),
         Identifier::Ip("10.0.0.1".to_string()),
-        "超过 max_hops 限制时应忽略 X-Forwarded-For，使用直接对端 IP"
+        "exceeding the max_hops limit should ignore X-Forwarded-For and use the direct peer IP"
     );
 
     // 测试在限制内的 IP 列表
@@ -402,7 +422,12 @@ fn test_malicious_config_rejection() {
         !report.is_safe,
         "Config with XSS in rule ID should be rejected"
     );
-    assert!(report.warnings.iter().any(|w| w.contains("特殊字符")));
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.contains("special characters"))
+    );
 
     // 测试包含 SQL 注入的配置
     let config = FlowControlConfig {

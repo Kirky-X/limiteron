@@ -132,12 +132,12 @@ mod tests {
         assert!(throttle.acquire("s0", 6).await.unwrap());
         assert!(
             !throttle.acquire("s0", 6).await.unwrap(),
-            "缺口 6 > 剩余 4 → 拒绝"
+            "gap 6 > remaining 4 -> reject"
         );
         assert_eq!(
             throttle.remaining("s0").await.unwrap().remaining,
             4,
-            "拒绝不得扣减预算"
+            "a rejection must not deduct budget"
         );
         // 恰好剩余额度 → 放行
         assert!(throttle.acquire("s0", 4).await.unwrap());
@@ -152,7 +152,7 @@ mod tests {
         assert!(!throttle.acquire("db-a", 1).await.unwrap());
         assert!(
             throttle.acquire("db-b", 5).await.unwrap(),
-            "兄弟分片预算独立"
+            "sibling shard budgets are independent"
         );
         assert_eq!(throttle.tracked_shards(), 2);
     }
@@ -166,7 +166,7 @@ mod tests {
         assert_eq!(snap1.remaining, 12);
         assert_eq!(snap1.limit, 20);
         let snap2 = throttle.remaining("s1").await.unwrap();
-        assert_eq!(snap1, snap2, "连续 peek 不得扣减预算");
+        assert_eq!(snap1, snap2, "consecutive peeks must not deduct budget");
     }
 
     /// cost=0 → ConfigError（显性失败）

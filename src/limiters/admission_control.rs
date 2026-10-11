@@ -100,7 +100,7 @@ pub struct AdmissionController {
 }
 
 /// 准入租约（Drop 自动释放在途占用）
-#[must_use = "permit 丢失即立即释放在途占用，应持有至请求处理完成"]
+#[must_use = "dropping the permit releases the in-flight occupancy immediately; hold it until the request completes"]
 pub struct AdmissionPermit {
     controller: Arc<AdmissionController>,
     units: u64,

@@ -601,7 +601,7 @@ mod tests {
             // F3 修复回归：词边界匹配。`monkey` 仅含 `key` 子串，
             // 不整段脱敏（不依赖引擎的字段名门控行为）
             let masked = redact_advanced(Some("value"), Some("monkey"));
-            assert_ne!(masked, "***", "monkey 不应被整段脱敏");
+            assert_ne!(masked, "***", "monkey must not be fully masked");
         }
 
         #[test]
@@ -637,33 +637,33 @@ mod tests {
                 let redacted = redact_http_content(&url);
                 assert!(
                     !redacted.contains("s3cr3tV4lue"),
-                    "{key} URL 形态未脱敏: {redacted}"
+                    "{key} URL form is not redacted: {redacted}"
                 );
                 assert!(
                     redacted.contains("user=bob"),
-                    "{key} URL 形态误伤相邻参数: {redacted}"
+                    "{key} URL form harms an adjacent parameter: {redacted}"
                 );
 
                 let yaml = format!("{}: s3cr3tV4lue\nusername: bob", key);
                 let redacted = redact_http_content(&yaml);
                 assert!(
                     !redacted.contains("s3cr3tV4lue"),
-                    "{key} YAML 形态未脱敏: {redacted}"
+                    "{key} YAML form is not redacted: {redacted}"
                 );
                 assert!(
                     redacted.contains("username: bob"),
-                    "{key} YAML 形态误伤相邻键: {redacted}"
+                    "{key} YAML form harms an adjacent key: {redacted}"
                 );
 
                 let json = format!(r#"{{"{}": "s3cr3tV4lue", "username": "bob"}}"#, key);
                 let redacted = redact_http_content(&json);
                 assert!(
                     !redacted.contains("s3cr3tV4lue"),
-                    "{key} JSON 形态未脱敏: {redacted}"
+                    "{key} JSON form is not redacted: {redacted}"
                 );
                 assert!(
                     redacted.contains("bob"),
-                    "{key} JSON 形态误伤相邻键: {redacted}"
+                    "{key} JSON form harms an adjacent key: {redacted}"
                 );
             }
         }
@@ -682,7 +682,7 @@ mod tests {
                 let redacted = redact_http_content(input);
                 assert!(
                     !redacted.contains(secret),
-                    "值模式未脱敏: {input} -> {redacted}"
+                    "the value pattern is not redacted: {input} -> {redacted}"
                 );
             }
         }

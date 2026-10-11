@@ -1236,7 +1236,10 @@ mod tests {
         let breaker = CircuitBreaker::new(config);
 
         // 初始状态应为 Closed
-        assert!(breaker.is_closed().await, "初始状态应为 Closed");
+        assert!(
+            breaker.is_closed().await,
+            "the initial state should be Closed"
+        );
         assert_eq!(breaker.get_state().await, CircuitState::Closed);
 
         // 第一次失败
@@ -1246,7 +1249,10 @@ mod tests {
             })
             .await;
         assert!(result.is_err());
-        assert!(breaker.is_closed().await, "第一次失败后仍应为 Closed");
+        assert!(
+            breaker.is_closed().await,
+            "should still be Closed after the first failure"
+        );
 
         // 第二次失败
         let result = breaker
@@ -1255,7 +1261,10 @@ mod tests {
             })
             .await;
         assert!(result.is_err());
-        assert!(breaker.is_closed().await, "第二次失败后仍应为 Closed");
+        assert!(
+            breaker.is_closed().await,
+            "should still be Closed after the second failure"
+        );
 
         // 第三次失败，应触发熔断
         let result = breaker
@@ -1264,7 +1273,10 @@ mod tests {
             })
             .await;
         assert!(result.is_err());
-        assert!(breaker.is_open().await, "第三次失败后应转换为 Open");
+        assert!(
+            breaker.is_open().await,
+            "should transition to Open after the third failure"
+        );
         assert_eq!(breaker.get_state().await, CircuitState::Open);
     }
 
@@ -1282,14 +1294,14 @@ mod tests {
                 })
                 .await;
         }
-        assert!(breaker.is_open().await, "应处于 Open 状态");
+        assert!(breaker.is_open().await, "should be in the Open state");
 
         // 未超时时请求应被拒绝
         let result = breaker
             .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_err());
-        assert!(breaker.is_open().await, "未超时应保持 Open 状态");
+        assert!(breaker.is_open().await, "must stay Open before the timeout");
 
         // 等待超时
         tokio::time::sleep(Duration::from_millis(150)).await;
@@ -1299,7 +1311,10 @@ mod tests {
             .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
-        assert!(breaker.is_half_open().await, "超时后应转换为 HalfOpen 状态");
+        assert!(
+            breaker.is_half_open().await,
+            "should transition to HalfOpen after the timeout"
+        );
     }
 
     /// 测试 HalfOpen → Closed 转换
@@ -1335,7 +1350,7 @@ mod tests {
         assert!(result.is_ok());
         assert!(
             breaker.is_closed().await,
-            "成功次数达到阈值后应恢复到 Closed 状态"
+            "should recover to Closed after the success count reaches the threshold"
         );
     }
 
@@ -1353,7 +1368,10 @@ mod tests {
                 })
                 .await;
         }
-        assert!(breaker.is_open().await, "阶段1: 应处于 Open 状态");
+        assert!(
+            breaker.is_open().await,
+            "phase 1: should be in the Open state"
+        );
 
         // 阶段2: Open → HalfOpen
         tokio::time::sleep(Duration::from_millis(150)).await;
@@ -1361,14 +1379,20 @@ mod tests {
             .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
-        assert!(breaker.is_half_open().await, "阶段2: 应处于 HalfOpen 状态");
+        assert!(
+            breaker.is_half_open().await,
+            "phase 2: should be in the HalfOpen state"
+        );
 
         // 阶段3: HalfOpen → Closed
         let result = breaker
             .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
         assert!(result.is_ok());
-        assert!(breaker.is_closed().await, "阶段3: 应恢复到 Closed 状态");
+        assert!(
+            breaker.is_closed().await,
+            "phase 3: should recover to the Closed state"
+        );
     }
 
     /// 测试 Builder 模式
@@ -1620,22 +1644,31 @@ mod tests {
         let r = breaker
             .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
-        assert!(r.is_err(), "探针配额被取消占满后应拒绝");
+        assert!(
+            r.is_err(),
+            "should reject once the probe quota is cancelled and filled"
+        );
 
         // 滞留超过 half_open_max_duration → 强制回 Open（逃逸）
         tokio::time::sleep(Duration::from_millis(120)).await;
         let r = breaker
             .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
-        assert!(r.is_err(), "逃逸当次应拒绝");
-        assert!(breaker.is_open().await, "滞留超时应强制回 Open");
+        assert!(r.is_err(), "the escaping call must be rejected");
+        assert!(
+            breaker.is_open().await,
+            "a lingering timeout must force back to Open"
+        );
 
         // 新冷却到期后恢复通道重新可用
         tokio::time::sleep(Duration::from_millis(60)).await;
         let r = breaker
             .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
-        assert!(r.is_ok(), "逃逸重启冷却后必须能再次进半开放探针");
+        assert!(
+            r.is_ok(),
+            "after the escape restarts cooldown it must re-enter the half-open probe"
+        );
     }
 
     #[tokio::test]
@@ -1665,7 +1698,7 @@ mod tests {
             .await;
         assert!(
             result.is_ok(),
-            "慢调用熔断冷却到期后必须能进半开放探针（恢复通道死锁回归）"
+            "the slow-call circuit must enter the half-open probe after its cooldown (recovery channel deadlock regression)"
         );
     }
 
@@ -1830,7 +1863,7 @@ mod tests {
         assert_eq!(
             allowed.load(std::sync::atomic::Ordering::SeqCst),
             3,
-            "半开准入必须精确限制在 half_open_max_calls"
+            "half-open admission must be limited precisely to half_open_max_calls"
         );
     }
 
@@ -1864,7 +1897,7 @@ mod tests {
         assert_eq!(
             breaker.get_stats().await.total_calls,
             total_after_open,
-            "被熔断拒绝的调用不得计入 total_calls"
+            "calls rejected by the circuit must not count into total_calls"
         );
     }
 
@@ -1879,8 +1912,11 @@ mod tests {
         assert!(breaker.is_open().await);
 
         let transitioned = breaker.transition_to_closed_if_half_open().await;
-        assert!(!transitioned, "Open 态不得经条件关闭转为 Closed");
-        assert!(breaker.is_open().await, "状态必须保持 Open");
+        assert!(
+            !transitioned,
+            "Open must not transition to Closed via the conditional close"
+        );
+        assert!(breaker.is_open().await, "the state must stay Open");
     }
 
     // ==================== 泛型错误类型支持 ====================
@@ -1932,10 +1968,10 @@ mod tests {
                         transient: false,
                         message: "bad request".to_string(),
                     },
-                    "调用自身的失败必须原样透传"
+                    "a failure from the call itself must pass through as-is"
                 );
             }
-            other => panic!("调用失败应透传 Inner，实际: {other:?}"),
+            other => panic!("the call failure should pass through Inner, got: {other:?}"),
         }
         assert_eq!(breaker.get_stats().await.failure_count, 0);
         assert!(breaker.is_closed().await);
@@ -1989,15 +2025,22 @@ mod tests {
 
         match result {
             Err(call_err) => {
-                assert!(call_err.is_open(), "熔断打开应返回 Open 变体");
-                assert_eq!(call_err.into_inner(), None, "Open 无透传错误");
+                assert!(
+                    call_err.is_open(),
+                    "an open circuit should return the Open variant"
+                );
+                assert_eq!(
+                    call_err.into_inner(),
+                    None,
+                    "Open carries no pass-through error"
+                );
             }
-            Ok(()) => panic!("熔断打开必须拒绝"),
+            Ok(()) => panic!("an open circuit must reject"),
         }
         assert_eq!(
             executed.load(Ordering::Relaxed),
             0,
-            "熔断打开时闭包不得执行"
+            "the closure must not run while the circuit is open"
         );
     }
 
@@ -2026,8 +2069,8 @@ mod tests {
 
         match result {
             Err(CircuitCallError::Inner(e)) => assert_eq!(e.0, 1),
-            Err(CircuitCallError::Open) => panic!("熔断未打开不应拒绝"),
-            Ok(()) => panic!("调用应失败并透传"),
+            Err(CircuitCallError::Open) => panic!("an unopened circuit must not reject"),
+            Ok(()) => panic!("the call should fail and pass through"),
         }
         assert_eq!(breaker.get_stats().await.failure_count, 0);
         assert!(breaker.is_closed().await);

@@ -271,7 +271,10 @@ mod tests {
         assert!(limiter.check("ip1").is_ok());
         assert!(limiter.check("ip1").is_err());
         clock.advance(Duration::from_secs(61));
-        assert!(limiter.check("ip1").is_ok(), "窗口滚动后应重新放行");
+        assert!(
+            limiter.check("ip1").is_ok(),
+            "allow should resume after the window rolls"
+        );
     }
 
     #[test]
@@ -284,11 +287,17 @@ mod tests {
         // 窗口过期后 a/b 成僵尸条目：新标识 c 触发清空过期者
         clock.advance(Duration::from_secs(61));
         assert!(limiter.check("c").is_ok());
-        assert!(limiter.check("d").is_ok(), "过期条目被清除后仍有空位");
+        assert!(
+            limiter.check("d").is_ok(),
+            "there is still room after expired entries are cleared"
+        );
         // 过期清除不触碰窗口内活跃条目
         assert!(limiter.check("c").is_ok());
         assert!(limiter.check("d").is_ok());
-        assert!(limiter.check("c").is_err(), "c 的预算已被消耗 2 次");
+        assert!(
+            limiter.check("c").is_err(),
+            "c's budget has already been consumed twice"
+        );
     }
 
     #[test]
@@ -303,7 +312,11 @@ mod tests {
         // 全部条目仍在窗口内：淘汰最早开窗的 a
         clock.advance(Duration::from_secs(1));
         assert!(limiter.check("c").is_ok());
-        assert_eq!(limiter.state.lock().len(), 2, "标识表保持有界");
+        assert_eq!(
+            limiter.state.lock().len(),
+            2,
+            "the identifier table stays bounded"
+        );
         // a 被淘汰：以新窗口重新计数放行
         assert!(limiter.check("a").is_ok());
     }

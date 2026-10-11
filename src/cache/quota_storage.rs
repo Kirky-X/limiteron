@@ -838,6 +838,9 @@ mod tests {
             .map(|r| r.unwrap())
             .sum();
 
-        assert!(total <= limit, "并发放行数 {total} 超过上限 {limit}");
+        assert!(
+            total <= limit,
+            "concurrent grants {total} exceed the limit {limit}"
+        );
     }
 }

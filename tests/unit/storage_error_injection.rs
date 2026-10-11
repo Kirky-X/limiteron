@@ -67,7 +67,9 @@ async fn test_storage_error_injection() {
 
     // 注入错误
     storage
-        .inject_error(StorageError::ConnectionError("模拟连接错误".to_string()))
+        .inject_error(StorageError::ConnectionError(
+            "simulated connection error".to_string(),
+        ))
         .await;
 
     // 操作应该失败
@@ -89,7 +91,9 @@ async fn test_storage_error_injection_write_path() {
     storage.set("key", "value", None).await.unwrap();
 
     storage
-        .inject_error(StorageError::ConnectionError("连接断开".to_string()))
+        .inject_error(StorageError::ConnectionError(
+            "connection dropped".to_string(),
+        ))
         .await;
     assert!(storage.set("key", "value2", None).await.is_err());
     assert!(storage.delete("key").await.is_err());

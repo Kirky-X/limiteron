@@ -400,7 +400,11 @@ mod tests {
             )
             .await;
         assert_eq!(result.unwrap_err(), "permanent");
-        assert_eq!(attempts.load(Ordering::SeqCst), 1, "不可重试错误只执行一次");
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            1,
+            "a non-retryable error runs only once"
+        );
     }
 
     /// 重试耗尽后返回最后一次错误（max_retries=2 → 共执行 3 次）。
@@ -422,7 +426,11 @@ mod tests {
             )
             .await;
         assert_eq!(result.unwrap_err(), "always");
-        assert_eq!(attempts.load(Ordering::SeqCst), 3, "1 次首调 + 2 次重试");
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            3,
+            "1 initial call + 2 retries"
+        );
     }
 
     /// 退避时长：指数增长且被 max_delay 封顶。
@@ -445,7 +453,7 @@ mod tests {
         assert_eq!(
             policy.delay_for(20, Duration::ZERO),
             Duration::from_secs(5),
-            "退避应封顶 max_delay"
+            "the backoff must cap at max_delay"
         );
     }
     /// 重试预算：预算耗尽后停止重试（重试风暴防护）。
@@ -471,7 +479,10 @@ mod tests {
             .await;
         assert_eq!(result.unwrap_err(), "always");
         let n = attempts.load(Ordering::SeqCst);
-        assert_eq!(n, 2, "预算 0.5 下 2 次调用(1 次重试)后应停止,实际 {n}");
+        assert_eq!(
+            n, 2,
+            "2 calls (1 retry) should stop under a 0.5 budget, got {n}"
+        );
     }
 
     /// decorrelated 抖动:attempt>1 时延迟受前次延迟 ×3 上界约束。
@@ -484,13 +495,13 @@ mod tests {
         let d = policy.delay_for(2, Duration::from_millis(100));
         assert!(
             d <= Duration::from_millis(300),
-            "decorrelated 上界 prev×3=300ms,实际 {d:?}"
+            "decorrelated upper bound prev x 3 = 300ms, got {d:?}"
         );
         // prev 很小时上界收紧
         let d2 = policy.delay_for(3, Duration::from_millis(10));
         assert!(
             d2 <= Duration::from_millis(30),
-            "上界应受 prev×3=30ms 约束,实际 {d2:?}"
+            "the upper bound must be constrained by prev x 3 = 30ms, got {d2:?}"
         );
     }
 
@@ -522,11 +533,15 @@ mod tests {
             )
             .await;
         assert_eq!(result.unwrap_err(), "permanent");
-        assert_eq!(op_calls.load(Ordering::SeqCst), 1, "永久错误只执行一次");
+        assert_eq!(
+            op_calls.load(Ordering::SeqCst),
+            1,
+            "a permanent error runs only once"
+        );
         assert_eq!(
             hook_calls.load(Ordering::SeqCst),
             0,
-            "未发生重试不应回调 on_retry"
+            "on_retry must not be called back when no retry happened"
         );
     }
 
@@ -554,11 +569,15 @@ mod tests {
             )
             .await;
         assert_eq!(result.unwrap_err(), "flaky");
-        assert_eq!(op_calls.load(Ordering::SeqCst), 4, "1 次首调 + 3 次重试");
+        assert_eq!(
+            op_calls.load(Ordering::SeqCst),
+            4,
+            "1 initial call + 3 retries"
+        );
         assert_eq!(
             hook_calls.load(Ordering::SeqCst),
             3,
-            "每次重试前恰好回调一次"
+            "exactly one callback before each retry"
         );
     }
 
@@ -584,7 +603,7 @@ mod tests {
         assert_eq!(
             *attempts_seen.lock().unwrap(),
             vec![1, 2, 3],
-            "attempt 序号应从 1 起逐次递增"
+            "the attempt sequence must increase step by step from 1"
         );
         assert_eq!(*errs_seen.lock().unwrap(), vec!["boom", "boom", "boom"]);
     }
@@ -646,17 +665,21 @@ mod tests {
                 },
             )
             .await;
-        assert_eq!(result.unwrap(), 3, "第 3 次调用成功并返回 Ok 值");
+        assert_eq!(
+            result.unwrap(),
+            3,
+            "the 3rd call succeeds and returns the Ok value"
+        );
         assert_eq!(attempts.load(Ordering::SeqCst), 3);
         assert_eq!(
             *errs_seen.lock().unwrap(),
             vec![(1, "flaky-1".to_string()), (2, "flaky-2".to_string())],
-            "decide 应收到每次失败的 attempt 序号与原始错误"
+            "decide must receive each failure's attempt sequence and the original error"
         );
         assert_eq!(
             start.elapsed(),
             Duration::from_millis(300),
-            "虚拟时钟只推进成功前的两次默认退避（100ms+200ms）"
+            "the virtual clock only advances the two default backoffs before success (100ms+200ms)"
         );
     }
 
@@ -680,11 +703,15 @@ mod tests {
             )
             .await;
         assert_eq!(result.unwrap_err(), "always");
-        assert_eq!(attempts.load(Ordering::SeqCst), 3, "1 次首调 + 2 次重试");
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            3,
+            "1 initial call + 2 retries"
+        );
         assert_eq!(
             start.elapsed(),
             Duration::from_millis(300),
-            "Retry 分支应按策略档位退避 100ms+200ms"
+            "the Retry branch must back off 100ms+200ms per the policy tier"
         );
     }
 
@@ -718,7 +745,7 @@ mod tests {
         assert_eq!(
             start.elapsed(),
             Duration::from_millis(120),
-            "实际等待应为上游指示的 50ms+70ms，而非策略档位 100ms+200ms"
+            "the actual wait should be the upstream-indicated 50ms+70ms, not the policy tier 100ms+200ms"
         );
     }
 
@@ -740,7 +767,7 @@ mod tests {
         assert_eq!(
             start.elapsed(),
             Duration::from_millis(500),
-            "RetryAfter 应原样睡上游指示值 500ms，不得被 max_delay=20ms（或策略档位）截断"
+            "RetryAfter must sleep the upstream-indicated value 500ms as-is, not truncated by max_delay=20ms (or the policy tier)"
         );
     }
 
@@ -763,9 +790,21 @@ mod tests {
                 |_, _| RetryDecision::Stop,
             )
             .await;
-        assert_eq!(result.unwrap_err(), "fatal", "Stop 必须原样返回触发错误");
-        assert_eq!(attempts.load(Ordering::SeqCst), 1, "Stop 后不得再调用 op");
-        assert_eq!(start.elapsed(), Duration::ZERO, "Stop 不产生退避等待");
+        assert_eq!(
+            result.unwrap_err(),
+            "fatal",
+            "Stop must return the triggering error as-is"
+        );
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            1,
+            "op must not be called again after Stop"
+        );
+        assert_eq!(
+            start.elapsed(),
+            Duration::ZERO,
+            "Stop produces no backoff wait"
+        );
     }
 
     /// attempt 序号从 1 起逐次递增，与 execute_notify 的 on_retry 同口径；
@@ -788,7 +827,7 @@ mod tests {
         assert_eq!(
             *attempts_seen.lock().unwrap(),
             vec![1, 2, 3],
-            "attempt 序号应从 1 起逐次递增，且不超过 max_retries"
+            "the attempt sequence must increase step by step from 1 and not exceed max_retries"
         );
     }
 
@@ -813,7 +852,7 @@ mod tests {
             .await;
         assert_eq!(result.unwrap_err(), "always");
         let n = attempts.load(Ordering::SeqCst);
-        assert_eq!(n, 2, "预算 0.5 下 2 次调用后应停止，实际 {n}");
+        assert_eq!(n, 2, "2 calls should stop under a 0.5 budget, got {n}");
     }
 
     /// RetryAfter 后 jitter 链仍按策略档位记账：第 2 次默认退避的实际
@@ -860,8 +899,8 @@ mod tests {
         let wait = after.duration_since(before);
         assert!(
             wait >= Duration::from_millis(200) && wait < Duration::from_millis(400),
-            "第 2 次默认退避应按策略档位记账（base 200ms×(1+jitter) ∈ [200,400)ms、\
-             上界 prev×3 ≥ 300ms），而非上游 10ms×3=30ms，实际 {wait:?}"
+            "the 2nd default backoff must be accounted at the policy tier (base 200ms x (1+jitter) in [200,400)ms, \
+             upper bound prev x 3 >= 300ms), not the upstream 10ms x 3 = 30ms, got {wait:?}"
         );
     }
 }

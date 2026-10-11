@@ -827,7 +827,10 @@ mod tests {
             .join("data")
             .join("GeoLite2-City.mmdb");
         if !db_path.exists() {
-            eprintln!("GeoLite2-City.mmdb 不存在于 {}，跳过", db_path.display());
+            eprintln!(
+                "GeoLite2-City.mmdb does not exist at {}, skipping",
+                db_path.display()
+            );
             return;
         }
 

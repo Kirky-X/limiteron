@@ -660,7 +660,10 @@ mod tests {
         let consumed = storage.refund("u1", "api", 3, 10, window).await.unwrap();
         assert_eq!(consumed, 3);
         let consumed = storage.refund("u1", "api", 99, 10, window).await.unwrap();
-        assert_eq!(consumed, 0, "归还量钳制不得超过已消耗");
+        assert_eq!(
+            consumed, 0,
+            "the returned amount clamp must not exceed what was consumed"
+        );
 
         // 额度恢复可用
         let r = storage.consume("u1", "api", 10, 10, window).await.unwrap();
@@ -1204,7 +1207,7 @@ mod memory_ban_storage_tests {
                 .await
                 .unwrap()
                 .is_some(),
-            "封禁在有效期内应命中"
+            "a ban within its validity period should hit"
         );
 
         // 虚拟推进越过 expires_at：is_banned 应解除
@@ -1214,12 +1217,12 @@ mod memory_ban_storage_tests {
                 .await
                 .unwrap()
                 .is_none(),
-            "过期后 is_banned 应返回 None"
+            "is_banned should return None after expiry"
         );
 
         // 清理路径：另一条同样过期，cleanup 计数应为 1
         let cleaned = BanStorage::cleanup_expired_bans(&storage).await.unwrap();
-        assert_eq!(cleaned, 1, "应清理 1 条过期封禁");
+        assert_eq!(cleaned, 1, "1 expired ban should be cleaned");
     }
 
     #[tokio::test]
@@ -1803,14 +1806,20 @@ mod memory_ban_storage_tests {
             .is_banned(&BanTarget::Ip("10.1.2.3".to_string()))
             .await
             .unwrap();
-        assert!(hit.is_some(), "10.1.2.3 应命中 10.0.0.0/8 网段封禁");
+        assert!(
+            hit.is_some(),
+            "10.1.2.3 should hit the 10.0.0.0/8 network ban"
+        );
 
         // 网段外 IP 不误伤
         let miss = storage
             .is_banned(&BanTarget::Ip("11.0.0.1".to_string()))
             .await
             .unwrap();
-        assert!(miss.is_none(), "11.0.0.1 不应命中 10.0.0.0/8 网段封禁");
+        assert!(
+            miss.is_none(),
+            "11.0.0.1 should not hit the 10.0.0.0/8 network ban"
+        );
     }
 
     #[tokio::test]
@@ -1825,13 +1834,16 @@ mod memory_ban_storage_tests {
             .is_banned(&BanTarget::Ip("2001:db8::1".to_string()))
             .await
             .unwrap();
-        assert!(hit.is_some(), "2001:db8::1 应命中 2001:db8::/32 网段封禁");
+        assert!(
+            hit.is_some(),
+            "2001:db8::1 should hit the 2001:db8::/32 network ban"
+        );
 
         let miss = storage
             .is_banned(&BanTarget::Ip("2001:db9::1".to_string()))
             .await
             .unwrap();
-        assert!(miss.is_none(), "2001:db9::1 不应命中 2001:db8::/32");
+        assert!(miss.is_none(), "2001:db9::1 should not hit 2001:db8::/32");
     }
 
     #[tokio::test]
@@ -1854,7 +1866,7 @@ mod memory_ban_storage_tests {
         assert_eq!(
             hit.unwrap().target,
             BanTarget::Cidr("10.1.0.0/16".to_string()),
-            "最长前缀（/16）应优先于 /8"
+            "the longest prefix (/16) must take precedence over /8"
         );
     }
 
@@ -1881,7 +1893,11 @@ mod memory_ban_storage_tests {
             .await
             .unwrap();
         assert!(hit.is_some());
-        assert_eq!(hit.unwrap().ban_times, 3, "精确命中优先于网段匹配");
+        assert_eq!(
+            hit.unwrap().ban_times,
+            3,
+            "an exact hit takes precedence over a network match"
+        );
     }
 
     #[tokio::test]
@@ -1897,7 +1913,10 @@ mod memory_ban_storage_tests {
             .is_banned(&BanTarget::Cidr("192.168.0.0/16".to_string()))
             .await
             .unwrap();
-        assert!(direct.is_some(), "Cidr 目标应支持精确键查询");
+        assert!(
+            direct.is_some(),
+            "a Cidr target must support exact key lookup"
+        );
 
         // 已过期网段不再命中
         storage
@@ -1908,7 +1927,7 @@ mod memory_ban_storage_tests {
             .is_banned(&BanTarget::Ip("172.16.5.5".to_string()))
             .await
             .unwrap();
-        assert!(expired.is_none(), "过期网段封禁不应命中");
+        assert!(expired.is_none(), "an expired network ban must not hit");
     }
 
     #[test]
@@ -1947,14 +1966,14 @@ mod memory_ban_storage_tests {
                 None,
             )
             .await
-            .expect("合法 CIDR 应通过校验并创建");
+            .expect("a valid CIDR must pass validation and create");
 
         // 网段内 IP 经 Governor 同款存储查询路径命中
         let hit = storage
             .is_banned(&BanTarget::Ip("203.0.113.50".to_string()))
             .await
             .unwrap();
-        assert!(hit.is_some(), "203.0.113.50 应命中网段封禁");
+        assert!(hit.is_some(), "203.0.113.50 should hit the network ban");
 
         // 非法 CIDR 被校验拒绝（目标校验依赖 validation feature，关闭时跳过）
         #[cfg(feature = "validation")]
@@ -1970,7 +1989,10 @@ mod memory_ban_storage_tests {
                     None,
                 )
                 .await;
-            assert!(err.is_err(), "非法 CIDR 应被校验拒绝");
+            assert!(
+                err.is_err(),
+                "an illegal CIDR must be rejected by validation"
+            );
         }
     }
 }

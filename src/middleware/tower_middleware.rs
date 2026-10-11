@@ -1132,7 +1132,7 @@ mod tests {
             assert_eq!(
                 got.headers().get(name),
                 expected.headers().get(name),
-                "header {name} 不一致"
+                "header {name} mismatch"
             );
         }
         assert_eq!(got.headers().get("RateLimit-Limit").unwrap(), "7");
@@ -1223,7 +1223,11 @@ mod tests {
 
         let resp: Response<()> = svc.call(make_req("/api", "u")).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(calls.load(Ordering::SeqCst), 0, "直通路径不应触发工厂");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "the pass-through path must not trigger the factory"
+        );
     }
 
     // ========================================================================
@@ -1351,7 +1355,10 @@ mod tests {
             .body(())
             .unwrap();
         let key = extractor.request_key(&req).unwrap();
-        assert!(matches!(key, Cow::Borrowed(_)), "短值应借用零分配");
+        assert!(
+            matches!(key, Cow::Borrowed(_)),
+            "a short value should borrow zero-allocation"
+        );
         assert_eq!(&*key, "short-key");
     }
 

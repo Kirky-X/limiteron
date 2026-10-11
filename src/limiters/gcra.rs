@@ -409,7 +409,11 @@ mod tests {
         // rps > 1e6 时整除得 0：修复前 interval=0 → EAT==TAT 恒成立 → 全放行。
         // 钳制到 1µs 后按 1e6 rps 封顶，限流语义必须成立。
         let limiter = GcraLimiter::with_rate(100, 2_000_000);
-        assert_eq!(limiter.refill_interval_us(), 1, "interval 应钳制到 1µs");
+        assert_eq!(
+            limiter.refill_interval_us(),
+            1,
+            "interval should clamp to 1\u{00b5}s"
+        );
 
         // 持续请求：即便突发容量耗尽后 TAT 以 1µs/请求推进，真实时钟
         // 追不上 TAT 前进时也必须出现拒绝（除非单次调用开销 > 1µs，
@@ -422,11 +426,11 @@ mod tests {
         }
         assert!(
             allowed < 10_000,
-            "interval=0/1µs 场景下 10_000 次请求全部放行，限流失效"
+            "10_000 requests all allowed with interval=0/1\u{00b5}s, rate limiting is ineffective"
         );
         assert!(
             allowed >= 100,
-            "突发容量 {{100}} 应至少放行 100 次，实际 {allowed}"
+            "burst capacity {{100}} must allow at least 100, got {allowed}"
         );
     }
 
@@ -511,7 +515,7 @@ mod tests {
         assert_eq!(
             limiter.monotonic_now(0),
             base + 1_000_000,
-            "pre-epoch 墙钟不得锁死观测"
+            "a pre-epoch wall clock must not deadlock observation"
         );
         // 墙钟追回/前跳：正常推进并发布
         assert_eq!(limiter.monotonic_now(base + 1_500_000), base + 1_500_000);
@@ -529,11 +533,14 @@ mod tests {
         for i in 0..5u64 {
             assert!(
                 limiter.allow_at(1, t0 + i * 1_000),
-                "第 {} 个突发请求应放行",
+                "burst request {} should be allowed",
                 i + 1
             );
         }
-        assert!(!limiter.allow_at(1, t0 + 5_000), "突发耗尽后应拒绝");
+        assert!(
+            !limiter.allow_at(1, t0 + 5_000),
+            "must reject after the burst is exhausted"
+        );
 
         // "回拨"到 t0 之前（守卫下观测冻结）：容量为空的语义保持——拒绝但状态不破坏
         assert!(!limiter.allow_at(1, t0.saturating_sub(10_000_000)));

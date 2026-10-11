@@ -113,7 +113,7 @@ fn bench_token_bucket_memory_usage(c: &mut Criterion) {
         });
 
         println!(
-            "TokenBucket: {} 个实例，内存占用: {} bytes ({:.2} MB), 平均每实例: {} bytes",
+            "TokenBucket: {} instances, memory: {} bytes ({:.2} MB), avg per instance: {} bytes",
             count,
             used,
             used as f64 / 1024.0 / 1024.0,
@@ -156,7 +156,7 @@ fn bench_sliding_window_memory_usage(c: &mut Criterion) {
         });
 
         println!(
-            "SlidingWindow: {} 个实例，内存占用: {} bytes ({:.2} MB), 平均每实例: {} bytes",
+            "SlidingWindow: {} instances, memory: {} bytes ({:.2} MB), avg per instance: {} bytes",
             count,
             used,
             used as f64 / 1024.0 / 1024.0,
@@ -203,7 +203,7 @@ fn bench_sharded_sliding_window_memory_usage(c: &mut Criterion) {
         });
 
         println!(
-            "ShardedSlidingWindow: {} 个实例，内存占用: {} bytes ({:.2} MB), 平均每实例: {} bytes",
+            "ShardedSlidingWindow: {} instances, memory: {} bytes ({:.2} MB), avg per instance: {} bytes",
             count,
             used,
             used as f64 / 1024.0 / 1024.0,
@@ -245,7 +245,7 @@ fn bench_fixed_window_memory_usage(c: &mut Criterion) {
         });
 
         println!(
-            "FixedWindow: {} 个实例，内存占用: {} bytes ({:.2} MB), 平均每实例: {} bytes",
+            "FixedWindow: {} instances, memory: {} bytes ({:.2} MB), avg per instance: {} bytes",
             count,
             used,
             used as f64 / 1024.0 / 1024.0,
@@ -298,7 +298,7 @@ fn bench_sliding_window_log_entry_growth(c: &mut Criterion) {
         });
 
         println!(
-            "SlidingWindowLog: {} 条目，内存增量: {} bytes ({:.2} MB), 平均每条目: {} bytes",
+            "SlidingWindowLog: {} entries, memory delta: {} bytes ({:.2} MB), avg per entry: {} bytes",
             entries,
             used,
             used as f64 / 1024.0 / 1024.0,
@@ -340,7 +340,7 @@ fn bench_leaky_bucket_memory_usage(c: &mut Criterion) {
         });
 
         println!(
-            "LeakyBucket: {} 个实例，内存占用: {} bytes ({:.2} MB), 平均每实例: {} bytes",
+            "LeakyBucket: {} instances, memory: {} bytes ({:.2} MB), avg per instance: {} bytes",
             count,
             used,
             used as f64 / 1024.0 / 1024.0,
@@ -371,7 +371,7 @@ fn bench_dashmap_memory_usage(c: &mut Criterion) {
         let used = after.saturating_sub(before);
 
         println!(
-            "DashMap: {} 个键值对，内存占用: {} bytes ({:.2} MB), 平均每条目: {} bytes",
+            "DashMap: {} keys, memory: {} bytes ({:.2} MB), avg per key: {} bytes",
             count,
             used,
             used as f64 / 1024.0 / 1024.0,
@@ -423,7 +423,7 @@ fn bench_cache_memory_usage(c: &mut Criterion) {
         let used = after.saturating_sub(before);
 
         println!(
-            "Cache: {} 个条目，内存占用: {} bytes ({:.2} MB), 平均每条目: {} bytes",
+            "Cache: {} entries, memory: {} bytes ({:.2} MB), avg per entry: {} bytes",
             count,
             used,
             used as f64 / 1024.0 / 1024.0,
@@ -474,7 +474,7 @@ fn bench_rule_matcher_memory_usage(c: &mut Criterion) {
         let used = after.saturating_sub(before);
 
         println!(
-            "RuleMatcher: {} 条规则，内存占用: {} bytes ({:.2} KB), 平均每规则: {} bytes",
+            "RuleMatcher: {} rules, memory: {} bytes ({:.2} KB), avg per rule: {} bytes",
             count,
             used,
             used as f64 / 1024.0,
@@ -531,7 +531,7 @@ fn bench_memory_stability(c: &mut Criterion) {
     let final_memory = get_memory_usage();
     let memory_growth = final_memory.saturating_sub(initial_memory);
     println!(
-        "TokenBucket 内存增长: {} bytes ({:.2} KB)",
+        "TokenBucket memory growth: {} bytes ({:.2} KB)",
         memory_growth,
         memory_growth as f64 / 1024.0
     );
@@ -558,7 +558,7 @@ fn bench_memory_stability(c: &mut Criterion) {
     let final_memory = get_memory_usage();
     let memory_growth = final_memory.saturating_sub(initial_memory);
     println!(
-        "SlidingWindow 内存增长: {} bytes ({:.2} KB)",
+        "SlidingWindow memory growth: {} bytes ({:.2} KB)",
         memory_growth,
         memory_growth as f64 / 1024.0
     );
@@ -585,7 +585,7 @@ fn bench_memory_stability(c: &mut Criterion) {
     let final_memory = get_memory_usage();
     let memory_growth = final_memory.saturating_sub(initial_memory);
     println!(
-        "ShardedSlidingWindow 内存增长: {} bytes ({:.2} KB)",
+        "ShardedSlidingWindow memory growth: {} bytes ({:.2} KB)",
         memory_growth,
         memory_growth as f64 / 1024.0
     );
@@ -621,7 +621,7 @@ fn bench_high_load_memory_stability(c: &mut Criterion) {
 
     let after_warmup = get_memory_usage();
     println!(
-        "预热后内存: {} bytes ({:.2} MB)",
+        "Memory after warmup: {} bytes ({:.2} MB)",
         after_warmup,
         after_warmup as f64 / 1024.0 / 1024.0
     );
@@ -640,7 +640,7 @@ fn bench_high_load_memory_stability(c: &mut Criterion) {
     let final_memory = get_memory_usage();
     let total_growth = final_memory.saturating_sub(initial_memory);
     println!(
-        "高负载测试总内存增长: {} bytes ({:.2} MB)",
+        "Total memory growth under high load: {} bytes ({:.2} MB)",
         total_growth,
         total_growth as f64 / 1024.0 / 1024.0
     );
@@ -680,7 +680,7 @@ fn bench_memory_leak_detection(c: &mut Criterion) {
         let used = after.saturating_sub(before);
         memory_samples.push(used);
 
-        println!("迭代 {}: 内存使用 {} bytes", iteration, used);
+        println!("Iteration {}: memory usage {} bytes", iteration, used);
     }
 
     // 分析内存趋势
@@ -694,14 +694,14 @@ fn bench_memory_leak_detection(c: &mut Criterion) {
         let growth_rate = (avg_last as f64 - avg_first as f64) / avg_first as f64;
 
         println!(
-            "内存增长趋势: 前1/3平均 {} bytes, 后1/3平均 {} bytes, 增长率 {:.2}%",
+            "Memory growth trend: first 1/3 avg {} bytes, last 1/3 avg {} bytes, growth {:.2}%",
             avg_first,
             avg_last,
             growth_rate * 100.0
         );
 
         if growth_rate > 0.1 {
-            println!("警告: 检测到可能的内存泄漏 (增长率 > 10%)");
+            println!("Warning: possible memory leak detected (growth > 10%)");
         }
     }
 
@@ -745,7 +745,7 @@ fn bench_cache_memory_leak_detection(c: &mut Criterion) {
         let used = after.saturating_sub(before);
         memory_samples.push(used);
 
-        println!("缓存迭代 {}: 内存使用 {} bytes", iteration, used);
+        println!("Cache iteration {}: memory usage {} bytes", iteration, used);
     }
 
     // 分析内存趋势
@@ -755,12 +755,12 @@ fn bench_cache_memory_leak_detection(c: &mut Criterion) {
         let growth = last.saturating_sub(first);
 
         println!(
-            "缓存测试: 初始 {} bytes, 最终 {} bytes, 增长 {} bytes",
+            "Cache test: initial {} bytes, final {} bytes, growth {} bytes",
             first, last, growth
         );
 
         if growth > 1_000_000 {
-            println!("警告: 缓存内存增长超过 1MB，可能存在内存泄漏");
+            println!("Warning: cache memory growth exceeds 1MB, possible memory leak");
         }
     }
 
@@ -815,7 +815,7 @@ fn bench_concurrent_memory_usage(c: &mut Criterion) {
         let used = after.saturating_sub(before);
 
         println!(
-            "并发 {} 线程: 内存使用 {} bytes ({:.2} MB)",
+            "Concurrent {} threads: memory usage {} bytes ({:.2} MB)",
             concurrency,
             used,
             used as f64 / 1024.0 / 1024.0

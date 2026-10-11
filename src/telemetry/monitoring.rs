@@ -804,17 +804,17 @@ mod tests {
         let snapshot = metrics.snapshot();
         assert!(
             snapshot.p95_latency_ms > 100 && snapshot.p95_latency_ms <= 250,
-            "p95={}ms 应落在 (100, 250] 桶区间",
+            "p95={}ms should fall in the (100, 250] bucket range",
             snapshot.p95_latency_ms
         );
         assert!(
             snapshot.p99_latency_ms > 100 && snapshot.p99_latency_ms <= 250,
-            "p99={}ms 应落在 (100, 250] 桶区间",
+            "p99={}ms should fall in the (100, 250] bucket range",
             snapshot.p99_latency_ms
         );
         assert!(
             snapshot.avg_latency_ms > 50 && snapshot.avg_latency_ms <= 150,
-            "avg={}ms 应接近 120ms",
+            "avg={}ms should be close to 120ms",
             snapshot.avg_latency_ms
         );
     }
@@ -834,15 +834,15 @@ mod tests {
         let output = oxcache::export_prometheus_format();
         assert!(
             output.contains("oxcache_operation_duration_seconds_histogram_sum"),
-            "导出应含延迟直方图 sum"
+            "the export must contain the latency histogram sum"
         );
         assert!(
             output.contains("oxcache_operation_duration_seconds_histogram_count"),
-            "导出应含延迟直方图 count"
+            "the export must contain the latency histogram count"
         );
         assert!(
             output.contains("oxcache_operation_duration_seconds_histogram_bucket"),
-            "导出应含延迟直方图 bucket"
+            "the export must contain the latency histogram bucket"
         );
     }
 

@@ -387,16 +387,19 @@ mod tests {
             let _guard = mutex.lock().unwrap();
             panic!("intentional poison for MEDIUM-002 test");
         });
-        assert!(result.is_err(), "前置条件：mutex 应已被毒化");
+        assert!(
+            result.is_err(),
+            "precondition: mutex should already be poisoned"
+        );
 
         // lock_rate_buckets 应从中毒状态恢复，不 panic
         let mut guard = lock_rate_buckets(&mutex);
-        assert!(guard.is_empty(), "恢复后的 guard 应能访问 map");
+        assert!(guard.is_empty(), "the recovered guard must access the map");
         guard.insert(
             ("default".to_string(), "127.0.0.1".to_string()),
             (1, Instant::now()),
         );
-        assert_eq!(guard.len(), 1, "恢复后的 guard 应能正常写入");
+        assert_eq!(guard.len(), 1, "the recovered guard must write normally");
     }
 
     #[test]
@@ -763,7 +766,7 @@ mod tests {
         assert_eq!(
             resp.status(),
             StatusCode::CREATED,
-            "operator 必须来自 API key mapping（admin-alice），而非 body（admin-bob）"
+            "operator must come from the API key mapping (admin-alice), not the body (admin-bob)"
         );
     }
 
@@ -811,7 +814,7 @@ mod tests {
         assert_eq!(
             resp.status(),
             StatusCode::CREATED,
-            "未配置 mapping 时应回退到默认 'admin-api'，而非 body 中的 operator"
+            "without a mapping configured, fall back to the default 'admin-api' instead of the body operator"
         );
     }
 
@@ -883,7 +886,7 @@ mod tests {
         assert_eq!(
             resp.status(),
             StatusCode::OK,
-            "delete_ban 的 operator 必须来自 API key mapping（admin-alice），而非 body（admin-bob）"
+            "delete_ban operator must come from the API key mapping (admin-alice), not the body (admin-bob)"
         );
     }
 
@@ -928,7 +931,7 @@ mod tests {
         assert_eq!(
             resp.status(),
             StatusCode::TOO_MANY_REQUESTS,
-            "第 4 次请求应被速率限制"
+            "the 4th request must be rate limited"
         );
     }
 
@@ -961,11 +964,11 @@ mod tests {
         let retry_after = resp
             .headers()
             .get(RETRY_AFTER)
-            .expect("429 响应必须包含 Retry-After header");
+            .expect("429 response must contain the Retry-After header");
         let retry_secs: u64 = retry_after.to_str().unwrap().parse().unwrap();
         assert!(
             retry_secs > 0,
-            "Retry-After 应为正数（剩余窗口时间），实际: {}",
+            "Retry-After must be positive (remaining window time), got: {}",
             retry_secs
         );
     }
@@ -1000,7 +1003,7 @@ mod tests {
         assert_eq!(
             resp.status(),
             StatusCode::TOO_MANY_REQUESTS,
-            "default 分组配额耗尽应返回 429"
+            "default group quota exhaustion must return 429"
         );
 
         // ban 分组未耗尽，ban 请求不应返回 429（独立计数）
@@ -1017,7 +1020,7 @@ mod tests {
         assert_ne!(
             resp.status(),
             StatusCode::TOO_MANY_REQUESTS,
-            "ban 分组应独立于 default 分组计数，不应返回 429"
+            "ban group must count independently from the default group and not return 429"
         );
     }
 
@@ -1068,7 +1071,7 @@ mod tests {
         assert_eq!(
             resp.status(),
             StatusCode::TOO_MANY_REQUESTS,
-            "client A 第 3 次请求应被速率限制（自身配额耗尽）"
+            "client A's 3rd request must be rate limited (own quota exhausted)"
         );
 
         // client B: 192.168.1.1，发送请求应成功（独立计数）
@@ -1083,7 +1086,7 @@ mod tests {
         assert_eq!(
             resp.status(),
             StatusCode::OK,
-            "client B 应独立于 client A 计数，不应因 client A 耗尽配额而被限制"
+            "client B must count independently from client A and not be limited by client A's exhaustion"
         );
     }
 
@@ -1130,7 +1133,7 @@ mod tests {
         assert_eq!(
             resp.status(),
             StatusCode::TOO_MANY_REQUESTS,
-            "同 IP 不同端口应共享同一 rate bucket（按 IP 分桶，非按 socket 分桶）"
+            "same IP with different ports must share one rate bucket (bucketed by IP, not by socket)"
         );
     }
 
@@ -1162,7 +1165,7 @@ mod tests {
         assert_eq!(
             resp.status(),
             StatusCode::TOO_MANY_REQUESTS,
-            "无 ConnectInfo 时应回退到 'unknown' 共享桶"
+            "without ConnectInfo, fall back to a shared 'unknown' bucket"
         );
     }
 
@@ -1193,7 +1196,7 @@ mod tests {
         assert_ne!(
             resp.status(),
             StatusCode::TOO_MANY_REQUESTS,
-            "首次 ban 请求不应被速率限制"
+            "the first ban request must not be rate limited"
         );
 
         // 同一 client 的 default 组请求应仍能成功（不同 group 独立计数）
@@ -1207,7 +1210,7 @@ mod tests {
         assert_eq!(
             resp.status(),
             StatusCode::OK,
-            "同一 client 的不同 group 应独立计数"
+            "different groups of the same client must count independently"
         );
     }
 
@@ -1228,7 +1231,11 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "viewer 读端点应放行");
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "viewer read endpoint should pass"
+        );
     }
 
     #[tokio::test]
@@ -1251,7 +1258,7 @@ mod tests {
         assert_eq!(
             resp.status(),
             StatusCode::FORBIDDEN,
-            "viewer 写端点必须 403"
+            "viewer write endpoint must 403"
         );
     }
 
@@ -1273,7 +1280,7 @@ mod tests {
         assert_eq!(
             resp.status(),
             StatusCode::FORBIDDEN,
-            "viewer DELETE 必须 403"
+            "viewer DELETE must 403"
         );
     }
 
@@ -1296,7 +1303,11 @@ mod tests {
             ))
             .unwrap();
         let resp = app.clone().oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::CREATED, "admin 写封禁应成功");
+        assert_eq!(
+            resp.status(),
+            StatusCode::CREATED,
+            "admin writing a ban should succeed"
+        );
 
         // viewer 同端点 → 403
         let req = Request::builder()
@@ -1325,7 +1336,11 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "未登记 key 应 401");
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "unregistered key should 401"
+        );
     }
 
     #[test]
@@ -1358,26 +1373,33 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "自省端点应 200");
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "introspection endpoint should be 200"
+        );
 
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         // 规则清单（共享夹具 make_valid_config 含 test_rule）
-        let rules = json["rules"].as_array().expect("rules 数组");
+        let rules = json["rules"].as_array().expect("rules array");
         assert!(
             rules.iter().any(|r| r["id"] == "test_rule"),
-            "自省应包含配置规则: {json}"
+            "introspection must include the configured rules: {json}"
         );
         // 决策链清单（含统计字段）
-        assert!(json["chains"].is_array(), "chains 应为数组");
-        assert!(json["stats"]["total_requests"].is_u64(), "stats 应内联");
+        assert!(json["chains"].is_array(), "chains should be an array");
+        assert!(
+            json["stats"]["total_requests"].is_u64(),
+            "stats should be inlined"
+        );
         assert!(
             json["l1_cache"]["enabled"].is_boolean(),
-            "l1_cache 状态应内联"
+            "l1_cache status should be inlined"
         );
         assert!(
             json["health"]["storage_healthy"].is_boolean(),
-            "健康状态应内联"
+            "health status should be inlined"
         );
         // jq 可解析的结构化 JSON（字段齐全）
         assert!(json["config_version"].is_string());
@@ -1394,14 +1416,14 @@ mod tests {
         let snapshot = state.governor.introspect().await;
         assert!(
             snapshot.stats.total_requests >= 1,
-            "自省统计应反映已发生的请求"
+            "introspection stats must reflect requests that happened"
         );
         assert!(
             snapshot
                 .rules
                 .iter()
                 .any(|r| r.limiters.iter().any(|k| k == "token_bucket")),
-            "规则限流器类型应输出 kind 名"
+            "rule limiter type should output the kind name"
         );
     }
 }

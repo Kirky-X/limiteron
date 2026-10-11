@@ -700,7 +700,7 @@ mod tests {
         assert_eq!(
             violations.load(StdOrdering::SeqCst),
             0,
-            "snapshot 观测到计数器倒退：违反单调性（increment 期间不应有 reset）"
+            "snapshot observed a counter regression: monotonicity violated (no reset during increment)"
         );
     }
 
@@ -743,12 +743,18 @@ mod tests {
         let snap = stats.snapshot();
         let expected_total = (THREADS as u64) * ITERS;
         let classified = snap.allowed_requests + snap.rejected_requests + snap.error_count;
-        assert_eq!(snap.total_requests, expected_total, "total 计数丢失更新");
-        assert_eq!(classified, expected_total, "分类计数丢失更新");
+        assert_eq!(
+            snap.total_requests, expected_total,
+            "total count lost an update"
+        );
+        assert_eq!(
+            classified, expected_total,
+            "classified count lost an update"
+        );
         // 每轮恰好一个分类+1，所以 classified == total
         assert_eq!(
             classified, snap.total_requests,
-            "SeqCst 应保证 fetch_add 无丢失更新：classified 应等于 total"
+            "SeqCst must guarantee fetch_add has no lost updates: classified should equal total"
         );
     }
 }

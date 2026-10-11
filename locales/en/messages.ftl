@@ -98,6 +98,15 @@ window-size-overflow = Window size overflow: { $number } * { $factor } seconds e
 cli-warning-version-format = version '{ $version }' is not in x.y.z numeric form (semantic versioning recommended)
 cli-warning-duplicate-priority = rule '{ $rule_id }' has duplicate priority { $priority } (match order ambiguity)
 
+# ---- CLI errors (live keys) ----
+cli-error-missing-config-file = missing <config-file> argument
+cli-error-unknown-command = unknown command
+cli-error-config-serialization-failed = config serialization failed: { $reason }
+cli-error-serialize-output = limiteron-cli: failed to serialize output: { $reason }
+cli-error-out-requires-file = --out requires a file argument
+cli-error-unknown-option = unknown option '{ $option }'
+cli-error-write-output-failed = failed to write normalized config to '{ $path }': { $reason }
+
 # ---- SafeErrorMessage abstraction (dual-track, T025) ----
 safe-error-config = Configuration error: { $message }
 safe-error-storage = Storage error: { $message }
@@ -251,6 +260,7 @@ governor-health-check = Health check
 governor-already-shutdown = Governor already shut down; shutdown() is idempotent, returning Ok
 governor-shutdown-started = Starting graceful shutdown of Governor
 governor-shutdown-complete = Governor graceful shutdown complete
+governor-emit-rate-limit-event-failed = Failed to emit rate limit event: { $error }
 
 # ---- Fallback manager (T025) ----
 fallback-manager-created = Fallback manager created
@@ -294,6 +304,94 @@ admin-api-disabled = Admin API disabled
 admin-api-started = Admin API server started: http://{ $address }
 admin-api-key-operator-fallback = API key has no operator mapping, falling back to default 'admin-api'; configure an explicit mapping via AdminApiConfig::with_api_key_operator to prevent operator identity spoofing
 admin-rbac-denied = RBAC denied: role={ $role } has no access to { $method } { $path }
+
+# ---- Admin API / Web UI messages (live keys) ----
+admin-config-applied = config applied
+admin-batch-check-allowed = { $allowed }/{ $total } allowed
+admin-tokens-prefetch-granted = { $granted }/{ $total } granted
+admin-ban-manager-not-configured = Ban manager not configured
+admin-quota-controller-not-configured = Quota controller not configured
+admin-circuit-breaker-not-configured = Circuit breaker not configured
+admin-service-not-configured = { $what } not configured
+admin-ui-title = Limiteron admin snapshot (read-only)
+admin-ui-meta = This page issues GET requests only; auto-refresh 5s. Data sources: /snapshot, /circuit-breaker.
+admin-ui-header-metric = Metric
+admin-ui-header-value = Value
+admin-ui-stat-rejected-requests = Rejected requests
+admin-ui-message-ok = OK
+admin-ui-circuit-breaker-not-configured = circuit-breaker not configured
+admin-ui-unhandled-route = unhandled route table entry: { $path }
+admin-ui-heading-stats = Aggregate statistics
+admin-ui-heading-health = Health
+admin-ui-header-component = Component
+admin-ui-header-status = Status
+admin-ui-heading-rules = Rules and decision chains
+admin-ui-header-rule = Rule
+admin-ui-header-priority = Priority
+admin-ui-header-matcher = Matcher
+admin-ui-header-limiter = Limiter
+admin-ui-header-nodes = Nodes
+admin-ui-heading-circuit-breaker = Circuit breaker
+admin-ui-header-state = State
+admin-ui-header-failure-rate = Failure rate
+admin-ui-header-slow-call-rate = Slow call rate
+admin-ui-stat-total-requests = Total requests
+admin-ui-stat-banned-requests = Banned requests
+admin-ui-stat-active-keys = Active limit keys
+admin-ui-stat-config-version = Config version
+admin-ui-stat-shutdown = Shutdown
+
+# ---- OpenAPI document (canonical mirror) ----
+# openapi_document() builds the English canonical at the construction site;
+# this section carries the localized face of the same strings.
+openapi-info-description = Limiteron admin control plane: rate limit status, ban management, quota adjustment, circuit breaker status and rule hot reload. All endpoints except probes/metrics require a Bearer API key.
+openapi-healthz-summary = Liveness probe
+openapi-readyz-summary = Readiness probe (component-level aggregation)
+openapi-readyz-200-description = All components healthy
+openapi-readyz-503-description = One or more components unhealthy; response body contains details
+openapi-status-summary = Overall system status
+openapi-status-200-description = System status
+openapi-quota-reset-summary = Reset a user's quota usage (new_limit=0); rejects per-tenant quota limit updates
+openapi-ban-delete-404-description = Ban not found
+openapi-system-status-active-bans = Present when the ban-manager feature is enabled
+openapi-create-ban-operator = Deprecated: ignored by the server; identity is determined by the API key mapping
+openapi-healthz-200-description = Process is alive
+openapi-metrics-summary = Prometheus text-format metrics
+openapi-status-401-description = Authentication failed
+openapi-circuit-breaker-summary = Circuit breaker status
+openapi-circuit-breaker-200-description = Circuit breaker status
+openapi-circuit-breaker-503-description = circuit-breaker not configured
+openapi-introspect-summary = Runtime introspection snapshot (rules, decision chains, bans and circuit breakers aggregated)
+openapi-introspect-200-description = Introspection snapshot JSON (structure extends with the feature combination)
+openapi-config-summary = Rule hot reload (atomic config swap; previous config retained on failure)
+openapi-config-200-description = Application report
+openapi-config-400-description = Validation failed; previous config retained
+openapi-check-batch-summary = Batch check (N keys decided in one request)
+openapi-check-batch-200-description = Per-item decision results
+openapi-check-batch-400-description = Empty batch or above the 1000-item limit
+openapi-tokens-prefetch-summary = Batch token prefetch
+openapi-tokens-prefetch-200-description = Per-item granted results and summary
+openapi-tokens-prefetch-400-description = Empty batch or above the 1000-item limit
+openapi-ban-summary = Create ban (ip/user/mac/geo)
+openapi-ban-201-description = Ban details
+openapi-ban-400-description = Target or reason validation failed
+openapi-ban-403-description = Operator not authorized
+openapi-ban-500-description = Internal error
+openapi-ban-503-description = ban-manager not configured
+openapi-ban-delete-summary = Remove ban (?type=ip|user|mac|geo|cidr)
+openapi-ban-delete-200-description = Removal result
+openapi-ban-delete-400-description = Unsupported type
+openapi-ban-delete-500-description = Internal error
+openapi-ban-delete-503-description = ban-manager not configured
+openapi-quota-put-200-description = Operation result
+openapi-quota-put-400-description = Unsupported operation
+openapi-quota-put-500-description = Internal error
+openapi-quota-put-503-description = quota-control not configured
+openapi-system-status-circuit-breaker = Present when the circuit-breaker feature is enabled
+openapi-flow-control-config-description = Full FlowControlConfig (fields are defined in the config module; only the top-level skeleton is kept here)
+openapi-ban-target-description = ip/user/mac use a string value; geo uses an object with a country_code field; cidr uses a string value
+openapi-unban-request-operator = Deprecated: ignored by the server
+openapi-update-quota-new-limit = 0 = reset signal
 
 # ---- Audit log (T025) ----
 audit-batch-task-panic = Audit log batch task panicked: { $reason }

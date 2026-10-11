@@ -451,7 +451,7 @@ mod tests {
 
         assert!(
             recording_for_assert.save_count() > 0,
-            "注入的 BanStorage 必须被 Governor 路由调用（save）"
+            "the injected BanStorage must be routed by Governor (save)"
         );
         // 解封路径同样路由到注入实例（委托 inner 真实实现，不抛错）
         governor
@@ -514,7 +514,7 @@ mod tests {
         let status = <LimiteronModule as AsyncHealthCheck>::check(&governor);
         assert!(
             matches!(status, trait_kit::core::health::HealthStatus::Healthy),
-            "内存存储 Governor 应为 Healthy，实际: {status:?}"
+            "the in-memory storage Governor should be Healthy, got: {status:?}"
         );
     }
 
@@ -532,7 +532,7 @@ mod tests {
         <LimiteronModule as AsyncLifecycle>::on_shutdown(&governor).await;
         assert!(
             governor.is_shutdown(),
-            "on_shutdown 必须停机 Governor（后台任务退出）"
+            "on_shutdown must stop the Governor (background task exit)"
         );
     }
 
@@ -549,6 +549,9 @@ mod tests {
             .require::<OxcacheModule>()
             .expect("OxcacheModule capability");
         let health = cache.health_check().await;
-        assert!(health.is_ok(), "注入的缓存后端应健康");
+        assert!(
+            health.is_ok(),
+            "the injected cache backend should be healthy"
+        );
     }
 }

@@ -283,7 +283,11 @@ mod tests {
         }
         assert_eq!(limiter.window_count().await, 3);
         assert!(!limiter.allow(1).await.unwrap());
-        assert_eq!(limiter.window_count().await, 3, "拒绝的请求不得入日志队列");
+        assert_eq!(
+            limiter.window_count().await,
+            3,
+            "a rejected request must not enter the log queue"
+        );
     }
 
     #[tokio::test]
@@ -314,7 +318,10 @@ mod tests {
         assert!(!limiter.allow(1).await.unwrap());
 
         mock_clock.advance(Duration::from_secs(1));
-        assert!(limiter.allow(2).await.unwrap(), "恰好满窗龄的条目应已滑出");
+        assert!(
+            limiter.allow(2).await.unwrap(),
+            "entries exactly at full window age should have slid out"
+        );
         assert_eq!(limiter.window_count().await, 2);
     }
 
@@ -335,7 +342,11 @@ mod tests {
 
         // t=1.2：t=0 三条过期（成本 3 逐出），t=0.6 一条存活
         mock_clock.advance(Duration::from_millis(600));
-        assert_eq!(limiter.window_count().await, 2, "应恰好逐出 3 条过期成本");
+        assert_eq!(
+            limiter.window_count().await,
+            2,
+            "exactly 3 expired costs should be evicted"
+        );
         assert_eq!(limiter.logged_entries().await, 1);
 
         // 逐出后空间恢复：还可放 8
@@ -358,7 +369,7 @@ mod tests {
             let len = limiter.logged_entries().await;
             assert!(
                 len <= 5,
-                "日志队列应受窗口约束，第 {round} 轮长度 {len} 超界"
+                "the log queue must be bounded by the window, round {round} length {len} is out of bounds"
             );
         }
     }
@@ -378,26 +389,39 @@ mod tests {
         for _ in 0..4 {
             assert!(limiter.allow(1).await.unwrap());
         }
-        assert!(!limiter.allow(1).await.unwrap(), "窗口已满应拒绝");
+        assert!(
+            !limiter.allow(1).await.unwrap(),
+            "must reject once the window is full"
+        );
 
         // 空闲期推进 2s：4 条全部过期但未弹出（驻留）
         mock_clock.advance(Duration::from_secs(2));
         {
             let mut state = limiter.state.lock();
-            assert_eq!(state.entries.len(), 4, "空闲期条目驻留（惰性逐出）");
+            assert_eq!(
+                state.entries.len(),
+                4,
+                "idle-period entries stay resident (lazy eviction)"
+            );
             limiter.scan_expired(&mut state, mock_clock.unix_timestamp_nanos());
-            assert_eq!(state.scanned, 4, "首次读应把 4 条全部确认为过期");
+            assert_eq!(
+                state.scanned, 4,
+                "the first read must confirm all 4 entries as expired"
+            );
 
             // 无新增过期时连续读：游标与过期成本严格不变（无重复扫描付费）
             for _ in 0..100 {
                 limiter.scan_expired(&mut state, mock_clock.unix_timestamp_nanos());
-                assert_eq!(state.scanned, 4, "无新增过期时游标不得移动");
+                assert_eq!(
+                    state.scanned, 4,
+                    "the cursor must not move with no newly expired entries"
+                );
             }
         }
         assert_eq!(
             limiter.window_count().await,
             0,
-            "驻留过期条目不计入有效计数"
+            "resident expired entries do not count toward the effective count"
         );
         assert_eq!(limiter.logged_entries().await, 0);
 
@@ -405,10 +429,16 @@ mod tests {
         // 付清弹出成本），随后洪泛全部拒绝——拒绝路径的 remaining 读
         // 无新前缀可确认，O(1)
         for _ in 0..4 {
-            assert!(limiter.allow(1).await.unwrap(), "过期驻留清空后配额应恢复");
+            assert!(
+                limiter.allow(1).await.unwrap(),
+                "quota should recover after expired residents are cleared"
+            );
         }
         for _ in 0..10 {
-            assert!(!limiter.allow(1).await.unwrap(), "窗口重新打满后应拒绝");
+            assert!(
+                !limiter.allow(1).await.unwrap(),
+                "must reject once the window fills again"
+            );
         }
         assert_eq!(limiter.window_count().await, 4);
     }
@@ -429,14 +459,20 @@ mod tests {
             let state = limiter.state.lock();
             state.entries.capacity()
         };
-        assert!(high_water > 0, "高水位后应有已分配缓冲");
+        assert!(
+            high_water > 0,
+            "there should be allocated buffer after the high water mark"
+        );
 
         mock_clock.advance(Duration::from_secs(1));
-        assert!(limiter.allow(1).await.unwrap(), "全过期后应恢复放行");
+        assert!(
+            limiter.allow(1).await.unwrap(),
+            "should allow again once fully expired"
+        );
         let state = limiter.state.lock();
         assert!(
             state.entries.capacity() < high_water,
-            "队列清空后应收缩缓冲（容量 {} 未低于高水位 {high_water}）",
+            "the buffer should shrink after the queue empties (capacity {} not below the high water mark {high_water})",
             state.entries.capacity()
         );
     }
@@ -455,7 +491,7 @@ mod tests {
 
         let snap = limiter.peek(5).await.unwrap();
         assert_eq!(snap.limit, 10);
-        assert_eq!(snap.remaining, 0, "999ms 时窗口仍满");
+        assert_eq!(snap.remaining, 0, "the window is still full at 999ms");
         assert!(!snap.allows(5));
 
         // 连续 peek 状态不得变化（修复前若 peek 真实逐出会改变后续判定）
@@ -465,7 +501,7 @@ mod tests {
         assert_eq!(limiter.window_count().await, 10);
         {
             let state = limiter.state.lock();
-            assert_eq!(state.entries.len(), 1, "peek 不得弹出条目");
+            assert_eq!(state.entries.len(), 1, "peek must not pop entries");
         }
 
         // 补 1ms 跨过过期边界后，peek 报告的剩余应真实可得
@@ -491,7 +527,10 @@ mod tests {
         mock_clock.advance(Duration::from_secs(1));
         let snap = limiter.remaining().await.unwrap();
         assert_eq!(snap.remaining, 9);
-        assert_eq!(snap.reset_secs, 1, "reset 应为最老条目完全滑出的剩余秒数");
+        assert_eq!(
+            snap.reset_secs, 1,
+            "reset should be the remaining seconds until the oldest entry slides out"
+        );
     }
 
     #[tokio::test]
@@ -510,7 +549,7 @@ mod tests {
         assert_eq!(
             limiter.window_count().await,
             3,
-            "回拨期条目不得被误逐出（判定用回拨后的 now）"
+            "entries in the turn-back period must not be evicted wrongly (judging by the post-turn-back now)"
         );
         // 回拨期放行：新条目 ts 取 max(now, 队尾) = 10s，保序
         assert!(limiter.allow(3).await.unwrap());
@@ -522,11 +561,11 @@ mod tests {
                 .iter()
                 .zip(state.entries.iter().skip(1))
                 .all(|(&(a, _), &(b, _))| a <= b);
-            assert!(sorted, "条目时间戳必须保持升序不变式");
+            assert!(sorted, "entry timestamps must keep the ascending invariant");
             assert_eq!(
                 state.entries.back().map(|&(ts, _)| ts),
                 Some(10_000_000_000),
-                "回拨期新条目应对齐队尾时间戳"
+                "new entries in the turn-back period must align with the tail timestamp"
             );
         }
     }
@@ -557,11 +596,14 @@ mod tests {
         mock_clock.advance(Duration::from_millis(200));
         {
             let state = limiter.state.lock();
-            assert_eq!(state.scanned, 4, "游标不可逆：已确认前缀不因回拨回退");
+            assert_eq!(
+                state.scanned, 4,
+                "the cursor is irreversible: the confirmed prefix must not regress on turn-back"
+            );
         }
         assert!(
             limiter.allow(4).await.unwrap(),
-            "已确认过期的前缀在回拨后仍计为已过期（permissive）"
+            "the confirmed-expired prefix still counts as expired after turn-back (permissive)"
         );
 
         // 对照组：无 peek 的同场景在回拨后保持保守判定
@@ -576,7 +618,7 @@ mod tests {
         mock_clock2.advance(Duration::from_millis(200));
         assert!(
             !limiter2.allow(4).await.unwrap(),
-            "无观测调用时回拨判定保守：条目未过期应拒绝"
+            "turn-back judgment is conservative with no observation call: an unexpired entry must reject"
         );
     }
 
@@ -597,11 +639,11 @@ mod tests {
     async fn test_sliding_log_invalid_config_rejected() {
         assert!(
             SlidingWindowLogLimiter::new(0, Duration::from_secs(1)).is_err(),
-            "max_requests 0 应拒绝"
+            "max_requests 0 must be rejected"
         );
         assert!(
             SlidingWindowLogLimiter::new(10, Duration::ZERO).is_err(),
-            "零窗口应拒绝"
+            "a zero window must be rejected"
         );
     }
 
@@ -636,7 +678,7 @@ mod tests {
         assert_eq!(
             admitted.load(std::sync::atomic::Ordering::Relaxed),
             100,
-            "并发放行总量必须恰好等于配额"
+            "the total concurrent grants must exactly equal the quota"
         );
         assert_eq!(limiter.window_count().await, 100);
     }
@@ -647,6 +689,9 @@ mod tests {
         let limiter = SlidingWindowLogLimiter::new(1, Duration::from_secs(1)).unwrap();
         assert!(limiter.check("any_key").await.is_ok());
         let result = limiter.check("any_key").await;
-        assert!(result.is_err(), "窗口满后 check 应返回 Err");
+        assert!(
+            result.is_err(),
+            "check must return Err once the window is full"
+        );
     }
 }

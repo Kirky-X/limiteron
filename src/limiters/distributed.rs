@@ -244,7 +244,10 @@ mod tests {
             .incr_with_ttl("k", 1, Duration::from_millis(50))
             .await
             .unwrap();
-        assert_eq!(c, 1, "累加刷新了 TTL（应为过期重置）");
+        assert_eq!(
+            c, 1,
+            "accumulating refreshed the TTL (should be an expiry reset)"
+        );
     }
 
     #[tokio::test]
@@ -252,7 +255,10 @@ mod tests {
         // allow 恒真回归：有界构造下必须真实比较阈值
         let limiter = InMemoryDistributedLimiter::with_capacity(1);
         assert!(limiter.allow(1).await.unwrap());
-        assert!(!limiter.allow(1).await.unwrap(), "超容量应拒绝");
+        assert!(
+            !limiter.allow(1).await.unwrap(),
+            "over-capacity must be rejected"
+        );
     }
 
     #[tokio::test]

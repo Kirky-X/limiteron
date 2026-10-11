@@ -103,14 +103,20 @@ where
         }
         "validate" => match args.get(1) {
             Some(path) => cmd_validate(path),
-            None => usage_error("validate", "missing <config-file> argument"),
+            None => usage_error(
+                "validate",
+                &crate::i18n::t_simple("cli-error-missing-config-file"),
+            ),
         },
         "export" => match args.get(1) {
             Some(path) => cmd_export(path),
-            None => usage_error("export", "missing <config-file> argument"),
+            None => usage_error(
+                "export",
+                &crate::i18n::t_simple("cli-error-missing-config-file"),
+            ),
         },
         "apply" => cmd_apply(&args[1..]),
-        other => usage_error(other, "unknown command"),
+        other => usage_error(other, &crate::i18n::t_simple("cli-error-unknown-command")),
     }
 }
 
@@ -124,12 +130,12 @@ fn usage_error(command: &str, message: &str) -> CliInvocation {
 /// 解析配置文件；任何失败折叠为一条错误消息（供 JSON 诊断输出）。
 ///
 /// 类型化错误走本地化路径（`i18n::I18nExt::to_localized_string`，当前
-/// locale → en 回退）；`ConfigError` 载荷本身已是英文规范串。
+/// locale → en 回退，IoError 经 `error-io` 键）；`ConfigError` 载荷本身
+/// 已是英文规范串。
 fn load_config(path: &str) -> Result<FlowControlConfig, String> {
     use crate::i18n::I18nExt;
     crate::ConfigLoader::load_from_file(path).map_err(|e| match e {
         crate::LimiteronError::ConfigError(msg) => msg,
-        crate::LimiteronError::IoError(io) => format!("IO error: {io}"),
         other => other.to_localized_string(),
     })
 }
@@ -234,7 +240,10 @@ fn cmd_export(path: &str) -> CliInvocation {
                 fields.insert("ok".to_string(), serde_json::json!(false));
                 fields.insert(
                     "errors".to_string(),
-                    serde_json::json!([format!("config serialization failed: {e}")]),
+                    serde_json::json!([crate::i18n::t(
+                        "cli-error-config-serialization-failed",
+                        &[("reason", e.to_string())],
+                    )]),
                 );
                 CliInvocation::new(EXIT_ERROR, "export", fields)
             }
@@ -249,7 +258,10 @@ fn cmd_export(path: &str) -> CliInvocation {
 
 fn cmd_apply(rest: &[String]) -> CliInvocation {
     let Some(path) = rest.first() else {
-        return usage_error("apply", "missing <config-file> argument");
+        return usage_error(
+            "apply",
+            &crate::i18n::t_simple("cli-error-missing-config-file"),
+        );
     };
 
     // 选项解析：目前仅 --out <file>（dry-run 为 apply 的内建语义）
@@ -262,9 +274,19 @@ fn cmd_apply(rest: &[String]) -> CliInvocation {
                     out_path = Some(p);
                     i += 2;
                 }
-                None => return usage_error("apply", "--out requires a file argument"),
+                None => {
+                    return usage_error(
+                        "apply",
+                        &crate::i18n::t_simple("cli-error-out-requires-file"),
+                    );
+                }
             },
-            other => return usage_error("apply", &format!("unknown option '{other}'")),
+            other => {
+                return usage_error(
+                    "apply",
+                    &crate::i18n::t("cli-error-unknown-option", &[("option", other.to_string())]),
+                );
+            }
         }
     }
 
@@ -313,7 +335,10 @@ fn cmd_apply(rest: &[String]) -> CliInvocation {
                 fields.insert("applied".to_string(), serde_json::json!(false));
                 fields.insert(
                     "errors".to_string(),
-                    serde_json::json!([format!("config serialization failed: {e}")]),
+                    serde_json::json!([crate::i18n::t(
+                        "cli-error-config-serialization-failed",
+                        &[("reason", e.to_string())],
+                    )]),
                 );
                 return CliInvocation::new(EXIT_ERROR, "apply", fields);
             }
@@ -327,8 +352,9 @@ fn cmd_apply(rest: &[String]) -> CliInvocation {
                 fields.insert("applied".to_string(), serde_json::json!(false));
                 fields.insert(
                     "errors".to_string(),
-                    serde_json::json!([format!(
-                        "failed to write normalized config to '{out}': {e}"
+                    serde_json::json!([crate::i18n::t(
+                        "cli-error-write-output-failed",
+                        &[("path", out.to_string()), ("reason", e.to_string()),],
                     )]),
                 );
                 return CliInvocation::new(EXIT_ERROR, "apply", fields);

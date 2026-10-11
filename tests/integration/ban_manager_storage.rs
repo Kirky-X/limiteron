@@ -40,7 +40,7 @@ mod ban_manager_tests {
 
         // 添加 IP 封禁
         let target = limiteron::BanTarget::Ip("192.168.1.100".to_string());
-        let record = create_ban_record(target.clone(), 3600, "恶意请求");
+        let record = create_ban_record(target.clone(), 3600, "Malicious request");
         let result = manager.add_ban(record).await;
 
         assert!(result.is_ok(), "Ban IP should succeed");
@@ -57,7 +57,7 @@ mod ban_manager_tests {
 
         // 添加用户封禁
         let target = limiteron::BanTarget::UserId("user_12345".to_string());
-        let record = create_ban_record(target.clone(), 7200, "违规操作");
+        let record = create_ban_record(target.clone(), 7200, "Rule-violating operation");
         let result = manager.add_ban(record).await;
 
         assert!(result.is_ok(), "Ban user should succeed");
@@ -74,7 +74,7 @@ mod ban_manager_tests {
 
         // 先添加封禁
         let target = limiteron::BanTarget::Ip("192.168.1.200".to_string());
-        let record = create_ban_record(target.clone(), 3600, "测试封禁");
+        let record = create_ban_record(target.clone(), 3600, "Test ban");
         manager.add_ban(record).await.unwrap();
 
         // 验证已封禁
@@ -113,7 +113,7 @@ mod ban_manager_tests {
 
         // 添加短期封禁（1秒）
         let target = limiteron::BanTarget::Ip("192.168.1.50".to_string());
-        let record = create_ban_record(target.clone(), 1, "短期封禁测试");
+        let record = create_ban_record(target.clone(), 1, "Short ban test");
         manager.add_ban(record).await.unwrap();
 
         // 立即检查应该被封禁
@@ -146,7 +146,7 @@ mod ban_manager_tests {
 
         // 批量封禁
         for target in &targets {
-            let record = create_ban_record(target.clone(), 3600, "批量封禁测试");
+            let record = create_ban_record(target.clone(), 3600, "Batch ban test");
             let result = manager.add_ban(record).await;
             assert!(result.is_ok(), "Batch ban should succeed");
         }
@@ -209,7 +209,7 @@ mod ban_manager_tests {
             let mgr = Arc::clone(&manager);
             handles.push(tokio::spawn(async move {
                 let target = limiteron::BanTarget::Ip(format!("10.{}.0.1", i));
-                let record = create_ban_record(target, 3600, &format!("并发封禁 {}", i));
+                let record = create_ban_record(target, 3600, &format!("Concurrent ban {}", i));
                 mgr.add_ban(record).await
             }));
         }
@@ -361,6 +361,6 @@ mod ban_manager_tests {
     #[test]
     fn test_ban_manager_feature_not_enabled() {
         // 当特性未启用时，测试通过
-        println!("ban-manager 特性未启用，跳过测试");
+        println!("ban-manager feature not enabled; skipping test");
     }
 }

@@ -94,7 +94,7 @@ fn demo_device_type_enum() {
     assert!(DeviceType::Desktop.is_desktop());
     assert!(DeviceType::API.is_api());
     assert!(!DeviceType::Mobile.is_api());
-    println!("is_mobile/is_desktop/is_api 验证通过");
+    println!("is_mobile/is_desktop/is_api checks passed");
 
     // Display trait
     println!("Display: {} | {} | {}", mobile, desktop, api);
@@ -153,7 +153,7 @@ fn demo_device_info() {
 
     // PartialEq
     assert_eq!(empty_info, DeviceInfo::empty());
-    println!("DeviceInfo PartialEq 验证通过");
+    println!("DeviceInfo PartialEq check passed");
 
     println!();
 }
@@ -170,7 +170,7 @@ fn demo_device_condition() {
     // 空条件匹配任何设备
     let info = DeviceInfo::empty();
     assert!(empty_cond.matches(&info));
-    println!("空条件匹配空设备信息: true");
+    println!("empty condition matches empty device info: true");
 
     // device_types 条件
     let mobile_cond = DeviceCondition::device_types(vec![DeviceType::Mobile, DeviceType::Tablet]);
@@ -192,7 +192,7 @@ fn demo_device_condition() {
     };
     assert!(mobile_cond.matches(&mobile_info));
     assert!(!mobile_cond.matches(&desktop_info));
-    println!("device_types([Mobile, Tablet]) 匹配 Mobile: true, Desktop: false");
+    println!("device_types([Mobile, Tablet]) matches Mobile: true, Desktop: false");
 
     // browsers 条件
     let browser_cond = DeviceCondition::browsers(vec!["Safari".to_string(), "Chrome".to_string()]);
@@ -214,7 +214,7 @@ fn demo_device_condition() {
     };
     assert!(browser_cond.matches(&safari_info));
     assert!(!browser_cond.matches(&firefox_info));
-    println!("browsers([Safari, Chrome]) 匹配 Safari: true, Firefox: false");
+    println!("browsers([Safari, Chrome]) matches Safari: true, Firefox: false");
 
     // os 条件
     let os_cond = DeviceCondition::os(vec!["iOS".to_string(), "Android".to_string()]);
@@ -236,7 +236,7 @@ fn demo_device_condition() {
     };
     assert!(os_cond.matches(&ios_info));
     assert!(!os_cond.matches(&windows_info));
-    println!("os([iOS, Android]) 匹配 iOS: true, Windows: false");
+    println!("os([iOS, Android]) matches iOS: true, Windows: false");
 
     // Default trait
     let default_cond = DeviceCondition::default();
@@ -255,7 +255,7 @@ async fn demo_device_matcher() -> Result<(), Box<dyn std::error::Error>> {
 
     // new 创建匹配器
     let matcher = DeviceMatcher::new().await?;
-    println!("DeviceMatcher::new() 创建成功");
+    println!("DeviceMatcher::new() created");
 
     // parse 解析 User-Agent
     let user_agents = vec![
@@ -266,7 +266,7 @@ async fn demo_device_matcher() -> Result<(), Box<dyn std::error::Error>> {
         "GoogleBot/2.1",
     ];
 
-    println!("\n单条解析:");
+    println!("\nSingle-parse:");
     for ua in &user_agents {
         let info = matcher.parse(ua).await?;
         println!("  UA: {}", if ua.len() > 60 { &ua[..60] } else { ua });
@@ -280,17 +280,17 @@ async fn demo_device_matcher() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // batch_parse 批量解析
-    println!("\n批量解析:");
+    println!("\nBatch parse:");
     let ua_strings: Vec<String> = user_agents.iter().map(|s| s.to_string()).collect();
     let results = matcher.batch_parse(&ua_strings).await;
-    println!("批量解析 {} 条 User-Agent", results.len());
+    println!("Parsed {} User-Agent strings", results.len());
     for (i, result) in results.iter().enumerate() {
         match result {
             Ok(info) => println!(
                 "  [{}] type={:?}, browser={:?}",
                 i, info.device_type, info.browser
             ),
-            Err(e) => println!("  [{}] 解析失败: {}", i, e),
+            Err(e) => println!("  [{}] parse failed: {}", i, e),
         }
     }
 
@@ -307,22 +307,22 @@ async fn demo_device_matcher_builder() -> Result<(), Box<dyn std::error::Error>>
         .cache_size_limit(5000)
         .build()
         .await?;
-    println!("DeviceMatcherBuilder 构建成功, cache_size_limit=5000");
+    println!("DeviceMatcherBuilder built, cache_size_limit=5000");
 
     // 解析验证
     let info = matcher
         .parse("Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)")
         .await?;
-    println!("iPhone UA 解析: type={:?}", info.device_type);
+    println!("iPhone UA parse: type={:?}", info.device_type);
 
     // Default builder
     let default_builder = DeviceMatcherBuilder::default();
     let _matcher2 = default_builder.build().await?;
-    println!("DeviceMatcherBuilder::default() 构建成功");
+    println!("DeviceMatcherBuilder::default() built");
 
     // new() 等同于 default()
     let _builder = DeviceMatcherBuilder::new();
-    println!("DeviceMatcherBuilder::new() 创建成功");
+    println!("DeviceMatcherBuilder::new() created");
 
     println!();
     Ok(())
@@ -342,34 +342,34 @@ async fn demo_device_custom_rules() -> Result<(), Box<dyn std::error::Error>> {
         Some("MyCustomApp".to_string()),
         Some("Android".to_string()),
     );
-    println!("添加自定义规则: MyCustomApp");
+    println!("Adding custom rule: MyCustomApp");
 
     // 解析自定义 App UA
     let custom_ua = "MyCustomApp/1.0 (Android 10)";
     let info = matcher.parse(custom_ua).await?;
     println!(
-        "自定义 UA 解析: type={:?}, browser={:?}, os={:?}",
+        "Custom UA parse: type={:?}, browser={:?}, os={:?}",
         info.device_type, info.browser, info.os
     );
 
     // remove_custom_rule 移除规则
     let removed = matcher.remove_custom_rule("MyCustomApp");
-    assert!(removed, "移除规则应成功");
-    println!("移除自定义规则: MyCustomApp (成功)");
+    assert!(removed, "removing the rule should succeed");
+    println!("Removed custom rule: MyCustomApp (ok)");
 
     let not_removed = matcher.remove_custom_rule("NonExistent");
-    assert!(!not_removed, "移除不存在的规则应失败");
-    println!("移除不存在的规则: NonExistent (失败，符合预期)");
+    assert!(!not_removed, "removing a nonexistent rule should fail");
+    println!("Removing nonexistent rule: NonExistent (failed as expected)");
 
     // matches_user_agent 检查 UA 是否匹配条件
     let condition = DeviceCondition::device_types(vec![DeviceType::Mobile]);
     let iphone_ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)";
     let matched = matcher.matches_user_agent(iphone_ua, &condition).await?;
-    println!("iPhone UA 匹配 Mobile 条件: {}", matched);
+    println!("iPhone UA matches Mobile condition: {}", matched);
 
     let windows_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
     let matched2 = matcher.matches_user_agent(windows_ua, &condition).await?;
-    println!("Windows UA 匹配 Mobile 条件: {}", matched2);
+    println!("Windows UA matches Mobile condition: {}", matched2);
 
     // matches 检查 DeviceInfo 是否匹配条件
     let mobile_info = DeviceInfo {
@@ -382,7 +382,10 @@ async fn demo_device_custom_rules() -> Result<(), Box<dyn std::error::Error>> {
     };
     let browser_cond = DeviceCondition::browsers(vec!["Safari".to_string()]);
     let matched3 = matcher.matches(&mobile_info, &browser_cond);
-    println!("Mobile Safari 匹配 Safari 浏览器条件: {}", matched3);
+    println!(
+        "Mobile Safari matches Safari browser condition: {}",
+        matched3
+    );
 
     println!();
     Ok(())
@@ -403,7 +406,7 @@ async fn demo_device_cache() -> Result<(), Box<dyn std::error::Error>> {
     // cache_stats 获取缓存统计
     let stats: DeviceCacheStats = matcher.cache_stats().await;
     println!(
-        "缓存统计: size={}, limit={}, hits={}, misses={}, hit_rate={:.2}%",
+        "Cache stats: size={}, limit={}, hits={}, misses={}, hit_rate={:.2}%",
         stats.size, stats.limit, stats.hits, stats.misses, stats.hit_rate
     );
 
@@ -411,7 +414,7 @@ async fn demo_device_cache() -> Result<(), Box<dyn std::error::Error>> {
     matcher.clear_cache().await;
     let stats_after: DeviceCacheStats = matcher.cache_stats().await;
     println!(
-        "清空后: size={}, hits={}, misses={}",
+        "After clear: size={}, hits={}, misses={}",
         stats_after.size, stats_after.hits, stats_after.misses
     );
 
@@ -478,7 +481,7 @@ fn demo_geo_info() {
 
     // PartialEq
     assert_eq!(empty_info, GeoInfo::empty());
-    println!("GeoInfo PartialEq 验证通过");
+    println!("GeoInfo PartialEq check passed");
 
     println!();
 }
@@ -495,7 +498,7 @@ fn demo_geo_condition() {
     // 空条件匹配任何地理信息
     let info = GeoInfo::empty();
     assert!(empty_cond.matches(&info));
-    println!("空条件匹配空地理信息: true");
+    println!("empty condition matches empty geo info: true");
 
     // countries 条件
     let asia_cond = GeoCondition::countries(vec!["CN".to_string(), "JP".to_string()]);
@@ -519,20 +522,20 @@ fn demo_geo_condition() {
     };
     assert!(asia_cond.matches(&beijing_info));
     assert!(!asia_cond.matches(&us_info));
-    println!("countries([CN, JP]) 匹配 CN: true, US: false");
+    println!("countries([CN, JP]) matches CN: true, US: false");
 
     // cities 条件
     let city_cond = GeoCondition::cities(vec!["Beijing".to_string(), "Shanghai".to_string()]);
     assert!(city_cond.matches(&beijing_info));
     let empty_city_info = GeoInfo::empty();
     assert!(!city_cond.matches(&empty_city_info));
-    println!("cities([Beijing, Shanghai]) 匹配 Beijing: true, empty: false");
+    println!("cities([Beijing, Shanghai]) matches Beijing: true, empty: false");
 
     // continents 条件
     let continent_cond = GeoCondition::continents(vec!["Asia".to_string()]);
     assert!(continent_cond.matches(&beijing_info));
     assert!(!continent_cond.matches(&us_info));
-    println!("continents([Asia]) 匹配 Asia: true, non-Asia: false");
+    println!("continents([Asia]) matches Asia: true, non-Asia: false");
 
     // Default trait
     let default_cond = GeoCondition::default();
@@ -564,16 +567,18 @@ async fn demo_geo_matcher() -> Result<(), Box<dyn std::error::Error>> {
         .copied();
 
     if db_path.is_none() {
-        println!("未找到 GeoLite2 数据库文件，跳过实际 IP 查询演示");
-        println!("提示: 从 https://dev.maxmind.com/geoip/geolite2-free-geolocation-data");
-        println!("      下载 GeoLite2-City.mmdb 并放置在当前目录");
+        println!("GeoLite2 database file not found; skipping live IP lookup demo");
+        println!(
+            "Hint: download GeoLite2-City.mmdb from https://dev.maxmind.com/geoip/geolite2-free-geolocation-data"
+        );
+        println!("      and place GeoLite2-City.mmdb in the current directory");
 
         // 演示 GeoMatcher::new 的错误处理
         let result = GeoMatcher::new("nonexistent.mmdb").await;
         match result {
-            Ok(_) => println!("意外: 不存在的文件路径创建成功"),
+            Ok(_) => println!("unexpected: nonexistent file path created successfully"),
             Err(e) => println!(
-                "GeoMatcher::new('nonexistent.mmdb') 返回错误（符合预期）: {}",
+                "GeoMatcher::new('nonexistent.mmdb') returned an error as expected: {}",
                 e
             ),
         }
@@ -594,7 +599,7 @@ async fn demo_geo_matcher() -> Result<(), Box<dyn std::error::Error>> {
         // 由于无法创建 matcher，使用 GeoCondition::matches 代替演示
         let matched = condition.matches(&info);
         println!(
-            "GeoCondition::matches (静态): CN info 匹配 CN 条件 = {}",
+            "GeoCondition::matches (static): CN info matches CN condition = {}",
             matched
         );
 
@@ -603,11 +608,11 @@ async fn demo_geo_matcher() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let path = db_path.unwrap();
-    println!("找到 GeoLite2 数据库: {}", path);
+    println!("Found GeoLite2 database: {}", path);
 
     // new 创建匹配器
     let matcher = GeoMatcher::new(path).await?;
-    println!("GeoMatcher 创建成功");
+    println!("GeoMatcher created");
 
     // lookup 查询单个 IP
     let ip: IpAddr = "114.114.114.114".parse()?;
@@ -626,18 +631,18 @@ async fn demo_geo_matcher() -> Result<(), Box<dyn std::error::Error>> {
         "1.1.1.1".parse()?,
     ];
     let results = matcher.batch_lookup(&ips).await;
-    println!("批量查询 {} 个 IP:", results.len());
+    println!("Batch lookup of {} IPs:", results.len());
     for (i, result) in results.iter().enumerate() {
         match result {
             Ok(info) => println!("  [{}] {} -> {}", i, ips[i], info.description()),
-            Err(e) => println!("  [{}] {} -> 错误: {}", i, ips[i], e),
+            Err(e) => println!("  [{}] {} -> error: {}", i, ips[i], e),
         }
     }
 
     // matches_ip 检查 IP 是否匹配条件
     let cn_cond = GeoCondition::countries(vec!["CN".to_string()]);
     let matched = matcher.matches_ip(ip, &cn_cond).await?;
-    println!("114.114.114.114 匹配 CN 条件: {}", matched);
+    println!("114.114.114.114 matches CN condition: {}", matched);
 
     // matches 检查 GeoInfo 是否匹配条件
     let test_info = GeoInfo {
@@ -651,12 +656,12 @@ async fn demo_geo_matcher() -> Result<(), Box<dyn std::error::Error>> {
     };
     let us_cond = GeoCondition::countries(vec!["US".to_string()]);
     let matched2 = matcher.matches(&test_info, &us_cond);
-    println!("US info 匹配 US 条件: {}", matched2);
+    println!("US info matches US condition: {}", matched2);
 
     // cache_stats 缓存统计
     let stats: GeoCacheStats = matcher.cache_stats().await;
     println!(
-        "缓存统计: size={}, limit={}, hits={}, misses={}, hit_rate={:.2}%",
+        "Cache stats: size={}, limit={}, hits={}, misses={}, hit_rate={:.2}%",
         stats.size, stats.limit, stats.hits, stats.misses, stats.hit_rate
     );
 
@@ -664,7 +669,7 @@ async fn demo_geo_matcher() -> Result<(), Box<dyn std::error::Error>> {
     matcher.clear_cache().await;
     let stats_after: GeoCacheStats = matcher.cache_stats().await;
     println!(
-        "清空后: size={}, hits={}, misses={}",
+        "After clear: size={}, hits={}, misses={}",
         stats_after.size, stats_after.hits, stats_after.misses
     );
 

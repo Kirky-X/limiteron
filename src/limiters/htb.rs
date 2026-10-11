@@ -304,8 +304,16 @@ mod tests {
 
         assert!(htb.allow(&["api", "premium"], 40).await.unwrap());
         assert_eq!(htb.available(&["api", "premium"]).unwrap(), 60);
-        assert_eq!(htb.available(&["api"]).unwrap(), 600, "父桶未被触碰");
-        assert_eq!(htb.available(&[]).unwrap(), 1000, "根桶未被触碰");
+        assert_eq!(
+            htb.available(&["api"]).unwrap(),
+            600,
+            "the parent bucket is untouched"
+        );
+        assert_eq!(
+            htb.available(&[]).unwrap(),
+            1000,
+            "the root bucket is untouched"
+        );
     }
 
     /// 叶子耗尽 → 向父借用补齐（父扣减，叶子清零后消费）
@@ -320,7 +328,11 @@ mod tests {
 
         // 缺口 5，父桶有 50 → 借用成功
         assert!(htb.allow(&["api", "premium"], 5).await.unwrap());
-        assert_eq!(htb.available(&["api"]).unwrap(), 45, "父桶被借走 5");
+        assert_eq!(
+            htb.available(&["api"]).unwrap(),
+            45,
+            "the parent bucket lent 5"
+        );
     }
 
     /// 祖先也不足 → 全有或全无拒绝（零副作用，可重试）
@@ -353,7 +365,7 @@ mod tests {
         assert_eq!(
             htb.available(&["api", "b"]).unwrap(),
             10,
-            "兄弟桶 b 的令牌不得被 a 的借用触碰"
+            "sibling bucket b's tokens must not be touched by a's borrow"
         );
     }
 
@@ -385,7 +397,7 @@ mod tests {
         assert!(matches!(err, LimiteronError::ConfigError(_)));
         assert!(
             htb.add_class(&["a", "ghost"], 10, 10).is_err(),
-            "须先注册父类"
+            "the parent class must be registered first"
         );
     }
 
@@ -401,7 +413,7 @@ mod tests {
         assert_eq!(
             htb.available(&["api"]).unwrap(),
             10,
-            "150ms @ 100/s → 至少 10 个令牌（封顶容量）"
+            "150ms @ 100/s -> at least 10 tokens (clamped capacity)"
         );
     }
 
@@ -428,7 +440,7 @@ mod tests {
                 granted += 1;
             }
         }
-        assert_eq!(granted, 10, "预算 10：并发下不得超发");
+        assert_eq!(granted, 10, "budget 10: no over-issuance under concurrency");
         assert_eq!(htb.available(&[]).unwrap(), 0);
     }
 
@@ -454,7 +466,10 @@ mod tests {
                 granted += 1;
             }
         }
-        assert_eq!(granted, 1, "可借预算仅 10 < 需求 12：两路并发只能成功一笔");
+        assert_eq!(
+            granted, 1,
+            "borrowable budget is only 10 < required 12: only one of the two concurrent paths can succeed"
+        );
         // 成功笔借走 6（父 5 + 根 1）：祖先进剩余恰为根 4、父 0
         assert_eq!(htb.available(&["api"]).unwrap(), 0);
         assert_eq!(htb.available(&[]).unwrap(), 4);

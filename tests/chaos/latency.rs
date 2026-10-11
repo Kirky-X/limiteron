@@ -21,7 +21,10 @@ pub enum LatencyDistribution {
     /// 均匀分布 [min, max]
     Uniform { min: Duration, max: Duration },
     /// 指数分布 (平均延迟)
-    #[expect(dead_code, reason = "分布已实现采样逻辑，尚无场景构造")]
+    #[expect(
+        dead_code,
+        reason = "the distribution implements sampling logic; no scenario constructs it yet"
+    )]
     Exponential { mean: Duration },
     /// 带抖动的延迟 (基础延迟 ± 抖动范围)
     Jitter {
@@ -198,7 +201,7 @@ pub struct LatencyStats {
     /// 累计注入延迟
     #[expect(
         dead_code,
-        reason = "由 stats() 写入累计，测试仅断言 avg_latency/总次数"
+        reason = "accumulated via stats(); tests only assert avg_latency/total count"
     )]
     pub total_injected: Duration,
     /// 平均延迟
@@ -251,7 +254,10 @@ pub fn high_latency_network_partition() -> LatencyInjector {
 }
 
 /// 创建指数分布延迟 (平均100ms)
-#[expect(dead_code, reason = "便捷构造器，与 low_jitter 等同族，尚无场景调用")]
+#[expect(
+    dead_code,
+    reason = "convenience constructor, same family as low_jitter; no scenario callers yet"
+)]
 pub fn exponential_latency(mean_ms: u64) -> LatencyInjector {
     LatencyInjector::new(LatencyDistribution::Exponential {
         mean: Duration::from_millis(mean_ms),

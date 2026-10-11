@@ -369,8 +369,9 @@ mod tests {
 
     /// 创建临时 YAML 文件
     fn write_temp_yaml(content: &str) -> tempfile::NamedTempFile {
-        let mut f = tempfile::NamedTempFile::new().expect("创建临时文件失败");
-        f.write_all(content.as_bytes()).expect("写入临时文件失败");
+        let mut f = tempfile::NamedTempFile::new().expect("failed to create temp file");
+        f.write_all(content.as_bytes())
+            .expect("failed to write temp file");
         f
     }
 
@@ -379,7 +380,7 @@ mod tests {
         let storage = MemoryBanStorage::create_ban_storage();
         BanManager::with_dependencies(storage, BanManagerConfig::default())
             .await
-            .expect("创建 BanManager 失败")
+            .expect("failed to create BanManager")
     }
 
     #[test]
@@ -391,7 +392,7 @@ target:
 reason: "恶意请求"
 duration_secs: 3600
 "#;
-        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("解析失败");
+        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("parse failed");
         assert_eq!(entry.target, BanTarget::Ip("192.168.1.1".to_string()));
         assert_eq!(entry.reason, "恶意请求");
         assert_eq!(entry.duration_secs, Some(3600));
@@ -406,7 +407,7 @@ target:
     country_code: "CN"
 reason: "地区封禁"
 "#;
-        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("解析失败");
+        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("parse failed");
         assert_eq!(
             entry.target,
             BanTarget::Geo {
@@ -426,7 +427,7 @@ target:
 reason: "违规用户"
 duration_secs: 7200
 "#;
-        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("解析失败");
+        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("parse failed");
         assert_eq!(entry.target, BanTarget::UserId("user123".to_string()));
         assert_eq!(entry.duration_secs, Some(7200));
     }
@@ -439,7 +440,7 @@ target:
   value: "00:1A:2B:3C:4D:5E"
 reason: "MAC 封禁"
 "#;
-        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("解析失败");
+        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("parse failed");
         assert_eq!(
             entry.target,
             BanTarget::Mac("00:1A:2B:3C:4D:5E".to_string())
@@ -450,7 +451,7 @@ reason: "MAC 封禁"
     #[test]
     fn test_ban_file_root_default() {
         let yaml = "";
-        let file: BanFile = serde_yaml_ng::from_str(yaml).expect("解析失败");
+        let file: BanFile = serde_yaml_ng::from_str(yaml).expect("parse failed");
         assert!(file.bans.is_empty());
     }
 
@@ -467,7 +468,7 @@ bans:
       value: "u1"
     reason: "test2"
 "#;
-        let file: BanFile = serde_yaml_ng::from_str(yaml).expect("解析失败");
+        let file: BanFile = serde_yaml_ng::from_str(yaml).expect("parse failed");
         assert_eq!(file.bans.len(), 2);
         assert_eq!(file.bans[0].reason, "test1");
         assert_eq!(file.bans[1].reason, "test2");
@@ -491,7 +492,7 @@ bans:
         let manager = make_manager().await;
         let loader = BanFileLoader::new(file.path());
 
-        let result = loader.load_once(&manager).await.expect("加载失败");
+        let result = loader.load_once(&manager).await.expect("load failed");
         assert_eq!(result.success_count, 2);
         assert_eq!(result.failure_count, 0);
         assert!(result.errors.is_empty());
@@ -500,7 +501,7 @@ bans:
         let ban = manager
             .read_ban(&BanTarget::Ip("192.168.1.1".to_string()))
             .await
-            .expect("查询失败");
+            .expect("query failed");
         assert!(ban.is_some());
     }
 
@@ -510,7 +511,7 @@ bans:
         let manager = make_manager().await;
         let loader = BanFileLoader::new(file.path());
 
-        let result = loader.load_once(&manager).await.expect("加载失败");
+        let result = loader.load_once(&manager).await.expect("load failed");
         assert_eq!(result.success_count, 0);
         assert_eq!(result.failure_count, 0);
     }
@@ -527,7 +528,7 @@ bans:
         assert!(
             err.contains("Failed to read ban file metadata")
                 || err.contains("Failed to read ban file"),
-            "错误信息: {}",
+            "error message: {}",
             err
         );
     }
@@ -544,7 +545,7 @@ bans:
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("Failed to parse ban file YAML"),
-            "错误信息: {}",
+            "error message: {}",
             err
         );
     }
@@ -568,7 +569,7 @@ bans:
         let manager = make_manager().await;
         let loader = BanFileLoader::new(file.path());
 
-        let result = loader.load_once(&manager).await.expect("加载失败");
+        let result = loader.load_once(&manager).await.expect("load failed");
         assert_eq!(result.success_count, 1);
         assert_eq!(result.failure_count, 1);
         assert_eq!(result.errors.len(), 1);
@@ -590,7 +591,7 @@ bans:
         let manager = make_manager().await;
         let loader = BanFileLoader::new(file.path());
 
-        let result = loader.load_once(&manager).await.expect("加载失败");
+        let result = loader.load_once(&manager).await.expect("load failed");
         assert_eq!(result.success_count, 1);
         assert_eq!(result.failure_count, 0);
 
@@ -599,7 +600,7 @@ bans:
                 country_code: "CN".to_string(),
             })
             .await
-            .expect("查询失败");
+            .expect("query failed");
         assert!(ban.is_some());
     }
 
@@ -618,7 +619,7 @@ bans:
         let manager = make_manager().await;
         let loader = BanFileLoader::new(file.path());
 
-        let result = loader.load_once(&manager).await.expect("加载失败");
+        let result = loader.load_once(&manager).await.expect("load failed");
         assert_eq!(result.success_count, 0);
         assert_eq!(result.failure_count, 1);
     }
@@ -638,10 +639,13 @@ bans:
         let manager = make_manager().await;
         let loader = BanFileLoader::new(file.path());
 
-        let r1 = loader.load_once(&manager).await.expect("第一次加载失败");
+        let r1 = loader.load_once(&manager).await.expect("first load failed");
         assert_eq!(r1.success_count, 1);
 
-        let r2 = loader.load_once(&manager).await.expect("第二次加载失败");
+        let r2 = loader
+            .load_once(&manager)
+            .await
+            .expect("second load failed");
         assert_eq!(r2.success_count, 1);
 
         // 验证封禁仍存在。幂等修复后：同 target + 同 reason
@@ -650,8 +654,8 @@ bans:
         let ban = manager
             .read_ban(&BanTarget::Ip("10.0.0.1".to_string()))
             .await
-            .expect("查询失败")
-            .expect("封禁应存在");
+            .expect("query failed")
+            .expect("ban should exist");
         assert_eq!(ban.ban_times, 1);
     }
 
@@ -692,14 +696,14 @@ bans:
         let loader = Arc::new(BanFileLoader::new(file.path()));
 
         // 初始加载
-        let r = loader.load_once(&manager).await.expect("加载失败");
+        let r = loader.load_once(&manager).await.expect("load failed");
         assert_eq!(r.success_count, 1);
 
         // 启动监听
         loader
             .start_watching(manager.clone())
             .await
-            .expect("启动监听失败");
+            .expect("failed to start watcher");
 
         // 等待监听就绪
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -716,7 +720,7 @@ bans:
       value: "10.0.0.2"
     reason: "新增封禁"
 "#;
-        std::fs::write(file.path(), new_yaml).expect("写入失败");
+        std::fs::write(file.path(), new_yaml).expect("write failed");
 
         // 等待 notify 触发 + 重载完成
         tokio::time::sleep(Duration::from_secs(3)).await;
@@ -725,8 +729,11 @@ bans:
         let ban = manager
             .read_ban(&BanTarget::Ip("10.0.0.2".to_string()))
             .await
-            .expect("查询失败");
-        assert!(ban.is_some(), "热重载后应能查到新封禁");
+            .expect("query failed");
+        assert!(
+            ban.is_some(),
+            "the new ban must be queryable after hot reload"
+        );
 
         // 停止监听
         loader.stop_watching().await;
@@ -744,31 +751,31 @@ bans:
         let err = loader
             .load_once(&manager)
             .await
-            .expect_err("缺失文件必须报错");
+            .expect_err("missing file must error");
         assert!(
             matches!(err, LimiteronError::ConfigError(_)),
-            "应为 ConfigError: {err:?}"
+            "should be ConfigError: {err:?}"
         );
     }
 
     /// 超大文件必须在读取前被拒绝（YAML 炸弹/内存放大防线）
     #[tokio::test]
     async fn test_load_once_rejects_oversized_file() {
-        let mut f = tempfile::NamedTempFile::new().expect("临时文件");
+        let mut f = tempfile::NamedTempFile::new().expect("temp file");
         // >2MB 上限：填充合法但超长的 YAML 注释即可触发大小预检
         let pad = "x".repeat(2 * 1024 * 1024 + 16);
         f.write_all(format!("# {pad}\nbans: []\n").as_bytes())
-            .expect("写入失败");
-        f.flush().expect("flush 失败");
+            .expect("write failed");
+        f.flush().expect("flush failed");
         let loader = BanFileLoader::new(f.path());
         let manager = make_manager().await;
         let err = loader
             .load_once(&manager)
             .await
-            .expect_err("超大文件必须被拒绝");
+            .expect_err("oversized file must be rejected");
         assert!(
             matches!(err, LimiteronError::ConfigError(_)),
-            "应为 ConfigError: {err:?}"
+            "should be ConfigError: {err:?}"
         );
     }
 
@@ -780,7 +787,7 @@ bans:
         let manager = make_manager().await;
         assert!(
             loader.load_once(&manager).await.is_err(),
-            "非法 YAML 必须报错"
+            "invalid YAML must error"
         );
     }
 
@@ -804,18 +811,30 @@ bans:
         let f = write_temp_yaml(yaml);
         let loader = BanFileLoader::new(f.path());
         let manager = make_manager().await;
-        let res = loader.load_once(&manager).await.expect("整体应成功返回");
-        assert_eq!(res.success_count, 1, "合法条目应成功: {res:?}");
-        assert_eq!(res.failure_count, 1, "非法条目应计入失败: {res:?}");
+        let res = loader
+            .load_once(&manager)
+            .await
+            .expect("the whole load should succeed");
+        assert_eq!(
+            res.success_count, 1,
+            "valid entries should succeed: {res:?}"
+        );
+        assert_eq!(
+            res.failure_count, 1,
+            "invalid entries should count as failures: {res:?}"
+        );
         assert_eq!(res.errors.len(), 1);
-        assert!(!res.errors[0].error.is_empty(), "失败原因不得为空");
+        assert!(
+            !res.errors[0].error.is_empty(),
+            "the failure reason must not be empty"
+        );
 
         // 成功条目确实落到封禁存储中
         let ban = manager
             .is_banned(&BanTarget::Ip("203.0.113.7".to_string()))
             .await
-            .expect("查询封禁");
-        assert!(ban.is_some(), "成功加载的封禁必须可查");
+            .expect("query ban");
+        assert!(ban.is_some(), "a successfully loaded ban must be queryable");
     }
 
     /// 空清单是合法输入（0 条），与"文件不可用"必须可区分。
@@ -824,7 +843,10 @@ bans:
         let f = write_temp_yaml("bans: []\n");
         let loader = BanFileLoader::new(f.path());
         let manager = make_manager().await;
-        let res = loader.load_once(&manager).await.expect("空清单应成功");
+        let res = loader
+            .load_once(&manager)
+            .await
+            .expect("an empty list should succeed");
         assert_eq!((res.success_count, res.failure_count), (0, 0));
     }
 }

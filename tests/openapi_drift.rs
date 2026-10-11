@@ -18,15 +18,16 @@ fn openapi_artifact_matches_document() {
     let path = PathBuf::from(PRODUCED_AT);
 
     if std::env::var("UPDATE_OPENAPI").is_ok() {
-        std::fs::write(&path, &expected).unwrap_or_else(|e| panic!("重写产物失败 {path:?}: {e}"));
-        println!("openapi.json 已重写（{} bytes）", expected.len());
+        std::fs::write(&path, &expected)
+            .unwrap_or_else(|e| panic!("failed to rewrite artifact {path:?}: {e}"));
+        println!("openapi.json rewritten ({} bytes)", expected.len());
         return;
     }
 
-    let actual =
-        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("读取产物失败 {path:?}: {e}"));
+    let actual = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read artifact {path:?}: {e}"));
     assert_eq!(
         actual, expected,
-        "docs/openapi.json 与内存文档漂移；契约变更后以 UPDATE_OPENAPI=1 重写产物并人工复核 diff"
+        "docs/openapi.json has drifted from the in-memory document; after a contract change rewrite it with UPDATE_OPENAPI=1 and review the diff"
     );
 }

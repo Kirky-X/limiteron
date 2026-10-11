@@ -304,7 +304,7 @@ mod tests {
         let key_injected = ns_injected.qualify_key("user");
         assert_ne!(
             key_normal, key_injected,
-            "environment 中的 ':' 必须被转义，防止 qualified key 冲突"
+            "the ':' in environment must be escaped to prevent qualified key conflicts"
         );
     }
 
@@ -318,7 +318,7 @@ mod tests {
         assert_ne!(
             ns_injected_tenant.prefix(),
             ns_injected_env.prefix(),
-            "tenant_id 中的 ':' 必须被转义，防止 prefix 冲突"
+            "the ':' in tenant_id must be escaped to prevent prefix conflicts"
         );
     }
 

@@ -125,10 +125,14 @@ async fn test_t615_throttle_queues_until_token_refills() {
     let start = std::time::Instant::now();
     let r = t615_queued_call().await;
     let elapsed = start.elapsed();
-    assert_eq!(r.unwrap(), "ok", "排队后应成功获得补充的令牌");
+    assert_eq!(
+        r.unwrap(),
+        "ok",
+        "should get replenished tokens after queueing"
+    );
     assert!(
         elapsed >= std::time::Duration::from_millis(200),
-        "第 2 次调用必须经历排队等待（实际 {:?}）",
+        "second call must go through queue wait (actual {:?})",
         elapsed
     );
 }
@@ -141,6 +145,6 @@ async fn test_t615_throttle_times_out_with_throttled_error() {
     let err = t615_short_queue_call().await.unwrap_err();
     assert!(
         matches!(err, limiteron::LimiteronError::Throttled(_)),
-        "队列超时必须返回 Throttled，实际: {err}"
+        "queue timeout must return Throttled, actual: {err}"
     );
 }

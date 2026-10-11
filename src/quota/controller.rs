@@ -1226,7 +1226,7 @@ mod tests {
         let skew = wall_secs.abs_diff(clock_secs);
         assert!(
             skew < 5,
-            "SystemClock 应与系统墙钟同源，偏差须 < 5s, got {skew}s"
+            "SystemClock must be the same source as the system wall clock, skew must be < 5s, got {skew}s"
         );
 
         // builder 显式注入 MockClock 同样可观测
@@ -1265,9 +1265,9 @@ mod tests {
         let controller = QuotaController::with_dependencies(storage, config);
 
         let r1 = controller.consume("a:b", "resource", 1).await;
-        assert!(r1.is_err(), "user_id 含 ':' 必须被拒绝");
+        assert!(r1.is_err(), "user_id containing ':' must be rejected");
         let r2 = controller.consume("user", "re:source", 1).await;
-        assert!(r2.is_err(), "resource 含 ':' 必须被拒绝");
+        assert!(r2.is_err(), "resource containing ':' must be rejected");
 
         // 合法输入不受影响
         assert!(controller.consume("user", "resource", 1).await.is_ok());
@@ -1654,17 +1654,23 @@ mod tests {
 
         // 消费恰好 100 个配额（达到上限）
         let result = controller.consume("user1", "resource1", 100).await.unwrap();
-        assert!(result.allowed, "消费恰好达到上限应该被允许");
-        assert_eq!(result.remaining, 0, "剩余配额应该为 0");
+        assert!(
+            result.allowed,
+            "consuming exactly up to the limit should be allowed"
+        );
+        assert_eq!(result.remaining, 0, "the remaining quota should be 0");
 
         // 尝试消费 1 个配额，应该被拒绝
         let result = controller.consume("user1", "resource1", 1).await.unwrap();
-        assert!(!result.allowed, "超过上限应该被拒绝");
-        assert_eq!(result.remaining, 0, "拒绝时剩余配额应该为 0");
+        assert!(!result.allowed, "exceeding the limit should be rejected");
+        assert_eq!(
+            result.remaining, 0,
+            "the remaining quota should be 0 on rejection"
+        );
 
         // 尝试消费 0 个配额，应该被允许
         let result = controller.consume("user1", "resource1", 0).await.unwrap();
-        assert!(result.allowed, "消费 0 应该被允许");
+        assert!(result.allowed, "consuming 0 should be allowed");
     }
 
     /// 测试配额重置后可以重新消费
@@ -1699,8 +1705,11 @@ mod tests {
 
         // 重置后应该可以重新消费
         let result = controller.consume("user1", "resource1", 30).await.unwrap();
-        assert!(result.allowed, "重置后应该可以消费");
-        assert_eq!(result.remaining, 20, "重置后剩余配额应该正确");
+        assert!(result.allowed, "consumption should be possible after reset");
+        assert_eq!(
+            result.remaining, 20,
+            "the remaining quota should be correct after reset"
+        );
     }
 
     // ========================================================================
@@ -1738,8 +1747,14 @@ mod tests {
         // 第二轮消费 - 窗口应该已重置：固定窗口整窗清零，
         // 上一窗 50 全部过期，本窗消费 60 后剩余精确为 100-60=40
         let result = controller.consume("user1", "resource1", 60).await.unwrap();
-        assert!(result.allowed, "窗口重置后应该可以消费");
-        assert_eq!(result.remaining, 40, "窗口重置后剩余应为 100-60=40");
+        assert!(
+            result.allowed,
+            "consumption should be possible after the window resets"
+        );
+        assert_eq!(
+            result.remaining, 40,
+            "the remaining quota after the window resets should be 100-60=40"
+        );
     }
 
     /// 测试透支功能 - 边界条件
@@ -1768,12 +1783,18 @@ mod tests {
 
         // 消费透支额度
         let result = controller.consume("user1", "resource1", 20).await.unwrap();
-        assert!(result.allowed, "透支额度内应该被允许");
+        assert!(
+            result.allowed,
+            "within the overdraft limit it should be allowed"
+        );
         assert_eq!(result.remaining, 0);
 
         // 超过透支上限
         let result = controller.consume("user1", "resource1", 1).await.unwrap();
-        assert!(!result.allowed, "超过透支上限应该被拒绝");
+        assert!(
+            !result.allowed,
+            "exceeding the overdraft ceiling should be rejected"
+        );
     }
 
     /// 测试透支功能 - 不同透支百分比
@@ -1801,11 +1822,17 @@ mod tests {
 
         // 消费透支额度 (10)
         let result = controller.consume("user1", "resource1", 10).await.unwrap();
-        assert!(result.allowed, "10% 透支额度内应该被允许");
+        assert!(
+            result.allowed,
+            "within the 10% overdraft limit it should be allowed"
+        );
 
         // 超过透支上限
         let result = controller.consume("user1", "resource1", 1).await.unwrap();
-        assert!(!result.allowed, "超过 10% 透支上限应该被拒绝");
+        assert!(
+            !result.allowed,
+            "exceeding the 10% overdraft ceiling should be rejected"
+        );
     }
 
     /// 测试多级告警触发 - 所有阈值
@@ -1833,7 +1860,10 @@ mod tests {
         // 消费 50% - 应该触发 50% 告警
         let result = controller.consume("user1", "resource1", 50).await.unwrap();
         assert!(result.allowed);
-        assert!(result.alert_triggered, "达到 50% 应该触发告警");
+        assert!(
+            result.alert_triggered,
+            "reaching 50% should trigger the alert"
+        );
 
         // 虚拟推进越过去重窗口（1s），替代真实 sleep 1100ms
         mock.advance(std::time::Duration::from_millis(1100));
@@ -1842,7 +1872,10 @@ mod tests {
         // 消费到 75% - 应该触发 75% 告警
         let result = controller.consume("user1", "resource1", 25).await.unwrap();
         assert!(result.allowed);
-        assert!(result.alert_triggered, "达到 75% 应该触发告警");
+        assert!(
+            result.alert_triggered,
+            "reaching 75% should trigger the alert"
+        );
 
         // 虚拟推进越过去重窗口（1s），替代真实 sleep 1100ms
         mock.advance(std::time::Duration::from_millis(1100));
@@ -1851,7 +1884,10 @@ mod tests {
         // 消费到 90% - 应该触发 90% 告警
         let result = controller.consume("user1", "resource1", 15).await.unwrap();
         assert!(result.allowed);
-        assert!(result.alert_triggered, "达到 90% 应该触发告警");
+        assert!(
+            result.alert_triggered,
+            "reaching 90% should trigger the alert"
+        );
 
         // 虚拟推进越过去重窗口（1s），替代真实 sleep 1100ms
         mock.advance(std::time::Duration::from_millis(1100));
@@ -1860,7 +1896,10 @@ mod tests {
         // 消费到 100% - 应该触发 100% 告警
         let result = controller.consume("user1", "resource1", 10).await.unwrap();
         assert!(result.allowed);
-        assert!(result.alert_triggered, "达到 100% 应该触发告警");
+        assert!(
+            result.alert_triggered,
+            "reaching 100% should trigger the alert"
+        );
     }
 
     /// 测试告警去重 - 同一阈值不重复触发
@@ -1885,15 +1924,24 @@ mod tests {
 
         // 第一次消费到 80% - 触发告警
         let result = controller.consume("user1", "resource1", 80).await.unwrap();
-        assert!(result.alert_triggered, "首次达到阈值应该触发告警");
+        assert!(
+            result.alert_triggered,
+            "reaching the threshold the first time should trigger the alert"
+        );
 
         // 继续消费到 85% - 不应该触发告警（去重）
         let result = controller.consume("user1", "resource1", 5).await.unwrap();
-        assert!(!result.alert_triggered, "同一去重窗口内不应该重复触发告警");
+        assert!(
+            !result.alert_triggered,
+            "the alert must not trigger twice within the same dedup window"
+        );
 
         // 继续消费到 90% - 不应该触发告警（去重）
         let result = controller.consume("user1", "resource1", 5).await.unwrap();
-        assert!(!result.alert_triggered, "同一去重窗口内不应该重复触发告警");
+        assert!(
+            !result.alert_triggered,
+            "the alert must not trigger twice within the same dedup window"
+        );
     }
 
     /// 测试告警禁用
@@ -1919,7 +1967,10 @@ mod tests {
         // 消费到 100% - 不应该触发告警
         let result = controller.consume("user1", "resource1", 100).await.unwrap();
         assert!(result.allowed);
-        assert!(!result.alert_triggered, "告警禁用时不应该触发告警");
+        assert!(
+            !result.alert_triggered,
+            "the alert must not trigger when alerts are disabled"
+        );
     }
 
     // ========================================================================
@@ -1949,7 +2000,7 @@ mod tests {
             .consume("user1", "resource1", u64::MAX)
             .await
             .unwrap();
-        assert!(!result.allowed, "超大消费数应该被拒绝");
+        assert!(!result.allowed, "an oversized consumption must be rejected");
     }
 
     /// 测试大消费数处理 - 接近限制
@@ -1975,7 +2026,10 @@ mod tests {
             .consume("user1", "resource1", u32::MAX as u64 - 1)
             .await
             .unwrap();
-        assert!(result.allowed, "接近限制的消费应该被允许");
+        assert!(
+            result.allowed,
+            "consumption near the limit should be allowed"
+        );
         assert_eq!(result.remaining, 1);
 
         // 再消费 1 个
@@ -2007,7 +2061,7 @@ mod tests {
         assert!(result.allowed);
         assert!(
             (result.usage_percent - 25.0).abs() < 0.1,
-            "使用率应该是 25%，实际是 {}%",
+            "the usage rate should be 25%, got {}%",
             result.usage_percent
         );
 
@@ -2016,7 +2070,7 @@ mod tests {
         assert!(result.allowed);
         assert!(
             (result.usage_percent - 50.0).abs() < 0.1,
-            "使用率应该是 50%，实际是 {}%",
+            "the usage rate should be 50%, got {}%",
             result.usage_percent
         );
 
@@ -2025,7 +2079,7 @@ mod tests {
         assert!(result.allowed);
         assert!(
             (result.usage_percent - 75.0).abs() < 0.1,
-            "使用率应该是 75%，实际是 {}%",
+            "the usage rate should be 75%, got {}%",
             result.usage_percent
         );
 
@@ -2034,7 +2088,7 @@ mod tests {
         assert!(result.allowed);
         assert!(
             (result.usage_percent - 100.0).abs() < 0.1,
-            "使用率应该是 100%，实际是 {}%",
+            "the usage rate should be 100%, got {}%",
             result.usage_percent
         );
     }
@@ -2061,7 +2115,10 @@ mod tests {
         let result = controller.consume("user1", "resource1", 0).await.unwrap();
         assert!(result.allowed);
         // 零限制时，usage_percent 应该返回 0.0（根据 calculate_usage_percent 实现）
-        assert_eq!(result.usage_percent, 0.0, "零限制且零消费时使用率应该是 0%");
+        assert_eq!(
+            result.usage_percent, 0.0,
+            "the usage rate should be 0% with zero limit and zero consumption"
+        );
     }
 
     /// 测试并发消费安全性 - 高并发场景
@@ -2110,18 +2167,18 @@ mod tests {
         // 1. 总消费量不应该超过限制
         assert!(
             total_consumed <= 1000,
-            "总消费量 {} 不应该超过限制 1000",
+            "total consumption {} must not exceed the limit 1000",
             total_consumed
         );
 
         // 2. 应该有部分请求被拒绝
-        assert!(denied_count > 0, "应该有部分请求被拒绝");
+        assert!(denied_count > 0, "some requests should be rejected");
 
         // 3. 允许的请求数 * 15 应该等于总消费量
         assert_eq!(
             allowed_count * 15,
             total_consumed as usize,
-            "允许的请求数与总消费量应该一致"
+            "the allowed request count must agree with the total consumption"
         );
     }
 
@@ -2172,7 +2229,7 @@ mod tests {
             if let Some(state) = state {
                 assert!(
                     state.consumed <= 100,
-                    "用户 {} 的消费量 {} 不应该超过限制 100",
+                    "consumption for user {} of {} must not exceed the limit 100",
                     user_id,
                     state.consumed
                 );
@@ -2210,7 +2267,7 @@ mod tests {
         // 零消费不会创建配额状态
         assert!(
             state.is_none() || state.unwrap().consumed == 0,
-            "零消费不应该增加消费量"
+            "zero consumption must not increase consumption"
         );
     }
 
@@ -2359,7 +2416,7 @@ mod tests {
         // 克隆体 drop 后：原始实例的后台任务停止信号必须仍未触发
         assert!(
             !controller.cleanup_token.is_cancelled(),
-            "克隆体 drop 不应取消原始实例的后台清理任务"
+            "a drop of a clone must not cancel the background cleanup task of the original instance"
         );
 
         // 原始实例继续可用
@@ -2369,7 +2426,10 @@ mod tests {
         // 最后一个句柄 drop → 取消信号触发
         let token = controller.cleanup_token.clone();
         drop(controller);
-        assert!(token.is_cancelled(), "最后一个句柄 drop 应取消后台任务");
+        assert!(
+            token.is_cancelled(),
+            "a drop of the last handle must cancel the background task"
+        );
     }
 
     /// 测试 QuotaControllerBuilder 的 Default 实现
@@ -2643,7 +2703,7 @@ mod tests {
         assert_eq!(
             (s1.consumed, s2.consumed),
             (1, 7),
-            "两个租户下同名 u1 的用量必须各自独立记账"
+            "usage of the same-named u1 under two tenants must be accounted independently"
         );
 
         // 4) 重置只影响目标租户
@@ -2657,7 +2717,10 @@ mod tests {
             .await
             .expect("get t1 after reset");
         if let Some(state) = after_reset {
-            assert_eq!(state.consumed, 0, "重置后不得残留原用量");
+            assert_eq!(
+                state.consumed, 0,
+                "the original usage must not remain after reset"
+            );
         }
         assert!(
             controller
@@ -2669,9 +2732,15 @@ mod tests {
 
         // 5) 键构造与 sanitize：租户段经 sanitize_tenant_id，避免分隔符注入
         let key = QuotaController::tenant_user_key("t1", "u1");
-        assert!(key.starts_with("t:"), "限定键需 t: 前缀: {key}");
+        assert!(
+            key.starts_with("t:"),
+            "the qualified key needs the t: prefix: {key}"
+        );
         assert!(key.contains("u1"));
-        assert_ne!(key, "t1:u1", "不得与裸拼接键同形");
+        assert_ne!(
+            key, "t1:u1",
+            "must not take the same shape as the bare concatenated key"
+        );
 
         // 6) 私有校验函数的直接契约（含全通过路径）
         assert!(QuotaController::validate_tenant_quota_args("t", "u", "r").is_ok());

@@ -321,7 +321,7 @@ mod tests {
         while !cond() {
             assert!(
                 tokio::time::Instant::now() < deadline,
-                "5s 内未收到同步消息"
+                "no sync message received within 5s"
             );
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
@@ -383,7 +383,10 @@ mod tests {
 
         // 等过轮询窗口：消息已送达但必须被豁免
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        assert!(applier_a.bans.lock().is_empty(), "自身实例的消息必须被豁免");
+        assert!(
+            applier_a.bans.lock().is_empty(),
+            "messages from the own instance must be exempted"
+        );
 
         listener_a.stop();
         listener_a.join().await;
@@ -477,7 +480,10 @@ mod tests {
             &stop,
         )
         .await;
-        assert!(rx.is_some(), "两次故障后应恢复订阅");
+        assert!(
+            rx.is_some(),
+            "the subscription should recover after two failures"
+        );
 
         // 恢复后的通道真实可用：发布即达
         transport
@@ -487,7 +493,7 @@ mod tests {
             .unwrap();
         let payload = tokio::time::timeout(std::time::Duration::from_secs(1), rx.unwrap().recv())
             .await
-            .expect("1s 内应收到消息");
+            .expect("a message should arrive within 1s");
         assert_eq!(payload, Some("hello".to_string()));
     }
 
@@ -518,8 +524,8 @@ mod tests {
 
         let result = tokio::time::timeout(std::time::Duration::from_secs(3), handle)
             .await
-            .expect("stop 后重连循环必须退出")
+            .expect("the reconnect loop must exit after stop")
             .unwrap();
-        assert!(result.is_none(), "stop 后应返回 None");
+        assert!(result.is_none(), "should return None after stop");
     }
 }

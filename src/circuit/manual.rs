@@ -363,15 +363,21 @@ mod tests {
         let interval = config.half_open_interval;
         let (cb, clock) = mock_breaker(config);
 
-        assert!(cb.admit().await, "Closed 态必须放行");
+        assert!(cb.admit().await, "Closed state must admit");
 
         for _ in 0..2 {
             cb.record_failure().await;
         }
-        assert!(!cb.admit().await, "Open 冷却未到期必须拒绝");
+        assert!(
+            !cb.admit().await,
+            "must reject before the Open cooldown expires"
+        );
 
         clock.advance(interval + Duration::from_millis(50));
-        assert!(cb.admit().await, "冷却到期进 HalfOpen 后放行探针");
+        assert!(
+            cb.admit().await,
+            "after cooldown into HalfOpen, admit the probe"
+        );
     }
 
     #[tokio::test]

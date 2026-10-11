@@ -53,7 +53,7 @@ fn demo_config_builder() {
     // 默认配置
     let default_config = TelemetryConfig::default();
     println!(
-        "默认配置: service={}, prometheus_enabled={}, tracing_enabled={}",
+        "Default config: service={}, prometheus_enabled={}, tracing_enabled={}",
         default_config.service_name,
         default_config.enable_prometheus,
         default_config.enable_tracing
@@ -62,7 +62,7 @@ fn demo_config_builder() {
     // 自定义服务名
     let config = TelemetryConfig::new("my-api-service");
     println!(
-        "自定义服务名: service={}, sampling_rate={}",
+        "Custom service name: service={}, sampling_rate={}",
         config.service_name, config.sampling_rate
     );
 
@@ -72,7 +72,7 @@ fn demo_config_builder() {
         .with_prometheus(9091)
         .with_sampling_rate(0.5);
     println!(
-        "完整配置: service={}, jaeger={:?}, prometheus_port={}, sampling_rate={}",
+        "Full config: service={}, jaeger={:?}, prometheus_port={}, sampling_rate={}",
         full_config.service_name,
         full_config.jaeger_endpoint,
         full_config.prometheus_port,
@@ -84,7 +84,7 @@ fn demo_config_builder() {
     assert_eq!(clamped.sampling_rate, 1.0);
     let clamped_low = TelemetryConfig::new("test").with_sampling_rate(-0.5);
     assert_eq!(clamped_low.sampling_rate, 0.0);
-    println!("采样率 clamp 验证通过: 2.0 -> 1.0, -0.5 -> 0.0");
+    println!("Sampling rate clamp verified: 2.0 -> 1.0, -0.5 -> 0.0");
 
     println!();
 }
@@ -97,10 +97,13 @@ async fn demo_init_telemetry() -> Result<(), Box<dyn std::error::Error>> {
     let config = TelemetryConfig::new("demo-service");
     let (metrics, tracer) = init_telemetry(&config).await?;
     println!(
-        "默认初始化: tracer_enabled={}, metrics_type=noop",
+        "Default init: tracer_enabled={}, metrics_type=noop",
         tracer.is_enabled()
     );
-    assert!(!tracer.is_enabled(), "默认配置应禁用追踪");
+    assert!(
+        !tracer.is_enabled(),
+        "tracing should be disabled by default"
+    );
 
     // 启用追踪（通过 with_jaeger 自动设置 enable_tracing=true）
     // 简化模式下不实际连接 Jaeger 服务，仅初始化 tracing subscriber
@@ -108,12 +111,18 @@ async fn demo_init_telemetry() -> Result<(), Box<dyn std::error::Error>> {
         .with_sampling_rate(0.1)
         .with_jaeger("http://localhost:14268/api/traces");
     let (_metrics2, tracer2) = init_telemetry(&tracing_config).await?;
-    println!("启用追踪后: tracer_enabled={}", tracer2.is_enabled());
-    assert!(tracer2.is_enabled(), "启用追踪后 tracer 应为 enabled");
+    println!(
+        "After enabling tracing: tracer_enabled={}",
+        tracer2.is_enabled()
+    );
+    assert!(
+        tracer2.is_enabled(),
+        "tracer should be enabled after enabling"
+    );
 
     // 验证 Metrics 可用
     let _metrics3 = Metrics::new();
-    println!("Metrics::new() 调用成功");
+    println!("Metrics::new() call succeeded");
 
     // 验证 Tracer::new
     let enabled_tracer = Tracer::new(true);
@@ -139,13 +148,13 @@ async fn demo_tracer_and_span() -> Result<(), Box<dyn std::error::Error>> {
 
     // 创建 span
     let span = tracer.start_span("demo_operation");
-    println!("Span 创建成功");
+    println!("Span created");
 
     // 设置属性
     span.set_attribute("service.name", "demo-service");
     span.set_attribute("request.id", "req-12345");
     span.set_attribute("user.id", "user-67890");
-    println!("已设置 3 个属性");
+    println!("Set 3 attributes");
 
     // 添加事件
     span.add_event(
@@ -156,11 +165,11 @@ async fn demo_tracer_and_span() -> Result<(), Box<dyn std::error::Error>> {
         "cache_miss",
         vec![("key".to_string(), "user:profile".to_string())],
     );
-    println!("已添加 2 个事件");
+    println!("Added 2 events");
 
     // 记录错误（演示用，实际操作成功）
     span.record_error("connection_timeout");
-    println!("已记录错误: connection_timeout");
+    println!("Recorded error: connection_timeout");
 
     // 读取 span 信息（必须在 finish 前读取，因为 finish 消费 span）
     let attributes = span.attributes();
@@ -169,7 +178,7 @@ async fn demo_tracer_and_span() -> Result<(), Box<dyn std::error::Error>> {
     let elapsed = span.elapsed();
 
     println!(
-        "Span 信息: attributes_count={}, events_count={}, error={:?}, has_elapsed={}",
+        "Span info: attributes_count={}, events_count={}, error={:?}, has_elapsed={}",
         attributes.len(),
         events.len(),
         error,
@@ -178,17 +187,17 @@ async fn demo_tracer_and_span() -> Result<(), Box<dyn std::error::Error>> {
 
     // 打印属性详情
     for (key, value) in &attributes {
-        println!("  属性: {} = {}", key, value);
+        println!("  attr: {} = {}", key, value);
     }
 
     // 打印事件详情
     for (name, event_attrs) in &events {
-        println!("  事件: {} ({} 个属性)", name, event_attrs.len());
+        println!("  event: {} ({} attrs)", name, event_attrs.len());
     }
 
     // 结束 span（消耗 span）
     span.finish();
-    println!("Span 已结束");
+    println!("Span ended");
 
     // 禁用的 tracer 创建的 span
     let disabled_tracer = Tracer::new(false);
@@ -203,14 +212,23 @@ async fn demo_tracer_and_span() -> Result<(), Box<dyn std::error::Error>> {
     let disabled_events = disabled_span.events();
     let disabled_error = disabled_span.error();
     println!(
-        "禁用 Span: attributes={}, events={}, error={:?}",
+        "Disabled span: attributes={}, events={}, error={:?}",
         disabled_attrs.len(),
         disabled_events.len(),
         disabled_error
     );
-    assert!(disabled_attrs.is_empty(), "禁用 span 不应有属性");
-    assert!(disabled_events.is_empty(), "禁用 span 不应有事件");
-    assert!(disabled_error.is_none(), "禁用 span 不应有错误");
+    assert!(
+        disabled_attrs.is_empty(),
+        "disabled span should have no attributes"
+    );
+    assert!(
+        disabled_events.is_empty(),
+        "disabled span should have no events"
+    );
+    assert!(
+        disabled_error.is_none(),
+        "disabled span should have no error"
+    );
     disabled_span.finish();
 
     println!();
@@ -227,45 +245,45 @@ async fn demo_metrics_recording() -> Result<(), Box<dyn std::error::Error>> {
     metrics.record_check(Duration::from_millis(5), true);
     metrics.record_check(Duration::from_millis(3), true);
     metrics.record_check(Duration::from_millis(10), true);
-    println!("记录 3 次允许的检查");
+    println!("Recording 3 allowed checks");
 
     // 记录检查操作（拒绝）
     metrics.record_check(Duration::from_millis(8), false);
     metrics.record_check(Duration::from_millis(15), false);
-    println!("记录 2 次拒绝的检查");
+    println!("Recording 2 rejected checks");
 
     // 记录错误
     metrics.record_error("storage_error");
     metrics.record_error("timeout_error");
     metrics.record_error("permission_denied");
-    println!("记录 3 次错误");
+    println!("Recording 3 errors");
 
     // 记录封禁
     metrics.record_ban();
     metrics.record_ban();
-    println!("记录 2 次封禁");
+    println!("Recording 2 bans");
 
     // 更新配额使用率
     metrics.update_quota_usage(75.5);
-    println!("更新配额使用率: 75.5%");
+    println!("Updating quota usage: 75.5%");
 
     // 更新并发连接数
     metrics.update_concurrent_connections(42);
-    println!("更新并发连接数: 42");
+    println!("Updating concurrent connections: 42");
 
     // 更新令牌桶令牌数
     metrics.update_token_bucket_tokens(95.0);
-    println!("更新令牌桶令牌数: 95.0");
+    println!("Updating token bucket tokens: 95.0");
 
     // 更新滑动窗口请求数
     metrics.update_sliding_window_requests(128.0);
-    println!("更新滑动窗口请求数: 128.0");
+    println!("Updating sliding window requests: 128.0");
 
     // 更新固定窗口请求数
     metrics.update_fixed_window_requests(256.0);
-    println!("更新固定窗口请求数: 256.0");
+    println!("Updating fixed window requests: 256.0");
 
-    println!("所有指标记录方法调用成功");
+    println!("All metric recording methods succeeded");
     println!();
     Ok(())
 }
@@ -290,13 +308,18 @@ async fn demo_metrics_gather() -> Result<(), Box<dyn std::error::Error>> {
     // 在无 prometheus feature 时，gather() 返回空字符串
     // 在有 prometheus feature 时，返回 Prometheus 格式文本
     if gathered.is_empty() {
-        println!("Metrics gather 返回空（prometheus feature 未启用，使用无操作实现）");
-        println!("提示: 使用 --features full 启用完整 Prometheus 指标导出");
+        println!(
+            "Metrics gather returned empty (prometheus feature disabled; using no-op implementation)"
+        );
+        println!("Hint: use --features full to enable full Prometheus metrics export");
     } else {
-        println!("Metrics gather 成功，输出长度: {} 字节", gathered.len());
+        println!(
+            "Metrics gather succeeded, output length: {} bytes",
+            gathered.len()
+        );
         // 打印前几行作为示例
         let preview_lines: Vec<&str> = gathered.lines().take(10).collect();
-        println!("前 10 行预览:");
+        println!("First 10 lines preview:");
         for line in preview_lines {
             println!("  {}", line);
         }
@@ -305,11 +328,11 @@ async fn demo_metrics_gather() -> Result<(), Box<dyn std::error::Error>> {
     // Metrics 实现 Clone
     let metrics_clone = metrics.clone();
     let _gathered_clone = metrics_clone.gather();
-    println!("Metrics Clone 验证通过");
+    println!("Metrics Clone check passed");
 
     // Metrics 实现 Default
     let _default_metrics = Metrics::default();
-    println!("Metrics Default 验证通过");
+    println!("Metrics Default check passed");
 
     println!();
     Ok(())

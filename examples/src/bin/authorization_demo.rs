@@ -141,11 +141,11 @@ async fn demo_custom_provider() -> Result<(), Box<dyn std::error::Error>> {
             match self.rules.get(operation) {
                 Some(roles) if roles.iter().any(|r| r == operator) => Ok(()),
                 Some(_) => Err(LimiteronError::AuthorizationError(format!(
-                    "操作者 '{}' 无权执行 '{}'",
+                    "Operator '{}' is not authorized to perform '{}'",
                     operator, operation
                 ))),
                 None => Err(LimiteronError::AuthorizationError(format!(
-                    "未知操作: '{}'",
+                    "Unknown operation: '{}'",
                     operation
                 ))),
             }

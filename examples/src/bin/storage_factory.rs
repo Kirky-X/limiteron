@@ -188,7 +188,9 @@ async fn demo_convenience_functions() -> Result<(), Box<dyn std::error::Error>> 
         format_result(&quota_result)
     );
 
-    println!("\n  (便捷函数内部管理工厂生命周期，无需手动关闭)");
+    println!(
+        "\n  (the convenience function manages the factory lifecycle internally; no manual shutdown needed)"
+    );
     println!();
     Ok(())
 }

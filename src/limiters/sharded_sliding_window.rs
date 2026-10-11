@@ -503,7 +503,7 @@ mod tests {
 
         assert!(
             success.load(Ordering::SeqCst) <= max_requests,
-            "并发放行数 {} 超过上限 {}",
+            "concurrent grants {} exceed the limit {}",
             success.load(Ordering::SeqCst),
             max_requests
         );
@@ -539,14 +539,17 @@ mod tests {
 
         mock.advance(Duration::from_secs(60));
         for _ in 0..40 {
-            assert!(limiter.allow(1).await.unwrap(), "t=60s 窗口未满不得误拒");
+            assert!(
+                limiter.allow(1).await.unwrap(),
+                "must not falsely reject while the t=60s window is not full"
+            );
         }
 
         // 3600s 窗口内已满 100，必须拒绝（修复前旧分片被轮转覆写 → 超发放行）
         mock.advance(Duration::from_secs(60));
         assert!(
             !limiter.allow(1).await.unwrap(),
-            "window>60s 静默退化为 ~60s 计数导致超发"
+            "window>60s silently degrades to a ~60s count, causing over-issuance"
         );
 
         // 整窗过期后恢复放行
@@ -576,7 +579,11 @@ mod tests {
         // +1s: 触发清理扫描，窗口内分片必须原样保留
         mock.advance(Duration::from_secs(1));
         assert!(limiter.allow(1).await.unwrap());
-        assert_eq!(limiter.get_window_count(), 2, "活跃分片被清理误清");
+        assert_eq!(
+            limiter.get_window_count(),
+            2,
+            "an active shard was wrongly cleaned"
+        );
 
         // +61s: 头两个分片整体过期，下一次 allow 触发的扫描将其清零，
         // 同时当前请求正常记账
@@ -585,7 +592,7 @@ mod tests {
         assert_eq!(
             limiter.get_window_count(),
             1,
-            "过期分片未清零或活跃计数被抹"
+            "an expired shard was not zeroed or the active count was wiped"
         );
     }
 }

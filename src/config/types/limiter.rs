@@ -691,7 +691,7 @@ mod limiter_config_validate_branches {
     fn err_of(cfg: &LimiterConfig) -> String {
         match cfg.validate() {
             Err(e) => e,
-            Ok(()) => panic!("配置应被拒绝: {cfg:?}"),
+            Ok(()) => panic!("the config must be rejected: {cfg:?}"),
         }
     }
 
@@ -773,7 +773,7 @@ mod limiter_config_validate_branches {
             let msg = err_of(&bad_window);
             assert!(
                 msg.contains("Window size") || msg.contains("missing number"),
-                "{name} 窗口校验未生效: {msg}"
+                "{name} window validation did not take effect: {msg}"
             );
         }
     }
@@ -886,7 +886,7 @@ mod limiter_config_validate_branches {
                 max_requests: MAX_SLIDING_LOG_REQUESTS + 1,
             })
             .contains("cannot exceed"),
-            "日志型窗口上界必须比计数器型更严"
+            "the log-type window upper bound must be stricter than the counter type"
         );
     }
 
@@ -949,13 +949,22 @@ mod limiter_config_validate_branches {
     #[test]
     fn test_parse_window_size_boundaries() {
         for ok in ["1s", "250ms", "1m", "1h", "2d"] {
-            assert!(parse_window_size(ok).is_ok(), "{ok} 应为合法窗口");
+            assert!(
+                parse_window_size(ok).is_ok(),
+                "{ok} should be a valid window"
+            );
         }
         assert!(parse_window_size("").is_err());
         assert!(parse_window_size("   ").is_err());
-        assert!(parse_window_size("abc").is_err(), "缺数字必须报错");
-        assert!(parse_window_size("10").is_err(), "缺单位必须报错");
-        assert!(parse_window_size("10q").is_err(), "未知单位必须报错");
-        assert!(parse_window_size("-5s").is_err(), "负值必须报错");
+        assert!(
+            parse_window_size("abc").is_err(),
+            "missing digits must error"
+        );
+        assert!(parse_window_size("10").is_err(), "missing unit must error");
+        assert!(parse_window_size("10q").is_err(), "unknown unit must error");
+        assert!(
+            parse_window_size("-5s").is_err(),
+            "negative value must error"
+        );
     }
 }

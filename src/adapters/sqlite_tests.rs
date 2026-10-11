@@ -144,7 +144,7 @@ async fn ban_expired_invisible_and_cleanup_removes() {
             .await
             .unwrap()
             .is_none(),
-        "过期封禁不应可见"
+        "expired ban must not be visible"
     );
     assert_eq!(ban.cleanup_expired_bans().await.unwrap(), 1);
     assert!(
@@ -152,7 +152,7 @@ async fn ban_expired_invisible_and_cleanup_removes() {
             .await
             .unwrap()
             .is_some(),
-        "活跃封禁不应被清理"
+        "active ban must not be cleaned up"
     );
 }
 
@@ -199,11 +199,14 @@ async fn quota_consume_exhaustion_refund_reset() {
     assert_eq!(r2.remaining, 0);
 
     let r3 = quota.consume("u1", "api", 1, 10, window).await.unwrap();
-    assert!(!r3.allowed, "额度耗尽后应拒绝");
+    assert!(!r3.allowed, "quota exhausted must reject");
     assert_eq!(r3.remaining, 0);
 
     let returned = quota.refund("u1", "api", 2, 10, window).await.unwrap();
-    assert_eq!(returned, 8, "退款返回归还后的账本值（10 - 2）");
+    assert_eq!(
+        returned, 8,
+        "refund returns the restored ledger value (10 - 2)"
+    );
 
     let r4 = quota.consume("u1", "api", 2, 10, window).await.unwrap();
     assert!(r4.allowed);
@@ -211,7 +214,7 @@ async fn quota_consume_exhaustion_refund_reset() {
 
     quota.reset("u1", "api", 10, window).await.unwrap();
     let r5 = quota.consume("u1", "api", 10, 10, window).await.unwrap();
-    assert!(r5.allowed, "重置后额度应满");
+    assert!(r5.allowed, "quota must be full after reset");
 }
 
 #[tokio::test]
@@ -222,14 +225,14 @@ async fn quota_refund_clamps_and_noop() {
     assert_eq!(
         quota.refund("ghost", "api", 5, 10, window).await.unwrap(),
         0,
-        "无记录退款应为 no-op 返回 0"
+        "refund with no record must be a no-op returning 0"
     );
 
     quota.consume("u2", "api", 5, 10, window).await.unwrap();
     assert_eq!(
         quota.refund("u2", "api", 50, 10, window).await.unwrap(),
         0,
-        "超额退款应钳制账本不为负"
+        "excess refund must clamp the ledger to non-negative"
     );
 }
 
@@ -256,7 +259,7 @@ async fn quota_window_rollover_starts_fresh() {
     tokio::time::sleep(Duration::from_millis(1150)).await;
     assert!(
         quota.get_quota("u3", "api").await.unwrap().is_none(),
-        "过期窗口记录不应作为活跃配额可见"
+        "expired window record must not be visible as active quota"
     );
     assert!(
         quota
@@ -264,7 +267,7 @@ async fn quota_window_rollover_starts_fresh() {
             .await
             .unwrap()
             .allowed,
-        "新窗口应从零开始记账"
+        "new window must start accounting from zero"
     );
 }
 
@@ -276,7 +279,10 @@ async fn quota_cost_over_i64_is_rejected() {
         .consume("u4", "api", u64::MAX, 10, window)
         .await
         .unwrap();
-    assert!(!r.allowed, "超出 i64 的 cost 必须显式拒绝而非账本回绕");
+    assert!(
+        !r.allowed,
+        "cost exceeding i64 must be rejected explicitly, not wrap the ledger"
+    );
 }
 
 // ============================================================================
@@ -331,7 +337,7 @@ async fn ban_manager_runs_on_sqlite_storage() {
         .expect("create ban");
     assert!(
         manager.is_banned(&target).await.unwrap().is_some(),
-        "BanManager 经 sqlite 存储的封禁应可见"
+        "ban via sqlite storage must be visible to BanManager"
     );
 }
 
@@ -417,7 +423,10 @@ mod redis_parity {
         out.push(q.consume("p-u", "api", 5, 10, window).await.unwrap());
         out.push(q.consume("p-u", "api", 1, 10, window).await.unwrap());
         let returned = q.refund("p-u", "api", 4, 10, window).await.unwrap();
-        assert_eq!(returned, 6, "退款返回归还后的账本值（10 - 4）");
+        assert_eq!(
+            returned, 6,
+            "refund returns the restored ledger value (10 - 4)"
+        );
         out.push(q.consume("p-u", "api", 4, 10, window).await.unwrap());
         q.reset("p-u", "api", 10, window).await.unwrap();
         out.push(q.consume("p-u", "api", 10, 10, window).await.unwrap());
@@ -428,14 +437,14 @@ mod redis_parity {
         a: &(u64, u64, bool, bool, u64, usize, usize, u64),
         b: &(u64, u64, bool, bool, u64, usize, usize, u64),
     ) {
-        assert_eq!(a.0, b.0, "首次 upsert 计数");
-        assert_eq!(a.1, b.1, "二次 upsert 计数");
-        assert_eq!(a.2, b.2, "活跃封禁可见性");
-        assert_eq!(a.3, b.3, "过期封禁不可见");
-        assert_eq!(a.4, b.4, "过期清理计数");
-        assert_eq!(a.5, b.5, "解封后活跃清单");
-        assert_eq!(a.6, b.6, "清单总数");
-        assert_eq!(a.7, b.7, "解封后 get_ban_times 语义");
+        assert_eq!(a.0, b.0, "first upsert count");
+        assert_eq!(a.1, b.1, "second upsert count");
+        assert_eq!(a.2, b.2, "active ban visibility");
+        assert_eq!(a.3, b.3, "expired ban invisible");
+        assert_eq!(a.4, b.4, "expired cleanup count");
+        assert_eq!(a.5, b.5, "active list after unban");
+        assert_eq!(a.6, b.6, "list total count");
+        assert_eq!(a.7, b.7, "get_ban_times semantics after unban");
     }
 
     fn assert_quota_parity(a: &[ConsumeResult], b: &[ConsumeResult]) {
@@ -454,7 +463,7 @@ mod redis_parity {
         assert_eq!(
             kv_scenario(&*sqlite).await,
             kv_scenario(&*cache).await,
-            "KV 行为必须与 Redis 形后端一致"
+            "KV behavior must match the Redis-shaped backend"
         );
     }
 

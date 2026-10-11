@@ -28,7 +28,10 @@ pub trait ChaosScenario: Send + Sync {
     fn name(&self) -> &str;
 
     /// 场景描述
-    #[expect(dead_code, reason = "场景元信息接口，报告输出尚未接入")]
+    #[expect(
+        dead_code,
+        reason = "scenario metadata interface; report output is not wired up yet"
+    )]
     fn description(&self) -> &str;
 
     /// 运行场景
@@ -44,16 +47,22 @@ pub struct StorageIntermittentFailure {
     /// 请求数量
     pub request_count: usize,
     /// 限流器类型
-    #[expect(dead_code, reason = "场景声明限流目标，执行路径暂未消费")]
+    #[expect(
+        dead_code,
+        reason = "the scenario declares the rate-limit target; the execution path does not consume it yet"
+    )]
     pub limiter_type: LimiterType,
 }
 
 /// 限流器类型枚举
 #[derive(Clone)]
 pub enum LimiterType {
-    #[expect(dead_code, reason = "变体随场景声明写入，执行路径暂未读取参数")]
+    #[expect(
+        dead_code,
+        reason = "the variant is written with the scenario declaration; the execution path does not read the parameter yet"
+    )]
     TokenBucket { capacity: u64, refill_rate: u64 },
-    #[expect(dead_code, reason = "固定窗口场景待接入")]
+    #[expect(dead_code, reason = "fixed-window scenario pending integration")]
     FixedWindow {
         window_size: Duration,
         max_requests: u64,
@@ -67,7 +76,7 @@ impl ChaosScenario for StorageIntermittentFailure {
     }
 
     fn description(&self) -> &str {
-        "模拟存储间歇性失败,验证限流器在存储不可用时的容错能力"
+        "Simulated intermittent storage failure; verifies limiter tolerance when storage is unavailable"
     }
 
     async fn run(&self) -> ChaosTestResult {
@@ -144,7 +153,7 @@ impl ChaosScenario for HighLatencyInjection {
     }
 
     fn description(&self) -> &str {
-        "模拟高延迟网络环境,验证系统在延迟增加时的行为"
+        "Simulated high-latency network; verifies system behavior as latency grows"
     }
 
     async fn run(&self) -> ChaosTestResult {
@@ -228,7 +237,7 @@ impl ChaosScenario for BurstTraffic {
     }
 
     fn description(&self) -> &str {
-        "模拟突发流量高峰,验证限流器在极端压力下的保护能力"
+        "Simulated traffic burst; verifies limiter protection under extreme pressure"
     }
 
     async fn run(&self) -> ChaosTestResult {
@@ -314,7 +323,7 @@ impl ChaosScenario for ClockSkew {
     }
 
     fn description(&self) -> &str {
-        "模拟时钟偏移(跳跃/回拨),验证限流器对时钟异常的容错能力"
+        "Simulated clock skew (jump/rollback); verifies tolerance to clock anomalies"
     }
 
     async fn run(&self) -> ChaosTestResult {
@@ -383,7 +392,7 @@ impl ChaosScenario for CascadingFailure {
     }
 
     fn description(&self) -> &str {
-        "模拟存储失败+高延迟的级联故障,验证系统多重压力下的行为"
+        "Simulated storage failure plus high latency cascade; verifies behavior under combined stress"
     }
 
     async fn run(&self) -> ChaosTestResult {

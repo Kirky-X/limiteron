@@ -315,9 +315,9 @@ fn bench_token_bucket_regression(c: &mut Criterion) {
     if let Some(history) = storage.get_history("token_bucket_check")
         && let Some(change_rate) = history.calculate_change_rate()
     {
-        println!("TokenBucket 变化率: {:.2}%", change_rate);
+        println!("TokenBucket change rate: {:.2}%", change_rate);
         if change_rate > 10.0 {
-            println!("警告: 检测到性能回归 (> 10%)");
+            println!("Warning: performance regression detected (> 10%)");
         }
     }
 
@@ -364,7 +364,7 @@ fn bench_sliding_window_regression(c: &mut Criterion) {
     if let Some(history) = storage.get_history("sliding_window_check")
         && let Some(change_rate) = history.calculate_change_rate()
     {
-        println!("SlidingWindow 变化率: {:.2}%", change_rate);
+        println!("SlidingWindow change rate: {:.2}%", change_rate);
     }
 
     let _ = storage.save(BENCHMARK_FILE);
@@ -410,7 +410,7 @@ fn bench_sharded_sliding_window_regression(c: &mut Criterion) {
     if let Some(history) = storage.get_history("sharded_sliding_window_check")
         && let Some(change_rate) = history.calculate_change_rate()
     {
-        println!("ShardedSlidingWindow 变化率: {:.2}%", change_rate);
+        println!("ShardedSlidingWindow change rate: {:.2}%", change_rate);
     }
 
     let _ = storage.save(BENCHMARK_FILE);
@@ -453,7 +453,7 @@ fn bench_fixed_window_regression(c: &mut Criterion) {
     if let Some(history) = storage.get_history("fixed_window_check")
         && let Some(change_rate) = history.calculate_change_rate()
     {
-        println!("FixedWindow 变化率: {:.2}%", change_rate);
+        println!("FixedWindow change rate: {:.2}%", change_rate);
     }
 
     let _ = storage.save(BENCHMARK_FILE);

@@ -136,5 +136,9 @@ fn test_config_validation_logic_exists() {
 
     // 验证配置有 validate 方法
     let result = config.validate();
-    assert!(result.is_ok(), "有效配置应验证通过，但得到: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "valid config should validate, but got: {:?}",
+        result
+    );
 }

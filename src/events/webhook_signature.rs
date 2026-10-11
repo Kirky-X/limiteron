@@ -224,7 +224,7 @@ mod tests {
         let a = signer.sign_payload(PAYLOAD, 1_700_000_000);
         let b = signer.sign_payload(PAYLOAD, 1_700_000_000);
         assert_eq!(a, b);
-        assert_eq!(a.len(), 64, "SHA-256 hex 长度");
+        assert_eq!(a.len(), 64, "SHA-256 hex length");
         // 时间戳进入签名消息 → 不同时间戳签名不同
         assert_ne!(a, signer.sign_payload(PAYLOAD, 1_700_000_001));
     }
@@ -263,7 +263,7 @@ mod tests {
         assert_eq!(
             signer.verify(PAYLOAD, now - 301, &sig_hex),
             Err(WebhookVerifyError::Expired),
-            "重放 301s 前的签名必须被拒"
+            "a signature replayed from 301s ago must be rejected"
         );
         // 超前时间戳同样受窗口约束（防伪造未来窗口）
         let future_hex = signer.sign_payload(PAYLOAD, now + 301);

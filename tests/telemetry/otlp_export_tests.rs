@@ -46,7 +46,7 @@ async fn test_t606_tracer_exports_finished_spans() {
         }
         assert!(
             tokio::time::Instant::now() < deadline,
-            "5s 内未收到 OTLP 导出"
+            "no OTLP export received within 5s"
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
@@ -59,7 +59,7 @@ async fn test_t606_tracer_exports_finished_spans() {
     assert_eq!(span["name"], "governor_check");
     assert_eq!(
         span["attributes"][0]["key"], "rule.id",
-        "span 属性应进入 OTLP attributes"
+        "span attributes should appear in OTLP attributes"
     );
     assert_eq!(span["attributes"][0]["value"]["stringValue"], "t606_rule");
     let events = span["events"].as_array().unwrap();
@@ -89,7 +89,7 @@ async fn test_t606_disabled_tracer_exports_nothing() {
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(
         transport.requests().is_empty(),
-        "禁用 tracer / 无 sink 时不应有导出"
+        "no export should be produced when the tracer is disabled or no sink is configured"
     );
 }
 
@@ -112,7 +112,7 @@ async fn test_t606_http_transport_posts_to_mock_collector() {
             let mut chunk = [0u8; 1024];
             let n = stream.read(&mut chunk).expect("read headers");
             if n == 0 {
-                panic!("collector: 客户端提前关闭");
+                panic!("collector: client closed early");
             }
             buf.extend_from_slice(&chunk[..n]);
             if let Some(pos) = find_subsequence(&buf, b"\r\n\r\n") {
@@ -162,14 +162,17 @@ async fn test_t606_http_transport_posts_to_mock_collector() {
     transport
         .send(&format!("http://{addr}/v1/traces"), &body)
         .await
-        .expect("POST 应成功");
+        .expect("POST should succeed");
 
     let raw = handle.join().expect("collector thread");
     assert!(
         raw.starts_with("POST /v1/traces HTTP/1.1\r\n"),
-        "应为 OTLP/HTTP JSON POST，实际前缀: {}",
+        "should be an OTLP/HTTP JSON POST, actual prefix: {}",
         raw.chars().take(40).collect::<String>()
     );
     assert!(raw.contains("Content-Type: application/json"));
-    assert!(raw.contains("\"resourceSpans\""), "请求体应包含 OTLP 信封");
+    assert!(
+        raw.contains("\"resourceSpans\""),
+        "request body should contain the OTLP envelope"
+    );
 }

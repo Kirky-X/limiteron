@@ -32,7 +32,10 @@ pub enum FaultPattern {
         fail_count: u64,
     },
     /// 突发性故障 - 短时间突发大量失败
-    #[expect(dead_code, reason = "Bursty 模式已实现注入逻辑，尚无场景构造")]
+    #[expect(
+        dead_code,
+        reason = "Bursty mode implements the injection logic; no scenario constructs it yet"
+    )]
     Bursty {
         /// 突发概率 (0.0 - 1.0)
         burst_probability: f64,
@@ -81,7 +84,7 @@ pub struct FaultInjectionStorage {
     /// 随机数生成器种子 (用于可重现测试)
     #[expect(
         dead_code,
-        reason = "种子经构造器写入留存，注入逻辑暂按操作计数派生随机"
+        reason = "the seed is stored via the constructor; injection randomness is derived from the operation count for now"
     )]
     seed: u64,
 }
@@ -111,7 +114,7 @@ impl FaultInjectionStorage {
     /// 创建带有自定义种子的故障注入存储
     #[expect(
         dead_code,
-        reason = "供 FaultInjectionBuilder::build 复用，构建器尚无调用方"
+        reason = "reused by FaultInjectionBuilder::build; the builder has no callers yet"
     )]
     pub fn with_seed(
         inner: Arc<dyn Storage>,
@@ -135,7 +138,10 @@ impl FaultInjectionStorage {
     }
 
     /// 构建器模式创建
-    #[expect(dead_code, reason = "构建器入口，尚无场景调用（见模块文档示例）")]
+    #[expect(
+        dead_code,
+        reason = "builder entry point; no scenario calls it yet (see the module doc example)"
+    )]
     pub fn builder() -> FaultInjectionBuilder {
         FaultInjectionBuilder::default()
     }
@@ -205,7 +211,7 @@ impl FaultInjectionStorage {
     }
 
     /// 获取内部存储的引用
-    #[expect(dead_code, reason = "诊断辅助方法，暂无调用方")]
+    #[expect(dead_code, reason = "diagnostic helper method; no callers yet")]
     pub fn inner(&self) -> &dyn Storage {
         self.inner.as_ref()
     }
@@ -266,7 +272,7 @@ impl Storage for FaultInjectionStorage {
 #[derive(Default)]
 #[expect(
     dead_code,
-    reason = "链式构建器尚无场景调用（见 chaos/mod.rs 文档示例）"
+    reason = "the chain builder has no scenario callers yet (see the chaos/mod.rs doc example)"
 )]
 pub struct FaultInjectionBuilder {
     inner: Option<Arc<dyn Storage>>,
@@ -277,7 +283,10 @@ pub struct FaultInjectionBuilder {
     seed: u64,
 }
 
-#[expect(dead_code, reason = "链式构建器尚无场景调用，方法随构建器整体保留")]
+#[expect(
+    dead_code,
+    reason = "the chain builder has no scenario callers; the method is kept with the builder as a whole"
+)]
 impl FaultInjectionBuilder {
     /// 设置内部存储
     pub fn with_inner(mut self, inner: Arc<dyn Storage>) -> Self {

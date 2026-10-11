@@ -44,7 +44,7 @@
         "type": "object"
       },
       "BanTarget": {
-        "description": "ip/user/mac 为字符串 value；geo 为 {country_code}；cidr 为字符串 value",
+        "description": "ip/user/mac use a string value; geo uses an object with a country_code field; cidr uses a string value",
         "properties": {
           "type": {
             "enum": [
@@ -126,7 +126,7 @@
             "type": "integer"
           },
           "operator": {
-            "description": "已弃用：服务端忽略，身份由 API key mapping 决定",
+            "description": "Deprecated: ignored by the server; identity is determined by the API key mapping",
             "nullable": true,
             "type": "string"
           },
@@ -144,7 +144,7 @@
         "type": "object"
       },
       "FlowControlConfig": {
-        "description": "完整 FlowControlConfig（字段见 config 模块；此处保留顶层骨架）",
+        "description": "Full FlowControlConfig (fields are defined in the config module; only the top-level skeleton is kept here)",
         "properties": {
           "global": {
             "type": "object"
@@ -169,7 +169,7 @@
       "SystemStatus": {
         "properties": {
           "active_bans": {
-            "description": "ban-manager feature 下存在",
+            "description": "Present when the ban-manager feature is enabled",
             "type": "integer"
           },
           "blocked_requests": {
@@ -177,7 +177,7 @@
             "type": "integer"
           },
           "circuit_breaker": {
-            "description": "circuit-breaker feature 下存在",
+            "description": "Present when the circuit-breaker feature is enabled",
             "type": "string"
           },
           "success_rate": {
@@ -227,7 +227,7 @@
       "UnbanRequest": {
         "properties": {
           "operator": {
-            "description": "已弃用：服务端忽略",
+            "description": "Deprecated: ignored by the server",
             "nullable": true,
             "type": "string"
           },
@@ -250,7 +250,7 @@
             "type": "integer"
           },
           "new_limit": {
-            "description": "0 = 重置信号",
+            "description": "0 = reset signal",
             "format": "int64",
             "type": "integer"
           },
@@ -289,7 +289,7 @@
     }
   },
   "info": {
-    "description": "Limiteron 管理控制面：限流状态、封禁管理、配额调整、熔断器状态与规则热更新。除探针/指标端点外均需 Bearer API key。",
+    "description": "Limiteron admin control plane: rate limit status, ban management, quota adjustment, circuit breaker status and rule hot reload. All endpoints except probes/metrics require a Bearer API key.",
     "title": "Limiteron Admin API",
     "version": "0.3.0-rc.6"
   },
@@ -328,7 +328,7 @@
                 }
               }
             },
-            "description": "封禁详情"
+            "description": "Ban details"
           },
           "400": {
             "content": {
@@ -338,7 +338,7 @@
                 }
               }
             },
-            "description": "目标/原因校验失败"
+            "description": "Target or reason validation failed"
           },
           "403": {
             "content": {
@@ -348,7 +348,7 @@
                 }
               }
             },
-            "description": "operator 无授权"
+            "description": "Operator not authorized"
           },
           "500": {
             "content": {
@@ -358,7 +358,7 @@
                 }
               }
             },
-            "description": "内部错误"
+            "description": "Internal error"
           },
           "503": {
             "content": {
@@ -368,7 +368,7 @@
                 }
               }
             },
-            "description": "未配置 ban-manager"
+            "description": "ban-manager not configured"
           }
         },
         "security": [
@@ -378,7 +378,7 @@
         ]
       },
       "responses": {},
-      "summary": "创建封禁（ip/user/mac/geo）",
+      "summary": "Create ban (ip/user/mac/geo)",
       "tags": [
         "ban"
       ]
@@ -441,7 +441,7 @@
                 }
               }
             },
-            "description": "解除结果"
+            "description": "Removal result"
           },
           "400": {
             "content": {
@@ -451,7 +451,7 @@
                 }
               }
             },
-            "description": "不支持的 type"
+            "description": "Unsupported type"
           },
           "404": {
             "content": {
@@ -461,7 +461,7 @@
                 }
               }
             },
-            "description": "封禁不存在"
+            "description": "Ban not found"
           },
           "500": {
             "content": {
@@ -471,7 +471,7 @@
                 }
               }
             },
-            "description": "内部错误"
+            "description": "Internal error"
           },
           "503": {
             "content": {
@@ -481,7 +481,7 @@
                 }
               }
             },
-            "description": "未配置 ban-manager"
+            "description": "ban-manager not configured"
           }
         },
         "security": [
@@ -491,7 +491,7 @@
         ]
       },
       "responses": {},
-      "summary": "解除封禁（?type=ip|user|mac|geo|cidr）",
+      "summary": "Remove ban (?type=ip|user|mac|geo|cidr)",
       "tags": [
         "ban"
       ]
@@ -517,7 +517,7 @@
                 }
               }
             },
-            "description": "逐项决策结果"
+            "description": "Per-item decision results"
           },
           "400": {
             "content": {
@@ -527,7 +527,7 @@
                 }
               }
             },
-            "description": "空批次或超过 1000 条上限"
+            "description": "Empty batch or above the 1000-item limit"
           }
         },
         "security": [
@@ -537,7 +537,7 @@
         ]
       },
       "responses": {},
-      "summary": "批量检查（N 个 key 一次决策）",
+      "summary": "Batch check (N keys decided in one request)",
       "tags": [
         "decision"
       ]
@@ -563,7 +563,7 @@
                 }
               }
             },
-            "description": "应用报告"
+            "description": "Application report"
           },
           "400": {
             "content": {
@@ -573,7 +573,7 @@
                 }
               }
             },
-            "description": "校验失败，旧配置原样保留"
+            "description": "Validation failed; previous config retained"
           }
         },
         "security": [
@@ -583,7 +583,7 @@
         ]
       },
       "responses": {},
-      "summary": "规则热更新（原子换配置，失败保留旧配置）",
+      "summary": "Rule hot reload (atomic config swap; previous config retained on failure)",
       "tags": [
         "config"
       ]
@@ -599,7 +599,7 @@
                 }
               }
             },
-            "description": "自省快照 JSON（结构随 feature 组合扩展）"
+            "description": "Introspection snapshot JSON (structure extends with the feature combination)"
           }
         },
         "security": [
@@ -609,7 +609,7 @@
         ]
       },
       "responses": {},
-      "summary": "运行时自省快照（规则/决策链/封禁/熔断聚合）",
+      "summary": "Runtime introspection snapshot (rules, decision chains, bans and circuit breakers aggregated)",
       "tags": [
         "status"
       ]
@@ -657,7 +657,7 @@
                 }
               }
             },
-            "description": "操作结果"
+            "description": "Operation result"
           },
           "400": {
             "content": {
@@ -667,7 +667,7 @@
                 }
               }
             },
-            "description": "不支持的操作"
+            "description": "Unsupported operation"
           },
           "500": {
             "content": {
@@ -677,7 +677,7 @@
                 }
               }
             },
-            "description": "内部错误"
+            "description": "Internal error"
           },
           "503": {
             "content": {
@@ -687,7 +687,7 @@
                 }
               }
             },
-            "description": "未配置 quota-control"
+            "description": "quota-control not configured"
           }
         },
         "security": [
@@ -697,7 +697,7 @@
         ]
       },
       "responses": {},
-      "summary": "按 user 重置配额使用量（new_limit=0）/ 拒绝 per-tenant 上限更新",
+      "summary": "Reset a user's quota usage (new_limit=0); rejects per-tenant quota limit updates",
       "tags": [
         "quota"
       ]
@@ -725,7 +725,7 @@
                 }
               }
             },
-            "description": "系统状态"
+            "description": "System status"
           },
           "401": {
             "content": {
@@ -735,7 +735,7 @@
                 }
               }
             },
-            "description": "鉴权失败"
+            "description": "Authentication failed"
           }
         },
         "security": [
@@ -745,7 +745,7 @@
         ]
       },
       "responses": {},
-      "summary": "系统整体状态",
+      "summary": "Overall system status",
       "tags": [
         "status"
       ]
@@ -773,7 +773,7 @@
                 }
               }
             },
-            "description": "熔断器状态"
+            "description": "Circuit breaker status"
           },
           "503": {
             "content": {
@@ -783,7 +783,7 @@
                 }
               }
             },
-            "description": "未配置 circuit-breaker"
+            "description": "circuit-breaker not configured"
           }
         },
         "security": [
@@ -793,7 +793,7 @@
         ]
       },
       "responses": {},
-      "summary": "熔断器状态",
+      "summary": "Circuit breaker status",
       "tags": [
         "status"
       ]
@@ -819,7 +819,7 @@
                 }
               }
             },
-            "description": "逐项 granted 与汇总"
+            "description": "Per-item granted results and summary"
           },
           "400": {
             "content": {
@@ -829,7 +829,7 @@
                 }
               }
             },
-            "description": "空批次或超过 1000 条上限"
+            "description": "Empty batch or above the 1000-item limit"
           }
         },
         "security": [
@@ -839,7 +839,7 @@
         ]
       },
       "responses": {},
-      "summary": "批量令牌预取",
+      "summary": "Batch token prefetch",
       "tags": [
         "decision"
       ]
@@ -860,12 +860,12 @@
                 }
               }
             },
-            "description": "进程存活"
+            "description": "Process is alive"
           }
         }
       },
       "responses": {},
-      "summary": "存活探针",
+      "summary": "Liveness probe",
       "tags": [
         "probes"
       ]
@@ -879,7 +879,7 @@
         }
       },
       "responses": {},
-      "summary": "Prometheus 文本格式指标",
+      "summary": "Prometheus text-format metrics",
       "tags": [
         "probes"
       ]
@@ -888,15 +888,15 @@
       "get": {
         "responses": {
           "200": {
-            "description": "全部组件健康"
+            "description": "All components healthy"
           },
           "503": {
-            "description": "任一组件不健康，响应体含明细"
+            "description": "One or more components unhealthy; response body contains details"
           }
         }
       },
       "responses": {},
-      "summary": "就绪探针（组件级聚合）",
+      "summary": "Readiness probe (component-level aggregation)",
       "tags": [
         "probes"
       ]

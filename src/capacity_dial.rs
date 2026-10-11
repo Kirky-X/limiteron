@@ -805,7 +805,10 @@ mod tests {
             let level = dial.evaluate(&healthy_owned);
             evaluations += 1;
             let now = level.as_usize();
-            assert!(now <= prev, "健康输入下档位不得回升: {prev} → {now}");
+            assert!(
+                now <= prev,
+                "the tier must not climb back under healthy input: {prev} -> {now}"
+            );
             prev = now;
             if level == DialLevel::L0 {
                 break;
@@ -813,7 +816,7 @@ mod tests {
             // 上界护栏：每档最多 3 次评估 + 起始计数余量,超出即状态损坏
             assert!(
                 evaluations <= 3 * (start + 1) + 8,
-                "恢复步进失控: {evaluations} 次评估后仍在 {level}"
+                "recovery stepping out of control: still at {level} after {evaluations} evaluations"
             );
         }
         assert_eq!(dial.capacity_ratio(), 1.0);

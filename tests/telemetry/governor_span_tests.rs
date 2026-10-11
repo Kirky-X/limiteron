@@ -63,14 +63,18 @@ async fn wait_for_exports(transport: &InMemoryTransport) -> Vec<(String, serde_j
         }
         assert!(
             tokio::time::Instant::now() < deadline,
-            "5s 内未收到 OTLP 导出"
+            "no OTLP export received within 5s"
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
 
 fn exported_span(requests: &[(String, serde_json::Value)]) -> &serde_json::Value {
-    assert_eq!(requests.len(), 1, "单次 check 应恰好导出一个 span");
+    assert_eq!(
+        requests.len(),
+        1,
+        "a single check should export exactly one span"
+    );
     &requests[0].1["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
 }
 
@@ -107,7 +111,7 @@ async fn test_governor_check_span_records_rule_attributes() {
     let ctx = RequestContext::new()
         .with_header("x-user-id", "u_span_ok")
         .with_method("GET");
-    let decision = governor.check(&ctx).await.expect("check 应成功");
+    let decision = governor.check(&ctx).await.expect("check should succeed");
     assert!(matches!(decision, limiteron::Decision::Allowed(_)));
 
     let requests = wait_for_exports(&transport).await;
@@ -116,12 +120,12 @@ async fn test_governor_check_span_records_rule_attributes() {
     assert_eq!(
         span_attribute(span, "rule.id"),
         None,
-        "全放行无单一裁决规则，不应虚构 rule.id"
+        "with an all-allow chain there is no single deciding rule; do not fabricate rule.id"
     );
     assert_eq!(
         span_attribute(span, "rule.outcome").as_deref(),
         Some("allowed"),
-        "span 应记录规则维度结果"
+        "span should record rule-dimension results"
     );
 }
 
@@ -148,7 +152,7 @@ async fn wait_for_span_exports(
         }
         assert!(
             tokio::time::Instant::now() < deadline,
-            "5s 内未收齐 {min_spans} 个导出 span"
+            "did not collect {min_spans} exported spans within 5s"
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
@@ -211,7 +215,11 @@ async fn test_governor_check_span_records_rejection_attributes() {
     }
 
     let spans = wait_for_span_exports(&transport, 3).await;
-    assert_eq!(spans.len(), 3, "三次 check 应恰好导出三个 span");
+    assert_eq!(
+        spans.len(),
+        3,
+        "three checks should export exactly three spans"
+    );
 
     let outcomes: Vec<Option<String>> = spans
         .iter()
@@ -226,12 +234,12 @@ async fn test_governor_check_span_records_rejection_attributes() {
     assert_eq!(
         outcome_refs,
         vec![Some("allowed"), Some("rejected"), Some("rejected")],
-        "三次 check 的 span 结果序列应为 allowed/rejected/rejected"
+        "the span result sequence for three checks should be allowed/rejected/rejected"
     );
     assert_eq!(
         rule_id_refs,
         vec![None, Some("test_rule"), Some("test_rule")],
-        "拒绝 span（链上与负缓存命中）应归因到裁决规则，放行 span 不虚构 rule.id"
+        "rejected spans (chain and negative-cache hits) should be attributed to the deciding rule; allow spans do not fabricate rule.id"
     );
 }
 
@@ -257,11 +265,14 @@ async fn test_governor_check_with_disabled_tracer_exports_nothing() {
         .with_header("x-user-id", "u_span_off")
         .with_method("GET");
     let result = governor.check(&ctx).await;
-    assert!(result.is_ok(), "禁用 tracer 不应影响决策: {result:?}");
+    assert!(
+        result.is_ok(),
+        "disabling the tracer should not affect decisions: {result:?}"
+    );
 
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(
         transport.requests().is_empty(),
-        "禁用 tracer 不应产生 OTLP 导出"
+        "no OTLP export should be produced when the tracer is disabled"
     );
 }

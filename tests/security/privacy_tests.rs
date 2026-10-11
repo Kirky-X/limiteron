@@ -177,10 +177,11 @@ fn test_advanced_redaction() {
     assert_eq!(redact_advanced(Some("token123"), Some("api_key")), "***");
     assert_eq!(redact_advanced(Some("key123"), Some("secret")), "***");
 
-    // 测试非敏感字段名
+    // 测试非敏感字段名：非敏感值走 DataMasker，未命中规则原样返回
+    // （inklog rc.9 起非敏感值不再做部分遮蔽，见 redact_advanced 契约注释）
     assert_eq!(
         redact_advanced(Some("user123"), Some("username")),
-        "us***23"
+        "user123"
     );
     assert_eq!(redact_advanced(Some("test"), Some("name")), "***");
 

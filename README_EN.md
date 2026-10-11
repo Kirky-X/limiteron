@@ -114,7 +114,7 @@ Requirements: Rust 1.97.1+ (see [rust-toolchain.toml](rust-toolchain.toml)). The
 
 ```toml
 [dependencies]
-limiteron = { version = "0.3.0-rc.6", features = ["macros"] }
+limiteron = { version = "0.3.0-rc.7", features = ["macros"] }
 ```
 
 ### 💡 Minimal Runnable Example
@@ -345,7 +345,7 @@ The workspace member [`integrations/limiteron-dbnexus`](integrations/limiteron-d
 
 The testing strategy matrix (unit / integration & E2E / property / doc / benchmark layers) and run commands (identical to [CI](.github/workflows/ci.yml), including the coverage gate) live in the [Testing Guide](docs/TESTING.md); the layer baselines and E2E scenario definitions live in [Test Scenarios](docs/TEST_SCENARIOS.md).
 
-**Test scale** (grep count via `grep -rEc '#\[(tokio::)?test\b' --include='*.rs'`, as of v0.3.0-rc.6):
+**Test scale** (grep count via `grep -rEc '#\[(tokio::)?test\b' --include='*.rs'`, as of v0.3.0-rc.7):
 
 | Metric | Count |
 |--------|-------|
@@ -511,7 +511,7 @@ Rust 1.97.1 (pinned in [rust-toolchain.toml](rust-toolchain.toml)); lefthook / p
 
 See [CHANGELOG.md](docs/CHANGELOG.md) for the full history. Recent releases:
 
-- **0.3.0-rc.6** (2026-09-28) — ManualCircuitBreaker manual circuit breaking, capacity-dial six-level capacity dimming, tower-middleware rejection response factory and keyed fast path, RetryPolicy pre-retry callback, QuotaLimiter retry-after window query, manager feature split with non-panic path; [security] four CodeQL cleartext-logging fixes (governor log redaction / length fingerprints / entry-field demotion); algorithm and resilience fixes across limiters/quota/distributed/governor/resilience; documentation consistency gate
+- **0.3.0-rc.7** (2026-09-28) — ManualCircuitBreaker manual circuit breaking, capacity-dial six-level capacity dimming, tower-middleware rejection response factory and keyed fast path, RetryPolicy pre-retry callback, QuotaLimiter retry-after window query, manager feature split with non-panic path; [security] four CodeQL cleartext-logging fixes (governor log redaction / length fingerprints / entry-field demotion); algorithm and resilience fixes across limiters/quota/distributed/governor/resilience; documentation consistency gate
 - **0.3.0-rc.5** (2026-09-21) — Maintenance release: new `retry` component (`RetryPolicy` exponential backoff) and i18n overhaul, no breaking surface
 - **0.3.0-rc.4** (2026-09-14, including the original rc.3 batch) — Multi-tenancy through Governor, CIDR range bans, Admin RBAC, OTLP tracing export, MySQL storage, HTB hierarchical token bucket, bulkhead isolation, AIMD adaptive limiting, `limiteron-cli`, webhook signatures, event Outbox, cross-instance ban sync (version 0.3.0-rc.3 was skipped and never published; its content shipped with this release)
 - **0.3.0-rc.2** (2026-09-03) — Documentation synced to the 0.3 line, workspace dependency path localization, `Cargo.lock` committed to version control

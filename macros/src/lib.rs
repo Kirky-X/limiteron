@@ -271,7 +271,7 @@ impl RateLimit {
             "h" => quote!(std::time::Duration::from_secs(#amount * 3600)),
             _ => {
                 let message = syn::LitStr::new(
-                    "不支持的速率单位，支持: s, m, h",
+                    "Unsupported rate unit, supported: s, m, h",
                     proc_macro2::Span::call_site(),
                 );
                 quote!(compile_error!(#message))
@@ -321,7 +321,7 @@ impl QuotaLimit {
             "d" => quote!(std::time::Duration::from_secs(86400)),
             _ => {
                 let message = syn::LitStr::new(
-                    "不支持的配额周期单位，支持: s, m, h, d",
+                    "Unsupported quota period unit, supported: s, m, h, d",
                     proc_macro2::Span::call_site(),
                 );
                 quote!(compile_error!(#message))

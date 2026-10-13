@@ -69,7 +69,7 @@ pub enum LimiteronError {
 
     /// YAML解析错误
     #[error("YAML parse error: {0}")]
-    YamlError(#[from] serde_yaml_ng::Error),
+    YamlError(#[from] serde_saphyr::Error),
 
     /// 速率限制超出
     #[error("Rate limit exceeded: {0}")]

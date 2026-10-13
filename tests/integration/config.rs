@@ -309,11 +309,11 @@ fn test_config_serialization() {
     };
 
     // 序列化为 YAML
-    let yaml = serde_yaml_ng::to_string(&config).expect("serialization failed");
+    let yaml = serde_saphyr::to_string(&config).expect("serialization failed");
 
     // 反序列化
     let deserialized: FlowControlConfig =
-        serde_yaml_ng::from_str(&yaml).expect("deserialization failed");
+        serde_saphyr::from_str(&yaml).expect("deserialization failed");
 
     assert_eq!(config.version, deserialized.version);
     assert_eq!(config.rules.len(), deserialized.rules.len());

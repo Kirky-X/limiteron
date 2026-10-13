@@ -147,7 +147,7 @@ impl BanFileLoader {
                     ))
                 })?;
 
-                serde_yaml_ng::from_str(&content).map_err(|e| {
+                serde_saphyr::from_str(&content).map_err(|e| {
                     LimiteronError::ConfigError(t(
                         "ban-file-yaml-parse-failed",
                         &[
@@ -392,7 +392,7 @@ target:
 reason: "恶意请求"
 duration_secs: 3600
 "#;
-        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("parse failed");
+        let entry: BanFileEntry = serde_saphyr::from_str(yaml).expect("parse failed");
         assert_eq!(entry.target, BanTarget::Ip("192.168.1.1".to_string()));
         assert_eq!(entry.reason, "恶意请求");
         assert_eq!(entry.duration_secs, Some(3600));
@@ -407,7 +407,7 @@ target:
     country_code: "CN"
 reason: "地区封禁"
 "#;
-        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("parse failed");
+        let entry: BanFileEntry = serde_saphyr::from_str(yaml).expect("parse failed");
         assert_eq!(
             entry.target,
             BanTarget::Geo {
@@ -427,7 +427,7 @@ target:
 reason: "违规用户"
 duration_secs: 7200
 "#;
-        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("parse failed");
+        let entry: BanFileEntry = serde_saphyr::from_str(yaml).expect("parse failed");
         assert_eq!(entry.target, BanTarget::UserId("user123".to_string()));
         assert_eq!(entry.duration_secs, Some(7200));
     }
@@ -440,7 +440,7 @@ target:
   value: "00:1A:2B:3C:4D:5E"
 reason: "MAC 封禁"
 "#;
-        let entry: BanFileEntry = serde_yaml_ng::from_str(yaml).expect("parse failed");
+        let entry: BanFileEntry = serde_saphyr::from_str(yaml).expect("parse failed");
         assert_eq!(
             entry.target,
             BanTarget::Mac("00:1A:2B:3C:4D:5E".to_string())
@@ -451,7 +451,7 @@ reason: "MAC 封禁"
     #[test]
     fn test_ban_file_root_default() {
         let yaml = "";
-        let file: BanFile = serde_yaml_ng::from_str(yaml).expect("parse failed");
+        let file: BanFile = serde_saphyr::from_str(yaml).expect("parse failed");
         assert!(file.bans.is_empty());
     }
 
@@ -468,7 +468,7 @@ bans:
       value: "u1"
     reason: "test2"
 "#;
-        let file: BanFile = serde_yaml_ng::from_str(yaml).expect("parse failed");
+        let file: BanFile = serde_saphyr::from_str(yaml).expect("parse failed");
         assert_eq!(file.bans.len(), 2);
         assert_eq!(file.bans[0].reason, "test1");
         assert_eq!(file.bans[1].reason, "test2");

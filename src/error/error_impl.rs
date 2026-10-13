@@ -706,7 +706,7 @@ mod tests {
             serde_json::from_str::<String>("not-json").expect_err("invalid json"),
         );
         let yaml_err = LimiteronError::YamlError(
-            serde_yaml_ng::from_str::<std::collections::HashMap<String, String>>("[")
+            serde_saphyr::from_str::<std::collections::HashMap<String, String>>("[")
                 .expect_err("invalid yaml"),
         );
         let limiteron: Vec<(LimiteronError, &str)> = vec![

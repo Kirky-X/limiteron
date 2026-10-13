@@ -8,10 +8,10 @@ db-urls = ["https://github.com/RustSec/advisory-db"]
 yanked = "warn"
 # 按仓库填:传递依赖 RUSTSEC 豁免(每项须注释原因)
 ignore = [
-    # RUSTSEC-2024-0449（2026-10-12 入库）：unsafe-libyaml 2024-03 起归档无人维护。
-    # 本仓 YAML 能力直接依赖 serde_yaml_ng（serde_yaml 唯一活跃 fork），其唯一
-    # 后端即 unsafe-libyaml，无同 API 替代；迁移 serde-saphyr 属行为变更，
-    # 待专项验证后执行，届时移除本条。
+    # RUSTSEC-2024-0449（unsafe-libyaml unmaintained）：本仓 YAML 后端已迁移
+    # serde-saphyr（纯 Rust）；剩余命中全部来自 dev 依赖 confers（crates.io
+    # rc.10 仍基于 serde_yaml_ng），confers 侧迁移发布后随 lockfile 更新自然
+    # 消除，届时回收本条。
     "RUSTSEC-2024-0449",
 ]
 

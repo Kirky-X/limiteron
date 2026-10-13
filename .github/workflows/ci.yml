@@ -57,14 +57,16 @@ jobs:
       - name: Check no default features
         run: cargo check --workspace --no-default-features
       # 2026-09-19 审计补腿：sqlite/mysql 驱动闭包此前从未被编译验证
+      # -p 用 path 限定：inklog rc.9 起 limiteron↔inklog 双向发布依赖使
+      # lockfile 必含同名 registry 副本（cargo 断环所需），裸 -p 会歧义
       - name: Check sqlite driver
-        run: cargo check -p limiteron --no-default-features --features full,sqlite
+        run: cargo check -p "path+file://${{ github.workspace }}" --no-default-features --features full,sqlite
       - name: Check mysql driver
-        run: cargo check -p limiteron --no-default-features --features full,mysql
+        run: cargo check -p "path+file://${{ github.workspace }}" --no-default-features --features full,mysql
       # multi-tenant 单开：命名空间封禁方法经 ban-manager 门控（to_ban_target）。
       # 该组合此前从未编译验证（Identifier 未导入 + 封禁方法/存储助手缺门控）。
       - name: Check multi-tenant alone
-        run: cargo check -p limiteron --no-default-features --features multi-tenant
+        run: cargo check -p "path+file://${{ github.workspace }}" --no-default-features --features multi-tenant
 
   test:
     name: Test

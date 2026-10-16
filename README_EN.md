@@ -4,7 +4,7 @@
 
 [![CI Status](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg)](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml) [![Version](https://img.shields.io/crates/v/limiteron.svg)](https://crates.io/crates/limiteron) [![Docs.rs](https://docs.rs/limiteron/badge.svg)](https://docs.rs/limiteron) [![Downloads](https://img.shields.io/crates/d/limiteron.svg)](https://crates.io/crates/limiteron) [![License](https://img.shields.io/crates/l/limiteron.svg)](LICENSE) [![Rust](https://img.shields.io/badge/rust-1.97.1%2B-orange.svg)](https://www.rust-lang.org/)
 
-[中文](README.md) | **English**
+[Chinese](README.md) | **English**
 
 **Unified Flow Control Framework for Rust**
 
@@ -31,7 +31,7 @@ One Governor entrypoint where multi-algorithm limiting and layered control decid
 ## 📋 Table of Contents
 
 <details open>
-<summary>📑 目录</summary>
+<summary>📑 Table of Contents</summary>
 
 - [✨ Features](#-features)
 - [🚀 Quick Start](#-quick-start)

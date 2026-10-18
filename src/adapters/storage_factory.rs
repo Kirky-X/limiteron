@@ -157,13 +157,13 @@ impl StorageFactoryConfig {
     ///
     /// `path` **原样拼接**为 `sqlite:{path}` 连接 URL：`?` 之后的参数会
     /// 进入连接串、`file:` 前缀有特殊语义，故只接受可信配置来源，勿把
-    /// 用户输入透传进 `path`——这也正是按需叠加连接参数的机制（见下）。
+    /// 用户输入透传进 `path`。
     ///
-    /// **部署提示（性能）**：dbnexus 建立连接时未启用 WAL（根因在
-    /// dbnexus 的 `create_connection`，属外部依赖、不在本仓修改范围）。
-    /// 文件库并发读写建议让连接 URL 显式携带 `journal_mode=WAL`，例如
-    /// `StorageFactoryConfig::sqlite("data/limiteron.db?journal_mode=WAL")`；
-    /// 不携带时写并发下可能遭遇 `database is locked`。
+    /// **部署提示（性能）**：sqlx 0.9 连接串查询参数白名单只认
+    /// `mode`/`cache`/`immutable`/`vfs`，白名单外参数直接报错——无法经
+    /// URL 携带 `journal_mode=WAL`。busy_timeout 由 sqlx 内建默认 5s；
+    /// WAL 等 PRAGMA 经 dbnexus `DbConfig.sqlite_pragmas` 建池时配置
+    /// （`DbPoolBuilder::config`）。本工厂目前仅收连接串，未透传该配置面。
     pub fn sqlite(path: impl Into<String>) -> Self {
         Self {
             storage_type: StorageType::DBNexusSQLite,

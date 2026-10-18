@@ -88,6 +88,10 @@ fn window_secs(window: Duration) -> u64 {
     window.as_secs().max(1)
 }
 
+/// Lua eval 默认超时（对齐 `distributed::EVAL_TIMEOUT`）
+#[cfg(feature = "lua-script")]
+const QUOTA_EVAL_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub struct CacheQuotaStorage {
     backend: Arc<dyn CacheBackend>,
     /// 回退路径（后端不支持原子操作时）的进程内串行锁
@@ -102,6 +106,11 @@ pub struct CacheQuotaStorage {
     /// 回滚之间进程崩溃会泄漏配额。
     #[cfg(feature = "lua-script")]
     lua: Option<Arc<dyn oxcache::backend::LuaExecutor>>,
+    /// eval 响应超时（默认 5s，对齐 distributed::EVAL_TIMEOUT）。
+    /// 历史教训：eval 路径无超时时 Redis 挂起会无限期拖住配额热路径；
+    /// oxcache 的 connection_timeout 只覆盖建连。
+    #[cfg(feature = "lua-script")]
+    eval_timeout: Duration,
 }
 
 impl CacheQuotaStorage {
@@ -111,6 +120,8 @@ impl CacheQuotaStorage {
             rw_lock: tokio::sync::Mutex::new(()),
             #[cfg(feature = "lua-script")]
             lua: None,
+            #[cfg(feature = "lua-script")]
+            eval_timeout: QUOTA_EVAL_TIMEOUT,
         }
     }
 
@@ -124,7 +135,44 @@ impl CacheQuotaStorage {
             backend,
             rw_lock: tokio::sync::Mutex::new(()),
             lua: Some(lua),
+            eval_timeout: QUOTA_EVAL_TIMEOUT,
         }
+    }
+
+    /// 自定义 eval 超时（`Duration::ZERO` = 不限时）
+    #[cfg(feature = "lua-script")]
+    pub fn with_eval_timeout(mut self, timeout: Duration) -> Self {
+        self.eval_timeout = timeout;
+        self
+    }
+
+    /// Lua eval 统一通道：所有脚本调用经此走超时保护
+    ///
+    /// 超时 → [`StorageError::TimeoutError`]，底层 eval 错误 →
+    /// [`StorageError::QueryError`]（错误分层对齐 distributed::eval_raw）。
+    #[cfg(feature = "lua-script")]
+    async fn eval_timed(
+        &self,
+        lua: &Arc<dyn oxcache::backend::LuaExecutor>,
+        script: &str,
+        keys: &[&str],
+        args: &[&str],
+    ) -> Result<redis::Value, StorageError> {
+        let eval = lua.eval_lua(script, keys, args);
+        let value = if self.eval_timeout.is_zero() {
+            eval.await
+        } else {
+            tokio::time::timeout(self.eval_timeout, eval)
+                .await
+                .map_err(|_| {
+                    StorageError::TimeoutError(format!(
+                        "Lua eval timed out after {:?}",
+                        self.eval_timeout
+                    ))
+                })?
+        }
+        .map_err(|e| StorageError::QueryError(format!("Lua eval failed: {e}")))?;
+        Ok(value)
     }
 
     /// Lua 模式 consume：QUOTA_CONSUME_SCRIPT 单脚本完成「窗口判活 +
@@ -146,8 +194,9 @@ impl CacheQuotaStorage {
         let bucket_secs = window_secs(window);
         let bucket = now.timestamp() as u64 / bucket_secs;
         let overdraft: u64 = 0;
-        let value = lua
-            .eval_lua(
+        let value = self
+            .eval_timed(
+                lua,
                 QUOTA_CONSUME_SCRIPT,
                 &[&key],
                 &[
@@ -162,8 +211,7 @@ impl CacheQuotaStorage {
                     lua_mode::F_WINDOW_END,
                 ],
             )
-            .await
-            .map_err(|e| StorageError::QueryError(format!("Lua eval failed: {e}")))?;
+            .await?;
 
         let redis::Value::Array(items) = value else {
             return Err(StorageError::QueryError(format!(
@@ -199,10 +247,9 @@ impl CacheQuotaStorage {
         resource: &str,
     ) -> Result<Option<QuotaInfo>, StorageError> {
         let key = Self::ledger_key(user_id, resource);
-        let value = lua
-            .eval_lua(lua_mode::GET_SCRIPT, &[&key], &[])
-            .await
-            .map_err(|e| StorageError::QueryError(format!("Lua eval failed: {e}")))?;
+        let value = self
+            .eval_timed(lua, lua_mode::GET_SCRIPT, &[&key], &[])
+            .await?;
         let redis::Value::Nil = value else {
             let redis::Value::Array(items) = value else {
                 return Err(StorageError::QueryError(format!(
@@ -241,9 +288,8 @@ impl CacheQuotaStorage {
         resource: &str,
     ) -> Result<(), StorageError> {
         let key = Self::ledger_key(user_id, resource);
-        lua.eval_lua(lua_mode::RESET_SCRIPT, &[&key], &[])
-            .await
-            .map_err(|e| StorageError::QueryError(format!("Lua eval failed: {e}")))?;
+        self.eval_timed(lua, lua_mode::RESET_SCRIPT, &[&key], &[])
+            .await?;
         Ok(())
     }
 
@@ -257,10 +303,14 @@ impl CacheQuotaStorage {
         amount: u64,
     ) -> Result<u64, StorageError> {
         let key = Self::ledger_key(user_id, resource);
-        let value = lua
-            .eval_lua(lua_mode::REFUND_SCRIPT, &[&key], &[&amount.to_string()])
-            .await
-            .map_err(|e| StorageError::QueryError(format!("Lua eval failed: {e}")))?;
+        let value = self
+            .eval_timed(
+                lua,
+                lua_mode::REFUND_SCRIPT,
+                &[&key],
+                &[&amount.to_string()],
+            )
+            .await?;
         Ok(lua_int(&value)?.max(0) as u64)
     }
 
@@ -842,5 +892,162 @@ mod tests {
             total <= limit,
             "concurrent grants {total} exceed the limit {limit}"
         );
+    }
+}
+
+#[cfg(all(test, feature = "lua-script"))]
+mod eval_timeout_tests {
+    use super::*;
+    use oxcache::backend::LuaExecutor;
+    use oxcache::error::OxCacheResult;
+
+    fn make_backend() -> Arc<dyn CacheBackend> {
+        use oxcache::backend::memory::DashMapMemoryBackend;
+        Arc::new(DashMapMemoryBackend::new())
+    }
+
+    /// 永久挂起的执行器：模拟 Redis 无响应
+    struct HangingExecutor;
+
+    #[async_trait::async_trait]
+    impl LuaExecutor for HangingExecutor {
+        async fn eval_lua(
+            &self,
+            _script: &str,
+            _keys: &[&str],
+            _args: &[&str],
+        ) -> OxCacheResult<redis::Value> {
+            futures::future::pending().await
+        }
+        async fn eval_sha(
+            &self,
+            _sha: &str,
+            _keys: &[&str],
+            _args: &[&str],
+        ) -> OxCacheResult<redis::Value> {
+            futures::future::pending().await
+        }
+        async fn script_load(&self, _script: &str) -> OxCacheResult<String> {
+            futures::future::pending().await
+        }
+    }
+
+    /// 延迟后返回合规裁决数组的执行器：验证 ZERO 超时不限时
+    struct DelayedExecutor {
+        delay: Duration,
+    }
+
+    #[async_trait::async_trait]
+    impl LuaExecutor for DelayedExecutor {
+        async fn eval_lua(
+            &self,
+            _script: &str,
+            _keys: &[&str],
+            _args: &[&str],
+        ) -> OxCacheResult<redis::Value> {
+            tokio::time::sleep(self.delay).await;
+            // 与 QUOTA_CONSUME_SCRIPT 响应布局一致：[allowed, consumed]
+            Ok(redis::Value::Array(vec![
+                redis::Value::Int(1),
+                redis::Value::Int(0),
+            ]))
+        }
+        async fn eval_sha(
+            &self,
+            _sha: &str,
+            _keys: &[&str],
+            _args: &[&str],
+        ) -> OxCacheResult<redis::Value> {
+            tokio::time::sleep(self.delay).await;
+            Ok(redis::Value::Int(1))
+        }
+        async fn script_load(&self, _script: &str) -> OxCacheResult<String> {
+            tokio::time::sleep(self.delay).await;
+            Ok(String::new())
+        }
+    }
+
+    fn hanging_storage(timeout: Duration) -> CacheQuotaStorage {
+        CacheQuotaStorage::with_lua_executor(make_backend(), Arc::new(HangingExecutor))
+            .with_eval_timeout(timeout)
+    }
+
+    #[tokio::test]
+    async fn test_default_eval_timeout_is_five_seconds() {
+        let qs = CacheQuotaStorage::with_lua_executor(make_backend(), Arc::new(HangingExecutor));
+        assert_eq!(qs.eval_timeout, QUOTA_EVAL_TIMEOUT);
+    }
+
+    #[tokio::test]
+    async fn test_consume_times_out_on_hanging_redis() {
+        let qs = hanging_storage(Duration::from_millis(50));
+        let err = qs
+            .consume("u1", "api", 1, 100, Duration::from_secs(60))
+            .await
+            .unwrap_err();
+        match err {
+            StorageError::TimeoutError(msg) => assert!(msg.contains("50ms"), "got: {msg}"),
+            other => panic!("expected TimeoutError, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_quota_times_out_on_hanging_redis() {
+        let qs = hanging_storage(Duration::from_millis(50));
+        let err = qs.get_quota("u1", "api").await.unwrap_err();
+        assert!(matches!(err, StorageError::TimeoutError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_reset_times_out_on_hanging_redis() {
+        let qs = hanging_storage(Duration::from_millis(50));
+        let err = qs
+            .reset("u1", "api", 100, Duration::from_secs(60))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, StorageError::TimeoutError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_refund_times_out_on_hanging_redis() {
+        let qs = hanging_storage(Duration::from_millis(50));
+        let err = qs
+            .refund("u1", "api", 5, 100, Duration::from_secs(60))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, StorageError::TimeoutError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_zero_timeout_disables_limit() {
+        let qs = CacheQuotaStorage::with_lua_executor(
+            make_backend(),
+            Arc::new(DelayedExecutor {
+                delay: Duration::from_millis(30),
+            }),
+        )
+        .with_eval_timeout(Duration::ZERO);
+        let result = qs
+            .consume("u1", "api", 1, 100, Duration::from_secs(60))
+            .await
+            .unwrap();
+        // QUOTA_CONSUME_SCRIPT 返回 Int(1)：allowed 语义由脚本约定（1 = 放行）
+        assert!(result.allowed);
+    }
+
+    #[tokio::test]
+    async fn test_short_timeout_returns_timeout_error() {
+        let qs = CacheQuotaStorage::with_lua_executor(
+            make_backend(),
+            Arc::new(DelayedExecutor {
+                delay: Duration::from_millis(200),
+            }),
+        )
+        .with_eval_timeout(Duration::from_millis(30));
+        let err = qs
+            .consume("u1", "api", 1, 100, Duration::from_secs(60))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, StorageError::TimeoutError(_)));
     }
 }

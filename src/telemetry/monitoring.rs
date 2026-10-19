@@ -230,6 +230,18 @@ impl PerformanceMetrics {
         }
     }
 
+    /// 创建使用隔离 recorder 的指标（仅测试）
+    ///
+    /// 计数不落进程级全局 unified metrics——绝对值断言的测试若接全局，
+    /// reset 与快照之间的窗口会被并行测试的记账污染（曾以 failed=5≠3 偶发）。
+    #[cfg(test)]
+    pub(crate) fn new_isolated() -> Self {
+        Self {
+            recorder: UnifiedMetricsRecorder::new(),
+            ..Self::new()
+        }
+    }
+
     /// 记录一次成功请求（op 命中计数，service 归因 `limiteron`）
     fn record_request_success(&self) {
         self.recorder.metrics().record_operation_with_service(
@@ -665,7 +677,7 @@ mod tests {
     #[serial_test::serial]
     async fn test_monitoring_system() {
         reset_global_metrics();
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         let alert_config = AlertConfig {
             cpu_thresholds: AlertThresholdF64 {
@@ -767,7 +779,7 @@ mod tests {
     #[serial_test::serial]
     async fn test_request_counts_recorded_via_recorder() {
         reset_global_metrics();
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         let monitoring = MonitoringSystem::new(metrics.clone(), tracer, alert_config_with(1));
 
@@ -791,7 +803,7 @@ mod tests {
     #[serial_test::serial]
     async fn test_percentiles_are_histogram_bucket_approximations() {
         reset_global_metrics();
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         let monitoring = MonitoringSystem::new(metrics.clone(), tracer, alert_config_with(1));
 
@@ -822,7 +834,9 @@ mod tests {
     #[tokio::test]
     #[serial_test::serial]
     async fn test_export_prometheus_format_contains_latency_histogram() {
-        reset_global_metrics();
+        // 本测试验证「记录 → 全局收集器 → Prometheus 导出」管道：
+        // 必须接全局（隔离实例的样本不会进 export）；断言为 contains 类，
+        // 对并行记账污染免疫
         let metrics = Arc::new(PerformanceMetrics::default());
         let tracer = Arc::new(Tracer::new(false));
         let monitoring = MonitoringSystem::new(metrics, tracer, alert_config_with(1));
@@ -1105,7 +1119,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_alerts_empty() {
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         let alert_config = AlertConfig {
             cpu_thresholds: AlertThresholdF64 {
@@ -1137,7 +1151,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_alerts_critical_bypasses_cooldown() {
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         let alert_config = AlertConfig {
             cpu_thresholds: AlertThresholdF64 {
@@ -1169,7 +1183,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_alerts_all_levels() {
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         let alert_config = AlertConfig {
             cpu_thresholds: AlertThresholdF64 {
@@ -1205,7 +1219,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_send_alert_notifications_all_levels() {
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         let alert_config = AlertConfig {
             cpu_thresholds: AlertThresholdF64 {
@@ -1245,7 +1259,7 @@ mod tests {
 
     #[test]
     fn test_check_alerts_all_normal_no_alerts() {
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         // thresholds that should never trigger on a normal system
         let alert_config = AlertConfig {
@@ -1279,7 +1293,7 @@ mod tests {
 
     #[test]
     fn test_check_alerts_cache_hit_rate_trigger() {
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         // Only cache_hit_rate threshold is triggerable
         let alert_config = AlertConfig {
@@ -1317,7 +1331,7 @@ mod tests {
     #[serial_test::serial]
     fn test_check_alerts_error_rate_critical() {
         reset_global_metrics();
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         // Trigger only error rate
         let alert_config = AlertConfig {
@@ -1364,7 +1378,7 @@ mod tests {
     #[serial_test::serial]
     fn test_check_alerts_latency_critical() {
         reset_global_metrics();
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         let alert_config = AlertConfig {
             cpu_thresholds: AlertThresholdF64 {
@@ -1422,7 +1436,7 @@ mod tests {
     #[serial_test::serial]
     fn test_snapshot_error_rate_with_total() {
         reset_global_metrics();
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         // Manually set values through recorded events
         // fail 3, no success -> total=3
         let tracer = Arc::new(Tracer::new(false));
@@ -1465,7 +1479,7 @@ mod tests {
 
     #[test]
     fn test_request_timer_finish() {
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         let timer = RequestTimer::new("test_timer".to_string(), metrics, tracer);
         let duration = timer.finish();
@@ -1521,7 +1535,7 @@ mod tests {
     #[serial_test::serial]
     fn test_check_alerts_multiple_checks() {
         reset_global_metrics();
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         let alert_config = AlertConfig {
             cpu_thresholds: AlertThresholdF64 {
@@ -1566,7 +1580,7 @@ mod tests {
     /// 设置 critical = 0.0 使得任何 cpu/memory 使用率都触发 Critical 告警
     #[test]
     fn test_check_alerts_cpu_memory_critical() {
-        let metrics = Arc::new(PerformanceMetrics::default());
+        let metrics = Arc::new(PerformanceMetrics::new_isolated());
         let tracer = Arc::new(Tracer::new(false));
         let alert_config = AlertConfig {
             // critical = 0.0 使得 cpu_usage >= 0.0 恒为 true -> Critical

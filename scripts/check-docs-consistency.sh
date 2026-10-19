@@ -20,8 +20,8 @@
 #   5. src/AGENTS.md 模块表与 src/ 实际结构一致（该文件不入库，仅本地存在时检查；
 #      本地 pre-commit 钩子是其主要执行点，CI 环境自动跳过并显式提示）
 #
-# 排除文档：docs/CHANGELOG.md（历史版本记录）、docs/COVERAGE_REPORT.md
-# （历史覆盖率快照）——其中的路径与 feature 反映的是当时而非当前仓库状态。
+# 排除文档：docs/CHANGELOG.md（历史版本记录）——其中的路径与 feature
+# 反映的是当时而非当前仓库状态。
 #
 # =============================================================================
 
@@ -66,7 +66,7 @@ warn() {
 # AGENTS.md 系列 .gitignore 忽略不入库，CI checkout 后不存在，按实际存在裁剪）
 DOCS=()
 for doc in README.md README_EN.md AGENTS.md src/AGENTS.md examples/README.md docs/*.md; do
-    [[ "$doc" == docs/CHANGELOG.md || "$doc" == docs/COVERAGE_REPORT.md ]] && continue
+    [[ "$doc" == docs/CHANGELOG.md ]] && continue
     [[ -f "$doc" ]] && DOCS+=("$doc")
 done
 

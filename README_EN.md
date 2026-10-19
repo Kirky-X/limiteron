@@ -286,7 +286,6 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 | [🧪 Testing Guide](docs/TESTING.md) | Test categories, commands, and coverage notes |
 | [📈 Benchmark Procedure](docs/BENCHMARKS.md) | `cargo bench` methodology, baseline refresh timing, and criterion comparison usage |
 | [🧬 Test Scenarios](docs/TEST_SCENARIOS.md) | Test pyramid baseline and E2E scenario definitions |
-| [📈 Coverage Report](docs/COVERAGE_REPORT.md) | Historical baseline data (generated in the v0.1.0 era, pending CI coverage refresh) |
 | [🔒 Security](docs/SECURITY.md) | Security design, version support policy, and vulnerability reporting process |
 | [📋 Changelog](docs/CHANGELOG.md) | Changes in every release |
 | [🤝 Contributing](docs/CONTRIBUTING.md) | How to participate in development |

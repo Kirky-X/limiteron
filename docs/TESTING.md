@@ -1,6 +1,6 @@
 # 🧪 Limiteron 测试指南
 
-本文档说明如何运行 Limiteron 项目的测试，包括按 feature 运行测试的详细说明。测试金字塔基线与 E2E 场景定义另见 [测试场景固化](TEST_SCENARIOS.md)，历史覆盖率数据见 [覆盖率报告](COVERAGE_REPORT.md)。
+本文档说明如何运行 Limiteron 项目的测试，包括按 feature 运行测试的详细说明。测试金字塔基线与 E2E 场景定义另见 [测试场景固化](TEST_SCENARIOS.md)。
 
 ## 📋 目录
 
@@ -141,7 +141,7 @@ cargo llvm-cov --workspace --no-default-features --features full --lib --html
 # 报告输出到 target/llvm-cov/html/
 ```
 
-> 历史上曾使用 cargo-tarpaulin 生成覆盖率（v0.1.0 时期基线，见 [覆盖率报告](COVERAGE_REPORT.md)）。使用 tarpaulin 时同样需要注意 `postgres` 与 `sqlite` 互斥，不可使用 `--all-features`。
+> 历史上曾使用 cargo-tarpaulin 生成覆盖率（v0.1.0 时期基线，已不再保留单独报告，数据已过时且不可引用）。使用 tarpaulin 时同样需要注意 `postgres` 与 `sqlite` 互斥，不可使用 `--all-features`。
 
 ## ✅ 测试最佳实践
 
@@ -232,7 +232,6 @@ cargo test --features full -- --test-threads=1
 ## 📚 更多信息
 
 - [测试场景固化](TEST_SCENARIOS.md)：测试金字塔基线与 E2E 场景定义
-- [覆盖率报告](COVERAGE_REPORT.md)：历史覆盖率基线与数据口径说明
 - [API 参考文档](API_REFERENCE.md)
 - [用户指南](USER_GUIDE.md)
 - [常见问题](FAQ.md)

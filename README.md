@@ -286,7 +286,6 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 | [🧪 测试指南](docs/TESTING.md) | 测试分类、运行命令与覆盖率说明 |
 | [📈 基准测试规程](docs/BENCHMARKS.md) | `cargo bench` 口径、基线刷新时机与 criterion 对比用法 |
 | [🧬 测试场景固化](docs/TEST_SCENARIOS.md) | 测试金字塔基线与 E2E 场景定义 |
-| [📈 覆盖率报告](docs/COVERAGE_REPORT.md) | 历史基线数据（v0.1.0 时期生成，待 CI 覆盖率更新） |
 | [🔒 安全文档](docs/SECURITY.md) | 安全设计、版本支持策略与漏洞报告流程 |
 | [📋 更新日志](docs/CHANGELOG.md) | 每个版本的变更记录 |
 | [🤝 贡献指南](docs/CONTRIBUTING.md) | 如何参与项目开发 |

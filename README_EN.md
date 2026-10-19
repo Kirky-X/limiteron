@@ -119,7 +119,7 @@ Requirements: Rust 1.97.1+ (see [rust-toolchain.toml](rust-toolchain.toml)). The
 
 ```toml
 [dependencies]
-limiteron = { version = "0.3.0-rc.7", features = ["macros"] }
+limiteron = { version = "0.3.0-rc.8", features = ["macros"] }
 ```
 
 </details>

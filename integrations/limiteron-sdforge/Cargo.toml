@@ -7,6 +7,8 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Rate-limit / circuit-breaker guard layer for sdforge applications, provided from the limiteron side"
+# 集成 crate 与父仓 path 双钉，不单独发布 crates.io（与 README 声明一致）
+publish = false
 
 [lints]
 workspace = true

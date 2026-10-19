@@ -2,6 +2,15 @@
 
 本目录是 workspace 内的独立子 crate（包名 `limiteron-examples`，不发布到 crates.io），共包含 **21 个可运行示例**，覆盖限流、配额、熔断、封禁管理等核心场景。示例源码位于 `src/bin/` 目录，需要 **Rust 1.97.1+**（与 workspace 的 `rust-version` 保持一致）。
 
+## 与父 crate 的关系
+
+| 项 | 内容 |
+|---|---|
+| 所属仓库 | [limiteron](https://github.com/Kirky-X/limiteron) |
+| 依赖方向 | 本 crate → `limiteron`（示例以 `path = ".."` 依赖父 crate） |
+| 是否发布 | 否：`publish = false`，仅用于演示与回归验证 |
+| 版本与支持 | 版本经 `version.workspace = true` 随仓库统一；仅维护当前 minor 版本线，见 [安全文档 · 支持的版本](../docs/SECURITY.md#-支持的版本与维护策略) |
+
 ## 🚀 运行方式
 
 示例是独立子 crate 的 `[[bin]]` 目标（不是主 crate 的 `--example` 目标），请在仓库根目录使用 `-p limiteron-examples` 指定包运行：

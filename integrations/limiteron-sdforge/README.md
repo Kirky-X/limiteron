@@ -2,6 +2,15 @@
 
 limiteron 侧提供的 sdforge 防护桥接 crate：把 limiteron 的限流 / 熔断 / 封禁能力以最小依赖面暴露给 sdforge 应用。
 
+## 与父 crate 的关系
+
+| 项 | 内容 |
+|---|---|
+| 所属仓库 | [limiteron](https://github.com/Kirky-X/limiteron)（目录 `limiteron/integrations/limiteron-sdforge`） |
+| 依赖方向 | 本 crate → `limiteron`（`path = "../.."`）；`sdforge` feature 开启时另依赖 `sdforge` |
+| 是否发布 | 否：`publish = false`，与父仓 path 双钉，应用经 git 依赖消费 |
+| 版本与支持 | 版本经 `version.workspace = true` 随 limiteron 仓库统一；仅维护当前 minor 版本线，见 [安全文档 · 支持的版本](../../docs/SECURITY.md#-支持的版本与维护策略) |
+
 ## 结构
 
 - **核心 guard**（`default`）：`Guard` / `GuardConfig` / `GuardDecision` / `GuardIdentity`——协议无关，不依赖 sdforge。
@@ -43,12 +52,12 @@ limiteron-sdforge ──► sdforge ──► limiteron
         └─────────────────────────────────┘
 ```
 
-菱形合法：Cargo 对同一 semver 兼容区间合并为单一构建（本 workspace 的 limiteron `0.3.0-rc.7` 与 sdforge 声明的 `0.3.0-rc.7` 同版本，区间重合，不产生二次构建）。两侧 optional 钉版统一为同一策略——**钉对方已发布的 rc 版本下界 + `default-features = false`**：
+菱形合法：Cargo 对同一 semver 兼容区间合并为单一构建（本 workspace 的 limiteron `0.3.0-rc.8` 与 sdforge 声明的 `0.3.0-rc.8` 同版本，区间重合，不产生二次构建）。两侧 optional 钉版统一为同一策略——**钉对方已发布的 rc 版本下界 + `default-features = false`**：
 
-- sdforge 侧（既有）：`limiteron = { version = "0.3.0-rc.7", default-features = false }`
-- 本 crate：`sdforge = { version = "0.5.0-rc.6", default-features = false, optional = true }`
+- sdforge 侧（既有）：`limiteron = { version = "0.3.0-rc.8", default-features = false }`
+- 本 crate：`sdforge = { version = "0.5.0-rc.9", default-features = false, optional = true }`
 
-rc.6 存在性证据：crates.io 解包验证 `sdforge::domain::{ForgeError, ForgeRateLimiter}` 已存在、`domain` 模块无条件编译、`ForgeError::internal(impl Display)` 构造器可用（`cargo check -p limiteron-sdforge --features sdforge` 对解析到 registry 的 0.5.0-rc.6 编译通过）。
+rc.6 存在性证据（记录时点版本）：crates.io 解包验证 `sdforge::domain::{ForgeError, ForgeRateLimiter}` 已存在、`domain` 模块无条件编译、`ForgeError::internal(impl Display)` 构造器可用（`cargo check -p limiteron-sdforge --features sdforge` 对解析到 registry 的 0.5.0-rc.6 编译通过）。
 
 ## 语义要点（装配前必读）
 

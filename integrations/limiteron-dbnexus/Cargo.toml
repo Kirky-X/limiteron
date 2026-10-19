@@ -7,6 +7,8 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Adapter implementing the dbnexus-limiter-port `Limiter` port on top of limiteron's per-key LimiterManager"
+# 集成 crate 与父仓 path 双钉，不单独发布 crates.io（与 README 声明一致）
+publish = false
 
 [dependencies]
 # 父仓 path+version 双钉（limiteron-sdforge 同款）；仅取 per-key 引擎面，

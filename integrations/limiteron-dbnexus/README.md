@@ -6,6 +6,15 @@ limiteron 对 [`dbnexus-limiter-port`](https://crates.io/crates/dbnexus-limiter-
 
 > 本 crate 不发布 crates.io（集成 crate 与父仓 path 双钉，与 limiteron-sdforge 同款口径），应用经 git 依赖消费。
 
+## 与父 crate 的关系
+
+| 项 | 内容 |
+|---|---|
+| 所属仓库 | [limiteron](https://github.com/Kirky-X/limiteron)（目录 `limiteron/integrations/limiteron-dbnexus`） |
+| 依赖方向 | 本 crate → `limiteron`（`path = "../.."`）+ `dbnexus-limiter-port`（端口契约） |
+| 是否发布 | 否：`publish = false` 已在清单中声明 |
+| 版本与支持 | 版本经 `version.workspace = true` 随 limiteron 仓库统一；仅维护当前 minor 版本线，见 [安全文档 · 支持的版本](../../docs/SECURITY.md#-支持的版本与维护策略) |
+
 ## 为什么存在
 
 dbnexus 与 limiteron 互为消费方（limiteron optional 依赖 dbnexus 作存储后端），Cargo 禁止包级循环依赖，故限流接口抽为独立小 crate `dbnexus-limiter-port`（2 文件、常规依赖仅 async-trait）。本 crate 在 limiteron 侧实现该端口，是两条产品线的唯一无环接缝；装配发生在应用组合根。

@@ -2,7 +2,7 @@
 
 <img src="docs/assets/limiteron.png" alt="Limiteron Logo" width="240">
 
-[![CI Status](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg)](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml) [![Version](https://img.shields.io/crates/v/limiteron.svg)](https://crates.io/crates/limiteron) [![Docs.rs](https://docs.rs/limiteron/badge.svg)](https://docs.rs/limiteron) [![Downloads](https://img.shields.io/crates/d/limiteron.svg)](https://crates.io/crates/limiteron) [![License](https://img.shields.io/crates/l/limiteron.svg)](LICENSE) [![Rust](https://img.shields.io/badge/rust-1.97.1%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust 2024](https://img.shields.io/badge/Rust-2024-edded?logo=rust&style=for-the-badge)](https://www.rust-lang.org/) [![Rustc 1.97.1+](https://img.shields.io/badge/Rustc-1.97.1+-orange.svg?style=for-the-badge)](https://www.rust-lang.org/) [![crates.io](https://img.shields.io/crates/v/limiteron?style=for-the-badge)](https://crates.io/crates/limiteron) [![docs.rs](https://img.shields.io/docsrs/limiteron?style=for-the-badge)](https://docs.rs/limiteron) [![downloads](https://img.shields.io/crates/d/limiteron?style=for-the-badge)](https://crates.io/crates/limiteron) [![CI](https://img.shields.io/github/actions/workflow/status/Kirky-X/limiteron/ci.yml?branch=main&label=CI&style=for-the-badge)](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml) [![coverage](https://img.shields.io/codecov/c/github/Kirky-X/limiteron?style=for-the-badge)](https://codecov.io/gh/Kirky-X/limiteron) [![license](https://img.shields.io/crates/l/limiteron?style=for-the-badge)](LICENSE)
 
 **中文** | [English](README_EN.md)
 
@@ -103,20 +103,33 @@
 
 ### 📦 安装
 
+<details>
+<summary>📄 代码 · bash</summary>
+
 ```bash
 cargo add limiteron
 ```
 
+</details>
+
 环境要求：Rust 1.97.1+（见 [rust-toolchain.toml](rust-toolchain.toml)）。默认特性为空（`default = []`），核心限流零外部存储依赖；需要持久化时启用存储特性：
+
+<details>
+<summary>📄 代码 · toml</summary>
 
 ```toml
 [dependencies]
 limiteron = { version = "0.3.0-rc.7", features = ["macros"] }
 ```
 
+</details>
+
 ### 💡 最小可运行示例
 
 以下示例来自 [`examples/src/bin/simple_rate_limit.rs`](examples/src/bin/simple_rate_limit.rs)，演示最基本的令牌桶限流：
+
+<details>
+<summary>📄 代码 · rust</summary>
 
 ```rust
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
@@ -137,13 +150,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+</details>
+
 运行方式：
+
+<details>
+<summary>📄 代码 · bash</summary>
 
 ```bash
 cargo run -p limiteron-examples --bin simple_rate_limit
 ```
 
+</details>
+
 **声明式宏**（`macros` 特性，摘自现有示例风格）：
+
+<details>
+<summary>📄 代码 · rust</summary>
 
 ```rust
 use limiteron::flow_control;
@@ -153,6 +176,8 @@ async fn api_handler(user_id: &str) -> Result<String, limiteron::error::Limitero
     Ok(format!("处理用户 {} 的请求", user_id))
 }
 ```
+
+</details>
 
 ### 🧭 核心概念
 
@@ -249,6 +274,9 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 
 ## 📚 文档
 
+<details>
+<summary>📋 表格</summary>
+
 | 文档 | 说明 |
 |------|------|
 | [📖 用户指南](docs/USER_GUIDE.md) | 从安装、核心概念到进阶用法与故障排除的完整教程 |
@@ -265,16 +293,26 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 | [📦 docs.rs 在线文档](https://docs.rs/limiteron) | 自动生成的最新 API 文档 |
 | [📦 crates.io](https://crates.io/crates/limiteron) | 发布页面 |
 
+</details>
+
 ---
 
 ## 💻 示例
 
 [`examples/`](examples/) 是 workspace 内的独立子 crate（`limiteron-examples`），含 21 个可运行示例。运行需要 feature 的示例时先启用对应特性：
 
+<details>
+<summary>📄 代码 · bash</summary>
+
 ```bash
 cargo run -p limiteron-examples --bin simple_rate_limit
 cargo run -p limiteron-examples --features "ban-manager,admin-api" --bin ban_http_api
 ```
+
+</details>
+
+<details>
+<summary>📋 表格</summary>
 
 | 示例 | 说明 |
 |------|------|
@@ -299,6 +337,8 @@ cargo run -p limiteron-examples --features "ban-manager,admin-api" --bin ban_htt
 | `tower_middleware` | 将 Governor 流量控制集成到 Tower Service 处理链 |
 | `telemetry_demo` | Prometheus 指标采集与 OpenTelemetry 分布式追踪 |
 | `device_geo_matching` | User-Agent 解析、设备识别、IP 地理查询与地理条件匹配 |
+
+</details>
 
 ---
 
@@ -410,10 +450,15 @@ ConcurrencyLimiter: 11,891,237 ops/s
 | 内存 | `benches/memory.rs` | 键规模内存占用、数据结构对比、泄漏检测 |
 | 回归 | `benches/regression.rs` | 历史基准存储与自动对比告警 |
 
+<details>
+<summary>📄 代码 · bash</summary>
+
 ```bash
 cargo bench --features full
 # 注意：[[bench]] 已设置 harness = false（criterion 0.8 要求），缺失时 bench 落入 libtest 空跑
 ```
+
+</details>
 
 ---
 

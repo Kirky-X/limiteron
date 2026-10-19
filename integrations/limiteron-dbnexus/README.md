@@ -1,6 +1,6 @@
 # limiteron-dbnexus
 
-[![Crates.io](https://img.shields.io/crates/v/limiteron.svg)](https://crates.io/crates/limiteron) [![Docs.rs](https://docs.rs/limiteron/badge.svg)](https://docs.rs/limiteron) [![License](https://img.shields.io/crates/l/limiteron.svg)](../../LICENSE)
+[![Crates.io](https://img.shields.io/crates/v/limiteron?style=for-the-badge)](https://crates.io/crates/limiteron) [![docs.rs](https://img.shields.io/docsrs/limiteron?style=for-the-badge)](https://docs.rs/limiteron) [![License](https://img.shields.io/crates/l/limiteron?style=for-the-badge)](../../LICENSE)
 
 limiteron 对 [`dbnexus-limiter-port`](https://crates.io/crates/dbnexus-limiter-port) 限流端口的适配器：把 limiteron 的 per-key 令牌桶（`LimiterManager`）装进 dbnexus 的 `Limiter` 端口契约，供 dbnexus 权限检查链路经 `RateLimitBackend::External` 注入。
 

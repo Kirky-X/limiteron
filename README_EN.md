@@ -2,9 +2,9 @@
 
 <img src="docs/assets/limiteron.png" alt="Limiteron Logo" width="240">
 
-[![CI Status](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml/badge.svg)](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml) [![Version](https://img.shields.io/crates/v/limiteron.svg)](https://crates.io/crates/limiteron) [![Docs.rs](https://docs.rs/limiteron/badge.svg)](https://docs.rs/limiteron) [![Downloads](https://img.shields.io/crates/d/limiteron.svg)](https://crates.io/crates/limiteron) [![License](https://img.shields.io/crates/l/limiteron.svg)](LICENSE) [![Rust](https://img.shields.io/badge/rust-1.97.1%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust 2024](https://img.shields.io/badge/Rust-2024-edded?logo=rust&style=for-the-badge)](https://www.rust-lang.org/) [![Rustc 1.97.1+](https://img.shields.io/badge/Rustc-1.97.1+-orange.svg?style=for-the-badge)](https://www.rust-lang.org/) [![crates.io](https://img.shields.io/crates/v/limiteron?style=for-the-badge)](https://crates.io/crates/limiteron) [![docs.rs](https://img.shields.io/docsrs/limiteron?style=for-the-badge)](https://docs.rs/limiteron) [![downloads](https://img.shields.io/crates/d/limiteron?style=for-the-badge)](https://crates.io/crates/limiteron) [![CI](https://img.shields.io/github/actions/workflow/status/Kirky-X/limiteron/ci.yml?branch=main&label=CI&style=for-the-badge)](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml) [![coverage](https://img.shields.io/codecov/c/github/Kirky-X/limiteron?style=for-the-badge)](https://codecov.io/gh/Kirky-X/limiteron) [![license](https://img.shields.io/crates/l/limiteron?style=for-the-badge)](LICENSE)
 
-[Chinese](README.md) | **English**
+[中文](README.md) | **English**
 
 **Unified Flow Control Framework for Rust**
 
@@ -56,29 +56,26 @@ One Governor entrypoint where multi-algorithm limiting and layered control decid
 
 ## ✨ Features
 
-<table>
+<table style="width:100%; border-collapse: collapse">
 <tr>
-<td width="50%" valign="top">
-
-### 🎯 Traffic Governance
-
-- ✅ **Multiple Rate Limiting Algorithms** — Token bucket, sliding window, sharded sliding window, sliding window log (exact sliding window), fixed window, leaky bucket (water-level meter, dual of token bucket), concurrency control, GCRA, HTB hierarchical token bucket (`src/limiters/`)
-- ✅ **Ban Management** — IP / User / MAC / Geo targets, CIDR range bans, priority system, YAML bulk loading with hot reload, cross-instance sync (`ban-sync`)
-- ✅ **Quota Control** — Periodic quota allocation, quota alerts, quota overdraw (`src/quota/`)
-- ✅ **Circuit Breaking & Fallback** — Automatic failover, state recovery, fallback strategies (`src/circuit/`, `src/fallback.rs`)
-
-</td>
-<td width="50%" valign="top">
-
-### ⚡ Engineering
-
-- 🚀 **High Performance** — Token bucket at 12M+ ops/s, P99 latency < 1µs (see [Performance](#-performance))
-- 🧩 **Declarative Integration** — `#[flow_control]` procedural macro, Tower middleware, Admin REST API, `limiteron-cli`
-- 🏢 **Multi-Tenancy** — tenant+key compound decision keys; cache, bans, and quotas isolated per tenant
-- 📈 **Observability** — Prometheus metrics, OTLP tracing export, HMAC-SHA256 hash-chained audit log, K8s probe endpoints
-- 🔐 **Built-in Security** — Identifier key sanitization, log redaction, signed and replay-protected webhooks, Admin RBAC
-
-</td>
+<td width="50%" style="vertical-align:top; padding: 12px">🎯 <b>Rate-limiting algorithm matrix</b><br><span style="color:#64748B">Token bucket, sliding window, sharded sliding window, sliding window log (exact sliding window), fixed window, leaky bucket (water-level meter, dual of token bucket), concurrency control, GCRA, HTB hierarchical token bucket (<code>src/limiters/</code>)</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🚫 <b>Ban management</b><br><span style="color:#64748B">IP / User / MAC / Geo target bans, CIDR range bans, priority system, YAML bulk loading with hot reload, cross-instance sync (<code>ban-sync</code>)</span></td>
+</tr>
+<tr>
+<td width="50%" style="vertical-align:top; padding: 12px">⚖️ <b>Quota control</b><br><span style="color:#64748B">Periodic quota allocation, quota alerts, quota overdraw (<code>src/quota/</code>)</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🧯 <b>Circuit breaking &amp; fallback</b><br><span style="color:#64748B">Automatic failover, state recovery, fallback strategies (<code>src/circuit/</code>, <code>src/fallback.rs</code>)</span></td>
+</tr>
+<tr>
+<td width="50%" style="vertical-align:top; padding: 12px">🚀 <b>High performance</b><br><span style="color:#64748B">Token bucket at 12M+ ops/s, P99 latency &lt; 1µs (see [Performance](#-performance))</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🧩 <b>Declarative integration</b><br><span style="color:#64748B"><code>#[flow_control]</code> procedural macro, Tower middleware, Admin REST API, <code>limiteron-cli</code></span></td>
+</tr>
+<tr>
+<td width="50%" style="vertical-align:top; padding: 12px">🏢 <b>Multi-tenancy</b><br><span style="color:#64748B">tenant+key compound decision keys; cache, bans, and quotas isolated per tenant</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">📈 <b>Observability</b><br><span style="color:#64748B">Prometheus metrics, OTLP tracing export, HMAC-SHA256 hash-chained audit log, K8s probe endpoints</span></td>
+</tr>
+<tr>
+<td width="50%" style="vertical-align:top; padding: 12px">🔐 <b>Built-in security</b><br><span style="color:#64748B">Identifier key sanitization, log redaction, signed and replay-protected webhooks, Admin RBAC</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🧠 <b>Decision-chain cascade</b><br><span style="color:#64748B">DecisionChain cascades rules by priority with short-circuit support (<code>src/decision_chain/</code>)</span></td>
 </tr>
 </table>
 
@@ -106,20 +103,33 @@ One Governor entrypoint where multi-algorithm limiting and layered control decid
 
 ### 📦 Installation
 
+<details>
+<summary>📄 Code · bash</summary>
+
 ```bash
 cargo add limiteron
 ```
 
+</details>
+
 Requirements: Rust 1.97.1+ (see [rust-toolchain.toml](rust-toolchain.toml)). The default feature set is empty (`default = []`) so core rate limiting has zero external storage dependencies; enable a storage feature when persistence is needed:
+
+<details>
+<summary>📄 Code · toml</summary>
 
 ```toml
 [dependencies]
 limiteron = { version = "0.3.0-rc.7", features = ["macros"] }
 ```
 
+</details>
+
 ### 💡 Minimal Runnable Example
 
 The following example comes from [`examples/src/bin/simple_rate_limit.rs`](examples/src/bin/simple_rate_limit.rs) and demonstrates the most basic token bucket usage:
+
+<details>
+<summary>📄 Code · rust</summary>
 
 ```rust
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
@@ -140,13 +150,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+</details>
+
 Run it:
+
+<details>
+<summary>📄 Code · bash</summary>
 
 ```bash
 cargo run -p limiteron-examples --bin simple_rate_limit
 ```
 
+</details>
+
 **Declarative macro** (`macros` feature, in the style of the existing examples):
+
+<details>
+<summary>📄 Code · rust</summary>
 
 ```rust
 use limiteron::flow_control;
@@ -156,6 +176,8 @@ async fn api_handler(user_id: &str) -> Result<String, limiteron::error::Limitero
     Ok(format!("Processing request for user {}", user_id))
 }
 ```
+
+</details>
 
 ### 🧭 Core Concepts
 
@@ -252,6 +274,9 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 
 ## 📚 Documentation
 
+<details>
+<summary>📋 Table</summary>
+
 | Documentation | Description |
 |---------------|-------------|
 | [📖 User Guide](docs/USER_GUIDE.md) | Complete tutorial from installation and core concepts to advanced usage and troubleshooting |
@@ -268,16 +293,26 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 | [📦 docs.rs](https://docs.rs/limiteron) | Latest API documentation generated by docs.rs |
 | [📦 crates.io](https://crates.io/crates/limiteron) | Release page |
 
+</details>
+
 ---
 
 ## 💻 Examples
 
 [`examples/`](examples/) is a standalone sub-crate in the workspace (`limiteron-examples`) containing 21 runnable examples. Enable the required features when running feature-gated examples:
 
+<details>
+<summary>📄 Code · bash</summary>
+
 ```bash
 cargo run -p limiteron-examples --bin simple_rate_limit
 cargo run -p limiteron-examples --features "ban-manager,admin-api" --bin ban_http_api
 ```
+
+</details>
+
+<details>
+<summary>📋 Table</summary>
 
 | Example | Description |
 |---------|-------------|
@@ -302,6 +337,8 @@ cargo run -p limiteron-examples --features "ban-manager,admin-api" --bin ban_htt
 | `tower_middleware` | Integrating Governor flow control into a Tower Service pipeline |
 | `telemetry_demo` | Prometheus metrics collection and OpenTelemetry distributed tracing |
 | `device_geo_matching` | User-Agent parsing, device detection, IP geolocation, and geo condition matching |
+
+</details>
 
 ---
 
@@ -413,10 +450,15 @@ Concurrency tests: 100% data consistency, rate limit correctness 1000/1000
 | Memory | `benches/memory.rs` | Memory footprint by key count, data structure comparison, leak detection |
 | Regression | `benches/regression.rs` | Historical baseline storage and automatic comparison alerts |
 
+<details>
+<summary>📄 Code · bash</summary>
+
 ```bash
 cargo bench --features full
 # Note: [[bench]] targets set harness = false (required by criterion 0.8); without it benches fall into an empty libtest run
 ```
+
+</details>
 
 ---
 

@@ -141,7 +141,7 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: |
-          OUTPUT=$(cargo publish --no-default-features --features full,postgres 2>&1) || {
+          OUTPUT=$(cargo publish --no-default-features --features full,postgres --allow-dirty 2>&1) || {
             if echo "$OUTPUT" | grep -qE "already exists|already published"; then
               echo "::warning::limiteron already published, continuing"
             else

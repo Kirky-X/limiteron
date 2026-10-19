@@ -52,12 +52,12 @@ limiteron-sdforge ──► sdforge ──► limiteron
         └─────────────────────────────────┘
 ```
 
-菱形合法：Cargo 对同一 semver 兼容区间合并为单一构建（本 workspace 的 limiteron `0.3.0-rc.8` 与 sdforge 声明的 `0.3.0-rc.8` 同版本，区间重合，不产生二次构建）。两侧 optional 钉版统一为同一策略——**钉对方已发布的 rc 版本下界 + `default-features = false`**：
+菱形合法：Cargo 对同一 semver 兼容区间合并为单一构建（本 workspace 声明的 limiteron 与 sdforge 侧声明的 limiteron 同版本，区间重合，不产生二次构建）。两侧 optional 钉版统一为同一策略——**钉对方当前发布版本作下界 + `default-features = false`**（具体版本见两侧 `Cargo.toml`）：
 
-- sdforge 侧（既有）：`limiteron = { version = "0.3.0-rc.8", default-features = false }`
-- 本 crate：`sdforge = { version = "0.5.0-rc.9", default-features = false, optional = true }`
+- sdforge 侧（既有）：`limiteron = { version = "<同 Cargo.toml>", default-features = false }`
+- 本 crate：`sdforge = { version = "<同 Cargo.toml>", default-features = false, optional = true }`
 
-rc.6 存在性证据（记录时点版本）：crates.io 解包验证 `sdforge::domain::{ForgeError, ForgeRateLimiter}` 已存在、`domain` 模块无条件编译、`ForgeError::internal(impl Display)` 构造器可用（`cargo check -p limiteron-sdforge --features sdforge` 对解析到 registry 的 0.5.0-rc.6 编译通过）。
+存在性证据（记录时点版本）：crates.io 解包验证 `sdforge::domain::{ForgeError, ForgeRateLimiter}` 已存在、`domain` 模块无条件编译、`ForgeError::internal(impl Display)` 构造器可用（`cargo check -p limiteron-sdforge --features sdforge` 对解析到 registry 的当时下界版本编译通过）。
 
 ## 语义要点（装配前必读）
 

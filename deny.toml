@@ -31,20 +31,8 @@ allow = [
 ]
 confidence-threshold = 0.8
 unused-allowed-license = "warn"
-
-# 7 仓统一 license：纯 MIT（2026-10-12 用户裁决，manifest license = "MIT"，
-# LICENSE 文件已删除 Commons Clause 段）。
-# cargo-deny 不识别 manifest 的 license-file，对工作区 crate 用 clarify 绑定
-# LICENSE 文件内容 hash（防篡改）放行；path 相对被 clarify 的 crate 目录解析。
-[[licenses.clarify]]
-name = "limiteron"
-expression = "MIT"
-license-files = [{ path = "LICENSE", hash = 0xfb13e7ad }]
-
-[[licenses.clarify]]
-name = "oxcache"
-expression = "MIT"
-license-files = [{ path = "LICENSE", hash = 0xfb13e7ad }]
+# 许可证口径（2026-10-12 用户裁决）：统一纯 MIT——manifest license = "MIT"，
+# LICENSE 文件为标准 MIT 全文，deny 直接读 manifest SPDX，无需 clarify。
 
 [bans]
 multiple-versions = "warn"

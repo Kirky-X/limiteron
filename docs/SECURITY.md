@@ -36,6 +36,13 @@
 4. **披露约定**：采用协调披露。修复发布后，会在 [CHANGELOG](CHANGELOG.md) 对应版本的"安全"分类中记录（可参考 0.2.8 的 vuln-0001 ~ vuln-0004 系列修复记录），并在讨论中致谢报告者（如报告者同意）。
 5. **非安全类问题**：一般性使用问题请走 [Issues](https://github.com/Kirky-X/limiteron/issues) 或 [Discussions](https://github.com/Kirky-X/limiteron/discussions)，不必走安全流程。
 
+### ⏱️ 响应承诺
+
+- **48 小时内**确认收到
+- **7 天内**给出初步评估（接受/拒绝/需补充信息）
+- 修复发布前，报告者将获得补丁的预览验证机会
+- 修复发布后，在 CHANGELOG 与 advisory 中致谢报告者（可匿名）
+
 ---
 
 ## 🛡️ 安全设计概览

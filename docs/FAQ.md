@@ -735,7 +735,7 @@ bug 的清晰描述
 
 <br>
 
-**本项目基于 MIT + Commons Clause 许可证发布**，商业使用需单独授权。完整条款见 [LICENSE](../LICENSE)；MIT 基础许可自 v0.2.3 起沿用（此前为 Apache-2.0），变更记录见[更新日志](CHANGELOG.md)。
+**本项目基于 MIT 许可证发布**，可自由用于商业项目。完整条款见 [LICENSE](../LICENSE)；MIT 许可自 v0.2.3 起沿用（此前为 Apache-2.0），变更记录见[更新日志](CHANGELOG.md)。
 
 </details>
 
@@ -744,7 +744,7 @@ bug 的清晰描述
 
 <br>
 
-**需单独授权。** 项目采用 MIT + Commons Clause 许可，商业使用需单独授权，条款详见 [LICENSE](../LICENSE)。
+**可以。** 项目采用 MIT 许可，允许商业使用与销售，仅需保留版权与许可声明，条款详见 [LICENSE](../LICENSE)。
 
 </details>
 

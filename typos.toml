@@ -1,0 +1,12 @@
+# typos 白名单 —— 仅登记「确为真词 / 真实标识符 / 刻意测试数据」的命中，
+# 不放宽任何门禁：真正的拼写错误仍会由 typos 报告并阻断提交。
+#
+# 词条大小写不敏感（查找走 UniCase），故 `aimd` 一条同时覆盖 `AIMD` / `Aimd`。
+[default.extend-words]
+# aimd —— Additive Increase Multiplicative Decrease，拥塞控制与自适应限流的
+# 标准算法缩写（`adaptive-limiting` 特性的实现与文档均用它），非 `AIMED` 误拼。
+# typos 未收纳该缩写，默认会被改写成 AIMED，故在此放行。
+aimd = "aimd"
+# writeable —— ICU4X 组件 crate 的真实名字是 `writeable`（无 r），
+# 源码 import 与依赖表中的引用均为真实标识符，不是 `writable` 的拼写错误。
+writeable = "writeable"

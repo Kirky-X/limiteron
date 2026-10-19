@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-license = "MIT"
+license.workspace = true
 repository.workspace = true
 description = "Rate-limit / circuit-breaker guard layer for sdforge applications, provided from the limiteron side"
 

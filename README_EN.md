@@ -563,7 +563,9 @@ See [CHANGELOG.md](docs/CHANGELOG.md) for the full history. Recent releases:
 
 ## 📄 License
 
-This project is licensed under the MIT + Commons Clause License; commercial use requires separate authorization. See [LICENSE](LICENSE). Copyright (c) 2026 Kirky.X🌠.
+This project is licensed under the [MIT](LICENSE) License.
+
+Copyright (c) 2026 Kirky.X🌠
 
 ---
 

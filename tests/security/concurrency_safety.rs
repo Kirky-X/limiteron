@@ -476,14 +476,14 @@ async fn test_multiple_limiters_concurrent_access() {
         let tb = Arc::clone(&token_bucket);
         let sw = Arc::clone(&sliding_window);
         let fw = Arc::clone(&fixed_window);
-        let shw = Arc::clone(&sharded_window);
+        let sharded = Arc::clone(&sharded_window);
 
         handles.push(tokio::spawn(async move {
             // 同时访问多个限流器
             let _ = tb.allow(1).await;
             let _ = sw.allow(1).await;
             let _ = fw.allow(1).await;
-            let _ = shw.allow(1).await;
+            let _ = sharded.allow(1).await;
         }));
     }
 

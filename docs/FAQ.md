@@ -577,7 +577,7 @@ let dsn = std::env::var("DATABASE_URL")?;
 
 **保持知情:**
 - 🔔 关注此仓库
-- 📰 查看 [Security Advisories](https://github.com/Kirky-X/limiteron/security/advisories)
+- 📰 查看 [Security Advisories](https://github.com/Kirky-X/limiteron/security/policy)
 
 </details>
 

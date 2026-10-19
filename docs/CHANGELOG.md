@@ -33,6 +33,18 @@
 
 ---
 
+## [Unreleased]
+
+## [0.3.0-rc.8] - 2026-10-19
+
+### 变更
+
+- **发布依赖传播**：`oxcache` rc.8 → rc.9、`dbnexus` rc.9 → rc.10、`trait-kit` rc.9 → rc.10、`inklog` rc.7 → rc.10、`confers` rc.6 → rc.11；`limiteron-macros` 自钉同步 rc.8；integrations 的 `dbnexus-limiter-port` rc.6 → rc.10、`sdforge` rc.6 → rc.9。
+
+### 新增
+
+- **StorageFactory SQLite PRAGMA 透传（`sqlite` feature）**：`StorageFactoryConfig` 新增 `sqlite_pragmas: Option<dbnexus::SqlitePragmas>` 与 `.with_sqlite_pragmas(...)` builder，`initialize` 经 `DbPool::with_config` 把 WAL/busy_timeout/synchronous/foreign_keys 透传给 dbnexus 连接池（逐连接应用、白名单校验、失败显性化；非 SQLite 存储配置 pragmas 在 initialize 显性拒绝）；未配置时与 `DbPool::new(url)` 逐字段等价。测试：非法 pragma 值经透传链显性失败（负路径证明值到达连接层）+ WAL 端到端持久化（临时文件库透传后独立重开断言 `journal_mode=wal`）。**依赖前提**：需 dbnexus ≥ 0.6.0-rc.10（含 `SqlitePragmas` 配置面），随 dbnexus 发版同步入库
+
 ## [0.3.0-rc.7] - 2026-10-10
 
 ### 新增

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 //! SQLite 嵌入式后端测试（feature `sqlite`）
 //!
-//! 全部用例运行于 `sqlite::memory:`，无需 Docker / 外部服务（沙箱可跑）。
+//! 用例以 `sqlite::memory:` 为主，无需 Docker / 外部服务（沙箱可跑）；
+//! PRAGMA 持久化用例使用临时文件库（WAL 须落文件头方可跨连接验证）。
 //! 覆盖三条主线：
 //! 1. sqlite 方言建表 DDL + StorageFactory 全链路（KV / 封禁 / 配额适配器）；
 //! 2. 原生 SQL 路径（封禁原子计数、配额原子消费）在 sqlite 上的行为等价性；
@@ -339,6 +340,46 @@ async fn ban_manager_runs_on_sqlite_storage() {
         manager.is_banned(&target).await.unwrap().is_some(),
         "ban via sqlite storage must be visible to BanManager"
     );
+}
+
+/// StorageFactory 透传 sqlite_pragmas：WAL 写入文件头持久化，
+/// 工厂关闭后独立连接重开同一路径仍读到 wal（端到端正路径）。
+#[tokio::test]
+async fn factory_pragmas_passthrough_wal_persistence() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("wal_passthrough.db");
+    let mut factory = StorageFactory::new(
+        StorageFactoryConfig::sqlite(format!("{}?mode=rwc", path.display())).with_sqlite_pragmas(
+            dbnexus::SqlitePragmas {
+                busy_timeout_ms: Some(1234),
+                journal_mode: Some("WAL".to_string()),
+                ..Default::default()
+            },
+        ),
+    );
+    factory
+        .initialize(None)
+        .await
+        .expect("initialize with pragmas");
+    drop(factory);
+
+    let pool = DbPool::new(&format!("sqlite:{}", path.display()))
+        .await
+        .expect("reopen persisted db");
+    let session = pool.get_session("admin").await.expect("session");
+    let conn = session.connection().expect("connection");
+    let row = sea_orm::ConnectionTrait::query_one_raw(
+        conn,
+        sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Sqlite,
+            "PRAGMA journal_mode".to_string(),
+        ),
+    )
+    .await
+    .expect("pragma query")
+    .expect("journal_mode row");
+    let mode: String = row.try_get_by(0).expect("journal_mode value");
+    assert_eq!(mode, "wal", "WAL must persist across independent reopen");
 }
 
 // ============================================================================

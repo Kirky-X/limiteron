@@ -41,7 +41,7 @@ use crate::adapters::DBNexusQuotaStorageAdapter;
 use crate::adapters::DBNexusStorageAdapter;
 use crate::error::StorageError;
 use crate::storage::{BanStorage, QuotaStorage, Storage};
-use dbnexus::DbPool;
+use dbnexus::{DbConfig, DbPool};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -120,6 +120,9 @@ pub struct StorageFactoryConfig {
     pub connection_timeout: u64,
     /// 空闲连接超时（秒）
     pub idle_timeout: u64,
+    /// SQLite 连接级 PRAGMA 配置（`sqlite` feature；仅 DBNexusSQLite 存储生效）
+    #[cfg(feature = "sqlite")]
+    pub sqlite_pragmas: Option<dbnexus::SqlitePragmas>,
 }
 
 impl Default for StorageFactoryConfig {
@@ -130,6 +133,8 @@ impl Default for StorageFactoryConfig {
             pool_size: 10,
             connection_timeout: 30,
             idle_timeout: 300,
+            #[cfg(feature = "sqlite")]
+            sqlite_pragmas: None,
         }
     }
 }
@@ -157,13 +162,15 @@ impl StorageFactoryConfig {
     ///
     /// `path` **原样拼接**为 `sqlite:{path}` 连接 URL：`?` 之后的参数会
     /// 进入连接串、`file:` 前缀有特殊语义，故只接受可信配置来源，勿把
-    /// 用户输入透传进 `path`。
+    /// 用户输入透传进 `path`（新建库文件需在 URL 携带白名单参数
+    /// `?mode=rwc`——sqlx 默认不创建文件）。
     ///
     /// **部署提示（性能）**：sqlx 0.9 连接串查询参数白名单只认
     /// `mode`/`cache`/`immutable`/`vfs`，白名单外参数直接报错——无法经
-    /// URL 携带 `journal_mode=WAL`。busy_timeout 由 sqlx 内建默认 5s；
-    /// WAL 等 PRAGMA 经 dbnexus `DbConfig.sqlite_pragmas` 建池时配置
-    /// （`DbPoolBuilder::config`）。本工厂目前仅收连接串，未透传该配置面。
+    /// URL 携带 `journal_mode=WAL`。WAL/busy_timeout 等经
+    /// `Self::with_sqlite_pragmas`（dbnexus `SqlitePragmas` 配置面，
+    /// `sqlite` feature）在建池时配置；未配置时 busy_timeout 由 sqlx
+    /// 内建默认 5s 兜底。
     pub fn sqlite(path: impl Into<String>) -> Self {
         Self {
             storage_type: StorageType::DBNexusSQLite,
@@ -187,6 +194,16 @@ impl StorageFactoryConfig {
     /// 设置空闲连接超时
     pub fn with_idle_timeout(mut self, seconds: u64) -> Self {
         self.idle_timeout = seconds;
+        self
+    }
+
+    /// 设置 SQLite 连接级 PRAGMA 配置（`sqlite` feature）
+    ///
+    /// 经 dbnexus 连接池在建连时逐连接应用（busy_timeout/journal_mode/
+    /// synchronous/foreign_keys）；仅对 DBNexusSQLite 存储生效。
+    #[cfg(feature = "sqlite")]
+    pub fn with_sqlite_pragmas(mut self, pragmas: dbnexus::SqlitePragmas) -> Self {
+        self.sqlite_pragmas = Some(pragmas);
         self
     }
 }
@@ -277,8 +294,31 @@ impl StorageFactory {
             self.config = cfg;
         }
 
+        // pragmas 仅对 SQLite 存储生效：配置在非 SQLite 存储上属静默偏差，
+        // 与 dbnexus 连接层「配置了必生效」原则相悖，显性拒绝
+        #[cfg(feature = "sqlite")]
+        if self.config.sqlite_pragmas.is_some()
+            && self.config.storage_type != StorageType::DBNexusSQLite
+        {
+            return Err(StorageError::InvalidConfig(
+                "sqlite_pragmas requires DBNexusSQLite storage type".to_string(),
+            ));
+        }
+
+        // 经 with_config 构造：与 DbPool::new(url) 等价（new 即 with_config 的
+        // 缺省特例），并携带 sqlite_pragmas 透传给连接层
+        #[cfg_attr(not(feature = "sqlite"), allow(unused_mut))]
+        let mut db_config = DbConfig {
+            url: self.config.connection_string.clone(),
+            ..DbConfig::default()
+        };
+        #[cfg(feature = "sqlite")]
+        {
+            db_config.sqlite_pragmas = self.config.sqlite_pragmas.clone();
+        }
+
         // 创建 DBNexus 连接池
-        let pool = DbPool::new(&self.config.connection_string)
+        let pool = DbPool::with_config(db_config)
             .await
             .map_err(|e| StorageError::ConnectionError(e.to_string()))?;
 
@@ -753,5 +793,55 @@ mod tests {
         let debug_str = format!("{:?}", config);
         assert!(debug_str.contains("StorageFactoryConfig"));
         assert!(debug_str.contains("DBNexusPostgres"));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_sqlite_pragmas_default_none_and_builder() {
+        let config = StorageFactoryConfig::sqlite("/tmp/passthrough.db");
+        assert!(config.sqlite_pragmas.is_none());
+
+        let pragmas = dbnexus::SqlitePragmas {
+            journal_mode: Some("WAL".to_string()),
+            busy_timeout_ms: Some(1234),
+            ..Default::default()
+        };
+        let config = config.with_sqlite_pragmas(pragmas.clone());
+        assert_eq!(config.sqlite_pragmas, Some(pragmas));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_invalid_pragma_fails_initialize() {
+        // 白名单外的值必须在 dbnexus 连接层显性失败——证明透传值真实到达
+        // 连接层而非被静默丢弃（FOO 由 dbnexus validate_pragma_value 拒绝）
+        let mut factory = StorageFactory::new(
+            StorageFactoryConfig::sqlite(":memory:").with_sqlite_pragmas(dbnexus::SqlitePragmas {
+                journal_mode: Some("FOO".to_string()),
+                ..Default::default()
+            }),
+        );
+        let err = factory.initialize(None).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("journal_mode") && msg.contains("FOO"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_pragmas_on_non_sqlite_storage_rejected() {
+        // pragmas 配在非 SQLite 存储上属静默偏差，连接前显性拒绝
+        let mut factory = StorageFactory::new(
+            StorageFactoryConfig::postgres("postgresql://localhost/limiteron").with_sqlite_pragmas(
+                dbnexus::SqlitePragmas {
+                    journal_mode: Some("WAL".to_string()),
+                    ..Default::default()
+                },
+            ),
+        );
+        let err = factory.initialize(None).await.unwrap_err();
+        assert!(matches!(err, StorageError::InvalidConfig(_)), "got: {err}");
     }
 }

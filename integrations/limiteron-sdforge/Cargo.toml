@@ -12,8 +12,8 @@ description = "Rate-limit / circuit-breaker guard layer for sdforge applications
 workspace = true
 
 [dependencies]
-limiteron = { path = "../..", version = "0.3.0-rc.7", default-features = false }
-sdforge = { version = "0.5.0-rc.6", default-features = false, optional = true }
+limiteron = { path = "../..", version = "0.3.0-rc.8", default-features = false }
+sdforge = { version = "0.5.0-rc.9", default-features = false, optional = true }
 chrono = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing.workspace = true

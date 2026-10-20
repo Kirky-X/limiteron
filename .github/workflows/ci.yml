@@ -79,6 +79,22 @@ jobs:
       - name: Run tests
         run: cargo test --workspace --no-default-features --features full,postgres
 
+  # sqlite 测试腿：sqlite PRAGMA 透传（含 WAL 端到端）仅在 sqlite 驱动下
+  # 可跑，而 dbnexus 的 sqlite/postgres 驱动互斥（compile_error!），
+  # 两条腿必须各自独立 cargo 进程，不得合并到同一次调用。
+  test-sqlite:
+    name: Test (sqlite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4716b85f2fac3e324e64fa2810f6b5c3905760a5 # 1.97.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Run tests (sqlite)
+        # limiteron-examples 的 full 预设写死 postgres（examples/Cargo.toml），
+        # 与主包的 sqlite 驱动互斥，sqlite 腿须排除该成员
+        run: cargo test --workspace --exclude limiteron-examples --no-default-features --features full,sqlite
+
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

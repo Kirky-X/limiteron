@@ -1127,12 +1127,14 @@ dependencies = [
 [[package]]
 name = "dbnexus"
 version = "0.6.0-rc.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41fdef94a19dabce0a7dd574f379c632b0d60cb8bad22dba12d314208e629ac6"
 dependencies = [
  "anyhow",
  "arc-swap",
  "async-trait",
  "dashmap",
- "dbnexus-limiter-port 0.6.0-rc.10",
+ "dbnexus-limiter-port",
  "dbnexus-macros",
  "fluent-bundle",
  "futures",
@@ -1159,13 +1161,6 @@ dependencies = [
 [[package]]
 name = "dbnexus-limiter-port"
 version = "0.6.0-rc.10"
-dependencies = [
- "async-trait",
-]
-
-[[package]]
-name = "dbnexus-limiter-port"
-version = "0.6.0-rc.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4a28977a381877c3994e9596f9690bcbc2ca2949372d732c702915f41c60c06"
 dependencies = [
@@ -1175,6 +1170,8 @@ dependencies = [
 [[package]]
 name = "dbnexus-macros"
 version = "0.6.0-rc.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58eb39c2c6963d0a4750b1314c34e3c582b9657ea19df21b55bc2a41ae0426b1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2806,7 +2803,7 @@ name = "limiteron-dbnexus"
 version = "0.3.0-rc.8"
 dependencies = [
  "async-trait",
- "dbnexus-limiter-port 0.6.0-rc.10 (registry+https://github.com/rust-lang/crates.io-index)",
+ "dbnexus-limiter-port",
  "limiteron 0.3.0-rc.8",
  "tokio",
 ]

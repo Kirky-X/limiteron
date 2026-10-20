@@ -179,19 +179,20 @@ impl StorageFactoryConfig {
         }
     }
 
-    /// 设置连接池大小
+    /// 设置连接池大小（对应 dbnexus `pool_config.max_connections`）
     pub fn with_pool_size(mut self, size: u32) -> Self {
         self.pool_size = size;
         self
     }
 
-    /// 设置连接超时
+    /// 设置连接超时（秒，对应 dbnexus `pool_config.acquire_timeout`，建池时按
+    /// 秒→毫秒换算）
     pub fn with_connection_timeout(mut self, seconds: u64) -> Self {
         self.connection_timeout = seconds;
         self
     }
 
-    /// 设置空闲连接超时
+    /// 设置空闲连接超时（秒，对应 dbnexus `pool_config.idle_timeout`）
     pub fn with_idle_timeout(mut self, seconds: u64) -> Self {
         self.idle_timeout = seconds;
         self
@@ -205,6 +206,32 @@ impl StorageFactoryConfig {
     pub fn with_sqlite_pragmas(mut self, pragmas: dbnexus::SqlitePragmas) -> Self {
         self.sqlite_pragmas = Some(pragmas);
         self
+    }
+
+    /// 映射为 dbnexus 的 [`DbConfig`]（池参数随配置透传）
+    ///
+    /// 映射关系：
+    /// - `pool_size` → `pool_config.max_connections`
+    /// - `connection_timeout`（秒）→ `pool_config.acquire_timeout`（毫秒）
+    /// - `idle_timeout`（秒）→ `pool_config.idle_timeout`（秒）
+    ///
+    /// `min_connections` 取 dbnexus 默认值与 `pool_size` 的较小者：dbnexus
+    /// 校验要求 `min_connections <= max_connections`，`pool_size` 小于 dbnexus
+    /// 默认下限时若原样带上默认值会被判为非法配置。
+    fn to_db_config(&self) -> DbConfig {
+        let defaults = dbnexus::PoolConfig::default();
+        DbConfig {
+            url: self.connection_string.clone(),
+            pool_config: dbnexus::PoolConfig {
+                max_connections: self.pool_size,
+                min_connections: defaults.min_connections.min(self.pool_size),
+                idle_timeout: self.idle_timeout,
+                acquire_timeout: self.connection_timeout.saturating_mul(1000),
+            },
+            #[cfg(feature = "sqlite")]
+            sqlite_pragmas: self.sqlite_pragmas.clone(),
+            ..DbConfig::default()
+        }
     }
 }
 
@@ -306,18 +333,11 @@ impl StorageFactory {
         }
 
         // 经 with_config 构造：与 DbPool::new(url) 等价（new 即 with_config 的
-        // 缺省特例），并携带 sqlite_pragmas 透传给连接层
-        #[cfg_attr(not(feature = "sqlite"), allow(unused_mut))]
-        let mut db_config = DbConfig {
-            url: self.config.connection_string.clone(),
-            ..DbConfig::default()
-        };
-        #[cfg(feature = "sqlite")]
-        {
-            db_config.sqlite_pragmas = self.config.sqlite_pragmas.clone();
-        }
+        // 缺省特例），池参数（pool_size/connection_timeout/idle_timeout）经
+        // to_db_config 透传给 dbnexus 的 pool_config，sqlite_pragmas 亦在建池
+        // 时逐连接应用
+        let db_config = self.config.to_db_config();
 
-        // 创建 DBNexus 连接池
         let pool = DbPool::with_config(db_config)
             .await
             .map_err(|e| StorageError::ConnectionError(e.to_string()))?;
@@ -549,7 +569,6 @@ mod tests {
         let factory = StorageFactory::from_dsn("postgresql://localhost/test");
         assert!(!factory.is_initialized());
 
-        // 尝试创建存储应该失败
         let result = factory.create_storage().await;
         assert!(result.is_err());
     }
@@ -676,6 +695,69 @@ mod tests {
         assert_eq!(config.pool_size, 20);
         assert_eq!(config.connection_timeout, 15);
         assert_eq!(config.idle_timeout, 120);
+    }
+
+    /// 池参数必须真正进入 dbnexus 的 pool_config（此前三个 builder 只写
+    /// 自己的字段，构造 DbConfig 时整段丢弃，配置静默失效）
+    #[test]
+    fn test_db_config_carries_pool_params() {
+        let config = StorageFactoryConfig::postgres("postgresql://localhost/test")
+            .with_pool_size(20)
+            .with_connection_timeout(15)
+            .with_idle_timeout(120);
+        let db_config = config.to_db_config();
+        assert_eq!(db_config.url, "postgresql://localhost/test");
+        assert_eq!(db_config.pool_config.max_connections, 20);
+        assert_eq!(db_config.pool_config.acquire_timeout, 15_000);
+        assert_eq!(db_config.pool_config.idle_timeout, 120);
+    }
+
+    /// pool_size 小于 dbnexus 默认 min_connections 时夹取下限，保持
+    /// dbnexus 的 min <= max 校验可通过
+    #[test]
+    fn test_db_config_min_connections_clamped_to_pool_size() {
+        let config =
+            StorageFactoryConfig::postgres("postgresql://localhost/test").with_pool_size(2);
+        let db_config = config.to_db_config();
+        assert_eq!(db_config.pool_config.max_connections, 2);
+        assert_eq!(db_config.pool_config.min_connections, 2);
+        assert!(
+            db_config.pool_config.validate().is_ok(),
+            "clamped pool config must pass dbnexus validation"
+        );
+    }
+
+    /// 缺省配置的池参数同样落到 dbnexus（默认值而非空值）
+    #[test]
+    fn test_db_config_default_pool_params() {
+        let db_config = StorageFactoryConfig::default().to_db_config();
+        assert_eq!(db_config.pool_config.max_connections, 10);
+        assert_eq!(db_config.pool_config.acquire_timeout, 30_000);
+        assert_eq!(db_config.pool_config.idle_timeout, 300);
+    }
+
+    /// 端到端：builder 设的池参数确实到达 dbnexus 连接池的 pool 配置
+    #[cfg(feature = "sqlite")]
+    #[tokio::test]
+    async fn test_pool_params_reach_dbnexus_pool_config() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("pool_params.db");
+        let mut factory = StorageFactory::new(
+            StorageFactoryConfig::sqlite(format!("{}?mode=rwc", path.display()))
+                .with_pool_size(3)
+                .with_connection_timeout(9)
+                .with_idle_timeout(120),
+        );
+        factory.initialize(None).await.expect("initialize");
+        let pool_config = &factory
+            .pool
+            .as_ref()
+            .expect("pool initialized")
+            .config()
+            .pool_config;
+        assert_eq!(pool_config.max_connections, 3);
+        assert_eq!(pool_config.acquire_timeout, 9_000);
+        assert_eq!(pool_config.idle_timeout, 120);
     }
 
     #[tokio::test]

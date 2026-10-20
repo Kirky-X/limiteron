@@ -205,7 +205,22 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 
 > 注：preset 均不含存储后端，持久化需自行叠加 `sqlite` / `postgres` / `mysql`（dbnexus 驱动互斥，一次构建只能叠加一个）。
 >
-> ⚠️ **文件型 SQLite 部署提示**：dbnexus 建立连接时未启用 WAL（根因在 dbnexus 的 `create_connection`，属外部依赖）。文件库在并发读写场景建议让连接 URL 显式携带 `journal_mode=WAL`（如 `sqlite:data/limiteron.db?journal_mode=WAL`，`StorageFactoryConfig::sqlite` 的 path 原样拼接进连接 URL），否则写并发下可能遭遇 `database is locked`。
+> ⚠️ **文件型 SQLite 部署提示**：WAL 等连接级 PRAGMA **不能**经连接 URL 携带——sqlx 0.9 的连接串查询参数白名单只认 `mode`/`cache`/`immutable`/`vfs`，白名单外参数（如 `journal_mode=WAL`）会被驱动直接拒绝建连。正确做法是用 `StorageFactoryConfig::with_sqlite_pragmas`（需启用 `sqlite` 特性）传 dbnexus 的 `SqlitePragmas`，PRAGMA 在建池时逐连接应用：
+>
+> ```rust
+> use dbnexus::SqlitePragmas;
+> use limiteron::adapters::{StorageFactory, StorageFactoryConfig};
+>
+> let config = StorageFactoryConfig::sqlite("data/limiteron.db?mode=rwc").with_sqlite_pragmas(
+>     SqlitePragmas {
+>         journal_mode: Some("WAL".to_string()),
+>         busy_timeout_ms: Some(5_000),
+>         ..Default::default()
+>     },
+> );
+> ```
+>
+> 未配置时 busy_timeout 由 sqlx 内建默认 5s 兜底，但 journal_mode 仍为 SQLite 默认的 delete 模式，并发写场景可能遭遇 `database is locked`。
 
 <details>
 <summary><b>📋 全部特性（按类别）</b></summary>

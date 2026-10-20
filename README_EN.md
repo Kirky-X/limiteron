@@ -205,7 +205,22 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 
 > Note: presets include no storage backend; add `sqlite` / `postgres` / `mysql` on top for persistence (dbnexus drivers are mutually exclusive — only one per build).
 >
-> ⚠️ **File-backed SQLite deployment note**: dbnexus does not enable WAL when opening connections (root cause lives in dbnexus `create_connection`, an external dependency). For concurrent read/write workloads on a file database, pass `journal_mode=WAL` in the connection URL (e.g. `sqlite:data/limiteron.db?journal_mode=WAL`; the path given to `StorageFactoryConfig::sqlite` is concatenated verbatim into the URL), otherwise concurrent writes may hit `database is locked`.
+> ⚠️ **File-backed SQLite deployment note**: connection-level PRAGMAs such as WAL **cannot** travel in the connection URL — the sqlx 0.9 query-parameter allowlist accepts only `mode`/`cache`/`immutable`/`vfs`, and any other parameter (e.g. `journal_mode=WAL`) makes the driver reject the connection. Use `StorageFactoryConfig::with_sqlite_pragmas` (requires the `sqlite` feature) with dbnexus `SqlitePragmas` instead; the PRAGMAs are applied per connection while the pool is built:
+>
+> ```rust
+> use dbnexus::SqlitePragmas;
+> use limiteron::adapters::{StorageFactory, StorageFactoryConfig};
+>
+> let config = StorageFactoryConfig::sqlite("data/limiteron.db?mode=rwc").with_sqlite_pragmas(
+>     SqlitePragmas {
+>         journal_mode: Some("WAL".to_string()),
+>         busy_timeout_ms: Some(5_000),
+>         ..Default::default()
+>     },
+> );
+> ```
+>
+> Without this configuration busy_timeout falls back to the sqlx built-in default of 5s, but journal_mode stays at SQLite's default delete mode, and concurrent writes may hit `database is locked`.
 
 <details>
 <summary><b>📋 Complete Feature List (by Category)</b></summary>

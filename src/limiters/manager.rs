@@ -362,7 +362,6 @@ impl LimiterManager {
                 max,
                 period
             );
-            // 更新访问时间
             if let Some(t) = self.quota_access_times.get(&key) {
                 t.store(now_nanos(), Ordering::Relaxed);
             } else {
@@ -443,7 +442,6 @@ impl LimiterManager {
                     period,
                 ));
             }
-            // 更新访问时间
             if let Some(t) = self.quota_access_times.get(&key) {
                 t.store(now_nanos(), Ordering::Relaxed);
             } else {

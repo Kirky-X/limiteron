@@ -23,9 +23,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-// ============================================================================
 // 历史基准数据结构
-// ============================================================================
 
 /// 基准测试结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,9 +241,7 @@ impl BenchmarkStorage {
     }
 }
 
-// ============================================================================
 // 基准测试目录和文件路径
-// ============================================================================
 
 const BENCHMARK_DIR: &str = "target/benchmarks";
 const BENCHMARK_FILE: &str = "target/benchmarks/history.json";
@@ -273,9 +269,7 @@ fn get_git_commit() -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
-// ============================================================================
 // 限流器回归测试
-// ============================================================================
 
 /// 基准测试：TokenBucket 回归检测
 fn bench_token_bucket_regression(c: &mut Criterion) {
@@ -311,7 +305,6 @@ fn bench_token_bucket_regression(c: &mut Criterion) {
 
     storage.add_result(result);
 
-    // 检查回归
     if let Some(history) = storage.get_history("token_bucket_check")
         && let Some(change_rate) = history.calculate_change_rate()
     {
@@ -460,9 +453,7 @@ fn bench_fixed_window_regression(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 吞吐量回归测试
-// ============================================================================
 
 /// 基准测试：吞吐量回归检测
 fn bench_throughput_regression(c: &mut Criterion) {
@@ -520,9 +511,7 @@ fn bench_throughput_regression(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 并发回归测试
-// ============================================================================
 
 /// 基准测试：并发性能回归检测
 fn bench_concurrent_regression(c: &mut Criterion) {
@@ -581,9 +570,7 @@ fn bench_concurrent_regression(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 性能趋势追踪
-// ============================================================================
 
 /// 基准测试：性能趋势追踪
 fn bench_performance_trend(c: &mut Criterion) {
@@ -615,9 +602,7 @@ fn bench_performance_trend(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 基准测试组配置
-// ============================================================================
 
 /// 配置 Criterion
 fn configure_criterion() -> Criterion {

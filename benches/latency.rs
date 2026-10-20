@@ -26,9 +26,7 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
 
-// ============================================================================
 // 延迟分布基准测试 (P50/P90/P99/P99.9)
-// ============================================================================
 
 /// 基准测试：TokenBucketLimiter 延迟分布
 ///
@@ -120,9 +118,7 @@ fn bench_fixed_window_latency_distribution(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 不同操作延迟对比
-// ============================================================================
 
 /// 基准测试：不同限流器延迟对比
 ///
@@ -297,9 +293,7 @@ fn bench_window_size_latency_comparison(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 规则匹配延迟测试
-// ============================================================================
 
 /// 创建测试规则
 fn create_test_rules(count: usize) -> Vec<Rule> {
@@ -346,7 +340,6 @@ fn bench_rule_matching_latency(c: &mut Criterion) {
 
 /// 基准测试：标识符提取延迟
 fn bench_identifier_extraction_latency(c: &mut Criterion) {
-    // 创建用户ID提取器
     let extractor = UserIdExtractor::from_header("X-User-Id");
 
     let mut group = c.benchmark_group("identifier_extraction_latency");
@@ -424,9 +417,7 @@ fn bench_condition_evaluation_latency(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 完整决策链延迟测试
-// ============================================================================
 
 /// 基准测试：完整决策链延迟
 ///
@@ -508,11 +499,9 @@ fn bench_decision_chain_latency(c: &mut Criterion) {
 fn bench_full_flow_latency(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
 
-    // 创建规则和匹配器
     let rules = create_test_rules(10);
     let matcher = RuleMatcher::with_dependencies(rules);
 
-    // 创建决策链
     let limiter = Arc::new(TokenBucketLimiter::new(1000000, 100000));
     let chain = DecisionChain::with_dependencies(vec![DecisionNode::with_dependencies(
         "node_1".to_string(),
@@ -521,7 +510,6 @@ fn bench_full_flow_latency(c: &mut Criterion) {
         100,
     )]);
 
-    // 创建请求上下文
     let mut context = RequestContext::new();
     context = context.with_header("X-User-Id", "user_123");
     context.path = "/api/v5/users".to_string();
@@ -566,9 +554,7 @@ fn bench_full_flow_latency(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 并发延迟测试
-// ============================================================================
 
 /// 基准测试：并发检查延迟
 ///
@@ -657,9 +643,7 @@ fn bench_high_load_latency(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 延迟稳定性测试
-// ============================================================================
 
 /// 基准测试：延迟稳定性
 ///
@@ -723,9 +707,7 @@ fn bench_cold_vs_warm_latency(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 百分位数延迟测试
-// ============================================================================
 
 /// 基准测试：详细百分位数延迟
 ///
@@ -767,9 +749,7 @@ fn bench_percentile_latency(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 基准测试组配置
-// ============================================================================
 
 /// 配置 Criterion 以显示详细的延迟统计
 fn configure_criterion() -> Criterion {

@@ -6,9 +6,7 @@
 //! - 内部类型不可从 crate 外部访问验证
 //! - pub(crate) 限制的文档化
 
-// ============================================================================
 // 模块可见性测试
-// ============================================================================
 
 /// 测试内部类型未被意外导出
 ///
@@ -35,7 +33,7 @@ fn test_internal_types_not_exported_in_public_api() {
     // DecisionChain 是公开 API 的一部分
     let _ = std::mem::size_of::<limiteron::DecisionChain>();
 
-    // BanInfo 是公开 API 的一部分（字段是私有的）
+    // BanInfo 是公开 API 的一部分（字段是私有）
     let _ = std::mem::size_of::<limiteron::BanInfo>();
 
     // 如果这个测试编译通过，说明公开 API 未暴露内部实现
@@ -51,7 +49,6 @@ fn test_ban_info_fields_are_encapsulated() {
     use limiteron::BanInfo;
     use std::time::{Duration, SystemTime};
 
-    // 创建 BanInfo 实例
     let expires_at = SystemTime::now() + Duration::from_secs(3600);
     let ban_info = BanInfo::new(
         "test reason".to_string(),
@@ -82,7 +79,6 @@ fn test_config_uses_type_safe_enums() {
         ban: None,
     };
 
-    // 验证枚举值
     assert!(matches!(action_config.on_exceed, Action::Reject));
 
     // 测试 GlobalConfig 使用类型安全枚举
@@ -105,7 +101,6 @@ fn test_trusted_proxy_config_security() {
     // 验证默认配置未启用可信代理（安全默认）
     assert!(!config.enabled);
 
-    // 验证可信代理验证功能存在
     assert!(!config.is_trusted("192.168.1.1"));
 }
 

@@ -193,7 +193,6 @@ proptest! {
         for window in 0..3 {
             let mut count = 0u64;
 
-            // 发送足够多的请求填满窗口
             for _ in 0..(max_requests * 2) {
                 if rt.block_on(limiter.allow(1)).unwrap() {
                     count += 1;

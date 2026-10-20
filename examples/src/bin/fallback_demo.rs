@@ -137,7 +137,6 @@ async fn demo_failure_injection() -> Result<(), Box<dyn std::error::Error>> {
         manager.is_failed(ComponentType::Postgres).await
     );
 
-    // 获取所有故障
     let failures = manager.get_all_failures().await;
     println!("    All failures: {:?}", failures);
 
@@ -236,7 +235,6 @@ async fn demo_island_mode() -> Result<(), Box<dyn std::error::Error>> {
 
     let manager = create_manager().await;
 
-    // 注册孤岛模式回调
     let callback_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
     let count_clone = callback_count.clone();
     manager

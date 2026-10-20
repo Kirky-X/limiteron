@@ -11,7 +11,7 @@ use limiteron::error::{CircuitState, LimiteronError};
 #[cfg(feature = "circuit-breaker")]
 use std::time::Duration;
 
-// ==================== E2E Scenario Tests ====================
+// E2E Scenario Tests
 
 /// 场景 1: 后端失败触发熔断
 ///
@@ -58,7 +58,6 @@ async fn e2e_circuit_breaker_failures_trigger_open() {
         "Circuit should be open after failures"
     );
 
-    // 验证统计信息
     let stats = breaker.get_stats().await;
     assert_eq!(stats.failure_count, 3, "Should have 3 failures");
     assert_eq!(stats.state, CircuitState::Open);
@@ -222,14 +221,12 @@ async fn e2e_circuit_breaker_statistics() {
     );
     let breaker = CircuitBreaker::new(config);
 
-    // 执行一些成功请求
     for _ in 0..3 {
         let _ = breaker
             .execute(|| async { Ok::<(), LimiteronError>(()) })
             .await;
     }
 
-    // 执行一些失败请求
     for _ in 0..2 {
         let _ = breaker
             .execute(|| async {

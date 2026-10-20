@@ -423,7 +423,6 @@ mod tests {
         });
         dispatcher.register_handler(handler).await;
 
-        // 启动分发器
         dispatcher.start().await;
 
         // 发射一个事件
@@ -448,7 +447,6 @@ mod tests {
         // 始终在断言前停止分发器，避免断言失败时后台任务泄漏导致后续测试挂起
         dispatcher.stop().await;
 
-        // 验证处理器被调用恰好一次
         assert_eq!(observed, 1, "handler should be called exactly once");
     }
 
@@ -457,7 +455,6 @@ mod tests {
         let emitter = EventEmitter::with_default_config();
         let dispatcher = EventDispatcher::new(emitter);
 
-        // 启动
         dispatcher.start().await;
         assert!(dispatcher.dispatch_handle.read().await.is_some());
 
@@ -465,7 +462,6 @@ mod tests {
         dispatcher.start().await;
         assert!(dispatcher.dispatch_handle.read().await.is_some());
 
-        // 停止
         dispatcher.stop().await;
         assert!(dispatcher.dispatch_handle.read().await.is_none());
 
@@ -473,12 +469,9 @@ mod tests {
         dispatcher.start().await;
         assert!(dispatcher.dispatch_handle.read().await.is_some());
 
-        // 清理
         dispatcher.stop().await;
     }
-    // ========================================================================
     // webhook 签名头注入（signed_webhook_payload 纯函数）
-    // ========================================================================
 
     /// 已设置进程级签名器时：body 与签名头自洽（签名覆盖线上精确字节）
     #[cfg(feature = "webhook")]

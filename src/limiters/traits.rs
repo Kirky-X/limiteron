@@ -287,7 +287,6 @@ mod tests {
         }
 
         let limiter = AllowAllLimiter;
-        // check() default impl calls allow(1) and returns Ok(())
         assert!(limiter.check("any_key").await.is_ok());
     }
 
@@ -310,7 +309,6 @@ mod tests {
     #[tokio::test]
     async fn test_limiter_check_default_impl_rejects_on_allow_false() {
         // 修复回归测试：allow 返回 Ok(false)（拒绝）时，check 必须返回
-        // Err(LimitError)，不得静默吞掉拒绝语义（旧实现返回 Ok(())）
         struct DenyAllLimiter;
         #[async_trait]
         impl Limiter for DenyAllLimiter {
@@ -333,9 +331,7 @@ mod tests {
         }
     }
 
-    // ========================================================================
     // peek/remaining 默认实现与 RateLimitSnapshot
-    // ========================================================================
 
     #[tokio::test]
     async fn test_t603_peek_default_impl_returns_unsupported() {

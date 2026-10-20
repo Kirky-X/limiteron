@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let guard = Guard::with_config(governor, GuardConfig::new(GuardIdentity::UserId));
 
     // 3. 适配为 sdforge 的 ForgeRateLimiter，交给 sdforge 应用（trait-kit
-    //    AsyncKit 装配点）使用
+    // AsyncKit 装配点）使用
     let limiter: Arc<dyn sdforge::domain::ForgeRateLimiter> =
         Arc::new(GuardForgeAdapter::new(guard));
 

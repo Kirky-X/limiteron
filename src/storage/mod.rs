@@ -276,9 +276,7 @@ pub trait BanStorage: Send + Sync {
     fn as_any(&self) -> &dyn std::any::Any;
 }
 
-// ============================================================================
 // In-Memory Storage Implementations (Default Dependencies)
-// ============================================================================
 // These implementations are provided for the "out-of-the-box" pattern (new())
 // where components need default dependencies without external configuration.
 

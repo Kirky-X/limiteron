@@ -15,9 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-// ============================================================================
 // 内存耗尽测试
-// ============================================================================
 
 /// 测试大量键创建的内存使用
 ///
@@ -164,9 +162,7 @@ async fn test_memory_pressure_stability() {
     assert!(error_rate < 0.5, "Error rate should be below 50%");
 }
 
-// ============================================================================
 // CPU 耗尽测试
-// ============================================================================
 
 /// 测试复杂模式处理的 CPU 使用
 ///
@@ -210,7 +206,6 @@ async fn test_complex_pattern_cpu_usage() {
         total_processed, elapsed
     );
 
-    // 处理应在合理时间内完成
     assert!(
         elapsed < Duration::from_secs(30),
         "Processing should complete in reasonable time"
@@ -259,7 +254,6 @@ async fn test_cpu_limit_validation() {
     let total_ops = operations.load(Ordering::SeqCst);
     let total_success = success.load(Ordering::SeqCst);
 
-    // 计算吞吐量
     let throughput = total_ops as f64 / duration.as_secs_f64();
 
     println!(
@@ -326,9 +320,7 @@ async fn test_compute_intensive_cpu_behavior() {
     );
 }
 
-// ============================================================================
 // 连接耗尽测试
-// ============================================================================
 
 /// 测试大量并发连接处理
 ///
@@ -465,7 +457,6 @@ async fn test_connection_pool_exhaustion_recovery() {
         }
     }
 
-    // 等待资源释放
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // 阶段2：恢复后的请求
@@ -501,9 +492,7 @@ async fn test_connection_pool_exhaustion_recovery() {
     assert!(p2 > 50, "Phase 2 should have reasonable success rate");
 }
 
-// ============================================================================
 // 综合资源测试
-// ============================================================================
 
 /// 测试资源使用的综合场景
 ///
@@ -589,16 +578,13 @@ async fn test_comprehensive_resource_usage() {
 async fn test_resource_cleanup() {
     let storage = Arc::new(MemoryStorage::new());
 
-    // 创建大量条目
     for i in 0..100 {
         let key = format!("cleanup_key_{}", i);
         let _ = storage.set(&key, "value", Some(1)).await; // 1秒 TTL
     }
 
-    // 等待 TTL 过期
     tokio::time::sleep(Duration::from_millis(1100)).await;
 
-    // 验证条目已过期
     let mut expired_count = 0;
     for i in 0..100 {
         let key = format!("cleanup_key_{}", i);

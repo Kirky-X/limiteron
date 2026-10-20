@@ -7,9 +7,7 @@
 use super::traits::{Identifier, IdentifierExtractor, RequestContext};
 use std::net::IpAddr;
 
-// ============================================================================
 // 组合提取器
-// ============================================================================
 
 /// 组合提取器
 ///
@@ -130,11 +128,10 @@ impl IdentifierExtractor for CompositeExtractor {
         // 如果所有提取器都失败且启用了回退，使用 IP 作为后备
         if self.fallback_to_default {
             // 使用 IP 作为后备，而不是固定的 "default"
-            if let Some(client_ip) = &context.client_ip {
-                // 验证 IP 格式
-                if client_ip.parse::<IpAddr>().is_ok() {
-                    return Some(Identifier::Ip(client_ip.clone()));
-                }
+            if let Some(client_ip) = &context.client_ip
+                && client_ip.parse::<IpAddr>().is_ok()
+            {
+                return Some(Identifier::Ip(client_ip.clone()));
             }
             // 如果没有 IP 或 IP 无效，返回 None
             // 这样可以让调用者决定如何处理未识别的请求

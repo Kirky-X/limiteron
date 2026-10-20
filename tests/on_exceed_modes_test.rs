@@ -69,9 +69,7 @@ fn test_flow_control_macro_is_available() {
     // 编译时检查通过即说明宏符号存在
 }
 
-// ============================================================================
 // on_exceed 行为说明（文档注释，非测试）
-// ============================================================================
 //
 // 实际的 on_exceed 行为验证全部在 macros crate 的单元测试中（见模块级注释）。
 // 此处不再保留 `assert!(true)` 形式的占位测试（违反 Rule 9：测试必须验证有意义的属性）。
@@ -80,14 +78,12 @@ fn test_flow_control_macro_is_available() {
 // - `on_exceed = "reject"`（默认）：超限返回 `LimiteronError::RateLimitExceeded`/
 //   `QuotaExceeded`/`ConcurrencyLimitExceeded`
 // - `on_exceed = "log_only"`：超限不返回错误，继续执行原函数
-//   （rate/quota 仍调用 check 记录 metrics；concurrency 不持有 permit）
+// （rate/quota 仍调用 check 记录 metrics；concurrency 不持有 permit）
 // - `on_exceed = "throttle"`：当前未实现（`LimiteronError::Throttled` 变体不存在），
-//   `generate_flow_control` 生成 `compile_error!`（Rule 12：失败必须显性化）
+// `generate_flow_control` 生成 `compile_error!`（Rule 12：失败必须显性化）
 // - 未知 `on_exceed` 值：在 `FlowControlConfig::parse` 阶段被拒绝（Rule 12）
 
-// ============================================================================
 // throttle 排队模式运行时行为（真实宏展开 + 真实令牌桶）
-// ============================================================================
 
 /// rate="1/s"：容量 1、补充 1/s；耗尽后排队等待补充（队列时限 5s）
 #[limiteron::flow_control(

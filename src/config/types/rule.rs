@@ -151,7 +151,7 @@ mod tests {
         }
     }
 
-    // ==================== Rule::validate ====================
+    // Rule::validate
 
     #[test]
     fn test_rule_valid() {
@@ -186,7 +186,7 @@ mod tests {
         assert!(rule.validate().is_err());
     }
 
-    // ==================== Matcher::validate ====================
+    // Matcher::validate
 
     #[test]
     fn test_matcher_user_valid() {

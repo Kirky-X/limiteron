@@ -42,9 +42,7 @@ mod tests {
         Ok((storage, ban_storage, quota_storage))
     }
 
-    // ========================================================================
     // Storage 测试 (Storage trait)
-    // ========================================================================
 
     #[tokio::test]
     #[ignore]
@@ -65,13 +63,11 @@ mod tests {
 
         let test_key = format!("test:storage:crud_{}", std::process::id());
 
-        // Create
         storage
             .set(&test_key, "test_value", None)
             .await
             .expect("Should set value");
 
-        // Read
         let result = storage
             .get(&test_key)
             .await
@@ -79,7 +75,6 @@ mod tests {
             .expect("Value should exist");
         assert_eq!(result, "test_value");
 
-        // Update
         storage
             .set(&test_key, "updated_value", None)
             .await
@@ -92,7 +87,6 @@ mod tests {
             .expect("Value should exist");
         assert_eq!(result, "updated_value");
 
-        // Delete
         storage
             .delete(&test_key)
             .await
@@ -124,7 +118,6 @@ mod tests {
             .expect("Value should exist before TTL expires");
         assert_eq!(result, "ttl_value");
 
-        // 等待 TTL 过期
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // 过期后应该返回 None
@@ -158,7 +151,6 @@ mod tests {
             handles.push(handle);
         }
 
-        // 等待所有写入完成
         for handle in handles {
             handle
                 .await
@@ -166,7 +158,6 @@ mod tests {
                 .expect("Set should succeed");
         }
 
-        // 验证最终值存在
         let result = storage
             .get(&test_key)
             .await
@@ -181,7 +172,6 @@ mod tests {
     async fn test_postgres_storage_multiple_keys() {
         let (storage, _, _) = create_all_storages().await.expect("Should create storages");
 
-        // 设置多个密钥
         for i in 0..5 {
             let key = format!("test:storage:multi:key_{}_{}", std::process::id(), i);
             let value = format!("value_{}", i);
@@ -191,7 +181,6 @@ mod tests {
                 .expect("Should set value");
         }
 
-        // 验证所有密钥
         for i in 0..5 {
             let key = format!("test:storage:multi:key_{}_{}", std::process::id(), i);
             let expected = format!("value_{}", i);
@@ -202,14 +191,11 @@ mod tests {
                 .expect("Value should exist");
             assert_eq!(result, expected);
 
-            // 清理
             storage.delete(&key).await.expect("Should delete value");
         }
     }
 
-    // ========================================================================
     // BanStorage 测试 (BanStorage trait)
-    // ========================================================================
 
     #[tokio::test]
     #[ignore]
@@ -230,7 +216,6 @@ mod tests {
 
         let target = BanTarget::Ip("192.168.1.100".to_string());
 
-        // 清理可能存在的旧数据
         let _ = ban_storage.remove_ban(&target).await;
 
         // Create - 保存封禁记录
@@ -296,10 +281,8 @@ mod tests {
 
         let target = BanTarget::UserId("test_user_expired".to_string());
 
-        // 清理可能存在的旧数据
         let _ = ban_storage.remove_ban(&target).await;
 
-        // 创建已过期的封禁记录
         let ban_record = BanRecord {
             target: target.clone(),
             ban_times: 1,
@@ -332,7 +315,6 @@ mod tests {
     async fn test_postgres_ban_storage_list_bans() {
         let (_, ban_storage, _) = create_all_storages().await.expect("Should create storages");
 
-        // 添加多个封禁
         for i in 0..5 {
             let target = BanTarget::Ip(format!("192.168.2.{}", i));
             let ban_record = BanRecord {
@@ -388,7 +370,6 @@ mod tests {
     async fn test_postgres_ban_storage_cleanup_expired() {
         let (_, ban_storage, _) = create_all_storages().await.expect("Should create storages");
 
-        // 创建多个已过期的封禁
         for i in 0..3 {
             let target = BanTarget::Ip(format!("192.168.3.{}", i));
             let ban_record = BanRecord {
@@ -406,7 +387,6 @@ mod tests {
                 .expect("Should save expired ban record");
         }
 
-        // 清理过期封禁
         let cleaned = ban_storage
             .cleanup_expired_bans()
             .await
@@ -414,9 +394,7 @@ mod tests {
         assert!(cleaned >= 3, "Should clean at least 3 expired bans");
     }
 
-    // ========================================================================
     // QuotaStorage 测试 (QuotaStorage trait)
-    // ========================================================================
 
     #[tokio::test]
     #[ignore]
@@ -466,7 +444,6 @@ mod tests {
         assert!(result.allowed, "Should still be allowed");
         assert_eq!(result.remaining, 40);
 
-        // Try to exceed limit
         let result = quota_storage
             .consume(&user_id, resource, 50, 100, Duration::from_secs(3600))
             .await
@@ -491,7 +468,6 @@ mod tests {
             .await
             .expect("Should consume quota");
 
-        // 验证消费
         let quota = quota_storage
             .get_quota(&user_id, resource)
             .await
@@ -499,13 +475,11 @@ mod tests {
             .expect("Quota should exist");
         assert_eq!(quota.consumed, 50);
 
-        // 重置配额
         quota_storage
             .reset(&user_id, resource, 100, Duration::from_secs(3600))
             .await
             .expect("Should reset quota");
 
-        // 验证重置后为新窗口
         let quota = quota_storage
             .get_quota(&user_id, resource)
             .await
@@ -534,7 +508,6 @@ mod tests {
             assert!(result.allowed, "Should be allowed for user {}", i);
         }
 
-        // 验证每个用户的配额独立
         for i in 0..5 {
             let user_id = format!("test_user_multi_{}_{}", std::process::id(), i);
             let resource = "api_calls_multi";

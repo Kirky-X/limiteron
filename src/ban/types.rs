@@ -475,7 +475,6 @@ fn validate_ban_reason(reason: &str) -> Result<(), LimiteronError> {
         )));
     }
 
-    // 检查是否包含控制字符
     if reason.contains(|c: char| c.is_control()) {
         return Err(LimiteronError::ValidationError(t(
             "ban-reason-invalid-chars",
@@ -628,7 +627,6 @@ impl BanManager {
             file_loader: None,
         };
 
-        // 启动自动解封任务
         ban_manager.start_auto_unban_task().await;
 
         info!("BanManager initialized successfully");
@@ -802,7 +800,6 @@ impl BanManager {
         let history = self.storage.get_history(&target).await?;
         let ban_times = history.as_ref().map(|h| h.ban_times + 1).unwrap_or(1);
 
-        // 计算封禁时长
         let duration = match duration {
             Some(d) => d,
             None => self.calculate_ban_duration(ban_times).await,
@@ -911,7 +908,6 @@ impl BanManager {
     ) -> Result<Option<BanDetail>, LimiteronError> {
         debug!("Updating ban: target={:?}", target);
 
-        // 获取当前封禁记录
         let current_record = self.storage.is_banned(target).await?;
 
         let current_record = match current_record {
@@ -922,7 +918,6 @@ impl BanManager {
         let mut record = current_record;
         let now = Utc::now();
 
-        // 更新字段
         if let Some(new_reason) = reason {
             record.reason = new_reason;
         }
@@ -934,7 +929,6 @@ impl BanManager {
                     .map_err(|e| LimiteronError::TimeError(format!("Invalid duration: {}", e)))?;
         }
 
-        // 保存更新后的记录
         self.storage.save(&record).await?;
 
         let mut detail = BanDetail::from(record);
@@ -976,7 +970,6 @@ impl BanManager {
             unbanned_by
         );
 
-        // 检查是否存在封禁
         let record = self.storage.is_banned(target).await?;
 
         if record.is_none() {
@@ -1070,7 +1063,6 @@ impl BanManager {
             })
             .collect();
 
-        // 转换为 BanDetail
         let bans = filtered.into_iter().map(BanDetail::from).collect();
 
         Ok(bans)
@@ -1099,10 +1091,10 @@ impl BanManager {
         //
         // 超时语义（说明的刻意不对称）
         // - IP 主检查超时 → 显式 `Err`：IP 是封禁判定的最高优先目标，
-        //   其存储不可达属于必须显性化的硬失败（Rule 12），由调用方
-        //   （组合根 ParallelBanChecker 对 Err 也 fail-open）最终定夺；
+        // 其存储不可达属于必须显性化的硬失败（Rule 12），由调用方
+        // （组合根 ParallelBanChecker 对 Err 也 fail-open）最终定夺；
         // - 非 IP 并行检查超时 → warn + 未封禁：与下方存储错误的
-        //   fail-open 口径一致，避免单个次级存储拖垮整体判定。
+        // fail-open 口径一致，避免单个次级存储拖垮整体判定。
         if let Some(ip_target) = targets.iter().find(|t| matches!(t, BanTarget::Ip(_))) {
             debug!("Checking IP ban first for early exit");
             let record = tokio::time::timeout(
@@ -1340,9 +1332,7 @@ impl Drop for BanManager {
     }
 }
 
-// ============================================================================
 // 单元测试
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -1394,9 +1384,7 @@ mod tests {
         }
     }
 
-    // ========================================================================
     // 功能完整的 MockBanStorage 实现
-    // ========================================================================
 
     /// Mock 封禁存储行为配置
     #[derive(Clone, Default)]
@@ -1615,9 +1603,7 @@ mod tests {
         }
     }
 
-    // ========================================================================
     // 测试辅助函数
-    // ========================================================================
 
     /// 创建测试用的 BanManager
     async fn create_test_ban_manager() -> BanManager {
@@ -1838,7 +1824,6 @@ mod tests {
     async fn test_stop_auto_unban_task() {
         let ban_manager = create_test_ban_manager().await;
 
-        // 停止任务应该不会失败
         ban_manager.stop_auto_unban_task().await;
     }
 
@@ -1896,9 +1881,7 @@ mod tests {
         assert_eq!(source3, source4);
     }
 
-    // ========================================================================
     // 基础封禁操作测试
-    // ========================================================================
 
     #[tokio::test]
     async fn test_ip_ban_add_check_remove() {
@@ -1906,7 +1889,6 @@ mod tests {
         let ip = "192.168.1.100";
         let target = BanTarget::Ip(ip.to_string());
 
-        // 1. 添加 IP 封禁
         let detail = ban_manager
             .create_ban(
                 target.clone(),
@@ -1922,7 +1904,6 @@ mod tests {
         assert!(!detail.is_manual);
         assert_eq!(detail.ban_times, 1);
 
-        // 2. 检查 IP 是否被封禁
         let banned = ban_manager.read_ban(&target).await.unwrap();
         assert!(banned.is_some());
         let ban_record = banned.unwrap();
@@ -1947,7 +1928,6 @@ mod tests {
         let user_id = "user_test_123";
         let target = BanTarget::UserId(user_id.to_string());
 
-        // 1. 添加用户ID封禁
         let detail = ban_manager
             .create_ban(
                 target.clone(),
@@ -1965,7 +1945,6 @@ mod tests {
         assert!(detail.is_manual);
         assert_eq!(detail.ban_times, 1);
 
-        // 2. 检查用户是否被封禁
         let banned = ban_manager.read_ban(&target).await.unwrap();
         assert!(banned.is_some());
         let ban_record = banned.unwrap();
@@ -1990,7 +1969,6 @@ mod tests {
         let mac = "AA:BB:CC:DD:EE:FF";
         let target = BanTarget::Mac(mac.to_string());
 
-        // 1. 添加 MAC 地址封禁
         let detail = ban_manager
             .create_ban(
                 target.clone(),
@@ -2005,7 +1983,6 @@ mod tests {
         assert_eq!(detail.target, target);
         assert!(!detail.is_manual);
 
-        // 2. 检查 MAC 是否被封禁
         let banned = ban_manager.read_ban(&target).await.unwrap();
         assert!(banned.is_some());
         let ban_record = banned.unwrap();
@@ -2023,9 +2000,7 @@ mod tests {
         assert!(banned.is_none());
     }
 
-    // ========================================================================
     // 高级封禁功能测试
-    // ========================================================================
 
     #[tokio::test]
     async fn test_ban_expiry_auto_unban() {
@@ -2040,7 +2015,6 @@ mod tests {
 
         let target = BanTarget::Ip("10.0.0.1".to_string());
 
-        // 创建一个已过期的封禁记录
         let expired_record = create_expired_ban_record(target.clone());
         storage.save(&expired_record).await.unwrap();
 
@@ -2089,7 +2063,6 @@ mod tests {
             .unwrap();
         assert_eq!(detail2.ban_times, 2);
 
-        // 检查历史记录
         let history = ban_manager.get_history(&target).await.unwrap();
         assert!(history.is_some());
         let history = history.unwrap();
@@ -2233,7 +2206,6 @@ mod tests {
                 .await
                 .unwrap();
 
-        // 创建 IP 封禁
         let ip_target = BanTarget::Ip("priority.ip.test".to_string());
         let record = BanRecord {
             target: ip_target.clone(),
@@ -2263,7 +2235,6 @@ mod tests {
     async fn test_list_bans_with_filter() {
         let ban_manager = create_test_ban_manager().await;
 
-        // 创建多个封禁
         ban_manager
             .create_ban(
                 BanTarget::Ip("192.168.1.1".to_string()),
@@ -2288,7 +2259,6 @@ mod tests {
             .await
             .unwrap();
 
-        // 过滤 IP 类型
         let filter = BanFilter {
             target_type: Some("ip".to_string()),
             ..Default::default()
@@ -2297,7 +2267,6 @@ mod tests {
         assert_eq!(bans.len(), 1);
         assert!(matches!(bans[0].target, BanTarget::Ip(_)));
 
-        // 过滤手动封禁
         let filter = BanFilter {
             manual_only: true,
             ..Default::default()
@@ -2312,7 +2281,6 @@ mod tests {
         let ban_manager = create_test_ban_manager().await;
         let target = BanTarget::UserId("update_test_user".to_string());
 
-        // 创建封禁
         ban_manager
             .create_ban(
                 target.clone(),
@@ -2324,7 +2292,6 @@ mod tests {
             .await
             .unwrap();
 
-        // 更新封禁
         let updated = ban_manager
             .update_ban(
                 &target,
@@ -2341,9 +2308,7 @@ mod tests {
         assert_eq!(detail.duration, StdDuration::from_secs(7200));
     }
 
-    // ========================================================================
     // 并发封禁测试
-    // ========================================================================
 
     #[tokio::test]
     async fn test_concurrent_ban_operations() {
@@ -2372,15 +2337,12 @@ mod tests {
             handles.push(handle);
         }
 
-        // 等待所有操作完成
         let results: Vec<_> = futures::future::join_all(handles).await;
 
-        // 验证所有操作都成功
         for result in results {
             assert!(result.unwrap().is_ok());
         }
 
-        // 验证所有封禁都已创建
         let filter = BanFilter::default();
         let bans = ban_manager.list_bans(filter).await.unwrap();
         assert_eq!(bans.len(), 10);
@@ -2421,15 +2383,12 @@ mod tests {
             handles.push(handle);
         }
 
-        // 等待所有操作完成
         let results: Vec<_> = futures::future::join_all(handles).await;
 
-        // 验证所有操作都成功
         for result in results {
             assert!(result.unwrap().is_ok());
         }
 
-        // 验证所有封禁都已移除
         let filter = BanFilter::default();
         let bans = ban_manager.list_bans(filter).await.unwrap();
         assert_eq!(bans.len(), 0);
@@ -2526,9 +2485,7 @@ mod tests {
         }
     }
 
-    // ========================================================================
     // 授权检查测试
-    // ========================================================================
 
     #[tokio::test]
     async fn test_create_ban_with_authorization_success() {
@@ -2737,9 +2694,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    // ========================================================================
     // 输入验证测试
-    // ========================================================================
 
     #[tokio::test]
     async fn test_validate_ban_reason_empty() {
@@ -2812,9 +2767,7 @@ mod tests {
         }
     }
 
-    // ========================================================================
     // 存储错误处理测试
-    // ========================================================================
 
     #[tokio::test]
     async fn test_storage_error_handling() {
@@ -2849,7 +2802,6 @@ mod tests {
             .await
             .unwrap();
 
-        // 创建两个封禁应该成功
         ban_manager
             .create_ban(
                 BanTarget::Ip("192.168.1.1".to_string()),
@@ -2886,9 +2838,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ========================================================================
     // 便捷方法测试
-    // ========================================================================
 
     #[tokio::test]
     async fn test_add_ban_convenience_method() {
@@ -2907,7 +2857,6 @@ mod tests {
         let result = ban_manager.add_ban(record).await;
         assert!(result.is_ok());
 
-        // 验证封禁已创建
         let banned = ban_manager
             .read_ban(&BanTarget::Ip("192.168.1.50".to_string()))
             .await
@@ -2963,9 +2912,7 @@ mod tests {
         assert!(result.is_some());
     }
 
-    // ========================================================================
     // BanManager Construction Patterns Tests
-    // ========================================================================
 
     #[tokio::test]
     async fn test_ban_manager_new_uses_memory_storage() {
@@ -3025,9 +2972,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    // ========================================================================
     // list_bans 过滤逻辑测试
-    // ========================================================================
 
     /// 创建带有可访问存储的测试管理器
     async fn create_manager_with_storage() -> (BanManager, Arc<dyn BanStorage>) {
@@ -3564,7 +3509,6 @@ mod tests {
         let result = ban_manager.add_ban(record).await;
         assert!(result.is_ok());
 
-        // 验证封禁已添加
         let banned = ban_manager
             .read_ban(&BanTarget::Ip("203.0.113.10".to_string()))
             .await

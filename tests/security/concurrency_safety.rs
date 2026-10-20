@@ -12,9 +12,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-// ============================================================================
 // 限流器竞争条件测试
-// ============================================================================
 
 /// 测试 TokenBucketLimiter 高并发竞争条件
 ///
@@ -39,26 +37,22 @@ async fn test_token_bucket_race_condition() {
         handles.push(tokio::spawn(async move {
             barrier_clone.wait().await;
 
-            // 等待开始信号
             while !start_signal_clone.load(Ordering::SeqCst) {
                 std::hint::spin_loop();
             }
 
-            // 尝试消费 1 个令牌
             if limiter_clone.allow(1).await.unwrap() {
                 success_clone.fetch_add(1, Ordering::SeqCst);
             }
         }));
     }
 
-    // 设置开始信号
     start_signal.store(true, Ordering::SeqCst);
 
     for handle in handles {
         handle.await.unwrap();
     }
 
-    // 验证成功次数不超过容量
     let success = success_count.load(Ordering::SeqCst);
     assert!(
         success <= capacity,
@@ -205,9 +199,7 @@ async fn test_sharded_sliding_window_race_condition() {
     );
 }
 
-// ============================================================================
 // 死锁测试
-// ============================================================================
 
 /// 测试 ShardedSlidingWindowLimiter 无死锁
 ///
@@ -341,9 +333,7 @@ async fn test_concurrency_limiter_no_deadlock() {
     assert!(result.is_ok(), "Test timed out - possible deadlock");
 }
 
-// ============================================================================
 // 并发状态一致性测试
-// ============================================================================
 
 /// 测试令牌桶状态一致性
 ///
@@ -456,9 +446,7 @@ async fn test_fixed_window_state_consistency() {
     );
 }
 
-// ============================================================================
 // 多锁场景测试
-// ============================================================================
 
 /// 测试多个限流器并发访问
 ///
@@ -513,7 +501,6 @@ async fn test_nested_limiter_calls() {
             // 嵌套调用
             if outer.allow(1).await.unwrap() {
                 if inner.allow(1).await.unwrap() {
-                    // 执行操作
                 }
             }
         }));
@@ -529,9 +516,7 @@ async fn test_nested_limiter_calls() {
     assert!(result.is_ok(), "Test timed out - possible deadlock with nested calls");
 }
 
-// ============================================================================
 // 压力测试
-// ============================================================================
 
 /// 高压力测试 - 大量并发请求
 #[tokio::test]
@@ -600,7 +585,6 @@ async fn test_long_running_stability() {
         }
     }
 
-    // 等待所有任务完成
     let result = tokio::time::timeout(Duration::from_secs(10), async {
         for handle in handles {
             let _ = handle.await;
@@ -611,9 +595,7 @@ async fn test_long_running_stability() {
     assert!(result.is_ok(), "Long running test timed out");
 }
 
-// ============================================================================
 // 边界条件并发测试
-// ============================================================================
 
 /// 测试窗口边界时刻的并发行为
 #[tokio::test]

@@ -395,7 +395,6 @@ where
         let context_converter = self.context_converter.clone();
         let responder = self.responder.clone();
 
-        // 检查是否为健康检查路径
         let path = req.uri().path().to_string();
         if config.is_health_check_path(&path) {
             // 跳过限流检查，直接调用内部服务
@@ -406,11 +405,9 @@ where
         // 提取请求上下文
         let context = context_converter.into_request_context(&req);
 
-        // 克隆内部服务以备后用
         let inner = self.inner.clone().call(req);
 
         Box::pin(async move {
-            // 执行限流检查
             match governor.check(&context).await {
                 Ok(Decision::Allowed(metadata)) => {
                     // 请求允许，调用内部服务
@@ -635,9 +632,7 @@ where
     }
 }
 
-// ============================================================================
 // 单元测试
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -1091,9 +1086,7 @@ mod tests {
         }
     }
 
-    // ========================================================================
     // RejectResponder:拒绝响应工厂(默认 IetfHttpResponder = 历史硬编码构造)
-    // ========================================================================
 
     #[test]
     fn test_reject_responder_default_snapshot() {
@@ -1230,9 +1223,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // KeyedRateLimitLayer:绕过 Governor 的静态限流器直驱快速路径
-    // ========================================================================
 
     #[derive(Clone)]
     struct StaticLimiter {
@@ -1340,9 +1331,7 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 
-    // ========================================================================
     // HeaderKeyExtractor:键长截断与借用语义
-    // ========================================================================
 
     #[test]
     fn test_header_key_extractor_borrows_short_values() {
@@ -1409,9 +1398,7 @@ mod tests {
         assert!(extractor.request_key(&req).is_none());
     }
 
-    // ========================================================================
     // Layer 组合面:自定义转换器与自定义响应工厂正交
-    // ========================================================================
 
     #[tokio::test]
     async fn test_layer_converter_and_responder_combine() {

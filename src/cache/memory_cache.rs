@@ -139,7 +139,6 @@ mod tests {
         let result = cache.get("expiring_key").await.unwrap();
         assert_eq!(result, Some("expiring_value".to_string()));
 
-        // Wait for expiration
         sleep(Duration::from_secs(2)).await;
         let result = cache.get("expiring_key").await.unwrap();
         assert_eq!(result, None);

@@ -155,7 +155,6 @@ mod tests {
         let governor = Arc::new(make_governor().await);
         let config = AdminApiConfig::new("test-api-key-16chars!!");
         let server = AdminServer::new(governor, config);
-        // 验证 state 字段存在
         assert!(Arc::strong_count(&server.state.governor) >= 1);
         #[cfg(feature = "ban-manager")]
         assert!(server.state.ban_manager.is_none());
@@ -216,7 +215,6 @@ mod tests {
         // disabled = true 的配置
         let config = AdminApiConfig::default();
         let server = AdminServer::new(governor, config);
-        // start() 在 disabled 时应立即返回 Ok(())
         let result = server.start().await;
         assert!(result.is_ok());
     }

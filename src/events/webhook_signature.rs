@@ -171,10 +171,8 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     result == 0
 }
 
-// ============================================================================
 // 进程级签名器（EventDispatcher 外发路径消费；与 GLOBAL_LIMITER_MANAGER
 // 同款进程级控制面单例模式，不参与决策热路径）
-// ============================================================================
 
 static GLOBAL_WEBHOOK_SIGNER: std::sync::OnceLock<WebhookSigner> = std::sync::OnceLock::new();
 

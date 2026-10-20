@@ -120,7 +120,6 @@ async fn demo_init_telemetry() -> Result<(), Box<dyn std::error::Error>> {
         "tracer should be enabled after enabling"
     );
 
-    // 验证 Metrics 可用
     let _metrics3 = Metrics::new();
     println!("Metrics::new() call succeeded");
 
@@ -146,17 +145,14 @@ async fn demo_tracer_and_span() -> Result<(), Box<dyn std::error::Error>> {
 
     let tracer = Tracer::new(true);
 
-    // 创建 span
     let span = tracer.start_span("demo_operation");
     println!("Span created");
 
-    // 设置属性
     span.set_attribute("service.name", "demo-service");
     span.set_attribute("request.id", "req-12345");
     span.set_attribute("user.id", "user-67890");
     println!("Set 3 attributes");
 
-    // 添加事件
     span.add_event(
         "processing_started",
         vec![("timestamp".to_string(), "2026-07-01T00:00:00Z".to_string())],
@@ -185,12 +181,10 @@ async fn demo_tracer_and_span() -> Result<(), Box<dyn std::error::Error>> {
         elapsed.is_some()
     );
 
-    // 打印属性详情
     for (key, value) in &attributes {
         println!("  attr: {} = {}", key, value);
     }
 
-    // 打印事件详情
     for (name, event_attrs) in &events {
         println!("  event: {} ({} attrs)", name, event_attrs.len());
     }
@@ -252,18 +246,15 @@ async fn demo_metrics_recording() -> Result<(), Box<dyn std::error::Error>> {
     metrics.record_check(Duration::from_millis(15), false);
     println!("Recording 2 rejected checks");
 
-    // 记录错误
     metrics.record_error("storage_error");
     metrics.record_error("timeout_error");
     metrics.record_error("permission_denied");
     println!("Recording 3 errors");
 
-    // 记录封禁
     metrics.record_ban();
     metrics.record_ban();
     println!("Recording 2 bans");
 
-    // 更新配额使用率
     metrics.update_quota_usage(75.5);
     println!("Updating quota usage: 75.5%");
 
@@ -271,15 +262,12 @@ async fn demo_metrics_recording() -> Result<(), Box<dyn std::error::Error>> {
     metrics.update_concurrent_connections(42);
     println!("Updating concurrent connections: 42");
 
-    // 更新令牌桶令牌数
     metrics.update_token_bucket_tokens(95.0);
     println!("Updating token bucket tokens: 95.0");
 
-    // 更新滑动窗口请求数
     metrics.update_sliding_window_requests(128.0);
     println!("Updating sliding window requests: 128.0");
 
-    // 更新固定窗口请求数
     metrics.update_fixed_window_requests(256.0);
     println!("Updating fixed window requests: 256.0");
 
@@ -294,7 +282,6 @@ async fn demo_metrics_gather() -> Result<(), Box<dyn std::error::Error>> {
 
     let metrics = Metrics::new();
 
-    // 记录一些指标
     metrics.record_check(Duration::from_micros(500), true);
     metrics.record_check(Duration::from_micros(800), false);
     metrics.record_error("test_error");
@@ -302,7 +289,6 @@ async fn demo_metrics_gather() -> Result<(), Box<dyn std::error::Error>> {
     metrics.update_quota_usage(50.0);
     metrics.update_concurrent_connections(10);
 
-    // 收集指标
     let gathered = metrics.gather();
 
     // 在无 prometheus feature 时，gather() 返回空字符串
@@ -317,7 +303,6 @@ async fn demo_metrics_gather() -> Result<(), Box<dyn std::error::Error>> {
             "Metrics gather succeeded, output length: {} bytes",
             gathered.len()
         );
-        // 打印前几行作为示例
         let preview_lines: Vec<&str> = gathered.lines().take(10).collect();
         println!("First 10 lines preview:");
         for line in preview_lines {

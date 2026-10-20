@@ -149,7 +149,6 @@ mod additional_tests {
         // 此时应该被限制
         assert!(!limiter.allow(1).await.unwrap());
 
-        // 等待窗口过期
         tokio::time::sleep(Duration::from_millis(150)).await;
 
         // 过期后应该允许新请求

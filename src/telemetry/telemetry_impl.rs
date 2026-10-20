@@ -131,7 +131,6 @@ impl Metrics {
         // 错误数
         let errors_total = register_counter("flowguard_errors_total", "Total number of errors");
 
-        // 检查延迟分布
         let check_duration = register_histogram(
             "flowguard_check_duration_seconds",
             "Duration of flow control checks in seconds",

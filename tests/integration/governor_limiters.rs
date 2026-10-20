@@ -107,14 +107,13 @@ async fn create_governor_with_limiters_and_clock(
     governor
 }
 
-// ==================== 完整决策流程验证 ====================
+// 完整决策流程验证
 
 /// 测试 Governor 完整决策流程 - 允许请求
 #[tokio::test]
 async fn test_governor_full_decision_flow_allowed() {
     let governor = create_governor().await;
 
-    // 创建请求上下文
     let ctx = RequestContextBuilder::new()
         .user_id("test_user")
         .ip("192.168.1.1")
@@ -122,7 +121,6 @@ async fn test_governor_full_decision_flow_allowed() {
         .method("GET")
         .build();
 
-    // 执行检查
     let result = governor.check(&ctx).await;
     assert!(result.is_ok(), "Governor check should succeed");
 
@@ -136,7 +134,6 @@ async fn test_governor_full_decision_flow_allowed() {
         }
     }
 
-    // 验证统计信息
     let stats = governor.stats().await;
     assert_eq!(stats.total_requests, 1);
     assert_eq!(stats.allowed_requests, 1);
@@ -145,7 +142,6 @@ async fn test_governor_full_decision_flow_allowed() {
 /// 测试 Governor 完整决策流程 - 拒绝请求（超过限流）
 #[tokio::test]
 async fn test_governor_full_decision_flow_rejected() {
-    // 创建容量很小的限流器配置
     let governor = create_governor_with_limiters(vec![LimiterConfig::TokenBucket {
         capacity: 2,
         refill_rate: 1,
@@ -161,7 +157,6 @@ async fn test_governor_full_decision_flow_rejected() {
     let result1 = governor.check(&ctx).await.unwrap();
     let result2 = governor.check(&ctx).await.unwrap();
 
-    // 验证前两次请求被允许
     assert!(matches!(result1, Decision::Allowed(_)));
     assert!(matches!(result2, Decision::Allowed(_)));
 
@@ -172,7 +167,6 @@ async fn test_governor_full_decision_flow_rejected() {
         "Third request should be rejected"
     );
 
-    // 验证统计信息
     let stats = governor.stats().await;
     assert_eq!(stats.total_requests, 3);
     assert_eq!(stats.allowed_requests, 2);
@@ -187,13 +181,12 @@ async fn test_governor_decision_flow_empty_context() {
     // 空请求上下文
     let ctx = limiteron::matchers::RequestContext::new();
 
-    // 执行检查
     let result = governor.check(&ctx).await;
     // 空上下文可能导致错误或默认决策
     assert!(result.is_ok() || result.is_err());
 }
 
-// ==================== 多限流器协作验证 ====================
+// 多限流器协作验证
 
 /// 测试多限流器协作 - 级联拒绝
 #[tokio::test]
@@ -233,7 +226,6 @@ async fn test_multiple_limiters_cascade_reject() {
 /// 测试多限流器协作 - 不同限流器独立工作
 #[tokio::test]
 async fn test_multiple_limiters_independent() {
-    // 创建两个独立的限流器
     let governor = create_governor_with_limiters(vec![
         LimiterConfig::TokenBucket {
             capacity: 5,
@@ -301,15 +293,13 @@ async fn test_multiple_limiters_concurrent() {
         }
     }
 
-    // 验证有请求被允许
     assert!(allowed > 0, "Some requests should be allowed");
 
-    // 验证统计信息
     let stats = governor.stats().await;
     assert_eq!(stats.total_requests, 30);
 }
 
-// ==================== 限流器类型测试 ====================
+// 限流器类型测试
 
 /// 测试 TokenBucket 限流器集成
 #[tokio::test]
@@ -349,7 +339,6 @@ async fn test_token_bucket_integration() {
     // 虚拟推进补充令牌（2/s × 0.6s ≥ 1），替代真实 sleep 600ms
     mock.advance(Duration::from_millis(600));
 
-    // 等待后应该可以再次请求
     let result = governor.check(&ctx).await.unwrap();
     assert!(
         matches!(result, Decision::Allowed(_)),
@@ -435,7 +424,7 @@ async fn test_fixed_window_integration() {
     );
 }
 
-// ==================== 缓存集成测试 ====================
+// 缓存集成测试
 
 /// 测试 Governor 缓存命中
 #[tokio::test]
@@ -462,7 +451,6 @@ async fn test_governor_l1_cache_hit() {
     // 第二次请求（可能缓存命中）
     let result2 = governor.check(&ctx).await.unwrap();
 
-    // 验证两次请求结果一致
     match (&result1, &result2) {
         (Decision::Allowed(_), Decision::Allowed(_)) => {}
         (Decision::Rejected(r1), Decision::Rejected(r2)) => {
@@ -473,7 +461,6 @@ async fn test_governor_l1_cache_hit() {
         }
     }
 
-    // 验证统计信息
     let stats = governor.stats().await;
     assert_eq!(stats.total_requests, 2);
 }
@@ -515,7 +502,6 @@ async fn test_governor_cache_invalidation() {
         .ip("10.0.0.22")
         .build();
 
-    // 发送请求以填充缓存
     let _ = governor.check(&ctx).await;
 
     // 使缓存失效
@@ -526,7 +512,7 @@ async fn test_governor_cache_invalidation() {
     let _ = governor.check(&ctx).await;
 }
 
-// ==================== 统计信息测试 ====================
+// 统计信息测试
 
 /// 测试 Governor 统计信息更新
 #[tokio::test]
@@ -537,7 +523,6 @@ async fn test_governor_stats_update() {
     }])
     .await;
 
-    // 发送多个请求
     for i in 0..10 {
         let ctx = RequestContextBuilder::new()
             .user_id(&format!("stats_user_{}", i % 3))
@@ -547,7 +532,6 @@ async fn test_governor_stats_update() {
         let _ = governor.check(&ctx).await;
     }
 
-    // 验证统计信息
     let stats = governor.stats().await;
     assert_eq!(stats.total_requests, 10);
     assert!(stats.allowed_requests > 0);
@@ -558,7 +542,6 @@ async fn test_governor_stats_update() {
 async fn test_governor_stats_reset() {
     let governor = create_governor().await;
 
-    // 发送一些请求
     for i in 0..5 {
         let ctx = RequestContextBuilder::new()
             .user_id(&format!("reset_user_{}", i))
@@ -568,40 +551,35 @@ async fn test_governor_stats_reset() {
         let _ = governor.check(&ctx).await;
     }
 
-    // 验证有统计信息
     let stats = governor.stats().await;
     assert_eq!(stats.total_requests, 5);
 
-    // 重置统计
     governor.reset_stats().await;
 
-    // 验证统计已清零
     let stats = governor.stats().await;
     assert_eq!(stats.total_requests, 0);
     assert_eq!(stats.allowed_requests, 0);
     assert_eq!(stats.rejected_requests, 0);
 }
 
-// ==================== 健康检查测试 ====================
+// 健康检查测试
 
 /// 测试 Governor 健康检查
 #[tokio::test]
 async fn test_governor_health_check() {
     let governor = create_governor().await;
 
-    // 执行健康检查
     let result = governor.health_check().await;
     assert!(result.is_ok(), "Health check should succeed");
 }
 
-// ==================== 规则优先级测试 ====================
+// 规则优先级测试
 
 /// 测试规则匹配和优先级
 #[tokio::test]
 async fn test_rule_matching_priority() {
     let governor = create_governor().await;
 
-    // 发送请求
     let ctx = RequestContextBuilder::new()
         .user_id("priority_user")
         .ip("10.0.0.40")
@@ -609,7 +587,6 @@ async fn test_rule_matching_priority() {
 
     let result = governor.check(&ctx).await.unwrap();
 
-    // 验证请求被处理
     match result {
         Decision::Allowed(_) | Decision::Rejected(_) => {
             // 请求被正确处理

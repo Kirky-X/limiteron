@@ -247,7 +247,6 @@ impl AuditLogEntry {
 
         mac.update(message.as_bytes());
 
-        // 返回十六进制编码的签名
         let result = mac.finalize();
         hex::encode(result.into_bytes())
     }
@@ -418,7 +417,6 @@ fn sanitize_identifier(identifier: &str) -> String {
         };
     }
 
-    // 检查是否是邮箱
     if identifier.contains('@') {
         // 邮箱：保留用户名前3位和域名
         let parts: Vec<&str> = identifier.split('@').collect();
@@ -707,7 +705,6 @@ impl AuditLogger {
         stats.batch_writes.fetch_add(1, Ordering::Relaxed);
 
         for event in batch {
-            // 创建带签名的日志条目
             let mut entry = if let Some(ref signing_key) = config.signing_key {
                 let key = signing_key.expose_secret();
                 AuditLogEntry::with_signature(event.clone(), key)
@@ -769,12 +766,10 @@ impl AuditLogger {
         use std::fs::OpenOptions;
         use std::io::Write;
 
-        // 检查是否需要轮转
         if let Some(max_size) = config.max_file_size
             && let Ok(metadata) = std::fs::metadata(path)
             && metadata.len() >= max_size
         {
-            // 执行日志轮转
             Self::rotate_log_file(path, config.max_files)?;
         }
 
@@ -786,7 +781,6 @@ impl AuditLogger {
         // 以追加模式打开文件
         let mut file = OpenOptions::new().create(true).append(true).open(path)?;
 
-        // 写入内容并添加换行符
         writeln!(file, "{}", content)?;
 
         Ok(())
@@ -868,7 +862,6 @@ impl AuditLogger {
                 continue;
             }
 
-            // 解析日志条目
             match serde_json::from_str::<AuditLogEntry>(line) {
                 Ok(entry) => {
                     // 如果配置了签名验证，则验证签名
@@ -1209,11 +1202,9 @@ mod tests {
         let signing_key = "test-secret-key-32-bytes-long!";
         let entry = AuditLogEntry::with_signature(event.clone(), signing_key);
 
-        // 验证签名存在
         assert!(entry.signature.is_some());
         assert_eq!(entry.signature_version, Some(1));
 
-        // 验证签名可以验证通过
         let result = entry.verify(signing_key);
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -1285,7 +1276,6 @@ mod tests {
         // 篡改签名
         entry.signature = Some("tampered_signature".to_string());
 
-        // 验证应该失败
         let result = entry.verify(signing_key);
         assert!(result.is_err());
     }
@@ -1329,7 +1319,6 @@ mod tests {
         // 反序列化
         let deserialized: AuditLogEntry = serde_json::from_str(&json).unwrap();
 
-        // 验证签名仍然有效
         let result = deserialized.verify(signing_key);
         assert!(result.is_ok());
         assert!(result.unwrap());
@@ -1416,9 +1405,7 @@ mod tests {
         assert_eq!(stats.signature_failures(), 2);
     }
 
-    // ================================================================
-    // === AuditEvent — complete variant coverage ===
-    // ================================================================
+    // AuditEvent — complete variant coverage
 
     #[test]
     fn test_audit_event_all_variants_comprehensive() {
@@ -1484,9 +1471,7 @@ mod tests {
         assert_eq!(err_event.result(), "fail");
     }
 
-    // ================================================================
-    // === AuditLogEntry — new() and sign() in isolation ===
-    // ================================================================
+    // AuditLogEntry — new and sign in isolation
 
     #[test]
     fn test_audit_log_entry_new_and_sign_standalone() {
@@ -1506,9 +1491,7 @@ mod tests {
         assert_eq!(entry.signature_version, Some(1));
     }
 
-    // ================================================================
-    // === constant_time_compare — edge cases ===
-    // ================================================================
+    // constant_time_compare — edge cases
 
     #[test]
     fn test_constant_time_compare_edge_cases() {
@@ -1523,9 +1506,7 @@ mod tests {
         ));
     }
 
-    // ================================================================
-    // === sanitize_identifier — all branch coverage ===
-    // ================================================================
+    // sanitize_identifier — all branch coverage
 
     #[test]
     fn test_sanitize_identifier_edge_cases() {
@@ -1578,9 +1559,7 @@ mod tests {
         );
     }
 
-    // ================================================================
-    // === AuditLogStats — all getters + reset ===
-    // ================================================================
+    // AuditLogStats — all getters + reset
 
     #[test]
     fn test_audit_log_stats_all_counters() {
@@ -1622,9 +1601,7 @@ mod tests {
         assert_eq!(stats.verification_failures(), 0);
     }
 
-    // ================================================================
-    // === AuditLogger — default constructor + accessors ===
-    // ================================================================
+    // AuditLogger — default constructor + accessors
 
     #[tokio::test]
     async fn test_audit_logger_default_and_accessors() {
@@ -1640,9 +1617,7 @@ mod tests {
         logger.shutdown().await;
     }
 
-    // ================================================================
-    // === AuditLogger — all event-type log methods ===
-    // ================================================================
+    // AuditLogger — all event-type log methods
 
     #[tokio::test]
     async fn test_audit_logger_log_all_event_types() {
@@ -1686,9 +1661,7 @@ mod tests {
         assert_eq!(logger.stats().error_events(), 1);
     }
 
-    // ================================================================
-    // === AuditLogger — disabled mode ===
-    // ================================================================
+    // AuditLogger — disabled mode
 
     #[tokio::test]
     async fn test_audit_logger_disabled() {
@@ -1721,9 +1694,7 @@ mod tests {
         assert_eq!(logger.stats().error_events(), 0);
     }
 
-    // ================================================================
-    // === AuditLogger — verify_integrity ===
-    // ================================================================
+    // AuditLogger — verify_integrity
 
     #[tokio::test]
     async fn test_audit_logger_verify_integrity() {
@@ -1747,9 +1718,7 @@ mod tests {
         assert!(!logger2.verify_integrity(&entry2).unwrap());
     }
 
-    // ================================================================
-    // === read_and_verify — basic scenarios ===
-    // ================================================================
+    // read_and_verify — basic scenarios
 
     #[test]
     fn test_read_and_verify_basic() {
@@ -1853,9 +1822,7 @@ mod tests {
         assert_eq!(stats.verification_failures(), 0);
     }
 
-    // ================================================================
-    // === write_to_file + rotate_log_file ===
-    // ================================================================
+    // write_to_file + rotate_log_file
 
     #[test]
     fn test_write_to_file_direct() {
@@ -1955,9 +1922,7 @@ mod tests {
         assert_eq!(content, "content");
     }
 
-    // ================================================================
-    // === write_batch — file write failure path (lines 572-573) ===
-    // ================================================================
+    // write_batch — file write failure path (lines 572-573)
 
     #[test]
     fn test_write_batch_file_write_failure() {
@@ -1987,9 +1952,7 @@ mod tests {
         assert_eq!(stats.batch_writes(), 1);
     }
 
-    // ================================================================
-    // === write_to_file — rotation triggered via size (lines 603, 645, 659) ===
-    // ================================================================
+    // write_to_file — rotation triggered via size (lines 603, 645, 659)
 
     #[test]
     fn test_write_to_file_triggers_full_rotation() {
@@ -2034,9 +1997,7 @@ mod tests {
         assert_eq!(new_content, "new entry\n");
     }
 
-    // ========================================================================
     // 审计哈希链（HMAC-SHA256(prev ‖ payload)）篡改检测
-    // ========================================================================
 
     fn t609_entry(op: &str) -> AuditEvent {
         use chrono::Utc;

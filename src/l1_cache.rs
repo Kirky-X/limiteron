@@ -756,7 +756,7 @@ where
         Ok(None)
     }
 
-    // ==================== 孤岛模式方法 ====================
+    // 孤岛模式方法
 
     /// 启用孤岛模式
     ///
@@ -924,7 +924,6 @@ mod tests {
             .unwrap();
         assert_eq!(cache.get("key1").await.unwrap(), Some("value1".to_string()));
 
-        // 等待过期
         tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(cache.get("key1").await.unwrap(), None);
     }

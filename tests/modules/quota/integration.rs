@@ -27,7 +27,6 @@ async fn test_quota_controller_module_import() {
         overdraft_limit_percent: 0,
         alert_config: Default::default(),
     };
-    // 验证配置可以创建
     assert_eq!(config.limit, 1000);
 }
 
@@ -51,7 +50,6 @@ async fn test_quota_persists_state() {
     assert!(result1.allowed);
     assert_eq!(result1.remaining, 900);
 
-    // 获取配额信息验证状态已保存
     let quota_info = storage.get_quota(user_id, resource).await.unwrap();
     assert!(quota_info.is_some());
     let info = quota_info.unwrap();
@@ -66,7 +64,6 @@ async fn test_quota_persists_state() {
     assert!(result2.allowed);
     assert_eq!(result2.remaining, 700);
 
-    // 验证最终状态
     let final_info = storage.get_quota(user_id, resource).await.unwrap().unwrap();
     assert_eq!(final_info.consumed, 300);
 }
@@ -103,7 +100,6 @@ async fn test_quota_concurrent_consumption() {
         });
     }
 
-    // 等待所有任务完成并验证结果
     let mut total_consumed = 0u64;
     while let Some(result) = join_set.join_next().await {
         let consume_result = result.unwrap().unwrap();

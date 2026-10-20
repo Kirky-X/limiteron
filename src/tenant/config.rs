@@ -257,14 +257,12 @@ mod tests {
         assert_eq!(ns.prefix(), "tenant:tenant_a/b::c@d!:env:prod-v1.2.3");
     }
 
-    // ========================================================================
     // namespace key prefix injection 修复测试
     //
     // 验证策略：
     // 1. sanitize_tenant_id / sanitize_environment 将 ":" 转义为 "::"
     // 2. 无 ":" 的输入保持不变（向后兼容）
     // 3. 不同 (tenant_id, environment) 对不再产生冲突的 qualified key
-    // ========================================================================
 
     #[test]
     fn test_sanitize_tenant_id_escapes_colon() {

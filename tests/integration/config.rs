@@ -9,7 +9,7 @@ use limiteron::config::{
     FlowControlConfig, LimiterConfig, MetricsBackend, Rule, StorageType,
 };
 
-// ==================== YAML 配置解析测试 ====================
+// YAML 配置解析测试
 
 /// 测试基本配置解析
 #[test]
@@ -235,7 +235,6 @@ fn test_rule_priority() {
         },
     ];
 
-    // 验证优先级设置
     assert_eq!(rules[0].priority, 50);
     assert_eq!(rules[1].priority, 200);
 }
@@ -473,7 +472,6 @@ fn test_ban_config_validation() {
         scope: BanScope::User,
     };
 
-    // 验证配置
     let result = ban_config.validate();
     assert!(result.is_ok(), "BanConfig should be valid");
 }

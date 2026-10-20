@@ -43,7 +43,6 @@ async fn demo_basic_logging() {
 
     let logger = AuditLogger::default().await;
 
-    // 记录决策事件
     logger
         .log_decision(
             "user-001".to_string(),
@@ -53,7 +52,6 @@ async fn demo_basic_logging() {
         )
         .await;
 
-    // 记录封禁操作事件
     logger
         .log_ban_operation(
             "192.168.1.100".to_string(),
@@ -64,7 +62,6 @@ async fn demo_basic_logging() {
         )
         .await;
 
-    // 等待批量写入
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let stats = logger.stats();
@@ -183,7 +180,6 @@ fn demo_signature_verification() -> Result<(), Box<dyn std::error::Error>> {
 
     let signing_key = "super-secret-key-2026";
 
-    // 创建一个审计事件
     let event = AuditEvent::Decision {
         timestamp: chrono::Utc::now(),
         identifier: "user-001".to_string(),
@@ -192,23 +188,19 @@ fn demo_signature_verification() -> Result<(), Box<dyn std::error::Error>> {
         request_id: Some("req-001".to_string()),
     };
 
-    // 检查事件元数据
     println!("  Event:");
     println!("    operation: {}", event.operation());
     println!("    target:    {}", event.target());
     println!("    result:    {}", event.result());
     println!("    timestamp: {}", event.timestamp());
 
-    // 创建未签名的条目
     let unsigned_entry = AuditLogEntry::new(event.clone());
     println!("\n  Unsigned entry:");
     println!("    has signature: {}", unsigned_entry.signature.is_some());
 
-    // 验证未签名条目应该失败
     let verify_result = unsigned_entry.verify(signing_key);
     println!("    verify result: {:?}", verify_result);
 
-    // 创建带签名的条目
     let signed_entry = AuditLogEntry::with_signature(event.clone(), signing_key);
     println!("\n  Signed entry:");
     println!("    has signature: {}", signed_entry.signature.is_some());
@@ -217,7 +209,6 @@ fn demo_signature_verification() -> Result<(), Box<dyn std::error::Error>> {
         signed_entry.signature_version
     );
 
-    // 验证签名
     let verify_result = signed_entry.verify(signing_key);
     println!("    verify with correct key: {}", verify_result?);
 
@@ -245,7 +236,6 @@ async fn demo_stats() {
 
     let logger = AuditLogger::new(config).await;
 
-    // 记录多个事件
     for i in 0..5 {
         logger
             .log_decision(
@@ -281,7 +271,6 @@ async fn demo_stats() {
         stats.verification_failures()
     );
 
-    // 重置统计
     stats.reset();
     println!("\n  After reset:");
     println!("    Total events: {}", stats.total_events());

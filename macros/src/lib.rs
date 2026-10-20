@@ -14,14 +14,12 @@ use syn::{ItemFn, parse_macro_input};
 pub fn flow_control(args: TokenStream, input: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(input as ItemFn);
 
-    // 解析宏参数
     let args = proc_macro2::TokenStream::from(args);
     let config = match FlowControlConfig::parse(&args) {
         Ok(config) => config,
         Err(e) => return e.to_compile_error().into(),
     };
 
-    // 生成代码
     match generate_flow_control(&input_fn, &config) {
         Ok(tokens) => tokens.into(),
         Err(e) => e.to_compile_error().into(),
@@ -769,9 +767,7 @@ mod tests {
         assert!(config.enable_metrics);
     }
 
-    // ========================================================================
     // on_exceed 参数解析与代码生成测试
-    // ========================================================================
 
     #[test]
     fn test_parse_on_exceed_default() {
@@ -1076,9 +1072,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // key_prefix 参数解析与代码生成测试
-    // ========================================================================
 
     #[test]
     fn test_parse_key_prefix() {
@@ -1203,9 +1197,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // tracing/metrics toggles 测试
-    // ========================================================================
 
     #[test]
     fn test_parse_tracing_false() {
@@ -1363,9 +1355,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // build_exceed_handler DRY 验证
-    // ========================================================================
 
     #[test]
     fn test_build_exceed_handler_dry() {
@@ -1405,9 +1395,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // key_prefix sanitize 验证
-    // ========================================================================
 
     #[test]
     fn test_generate_key_prefix_sanitized() {
@@ -1442,9 +1430,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // key_prefix=None 时无前导冒号验证
-    // ========================================================================
 
     #[test]
     fn test_generate_key_prefix_none_no_leading_colon() {
@@ -1531,9 +1517,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // fname sanitize 验证
-    // ========================================================================
 
     #[test]
     fn test_generate_fname_sanitized_in_key() {
@@ -1559,9 +1543,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // log_only 模式下不消费配额验证
-    // ========================================================================
 
     #[test]
     fn test_generate_log_only_rate_no_allow_call() {
@@ -1623,9 +1605,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // 条件生成 #[allow(unreachable_code)] 验证
-    // ========================================================================
 
     #[test]
     fn test_generate_reject_mode_has_unreachable_allow_attr() {
@@ -1664,9 +1644,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // audit-macro-followup 修复16 sanitize_key_component 边界测试
-    // ========================================================================
 
     #[test]
     fn test_sanitize_key_component_edge_cases() {

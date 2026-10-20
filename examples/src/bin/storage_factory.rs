@@ -156,7 +156,6 @@ async fn demo_factory_creation() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // 关闭工厂
     factory.close().await;
     println!("\n  Factory closed");
     println!();

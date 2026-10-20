@@ -73,7 +73,6 @@ mod circuit_breaker_tests {
                 .await;
         }
 
-        // 验证熔断器打开
         assert!(breaker.is_open().await);
 
         // 新请求应该被拒绝
@@ -128,7 +127,6 @@ mod circuit_breaker_tests {
     async fn test_multiple_failure_recovery_cycles() {
         let breaker = create_test_circuit_breaker(2, 2, Duration::from_millis(50));
 
-        // 循环多次故障恢复
         for cycle in 0..3 {
             // 触发故障
             for _ in 0..2 {
@@ -147,7 +145,6 @@ mod circuit_breaker_tests {
                 cycle
             );
 
-            // 等待恢复
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             // 恢复
@@ -211,13 +208,11 @@ mod fallback_tests {
     async fn test_fallback_strategy_setting() {
         let fallback_manager = create_fallback_manager().await;
 
-        // 设置降级策略
         let config = FallbackConfig::new(ComponentType::Redis, FallbackStrategy::Degraded);
         fallback_manager
             .set_strategy(ComponentType::Redis, config)
             .await;
 
-        // 验证策略已设置
         let strategy = fallback_manager.get_strategy(ComponentType::Redis).await;
         assert!(strategy.is_some());
     }
@@ -242,7 +237,6 @@ mod fallback_tests {
             )
             .await;
 
-        // 验证两个组件都有策略
         assert!(
             fallback_manager
                 .get_strategy(ComponentType::Redis)

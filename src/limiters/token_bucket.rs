@@ -196,12 +196,10 @@ impl Limiter for TokenBucketLimiter {
         loop {
             let current = self.tokens.load(Ordering::SeqCst);
 
-            // 检查令牌是否足够
             if current < cost {
                 return Ok(false);
             }
 
-            // 尝试消费令牌
             if self
                 .tokens
                 .compare_exchange(current, current - cost, Ordering::SeqCst, Ordering::SeqCst)
@@ -300,7 +298,6 @@ mod tests {
         assert!(limiter.allow(10).await.unwrap());
         assert_eq!(limiter.tokens(), 0);
 
-        // 等待一小段时间
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
         // 触发补充
@@ -395,8 +392,8 @@ mod tests {
         // 0.5 个令牌的积分永久丢失 → 10 周期只得 ~10-10(消费)=0 个；
         // 修复后积分滞留按 1,2,1,2 交替累积 → 15-10=5 个。
         // （MockClock 确定性推进：真实时钟在并行门禁重放的 CPU 饥饿下
-        //   单循环耗时会拉长，补充超量击穿「~5」区间上界造成偶发失败——
-        //   区间断言只对时钟单调成立、对耗时无上界假设不成立。）
+        // 单循环耗时会拉长，补充超量击穿「~5」区间上界造成偶发失败——
+        // 区间断言只对时钟单调成立、对耗时无上界假设不成立。）
         let mock_clock = Arc::new(MockClock::new());
         let clock: Arc<dyn Clock> = mock_clock.clone();
         let limiter = TokenBucketLimiter::with_clock(100, 3, clock);

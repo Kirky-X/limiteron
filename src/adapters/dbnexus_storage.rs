@@ -51,7 +51,6 @@ impl Storage for DBNexusStorageAdapter {
         // Find the key-value record
         match KeyValueEntity::find_by_id(key.to_string()).one(conn).await {
             Ok(Some(model)) => {
-                // Check if expired
                 if let Some(expires_at) = model.expires_at
                     && expires_at < Utc::now()
                 {

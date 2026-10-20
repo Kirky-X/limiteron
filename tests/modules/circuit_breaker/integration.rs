@@ -25,29 +25,24 @@ async fn test_circuit_breaker_module_import() {
 
     #[allow(unused_variables)]
     let circuit_breaker = CircuitBreaker::new(config);
-    // 验证熔断器可以创建
 }
 
 /// 3.3.1: 测试 CircuitBreaker 与 Governor 集成
 #[tokio::test]
 #[cfg(feature = "circuit-breaker")]
 async fn test_circuit_breaker_governor_integration() {
-    // 创建熔断器并验证基本功能
     let circuit_breaker = CircuitBreaker::with_dependencies(CircuitBreakerConfig::default());
 
     // 验证熔断器初始状态为 Closed
     assert!(circuit_breaker.is_closed().await);
 
-    // 执行成功操作
     let result = circuit_breaker
         .execute(|| async { Ok::<(), LimiteronError>(()) })
         .await;
     assert!(result.is_ok());
 
-    // 验证状态保持 Closed
     assert!(circuit_breaker.is_closed().await);
 
-    // 验证统计信息
     let stats = circuit_breaker.get_stats().await;
     assert_eq!(stats.success_count, 1);
 }
@@ -123,6 +118,5 @@ async fn test_circuit_breaker_fast_fails_in_open_state() {
         _ => panic!("Expected CircuitCallError::Open when circuit breaker is open"),
     }
 
-    // 验证状态仍然是 Open
     assert!(circuit_breaker.is_open().await);
 }

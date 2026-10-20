@@ -196,7 +196,6 @@ impl Storage for MemoryStorage {
 
         let expiration = self.expiration.read().await.get(key).copied();
 
-        // Check if key has expired
         if let Some(exp) = expiration
             && exp <= now
         {
@@ -281,7 +280,6 @@ impl BanStorage for MemoryBanStorage {
     async fn is_banned(&self, target: &BanTarget) -> Result<Option<BanRecord>, StorageError> {
         let now = self.clock.now_datetime().timestamp();
 
-        // Check expiration first
         let expires_at = self.expiration.read().await.get(target).copied();
 
         if let Some(exp) = expires_at
@@ -309,7 +307,6 @@ impl BanStorage for MemoryBanStorage {
                 if !matches!(record.target, BanTarget::Cidr(_)) {
                     continue;
                 }
-                // 过滤已过期的网段封禁
                 if let Some(exp) = expiration.get(&record.target)
                     && *exp <= now
                 {
@@ -990,9 +987,7 @@ mod tests {
     }
 }
 
-// ============================================================================
 // MemoryStorage and MemoryBanStorage Tests
-// ============================================================================
 
 #[cfg(test)]
 mod memory_storage_tests {
@@ -1028,7 +1023,6 @@ mod memory_storage_tests {
         let value = Storage::get(&storage, "key1").await.unwrap();
         assert_eq!(value, Some("value1".to_string()));
 
-        // Wait for TTL to expire
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
         // Should be expired
@@ -1040,14 +1034,12 @@ mod memory_storage_tests {
     async fn test_memory_storage_update() {
         let storage = MemoryStorage::new();
 
-        // Set initial value
         Storage::set(&storage, "key1", "value1", None)
             .await
             .unwrap();
         let value = Storage::get(&storage, "key1").await.unwrap();
         assert_eq!(value, Some("value1".to_string()));
 
-        // Update value
         Storage::set(&storage, "key1", "value2", None)
             .await
             .unwrap();
@@ -1164,10 +1156,8 @@ mod memory_ban_storage_tests {
             reason: "test ban".to_string(),
         };
 
-        // Save ban
         BanStorage::save(&storage, &rec).await.unwrap();
 
-        // Check is_banned
         let found = BanStorage::is_banned(&storage, &rec.target).await.unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().reason, "test ban");
@@ -1175,7 +1165,6 @@ mod memory_ban_storage_tests {
         // Remove ban
         BanStorage::remove_ban(&storage, &rec.target).await.unwrap();
 
-        // Check removed
         let found = BanStorage::is_banned(&storage, &rec.target).await.unwrap();
         assert!(found.is_none());
     }
@@ -1256,7 +1245,6 @@ mod memory_ban_storage_tests {
     async fn test_memory_ban_storage_list_bans() {
         let storage = MemoryBanStorage::new();
 
-        // Add multiple bans
         for i in 0..5 {
             let rec = BanRecord {
                 target: BanTarget::UserId(format!("user{}", i)),
@@ -1278,7 +1266,6 @@ mod memory_ban_storage_tests {
     async fn test_memory_ban_storage_expired() {
         let storage = MemoryBanStorage::new();
 
-        // Create an already expired ban
         let rec = BanRecord {
             target: BanTarget::UserId("expired_user".to_string()),
             ban_times: 1,
@@ -1676,11 +1663,9 @@ mod memory_ban_storage_tests {
             BanStorage::save(&storage, &rec).await.unwrap();
         }
 
-        // 执行批量清理
         let removed = BanStorage::cleanup_expired_bans(&storage).await.unwrap();
         assert_eq!(removed, 3, "should remove 3 expired bans");
 
-        // 验证过期 ban 已删除
         assert!(
             BanStorage::is_banned(&storage, &expired_target_1)
                 .await
@@ -1777,9 +1762,7 @@ mod memory_ban_storage_tests {
         );
     }
 
-    // ========================================================================
     // CIDR 网段封禁
-    // ========================================================================
 
     fn make_cidr_record(cidr: &str, ttl_secs: i64) -> BanRecord {
         BanRecord {

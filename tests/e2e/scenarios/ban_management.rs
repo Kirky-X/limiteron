@@ -19,7 +19,7 @@ use std::sync::Arc;
 #[cfg(feature = "ban-manager")]
 use std::time::Duration;
 
-// ==================== 存储（产品内存实现） ====================
+// 存储（产品内存实现）
 
 #[cfg(feature = "ban-manager")]
 #[derive(Clone)]
@@ -136,7 +136,7 @@ impl BanStorage for TestBanStorage {
     }
 }
 
-// ==================== E2E Scenario Tests ====================
+// E2E Scenario Tests
 
 /// 场景 1: 用户被封禁后无法访问
 ///
@@ -169,7 +169,6 @@ async fn e2e_ban_user_cannot_access() {
         .await
         .expect("Failed to create ban");
 
-    // 验证用户被封禁
     let is_banned = ban_manager
         .is_banned(&target)
         .await
@@ -210,17 +209,14 @@ async fn e2e_ban_expired_user_can_access() {
         .await
         .expect("Failed to create ban");
 
-    // 验证用户被封禁
     let is_banned = ban_manager
         .is_banned(&target)
         .await
         .expect("Failed to check ban status");
     assert!(is_banned.is_some(), "User should be banned initially");
 
-    // 等待封禁过期
     tokio::time::sleep(Duration::from_millis(1100)).await;
 
-    // 验证封禁已过期
     let is_banned = ban_manager
         .is_banned(&target)
         .await
@@ -260,7 +256,6 @@ async fn e2e_ban_ip_address() {
         .await
         .expect("Failed to create IP ban");
 
-    // 验证 IP 被封禁
     let is_banned = ban_manager
         .is_banned(&ip_target)
         .await
@@ -303,7 +298,6 @@ async fn e2e_ban_manual_unban() {
         .await
         .expect("Failed to create ban");
 
-    // 验证用户被封禁
     let is_banned = ban_manager
         .is_banned(&target)
         .await
@@ -316,7 +310,6 @@ async fn e2e_ban_manual_unban() {
         .await
         .expect("Failed to delete ban");
 
-    // 验证用户已解封
     let is_banned = ban_manager
         .is_banned(&target)
         .await
@@ -357,7 +350,6 @@ async fn e2e_ban_history_tracking() {
         .await
         .expect("Failed to create first ban");
 
-    // 获取历史
     let history = ban_manager
         .get_history(&target)
         .await
@@ -365,7 +357,6 @@ async fn e2e_ban_history_tracking() {
     assert!(history.is_some(), "History should exist");
     assert_eq!(history.unwrap().ban_times, 1, "Ban times should be 1");
 
-    // 等待封禁过期
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // 第二次封禁（递增）
@@ -393,7 +384,6 @@ async fn e2e_ban_update() {
 
     let target = BanTarget::UserId("user_to_update".to_string());
 
-    // 创建封禁
     ban_manager
         .create_ban(
             target.clone(),
@@ -431,7 +421,6 @@ async fn e2e_ban_list_active_bans() {
         .await
         .expect("Failed to create ban manager");
 
-    // 创建多个封禁
     for i in 0..5 {
         let target = BanTarget::UserId(format!("list_user_{}", i));
         ban_manager

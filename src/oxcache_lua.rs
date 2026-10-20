@@ -518,7 +518,6 @@ impl OxcacheLuaManager {
     pub fn new() -> Self {
         let mut scripts = HashMap::new();
 
-        // Register all scripts
         scripts.insert(
             LuaScriptType::SlidingWindow,
             LuaScriptInfo::new(LuaScriptType::SlidingWindow, SLIDING_WINDOW_SCRIPT),
@@ -799,7 +798,6 @@ mod tests {
         let manager = OxcacheLuaManager::new();
         let scripts = manager.get_all_scripts();
         assert_eq!(scripts.len(), 7);
-        // 验证所有脚本类型都存在
         let script_types: Vec<LuaScriptType> = scripts.iter().map(|s| s.script_type).collect();
         assert!(script_types.contains(&LuaScriptType::SlidingWindow));
         assert!(script_types.contains(&LuaScriptType::FixedWindow));
@@ -810,7 +808,7 @@ mod tests {
         assert!(script_types.contains(&LuaScriptType::BurstTokenBucket));
     }
 
-    // ==================== 新脚本语义结构断言（mock 路径：不依赖真 Redis） ====================
+    // 新脚本语义结构断言（mock 路径：不依赖真 Redis）
 
     #[test]
     fn test_sliding_window_log_script_semantics() {

@@ -69,7 +69,7 @@ fn detect_from(
         return l;
     }
     // 2. 显式 POSIX 环境链（sys-locale 在 Unix 上内部也读这些；显式读取
-    //    是为了 Windows/边缘环境的确定性）
+    // 是为了 Windows/边缘环境的确定性）
     for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
         if let Some(lang) = get_env(key)
             && !lang.trim().is_empty()

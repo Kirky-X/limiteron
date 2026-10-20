@@ -118,7 +118,6 @@ impl ChaosScenario for StorageIntermittentFailure {
             }
         }
 
-        // 计算延迟统计
         if !latencies.is_empty() {
             latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
             result.avg_latency_ms = latencies.iter().sum::<f64>() / latencies.len() as f64;
@@ -199,7 +198,6 @@ impl ChaosScenario for HighLatencyInjection {
             }
         }
 
-        // 计算延迟统计
         if !latencies.is_empty() {
             latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
             result.avg_latency_ms = latencies.iter().sum::<f64>() / latencies.len() as f64;
@@ -287,7 +285,6 @@ impl ChaosScenario for BurstTraffic {
             }
         }
 
-        // 计算延迟统计
         if !latencies.is_empty() {
             latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
             result.avg_latency_ms = latencies.iter().sum::<f64>() / latencies.len() as f64;
@@ -437,7 +434,6 @@ impl ChaosScenario for CascadingFailure {
             }
         }
 
-        // 计算延迟统计
         if !latencies.is_empty() {
             latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
             result.avg_latency_ms = latencies.iter().sum::<f64>() / latencies.len() as f64;
@@ -627,7 +623,6 @@ mod tests {
         let results = runner.run_all().await;
         assert_eq!(results.len(), 2);
 
-        // 验证可以单独运行
         let single = runner.run_scenario("clock_skew").await;
         assert!(single.is_some());
 

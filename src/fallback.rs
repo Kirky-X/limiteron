@@ -302,7 +302,6 @@ impl FallbackManager {
             return operation().await;
         }
 
-        // 检查是否处于故障状态
         let _is_failed = {
             let states = self.failure_states.read().await;
             *states.get(&component).unwrap_or(&false)
@@ -334,7 +333,6 @@ impl FallbackManager {
                 // 标记为故障状态
                 self.set_failure_internal(component.clone()).await;
 
-                // 执行降级策略
                 self.execute_fallback(component, config, fallback_operation)
                     .await
             }
@@ -479,7 +477,7 @@ impl FallbackManager {
             .collect()
     }
 
-    // ==================== 孤岛模式通知 ====================
+    // 孤岛模式通知
 
     /// 注册孤岛模式状态变更回调
     ///
@@ -684,7 +682,6 @@ mod tests {
         let l2_cache = Arc::new(cache);
         let manager = FallbackManager::new(l2_cache);
 
-        // 验证默认策略
         let redis_strategy = manager.get_strategy(ComponentType::Redis).await;
         assert!(redis_strategy.is_some());
         assert_eq!(redis_strategy.unwrap().strategy, FallbackStrategy::Degraded);
@@ -935,7 +932,7 @@ mod tests {
         assert_eq!(cache.len().await.unwrap(), 0);
     }
 
-    // ==================== ComponentType & FallbackStrategy Tests ====================
+    // ComponentType & FallbackStrategy Tests
 
     #[test]
     fn test_component_type_from_str_all_variants() {
@@ -1025,7 +1022,7 @@ mod tests {
         assert_eq!(format!("{:?}", FallbackStrategy::Degraded), "Degraded");
     }
 
-    // ==================== FallbackConfig Tests ====================
+    // FallbackConfig Tests
 
     #[test]
     fn test_fallback_config_new_defaults() {
@@ -1049,7 +1046,7 @@ mod tests {
         assert_eq!(config.max_retries, 3);
     }
 
-    // ==================== Helper for FallbackManager tests ====================
+    // Helper for FallbackManager tests
 
     async fn create_manager() -> FallbackManager {
         let cache: Cache<String, String> = Cache::builder()
@@ -1061,7 +1058,7 @@ mod tests {
         FallbackManager::new(Arc::new(cache))
     }
 
-    // ==================== FallbackManager Default Strategies ====================
+    // FallbackManager Default Strategies
 
     #[tokio::test]
     async fn test_fallback_manager_all_default_strategies() {
@@ -1095,7 +1092,7 @@ mod tests {
         assert!(result.is_none());
     }
 
-    // ==================== execute_with_fallback edge cases ====================
+    // execute_with_fallback edge cases
 
     #[tokio::test]
     async fn test_fallback_manager_execute_disabled() {
@@ -1163,7 +1160,7 @@ mod tests {
         assert_eq!(result.unwrap(), "degraded_ok");
     }
 
-    // ==================== Failure recording and counting ====================
+    // Failure recording and counting
 
     #[tokio::test]
     async fn test_fallback_manager_record_failure() {
@@ -1194,7 +1191,7 @@ mod tests {
         assert_eq!(count, 1);
     }
 
-    // ==================== Island mode (public API) ====================
+    // Island mode (public API)
 
     #[tokio::test]
     async fn test_fallback_manager_set_failure_island_mode_enter() {

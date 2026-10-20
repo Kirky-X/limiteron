@@ -346,7 +346,6 @@ impl QuotaController {
         let alert_semaphore = Arc::new(Semaphore::new(DEFAULT_ALERT_CONCURRENCY));
         let cleanup_token = CancellationToken::new();
 
-        // 启动后台清理任务
         let dedup_clone = alert_dedup.clone();
         let token_clone = cleanup_token.clone();
         let dedup_window = config.alert_config.dedup_window;
@@ -452,7 +451,6 @@ impl QuotaController {
         resource: &str,
         cost: u64,
     ) -> Result<ConsumeResult, LimiteronError> {
-        // 验证消费数量
         if cost == 0 {
             // 获取当前配额状态（用于计算 usage_percent）
             let usage_percent = self.calculate_usage_percent(0, self.config.limit);
@@ -464,10 +462,8 @@ impl QuotaController {
             });
         }
 
-        // 获取当前配额状态
         let quota_state = self.get_or_create_quota_state(user_id, resource).await?;
 
-        // 检查窗口是否需要重置
         let updated_state = self.check_and_reset_window(quota_state).await?;
 
         // 计算可透支上限和总限制
@@ -505,11 +501,9 @@ impl QuotaController {
             });
         }
 
-        // 计算剩余配额与使用率
         let remaining = total_limit.saturating_sub(new_consumed);
         let usage_percent = self.calculate_usage_percent(new_consumed, total_limit);
 
-        // 检查告警
         let alert_triggered = self
             .check_and_trigger_alert(user_id, resource, new_consumed)
             .await?;
@@ -583,9 +577,7 @@ impl QuotaController {
         Ok(())
     }
 
-    // ========================================================================
     // 租户配额隔离（feature `multi-tenant`）
-    // ========================================================================
 
     /// 构造租户限定的配额用户键
     ///
@@ -674,7 +666,6 @@ impl QuotaController {
             return Ok(state);
         }
 
-        // 创建新的配额状态
         let now = self.clock.now_datetime();
         let window_start = now;
         let window_end = now + Duration::seconds(self.config.window_size as i64);
@@ -701,7 +692,6 @@ impl QuotaController {
             return Ok(state);
         }
 
-        // 计算窗口跨越情况
         let window_duration = Duration::seconds(self.config.window_size as i64);
         let elapsed = now.signed_duration_since(state.window_start);
 
@@ -786,10 +776,8 @@ impl QuotaController {
 
         let mut alert_triggered = false;
 
-        // 检查每个告警阈值
         for &threshold in &self.config.alert_config.thresholds {
             if usage_percent >= threshold {
-                // 检查是否需要去重
                 let dedup_key = format!("{}:{}:{}", user_id, resource, threshold);
                 let now = self.clock.now_datetime();
 
@@ -814,7 +802,6 @@ impl QuotaController {
                 };
 
                 if should_alert {
-                    // 创建告警信息
                     let alert_info = AlertInfo {
                         user_id: user_id.to_string(),
                         resource: resource.to_string(),
@@ -896,7 +883,6 @@ impl QuotaController {
                         );
                     }
                     AlertChannel::Webhook { url } => {
-                        // 发送 Webhook 告警
                         if let Err(e) = send_webhook_alert(&url, &alert_info).await {
                             log::error!(
                                 "{}",
@@ -1009,9 +995,7 @@ async fn send_webhook_alert(
     Err(t("quota-alert-webhook-disabled", &[]).into())
 }
 
-// ============================================================================
 // 单元测试
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -1078,7 +1062,6 @@ mod tests {
                 }
             });
 
-            // 检查窗口是否过期
             let now = self.clock.now_datetime();
             if now >= quota_info.window_end {
                 // 窗口已过期，重置消费量
@@ -1471,7 +1454,6 @@ mod tests {
         // 虚拟推进 6s 越过去重窗口（5s），替代真实 sleep 5100ms
         mock.advance(std::time::Duration::from_secs(6));
 
-        // 清理过期的去重记录
         controller.cleanup_alert_dedup();
 
         // 再次消费到 95%，应该触发告警
@@ -1501,7 +1483,6 @@ mod tests {
         // 消费配额
         controller.consume("user1", "resource1", 50).await.unwrap();
 
-        // 获取配额状态
         let state = controller.get_quota("user1", "resource1").await.unwrap();
         assert!(state.is_some());
         assert_eq!(state.unwrap().consumed, 50);
@@ -1528,10 +1509,8 @@ mod tests {
         // 消费配额
         controller.consume("user1", "resource1", 50).await.unwrap();
 
-        // 重置配额
         controller.reset_quota("user1", "resource1").await.unwrap();
 
-        // 获取配额状态
         let state = controller.get_quota("user1", "resource1").await.unwrap();
         assert!(state.is_some());
         assert_eq!(state.unwrap().consumed, 0);
@@ -1629,9 +1608,7 @@ mod tests {
         assert_eq!(controller.config().limit, 500);
     }
 
-    // ========================================================================
     // 增强测试 - 基础配额操作
-    // ========================================================================
 
     /// 测试配额耗尽拒绝 - 边界条件
     /// 验证在配额恰好耗尽时的行为
@@ -1700,10 +1677,8 @@ mod tests {
         let result = controller.consume("user1", "resource1", 1).await.unwrap();
         assert!(!result.allowed);
 
-        // 重置配额
         controller.reset_quota("user1", "resource1").await.unwrap();
 
-        // 重置后应该可以重新消费
         let result = controller.consume("user1", "resource1", 30).await.unwrap();
         assert!(result.allowed, "consumption should be possible after reset");
         assert_eq!(
@@ -1712,9 +1687,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // 增强测试 - 高级配额功能
-    // ========================================================================
 
     /// 测试滑动窗口重置 - 跨越多个窗口
     #[tokio::test]
@@ -1973,9 +1946,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // 增强测试 - 边界条件
-    // ========================================================================
 
     /// 测试大消费数处理 - 整数溢出保护
     #[tokio::test]
@@ -2262,7 +2233,6 @@ mod tests {
             assert_eq!(result.remaining, 100);
         }
 
-        // 验证实际消费量仍为 0
         let state = controller.get_quota("user1", "resource1").await.unwrap();
         // 零消费不会创建配额状态
         assert!(
@@ -2345,20 +2315,16 @@ mod tests {
             .build()
             .unwrap();
 
-        // 验证配置正确应用
         assert_eq!(controller.config().limit, 200);
         assert_eq!(controller.config().window_size, 1800);
         assert!(controller.config().allow_overdraft);
         assert_eq!(controller.config().overdraft_limit_percent, 10);
 
-        // 验证功能正常
         let result = controller.consume("user1", "resource1", 50).await.unwrap();
         assert!(result.allowed);
     }
 
-    // ========================================================================
     // 额外覆盖率测试 - 覆盖未触及的生产代码路径
-    // ========================================================================
 
     /// 测试 QuotaController 的 Clone 实现
     ///
@@ -2382,10 +2348,9 @@ mod tests {
 
         let controller = QuotaController::with_dependencies(storage, config);
 
-        // 克隆控制器
         let cloned = controller.clone();
 
-        // 验证克隆体保留了配置（配置是独立克隆的）
+        // 验证克隆体保留了配置（配置是独立克隆）
         assert_eq!(cloned.config().limit, 100);
         assert_eq!(cloned.config().window_size, 3600);
 
@@ -2466,8 +2431,6 @@ mod tests {
 
         // 触发 consumption，内部会调用 calculate_overdraft_limit 和 calculate_total_limit
         // 当 limit=u64::MAX, percent=100 时：
-        //   checked_mul(u64::MAX, 100) → None → unwrap_or(u64::MAX / 2)
-        //   checked_add(u64::MAX, u64::MAX / 2) → None → unwrap_or(u64::MAX / 2)
         let result = controller.consume("user1", "resource1", 10).await.unwrap();
         assert!(result.allowed);
     }

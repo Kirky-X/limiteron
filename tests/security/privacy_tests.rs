@@ -13,9 +13,7 @@ use limiteron::logging::{
 use limiteron::logging::{redact_basic, redact_email, redact_ip, redact_user_id};
 use limiteron::matchers::{Identifier, IdentifierExtractor, IpExtractor, RequestContext};
 
-// ============================================================================
 // 日志脱敏测试
-// ============================================================================
 
 /// 测试基础脱敏功能
 ///
@@ -116,7 +114,6 @@ fn test_sensitive_header_redaction() {
 
     let debug_output = format!("{:?}", ctx);
 
-    // 验证敏感值被脱敏
     assert!(
         !debug_output.contains("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"),
         "JWT token should be redacted"
@@ -130,7 +127,6 @@ fn test_sensitive_header_redaction() {
         "Cookie session should be redacted"
     );
 
-    // 验证非敏感值保留
     assert!(
         debug_output.contains("normal-value"),
         "Non-sensitive header should be preserved"
@@ -164,9 +160,7 @@ fn test_api_key_redaction() {
     }
 }
 
-// ============================================================================
 // 增强脱敏测试（需要 log-redaction feature）
-// ============================================================================
 
 /// 测试增强脱敏功能
 #[cfg(feature = "log-redaction")]
@@ -243,7 +237,6 @@ fn test_redaction_config() {
         _ => None,
     });
 
-    // 验证敏感字段被脱敏
     assert!(!result.contains("secret123"), "Password should be redacted");
     assert!(!result.contains("sk-abc123"), "API key should be redacted");
     assert!(
@@ -251,13 +244,10 @@ fn test_redaction_config() {
         "Email should be redacted"
     );
 
-    // 验证非敏感字段保留
     assert!(result.contains("user1"), "Username should be preserved");
 }
 
-// ============================================================================
 // 错误消息安全测试
-// ============================================================================
 
 /// 测试错误消息不泄露内部信息
 ///
@@ -302,7 +292,6 @@ async fn test_error_message_no_internal_leak() {
 async fn test_storage_error_no_sensitive_leak() {
     use limiteron::error::StorageError;
 
-    // 创建各种存储错误
     let errors = vec![
         StorageError::ConnectionError("Failed to connect to database".to_string()),
         StorageError::QueryError("Invalid query".to_string()),
@@ -376,7 +365,6 @@ fn test_config_error_no_sensitive_config_leak() {
 
     let report = ConfigSecurityValidator::validate_config(&config);
 
-    // 验证报告不应包含密码
     for warning in &report.warnings {
         assert!(
             !warning.to_lowercase().contains("password"),
@@ -406,9 +394,7 @@ async fn test_rate_limit_error_no_config_leak() {
     }
 }
 
-// ============================================================================
 // RequestContext 安全测试
-// ============================================================================
 
 /// 测试 RequestContext 的 Debug 实现安全性
 #[test]
@@ -424,7 +410,6 @@ fn test_request_context_debug_security() {
 
     let debug_output = format!("{:?}", ctx);
 
-    // 验证敏感头被脱敏
     assert!(
         !debug_output.contains("secret-token-12345"),
         "Authorization header should be redacted"
@@ -442,7 +427,6 @@ fn test_request_context_debug_security() {
         "Cookie token should be redacted"
     );
 
-    // 验证敏感查询参数被脱敏
     assert!(
         !debug_output.contains("secret-query-token"),
         "Query token should be redacted"
@@ -452,7 +436,6 @@ fn test_request_context_debug_security() {
         "Query key should be redacted"
     );
 
-    // 验证非敏感值保留
     assert!(
         debug_output.contains("normal-value"),
         "Normal header should be preserved"
@@ -484,9 +467,7 @@ fn test_request_context_clone_security() {
     );
 }
 
-// ============================================================================
 // 综合隐私测试
-// ============================================================================
 
 /// 测试完整的隐私保护链
 #[test]
@@ -511,12 +492,10 @@ fn test_complete_privacy_chain() {
         assert!(!redacted_ip.contains("100"));
     }
 
-    // 2. 验证 Debug 输出脱敏
     let debug_output = format!("{:?}", ctx);
     assert!(!debug_output.contains("secret-token"));
     assert!(!debug_output.contains("sk-secret-key"));
 
-    // 3. 验证用户 ID 脱敏
     let user_id = ctx.get_header("x-user-id");
     if let Some(uid) = user_id {
         let redacted = redact_user_id(Some(uid));

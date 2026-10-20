@@ -117,13 +117,11 @@ impl ShardedSlidingWindowLimiter {
     pub fn with_clock(window_size: Duration, max_requests: u64, clock: Arc<dyn Clock>) -> Self {
         let window_size_secs = window_size.as_secs().max(1);
 
-        // 计算每个分片代表的时间长度
         let shard_duration_secs = (window_size_secs / DEFAULT_SHARD_COUNT as u64).max(1);
 
         // 获取当前时间戳（秒）
         let now_secs = clock.unix_timestamp();
 
-        // 初始化分片计数器和时间戳
         let shards = Box::new([(); DEFAULT_SHARD_COUNT].map(|_| AtomicU64::new(0)));
         let shard_timestamps = Box::new([(); DEFAULT_SHARD_COUNT].map(|_| AtomicU64::new(0)));
 

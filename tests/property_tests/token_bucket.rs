@@ -61,7 +61,6 @@ proptest! {
             let _ = rt.block_on(limiter.allow(1));
         }
 
-        // 验证令牌已耗尽
         prop_assert_eq!(limiter.tokens(), 0);
 
         // 时间前进
@@ -70,7 +69,6 @@ proptest! {
         // 触发补充
         let _ = rt.block_on(limiter.allow(1));
 
-        // 计算预期令牌数
         let expected_tokens = ((wait_seconds as f64 * refill_rate as f64) as u64)
             .min(capacity)
             .saturating_sub(1); // 减去刚才allow(1)消费的1个

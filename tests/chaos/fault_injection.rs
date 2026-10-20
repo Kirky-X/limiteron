@@ -169,7 +169,6 @@ impl FaultInjectionStorage {
                 burst_probability,
                 burst_duration,
             } => {
-                // 检查是否应该进入突发状态
                 if !state.in_burst {
                     let rand_val = self.simple_rand(op_count);
                     if (rand_val as f64 / u64::MAX as f64) < burst_probability {
@@ -408,7 +407,6 @@ mod tests {
                 .unwrap();
         }
 
-        // 验证数据确实在内部存储中
         let value = inner.get("key_0").await.unwrap();
         assert_eq!(value, Some("value".to_string()));
     }

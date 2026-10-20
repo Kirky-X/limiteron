@@ -13,9 +13,7 @@ use limiteron::authorization::{
 use limiteron::authorization::{AuthorizationProvider, SimpleAuthorizationProvider};
 use limiteron::error::LimiteronError;
 
-// ============================================================================
 // SimpleAuthorizationProvider Tests
-// ============================================================================
 
 #[tokio::test]
 async fn test_simple_provider_authorized() {
@@ -112,9 +110,7 @@ async fn test_simple_provider_ignores_operation_and_target() {
     );
 }
 
-// ============================================================================
 // OperationAuthorizationProvider Tests (requires ban-manager feature)
-// ============================================================================
 
 #[cfg(feature = "ban-manager")]
 #[tokio::test]
@@ -199,9 +195,7 @@ fn test_operation_provider_builder() {
     assert_eq!(provider.get_roles("create_ban").unwrap().len(), 2);
 }
 
-// ============================================================================
 // Trait object tests
-// ============================================================================
 
 #[tokio::test]
 async fn test_trait_object_dynamic_dispatch() {

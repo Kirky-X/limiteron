@@ -55,9 +55,7 @@ pub use engine::{
     Rule, RuleMatcher, RuleMatcherBuilder,
 };
 
-// ============================================================================
 // 单元测试
-// ============================================================================
 
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
@@ -66,7 +64,7 @@ mod tests {
     use std::net::IpAddr;
     use std::sync::Arc;
 
-    // ==================== 标识符提取器测试 ====================
+    // 标识符提取器测试
 
     #[test]
     fn test_user_id_extractor_from_header() {
@@ -250,7 +248,7 @@ mod tests {
         assert_eq!(identifier, Identifier::UserId("custom123".to_string()));
     }
 
-    // ==================== IP范围测试 ====================
+    // IP范围测试
 
     #[test]
     fn test_ip_range_single() {
@@ -293,7 +291,7 @@ mod tests {
         assert!("192.168.1.10-192.168.1.1".parse::<IpRange>().is_err());
     }
 
-    // ==================== 规则匹配器测试 ====================
+    // 规则匹配器测试
 
     #[test]
     fn test_rule_matcher_user_condition() {
@@ -535,7 +533,7 @@ mod tests {
         );
     }
 
-    // ==================== 增强测试：标识符提取器边界条件 ====================
+    // 增强测试：标识符提取器边界条件
 
     #[test]
     fn test_user_id_extractor_empty_header() {
@@ -626,7 +624,7 @@ mod tests {
         assert_eq!(identifier, Identifier::UserId("用户123".to_string()));
     }
 
-    // ==================== 增强测试：IP 提取器边界条件 ====================
+    // 增强测试：IP 提取器边界条件
 
     #[test]
     fn test_ip_extractor_ipv6() {
@@ -799,7 +797,7 @@ mod tests {
         assert!(extractor.extract(&context).is_none());
     }
 
-    // ==================== 增强测试：MAC 地址格式验证 ====================
+    // 增强测试：MAC 地址格式验证
 
     #[test]
     fn test_mac_extractor_colon_format() {
@@ -925,7 +923,7 @@ mod tests {
         assert!(extractor.extract(&context).is_none());
     }
 
-    // ==================== 增强测试：API Key 提取器 ====================
+    // 增强测试：API Key 提取器
 
     #[test]
     fn test_api_key_extractor_bearer_prefix() {
@@ -1028,7 +1026,7 @@ mod tests {
         assert!(extractor.extract(&context).is_none());
     }
 
-    // ==================== 增强测试：DeviceId 提取器 ====================
+    // 增强测试：DeviceId 提取器
 
     #[test]
     fn test_device_id_extractor_from_header_enhanced() {
@@ -1122,7 +1120,7 @@ mod tests {
         assert!(extractor.extract(&context).is_none());
     }
 
-    // ==================== 增强测试：组合提取器 ====================
+    // 增强测试：组合提取器
 
     #[test]
     fn test_composite_extractor_priority_order() {
@@ -1236,7 +1234,7 @@ mod tests {
         assert!(extractor.extract(&context).is_none());
     }
 
-    // ==================== 增强测试：自定义提取器 ====================
+    // 增强测试：自定义提取器
 
     #[test]
     fn test_custom_extractor_with_closure() {
@@ -1294,7 +1292,7 @@ mod tests {
         assert_eq!(extractor.name(), "MyCustomExtractor");
     }
 
-    // ==================== 增强测试：IP 范围匹配 ====================
+    // 增强测试：IP 范围匹配
 
     #[test]
     fn test_ip_range_ipv4_cidr_boundary() {
@@ -1377,7 +1375,6 @@ mod tests {
         let start: IpAddr = "192.168.1.1".parse().unwrap();
         assert!(range.contains(&start));
 
-        // 结束地址
         let end: IpAddr = "192.168.1.10".parse().unwrap();
         assert!(range.contains(&end));
 
@@ -1450,7 +1447,7 @@ mod tests {
         assert!("-192.168.1.10".parse::<IpRange>().is_err());
     }
 
-    // ==================== 增强测试：规则匹配引擎 ====================
+    // 增强测试：规则匹配引擎
 
     #[test]
     fn test_rule_matcher_geo_condition() {
@@ -1850,7 +1847,7 @@ mod tests {
         assert_eq!(stats.total_matches, 0);
     }
 
-    // ==================== 增强测试：复合条件 ====================
+    // 增强测试：复合条件
 
     #[test]
     fn test_composite_condition_and_all_match() {
@@ -2031,7 +2028,7 @@ mod tests {
         assert_eq!(condition.description(), "AND (2)");
     }
 
-    // ==================== 增强测试：自定义条件 ====================
+    // 增强测试：自定义条件
 
     #[test]
     fn test_custom_condition_with_context() {
@@ -2110,7 +2107,7 @@ mod tests {
         assert_eq!(condition.description(), "Custom condition");
     }
 
-    // ==================== 增强测试：Identifier ====================
+    // 增强测试：Identifier
 
     #[test]
     fn test_identifier_as_str() {
@@ -2181,7 +2178,7 @@ mod tests {
         assert_eq!(set.len(), 2);
     }
 
-    // ==================== 增强测试：RequestContext ====================
+    // 增强测试：RequestContext
 
     #[test]
     fn test_request_context_new() {
@@ -2310,7 +2307,7 @@ mod tests {
         assert!(!debug_str.contains("secret-value"));
     }
 
-    // ==================== 增强测试：MatchCondition description ====================
+    // 增强测试：MatchCondition description
 
     #[test]
     fn test_match_condition_description_user() {
@@ -2354,7 +2351,7 @@ mod tests {
         assert_eq!(condition.description(), "Custom condition");
     }
 
-    // ==================== 增强测试：LogicalOperator ====================
+    // 增强测试：LogicalOperator
 
     #[test]
     fn test_logical_operator_equality() {
@@ -2366,7 +2363,7 @@ mod tests {
         assert_ne!(LogicalOperator::Or, LogicalOperator::Not);
     }
 
-    // ==================== 增强测试：Rule ====================
+    // 增强测试：Rule
 
     #[test]
     fn test_rule_debug() {
@@ -2386,7 +2383,7 @@ mod tests {
         assert!(debug_str.contains("enabled: true"));
     }
 
-    // ==================== 增强测试：可信代理 IP 提取 ====================
+    // 增强测试：可信代理 IP 提取
 
     #[test]
     fn test_trusted_proxy_config_default() {
@@ -2558,9 +2555,7 @@ mod tests {
     }
 }
 
-// ============================================================================
 // 公共导出
-// ============================================================================
 
 // 地理位置匹配器
 #[cfg(feature = "geo-matching")]

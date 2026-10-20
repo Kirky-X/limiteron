@@ -13,7 +13,7 @@ use limiteron::error::Decision;
 use limiteron::{BanStorage, Storage};
 use std::sync::Arc;
 
-// ==================== 辅助函数 ====================
+// 辅助函数
 
 /// 创建带有自定义限流器配置的 Governor
 async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limiteron::Governor> {
@@ -60,7 +60,7 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
     governor
 }
 
-// ==================== 规则匹配与限流联动验证 ====================
+// 规则匹配与限流联动验证
 
 /// 测试基本限流决策
 #[tokio::test]
@@ -74,7 +74,6 @@ async fn test_basic_rate_limiting() {
         .method("GET")
         .build();
 
-    // 执行检查
     let result = governor.check(&ctx).await;
     assert!(result.is_ok(), "Governor check should succeed");
 
@@ -92,7 +91,6 @@ async fn test_basic_rate_limiting() {
 /// 测试限流触发后的拒绝
 #[tokio::test]
 async fn test_rate_limit_rejection() {
-    // 创建容量很小的限流器配置
     let governor = create_governor_with_limiters(vec![LimiterConfig::TokenBucket {
         capacity: 2,
         refill_rate: 1,
@@ -215,7 +213,6 @@ async fn test_concurrent_rate_limiting() {
         }
     }
 
-    // 验证有请求被允许
     assert!(allowed > 0, "Some requests should be allowed");
 }
 
@@ -324,7 +321,6 @@ async fn test_stats_update() {
     }])
     .await;
 
-    // 发送多个请求
     for i in 0..10 {
         let ctx = RequestContextBuilder::new()
             .user_id(&format!("stats_user_{}", i % 3))
@@ -334,7 +330,6 @@ async fn test_stats_update() {
         let _ = governor.check(&ctx).await;
     }
 
-    // 验证统计信息
     let stats = governor.stats().await;
     assert_eq!(stats.total_requests, 10);
     assert!(stats.allowed_requests > 0);
@@ -345,7 +340,6 @@ async fn test_stats_update() {
 async fn test_health_check() {
     let governor = create_governor().await;
 
-    // 执行健康检查
     let result = governor.health_check().await;
     assert!(result.is_ok(), "Health check should succeed");
 }

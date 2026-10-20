@@ -37,7 +37,6 @@ async fn concurrent_allow_test(limiter: Arc<dyn Limiter>, num_tasks: usize) -> u
         }));
     }
 
-    // 等待所有任务完成
     for handle in handles {
         handle.await.unwrap();
     }

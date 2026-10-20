@@ -53,7 +53,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Governor build should succeed");
     println!("Governor started");
 
-    // 检查健康状态
     let health = governor.health_status().await;
     println!(
         "Initial health status: storage={}, ban_storage={}, cache={}, bg_tasks={}",
@@ -110,11 +109,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(result.is_ok(), "shutdown() should return Ok idempotently");
     println!("Second shutdown() returned Ok idempotently ✓");
 
-    // 等待后台任务退出
     bg_handle.await?;
     println!("Background task exited");
 
-    // 验证关闭后的健康状态
     let health_after = governor.health_status().await;
     println!(
         "Post-shutdown health status: storage={}, ban_storage={}, cache={}, bg_tasks={}",

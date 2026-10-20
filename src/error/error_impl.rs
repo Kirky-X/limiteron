@@ -7,12 +7,10 @@
 use super::*;
 use crate::i18n::LocalizedMsg;
 
-// ============================================================================
 // 错误双轨（dbnexus error_ext 模式）：Display 保持英文规范串（thiserror），
 // 本地化输出经 `i18n::I18nExt::to_localized_string()` 查 FTL 目录。
 // `LimiteronError::StorageError` 委托内层 `StorageError` 的键/参数，避免
 // "Storage error: Connection error: x" 双层包装。
-// ============================================================================
 
 impl LocalizedMsg for StorageError {
     fn message_key(&self) -> &'static str {
@@ -98,11 +96,9 @@ impl LocalizedMsg for LimiteronError {
     }
 }
 
-// ============================================================================
 // SafeErrorMessage 及其子枚举的错误双轨：Display 已是英文规范串，
 // LocalizedMsg 将各变体映射到 FTL 目录 `safe-*` 键；经
 // `i18n::I18nExt::to_localized_string()` 输出本地化文案。
-// ============================================================================
 
 impl LocalizedMsg for SafeErrorMessage {
     fn message_key(&self) -> &'static str {

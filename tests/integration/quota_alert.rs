@@ -13,7 +13,7 @@ mod quota_control_tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    // ==================== 辅助函数 ====================
+    // 辅助函数
 
     /// 创建测试用的 QuotaController
     fn create_quota_controller(limit: u64, window_size: u64) -> QuotaController {
@@ -110,7 +110,7 @@ mod quota_control_tests {
         QuotaController::with_dependencies(storage, config)
     }
 
-    // ==================== 配额告警联动验证 ====================
+    // 配额告警联动验证
 
     /// 测试达到 80% 阈值触发告警
     #[tokio::test]
@@ -213,7 +213,6 @@ mod quota_control_tests {
         // 虚拟推进越过去重窗口（1s），替代真实 sleep 1100ms
         mock.advance(Duration::from_millis(1100));
 
-        // 清理过期的去重记录
         controller.cleanup_alert_dedup();
 
         // 再次消费，应该触发告警
@@ -341,7 +340,6 @@ mod quota_control_tests {
         // 消费全部配额
         let _ = controller.consume("user1", "resource1", 100).await.unwrap();
 
-        // 重置配额
         controller.reset_quota("user1", "resource1").await.unwrap();
 
         // 重新消费，应该重新触发告警
@@ -396,7 +394,6 @@ mod quota_control_tests {
         let test_cases = vec![(50, 25.0), (100, 50.0), (150, 75.0), (200, 100.0)];
 
         for (cost, expected_percent) in test_cases {
-            // 重置配额
             controller.reset_quota("user1", "resource1").await.unwrap();
 
             let result = controller

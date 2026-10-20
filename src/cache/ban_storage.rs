@@ -762,7 +762,6 @@ mod tests {
         let alive = make_record(BanTarget::Ip("192.0.2.52".to_string()), 3600);
         storage.save(&alive).await.unwrap();
 
-        // 等待过期记录被 TTL 驱逐
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         let pruned = storage.cleanup_expired_bans().await.unwrap();

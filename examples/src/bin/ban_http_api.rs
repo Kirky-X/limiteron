@@ -120,14 +120,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ban_manager = Arc::new(make_ban_manager().await);
 
     // 2. 配置 AdminApiConfig（监听 127.0.0.1 随机可用端口）
-    //    使用端口 0 让 OS 分配端口，避免端口冲突
+    // 使用端口 0 让 OS 分配端口，避免端口冲突
     let config = AdminApiConfig::new(API_KEY)
         .with_host("127.0.0.1")
         .with_port(0);
 
     // 3. 创建并启动 AdminServer
-    //    AdminServer::start 会绑定 TcpListener 并阻塞，所以需要先获取路由
-    //    这里改为手动绑定 listener 以获取实际端口，再 axum::serve 后台运行
+    // AdminServer::start 会绑定 TcpListener 并阻塞，所以需要先获取路由
+    // 这里改为手动绑定 listener 以获取实际端口，再 axum::serve 后台运行
     let admin_server = AdminServer::new(governor, config).with_ban_manager(ban_manager.clone());
     let router = admin_server.into_router().expect("admin config valid");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -142,7 +142,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // 4. 创建 HTTP 客户端
     let client = reqwest::Client::new();
 
     // 5. 演示 POST /api/v1/ban 创建 4 种类型的封禁
@@ -220,7 +219,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    // 8. 验证解封后的状态
     println!("\n5. Verifying system status after unban:");
     let resp = client
         .get(format!("{}/api/v1/status", base_url))
@@ -264,7 +262,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         json["message"].as_str().unwrap_or("N/A")
     );
 
-    // 停止服务器
     server_handle.abort();
     println!("\n=== Ban HTTP API Demo complete ===");
 

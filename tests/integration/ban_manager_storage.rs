@@ -13,7 +13,7 @@ mod ban_manager_tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    // ==================== 辅助函数 ====================
+    // 辅助函数
 
     /// 创建测试用的 BanManager
     async fn create_ban_manager() -> BanManager {
@@ -31,21 +31,19 @@ mod ban_manager_tests {
             .unwrap()
     }
 
-    // ==================== 封禁操作测试 ====================
+    // 封禁操作测试
 
     /// 测试添加封禁记录 - IP 封禁
     #[tokio::test]
     async fn test_ban_ip_address() {
         let manager = create_ban_manager().await;
 
-        // 添加 IP 封禁
         let target = limiteron::BanTarget::Ip("192.168.1.100".to_string());
         let record = create_ban_record(target.clone(), 3600, "Malicious request");
         let result = manager.add_ban(record).await;
 
         assert!(result.is_ok(), "Ban IP should succeed");
 
-        // 验证封禁记录
         let is_banned = manager.is_banned(&target).await.unwrap().is_some();
         assert!(is_banned, "IP should be banned");
     }
@@ -55,14 +53,12 @@ mod ban_manager_tests {
     async fn test_ban_user() {
         let manager = create_ban_manager().await;
 
-        // 添加用户封禁
         let target = limiteron::BanTarget::UserId("user_12345".to_string());
         let record = create_ban_record(target.clone(), 7200, "Rule-violating operation");
         let result = manager.add_ban(record).await;
 
         assert!(result.is_ok(), "Ban user should succeed");
 
-        // 验证封禁记录
         let is_banned = manager.is_banned(&target).await.unwrap().is_some();
         assert!(is_banned, "User should be banned");
     }
@@ -77,14 +73,12 @@ mod ban_manager_tests {
         let record = create_ban_record(target.clone(), 3600, "Test ban");
         manager.add_ban(record).await.unwrap();
 
-        // 验证已封禁
         assert!(manager.is_banned(&target).await.unwrap().is_some());
 
         // 解封
         let result = manager.delete_ban(&target, "admin".to_string()).await;
         assert!(result.is_ok(), "Unban should succeed");
 
-        // 验证已解封
         assert!(manager.is_banned(&target).await.unwrap().is_none());
     }
 
@@ -103,7 +97,7 @@ mod ban_manager_tests {
         assert!(result.is_ok(), "Unban nonexistent should succeed");
     }
 
-    // ==================== 封禁过期测试 ====================
+    // 封禁过期测试
 
     /// 测试封禁过期自动解除
     #[tokio::test]
@@ -129,7 +123,7 @@ mod ban_manager_tests {
         );
     }
 
-    // ==================== 批量操作测试 ====================
+    // 批量操作测试
 
     /// 测试批量封禁
     #[tokio::test]
@@ -151,7 +145,6 @@ mod ban_manager_tests {
             assert!(result.is_ok(), "Batch ban should succeed");
         }
 
-        // 验证所有都已封禁
         for target in &targets {
             assert!(
                 manager.is_banned(target).await.unwrap().is_some(),
@@ -177,7 +170,6 @@ mod ban_manager_tests {
             manager.add_ban(record).await.unwrap();
         }
 
-        // 验证都已封禁
         for target in &targets {
             assert!(manager.is_banned(target).await.unwrap().is_some());
         }
@@ -190,13 +182,12 @@ mod ban_manager_tests {
                 .unwrap();
         }
 
-        // 验证都已解封
         for target in &targets {
             assert!(manager.is_banned(target).await.unwrap().is_none());
         }
     }
 
-    // ==================== 并发操作测试 ====================
+    // 并发操作测试
 
     /// 测试并发封禁操作
     #[tokio::test]
@@ -214,15 +205,12 @@ mod ban_manager_tests {
             }));
         }
 
-        // 等待所有操作完成
         let results: Vec<_> = futures::future::join_all(handles).await;
 
-        // 验证所有操作成功
         for result in results {
             assert!(result.is_ok() && result.unwrap().is_ok());
         }
 
-        // 验证所有封禁都存在
         for i in 0..20 {
             assert!(
                 manager
@@ -262,7 +250,6 @@ mod ban_manager_tests {
             }));
         }
 
-        // 等待所有操作完成
         let _results: Vec<_> = futures::future::join_all(handles).await;
 
         // 最终状态应该是确定的（要么封禁要么未封禁）
@@ -271,7 +258,7 @@ mod ban_manager_tests {
             .await;
     }
 
-    // ==================== 存储集成测试 ====================
+    // 存储集成测试
 
     /// 测试与内存存储的集成
     #[tokio::test]
@@ -281,12 +268,10 @@ mod ban_manager_tests {
             .await
             .unwrap();
 
-        // 添加封禁
         let target = limiteron::BanTarget::Ip("10.50.50.50".to_string());
         let record = create_ban_record(target.clone(), 3600, "test");
         manager.add_ban(record).await.unwrap();
 
-        // 验证封禁存在
         assert!(manager.is_banned(&target).await.unwrap().is_some());
 
         // 解封
@@ -295,11 +280,10 @@ mod ban_manager_tests {
             .await
             .unwrap();
 
-        // 验证已解封
         assert!(manager.is_banned(&target).await.unwrap().is_none());
     }
 
-    // ==================== 清理过期封禁测试 ====================
+    // 清理过期封禁测试
 
     /// 测试清理过期封禁
     ///
@@ -334,10 +318,8 @@ mod ban_manager_tests {
         // 执行清理（通过 storage 而非 manager）
         let cleaned = storage.cleanup_expired_bans().await.unwrap();
 
-        // 验证清理结果
         assert!(cleaned >= 1, "Should clean at least 1 expired ban");
 
-        // 验证永久封禁仍然存在
         assert!(
             manager
                 .is_banned(&permanent_target)
@@ -347,7 +329,6 @@ mod ban_manager_tests {
             "Permanent ban should still exist"
         );
 
-        // 验证过期封禁已删除
         assert!(
             manager.is_banned(&short_target).await.unwrap().is_none(),
             "Expired ban should be removed"

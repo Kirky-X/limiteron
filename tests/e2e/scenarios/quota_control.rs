@@ -19,7 +19,7 @@ use std::sync::Arc;
 #[cfg(feature = "quota-control")]
 use std::time::Duration as StdDuration;
 
-// ==================== 存储（产品内存实现） ====================
+// 存储（产品内存实现）
 
 #[cfg(feature = "quota-control")]
 #[derive(Clone)]
@@ -70,7 +70,6 @@ impl QuotaStorage for TestQuotaStorage {
             }
         });
 
-        // 检查窗口是否过期
         let now = Utc::now();
         if now >= quota_info.window_end {
             // 窗口已过期，重置消费量
@@ -136,7 +135,7 @@ impl QuotaStorage for TestQuotaStorage {
     }
 }
 
-// ==================== E2E Scenario Tests ====================
+// E2E Scenario Tests
 
 /// 场景 1: 配额正确追踪
 ///
@@ -202,7 +201,6 @@ async fn e2e_quota_exhaustion_denied() {
     );
     assert_eq!(result.remaining, 0, "remaining quota should be 0");
 
-    // 尝试再消费 1 个配额
     let result = controller.consume("user1", "api_calls", 1).await.unwrap();
     assert!(
         !result.allowed,
@@ -314,10 +312,8 @@ async fn e2e_quota_reset() {
     assert!(result.allowed);
     assert_eq!(result.remaining, 0);
 
-    // 重置配额
     controller.reset_quota("user1", "api_calls").await.unwrap();
 
-    // 重置后应该可以重新消费
     let result = controller.consume("user1", "api_calls", 50).await.unwrap();
     assert!(result.allowed, "should be able to consume after reset");
     assert_eq!(

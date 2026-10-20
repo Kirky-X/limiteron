@@ -10,7 +10,7 @@ use limiteron::{Storage, storage::MemoryStorage};
 use std::sync::Arc;
 use std::time::Duration;
 
-// ==================== 辅助函数 ====================
+// 辅助函数
 
 /// 创建测试用的存储和缓存
 async fn create_storage_with_cache() -> (Arc<MemoryStorage>, Cache<String, String>) {
@@ -19,21 +19,18 @@ async fn create_storage_with_cache() -> (Arc<MemoryStorage>, Cache<String, Strin
     (storage, cache)
 }
 
-// ==================== 缓存一致性验证 ====================
+// 缓存一致性验证
 
 /// 测试内存存储 基本读写
 #[tokio::test]
 async fn test_mock_storage_basic_operations() {
     let storage = MemoryStorage::new();
 
-    // 写入
     storage.set("key1", "value1", None).await.unwrap();
 
-    // 读取
     let result = storage.get("key1").await.unwrap();
     assert_eq!(result, Some("value1".to_string()));
 
-    // 删除
     storage.delete("key1").await.unwrap();
     let result = storage.get("key1").await.unwrap();
     assert!(result.is_none());
@@ -44,7 +41,6 @@ async fn test_mock_storage_basic_operations() {
 async fn test_mock_storage_ttl() {
     let storage = MemoryStorage::new();
 
-    // 写入带 TTL
     storage
         .set("key1", "value1", Some(1)) // 1 秒 TTL
         .await
@@ -54,7 +50,6 @@ async fn test_mock_storage_ttl() {
     let result = storage.get("key1").await.unwrap();
     assert!(result.is_some());
 
-    // 等待过期
     tokio::time::sleep(Duration::from_millis(1500)).await;
 
     // 过期后应该返回 None
@@ -100,7 +95,6 @@ async fn test_mock_storage_concurrent_access() {
 
     futures::future::join_all(handles).await;
 
-    // 验证所有写入成功
     for i in 0..50 {
         let result = storage.get(&format!("key_{}", i)).await.unwrap();
         assert!(result.is_some());
@@ -119,7 +113,6 @@ async fn test_cache_namespace_isolation() {
     storage.set(ns1_key, "value1", None).await.unwrap();
     storage.set(ns2_key, "value2", None).await.unwrap();
 
-    // 验证命名空间隔离
     let result1 = storage.get(ns1_key).await.unwrap();
     let result2 = storage.get(ns2_key).await.unwrap();
 
@@ -151,7 +144,6 @@ async fn test_mock_storage_high_concurrency() {
 
     futures::future::join_all(handles).await;
 
-    // 验证数据完整性
     for i in 0..100 {
         for j in 0..10 {
             let result = storage.get(&format!("key_{}_{}", i, j)).await.unwrap();
@@ -176,7 +168,6 @@ async fn test_mock_storage_data_isolation() {
     storage1.set("key", "value1", None).await.unwrap();
     storage2.set("key", "value2", None).await.unwrap();
 
-    // 验证数据隔离
     let result1 = storage1.get("key").await.unwrap();
     let result2 = storage2.get("key").await.unwrap();
 
@@ -200,7 +191,6 @@ async fn test_cache_warmup() {
         storage.set(key, value, None).await.unwrap();
     }
 
-    // 验证预热数据存在
     for (key, value) in &warmup_data {
         let result = storage.get(key).await.unwrap();
         assert_eq!(result, Some(value.to_string()));
@@ -212,7 +202,6 @@ async fn test_cache_warmup() {
 async fn test_cache_hit_rate() {
     let (storage, _cache) = create_storage_with_cache().await;
 
-    // 写入数据
     for i in 0..10 {
         let key = format!("hit_rate_key_{}", i);
         storage
@@ -221,7 +210,6 @@ async fn test_cache_hit_rate() {
             .unwrap();
     }
 
-    // 读取数据
     for i in 0..10 {
         let key = format!("hit_rate_key_{}", i);
         let result = storage.get(&key).await.unwrap();

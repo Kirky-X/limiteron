@@ -73,7 +73,6 @@ fn demo_role_management() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("  Initial roles: {:?}", provider.authorized_roles());
 
-    // 添加新角色
     provider.add_role("superuser".to_string());
     provider.add_role("auditor".to_string());
     // 重复添加不会生效

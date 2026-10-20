@@ -158,7 +158,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     loader.start_watching(ban_manager.clone()).await?;
     println!("   Hot reload started; watching for file changes\n");
 
-    // 等待监听就绪
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // 6. 修改文件触发热重载
@@ -170,7 +169,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // notify 轮询间隔 2s + 防抖 500ms，需等待足够时间
     tokio::time::sleep(Duration::from_secs(4)).await;
 
-    // 7. 验证热重载结果
     println!("7. Verifying hot reload results:");
     let new_target = limiteron::BanTarget::Ip("10.0.0.50".to_string());
     let new_ban = ban_manager.is_banned(&new_target).await?;
@@ -195,7 +193,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!();
 
-    // 8. 停止监听
     println!("8. Stopping file hot reload (stop_watching)");
     loader.stop_watching().await;
     println!("   Hot reload stopped\n");

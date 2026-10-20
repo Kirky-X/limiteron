@@ -375,7 +375,7 @@ pub fn validate_geo_country_code(code: &str) -> Result<(), LimiteronError> {
 mod tests {
     use super::*;
 
-    // ==================== IPv4 测试 ====================
+    // IPv4 测试
 
     #[test]
     fn test_validate_ip_address_ipv4() {
@@ -401,7 +401,7 @@ mod tests {
         assert!(validate_ip_address("192.168.1.-1").is_err()); // 负数
     }
 
-    // ==================== IPv6 测试 ====================
+    // IPv6 测试
 
     #[test]
     fn test_ipv6_full_format() {
@@ -479,7 +479,7 @@ mod tests {
         assert!(validate_ip_address("::1]:8080").is_err()); // 缺少开放方括号
     }
 
-    // ==================== 其他验证测试 ====================
+    // 其他验证测试
 
     #[test]
     fn test_validate_user_id() {
@@ -537,7 +537,7 @@ mod tests {
         assert!(validate_api_key(&"a".repeat(513)).is_err()); // 超过最大长度
     }
 
-    // ==================== BanTarget 测试 ====================
+    // BanTarget 测试
 
     #[test]
     #[cfg(feature = "ban-manager")]
@@ -673,7 +673,7 @@ mod tests {
         assert!(validate_geo_country_code("C ").is_err());
     }
 
-    // ==================== IP 地址长度边界测试 ====================
+    // IP 地址长度边界测试
 
     #[test]
     fn test_validate_ip_address_length_exceeded() {
@@ -692,7 +692,7 @@ mod tests {
         assert!(validate_ip_address("1234:5678:9abc:def0:1234:5678:9abc:def0").is_ok());
     }
 
-    // ==================== 用户 ID 边界测试 ====================
+    // 用户 ID 边界测试
 
     #[test]
     fn test_validate_user_id_length_exceeded() {
@@ -721,7 +721,7 @@ mod tests {
         assert!(validate_user_id(".").is_ok());
     }
 
-    // ==================== MAC 地址格式变体测试 ====================
+    // MAC 地址格式变体测试
 
     #[test]
     fn test_validate_mac_address_hyphens() {
@@ -742,7 +742,7 @@ mod tests {
         assert!(validate_mac_address("AA:bb:CC:dd:EE:ff").is_ok());
     }
 
-    // ==================== validate_header_value 测试 ====================
+    // validate_header_value 测试
 
     #[test]
     fn test_validate_header_value_ok() {
@@ -764,7 +764,7 @@ mod tests {
         assert!(validate_header_value(&max_value).is_ok());
     }
 
-    // ==================== validate_path 测试 ====================
+    // validate_path 测试
 
     #[test]
     fn test_validate_path_ok() {
@@ -788,7 +788,7 @@ mod tests {
         assert!(validate_path(&max_path).is_ok());
     }
 
-    // ==================== validate_ban_reason 边界测试 ====================
+    // validate_ban_reason 边界测试
 
     #[test]
     fn test_validate_ban_reason_empty() {
@@ -800,7 +800,7 @@ mod tests {
         assert!(validate_ban_reason(&"x".repeat(500)).is_ok());
     }
 
-    // ==================== validate_api_key 边界测试 ====================
+    // validate_api_key 边界测试
 
     #[test]
     fn test_validate_api_key_empty() {
@@ -812,7 +812,7 @@ mod tests {
         assert!(validate_api_key(&"k".repeat(512)).is_ok());
     }
 
-    // ==================== validate_length 边界测试 ====================
+    // validate_length 边界测试
 
     #[test]
     fn test_validate_length_zero_value() {
@@ -830,7 +830,7 @@ mod tests {
         assert!(validate_length("abcd", 3, "field").is_err());
     }
 
-    // ==================== extract_ip_part 额外测试 ====================
+    // extract_ip_part 额外测试
 
     #[test]
     fn test_validate_ip_address_single_colon_no_dot() {

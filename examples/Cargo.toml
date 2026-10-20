@@ -68,9 +68,7 @@ name = "ban_http_api"
 path = "src/bin/ban_http_api.rs"
 required-features = ["ban-manager", "admin-api"]
 
-# ============================================================================
 # Part 1: 核心 API 示例（无 feature 依赖）
-# ============================================================================
 
 [[bin]]
 name = "governor_demo"
@@ -97,9 +95,7 @@ name = "validation_demo"
 path = "src/bin/validation_demo.rs"
 required-features = ["validation"]
 
-# ============================================================================
 # Part 2: Feature-gated 示例
-# ============================================================================
 
 [[bin]]
 name = "storage_factory"

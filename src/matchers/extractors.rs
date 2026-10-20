@@ -10,9 +10,7 @@ use crate::config::TrustedProxyConfig;
 use crate::i18n::t;
 use std::net::IpAddr;
 
-// ============================================================================
 // 用户ID提取器
-// ============================================================================
 
 /// 用户ID提取器
 ///
@@ -190,9 +188,7 @@ impl IdentifierExtractor for UserIdExtractor {
     }
 }
 
-// ============================================================================
 // IP提取器
-// ============================================================================
 
 /// IP提取器
 ///
@@ -504,9 +500,7 @@ impl IdentifierExtractor for IpExtractor {
     }
 }
 
-// ============================================================================
 // MAC提取器
-// ============================================================================
 
 /// MAC提取器
 ///
@@ -619,7 +613,6 @@ impl MacExtractor {
             return false;
         }
 
-        // 检查是否为有效的十六进制
         cleaned.chars().all(|c| c.is_ascii_hexdigit())
     }
 }
@@ -690,9 +683,7 @@ impl IdentifierExtractor for MacExtractor {
     }
 }
 
-// ============================================================================
 // API密钥提取器
-// ============================================================================
 
 /// API密钥提取器
 ///
@@ -871,9 +862,7 @@ impl IdentifierExtractor for ApiKeyExtractor {
     }
 }
 
-// ============================================================================
 // 设备ID提取器
-// ============================================================================
 
 /// 设备ID提取器
 ///
@@ -1015,9 +1004,7 @@ impl DeviceIdExtractorBuilder {
     }
 }
 
-// ============================================================================
 // 自定义提取器
-// ============================================================================
 
 /// 自定义提取器
 ///
@@ -1083,7 +1070,7 @@ mod tests {
     use crate::config::TrustedProxyConfig;
     use crate::matchers::CompositeExtractor;
 
-    // ==================== UserIdExtractor ====================
+    // UserIdExtractor
 
     #[test]
     fn test_user_id_name() {
@@ -1176,7 +1163,7 @@ mod tests {
         );
     }
 
-    // ==================== IpExtractor ====================
+    // IpExtractor
 
     #[test]
     fn test_ip_name() {
@@ -1469,13 +1456,11 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // vuln-0003 修复测试：X-Forwarded-For IP 伪造防护
     //
     // 核心安全模型：X-Forwarded-For 仅在直接连接来自可信代理时才被信任。
     // 任何非可信代理的直连客户端发送的 X-Forwarded-For 必须被忽略，
     // 回退到直接 TCP 对端地址（client_ip）。
-    // ========================================================================
 
     /// vuln-0003: 启用可信代理模式但直接对端不在可信代理列表时，
     /// 必须忽略 X-Forwarded-For 并使用直接对端 IP。
@@ -1650,7 +1635,7 @@ mod tests {
         );
     }
 
-    // ==================== MacExtractor ====================
+    // MacExtractor
 
     #[test]
     fn test_mac_name() {
@@ -1792,7 +1777,7 @@ mod tests {
         assert!(extractor.extract(&ctx).is_some());
     }
 
-    // ==================== ApiKeyExtractor ====================
+    // ApiKeyExtractor
 
     #[test]
     fn test_api_key_name() {
@@ -1897,7 +1882,7 @@ mod tests {
         );
     }
 
-    // ==================== CompositeExtractor ====================
+    // CompositeExtractor
 
     #[test]
     fn test_composite_first_match() {
@@ -1935,7 +1920,7 @@ mod tests {
         );
     }
 
-    // ==================== CustomExtractor ====================
+    // CustomExtractor
 
     #[test]
     fn test_custom_name() {
@@ -1963,7 +1948,7 @@ mod tests {
         assert_eq!(extractor.extract(&ctx), None);
     }
 
-    // ==================== DeviceIdExtractor ====================
+    // DeviceIdExtractor
 
     #[test]
     fn test_device_id_name() {
@@ -2047,7 +2032,7 @@ mod tests {
         );
     }
 
-    // ==================== Builder edge cases ====================
+    // Builder edge cases
 
     #[test]
     fn test_user_id_builder_empty() {

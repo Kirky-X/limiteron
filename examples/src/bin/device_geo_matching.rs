@@ -309,7 +309,6 @@ async fn demo_device_matcher_builder() -> Result<(), Box<dyn std::error::Error>>
         .await?;
     println!("DeviceMatcherBuilder built, cache_size_limit=5000");
 
-    // 解析验证
     let info = matcher
         .parse("Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)")
         .await?;
@@ -344,7 +343,6 @@ async fn demo_device_custom_rules() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!("Adding custom rule: MyCustomApp");
 
-    // 解析自定义 App UA
     let custom_ua = "MyCustomApp/1.0 (Android 10)";
     let info = matcher.parse(custom_ua).await?;
     println!(
@@ -397,7 +395,6 @@ async fn demo_device_cache() -> Result<(), Box<dyn std::error::Error>> {
 
     let matcher = DeviceMatcher::new().await?;
 
-    // 解析多个 UA 触发缓存
     let ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X)";
     matcher.parse(ua).await?;
     matcher.parse(ua).await?; // 第二次应命中缓存

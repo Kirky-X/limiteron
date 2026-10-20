@@ -10,9 +10,7 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-// ============================================================================
 // 决策链节点
-// ============================================================================
 
 /// 决策链节点
 ///
@@ -96,9 +94,7 @@ impl DecisionNode {
     }
 }
 
-// ============================================================================
 // 决策链
-// ============================================================================
 
 /// 原子统计结构体
 ///
@@ -356,7 +352,6 @@ impl DecisionChain {
                         None => (0, now_secs() + 60, 60),
                     };
 
-                    // 检查短路标志
                     if node.short_circuit {
                         // 短路：立即返回拒绝，不执行后续节点
                         self.stats.increment_total();
@@ -540,9 +535,7 @@ impl DecisionChain {
     }
 }
 
-// ============================================================================
 // 构建器
-// ============================================================================
 
 /// 决策链构建器
 ///
@@ -588,9 +581,7 @@ impl Default for DecisionChainBuilder {
     }
 }
 
-// ============================================================================
 // 单元测试
-// ============================================================================
 
 #[cfg(test)]
 #[allow(deprecated)]
@@ -642,7 +633,7 @@ mod tests {
         }
     }
 
-    // ==================== DecisionNode 测试 ====================
+    // DecisionNode 测试
 
     #[test]
     fn test_decision_node_creation() {
@@ -680,7 +671,7 @@ mod tests {
         assert_eq!(node.cost, 5);
     }
 
-    // ==================== DecisionChain 测试 ====================
+    // DecisionChain 测试
 
     #[tokio::test]
     async fn test_decision_chain_empty() {
@@ -968,7 +959,6 @@ mod tests {
 
         let chain = DecisionChain::with_dependencies(vec![node]);
 
-        // 发送10个请求
         for _ in 0..10 {
             chain.check().await.unwrap();
         }
@@ -1001,7 +991,6 @@ mod tests {
 
         let chain = DecisionChain::with_dependencies(vec![node1, node2]);
 
-        // 发送10个请求
         for _ in 0..10 {
             chain.check().await.unwrap();
         }
@@ -1011,7 +1000,6 @@ mod tests {
         // 应该有两个节点的拒绝记录
         assert_eq!(stats.node_rejections.len(), 2);
 
-        // 验证拒绝次数
         let node1_rejections = stats
             .node_rejections
             .iter()
@@ -1136,7 +1124,7 @@ mod tests {
         ); // Increased
     }
 
-    // ==================== DecisionChainBuilder 测试 ====================
+    // DecisionChainBuilder 测试
 
     #[test]
     fn test_decision_chain_builder() {
@@ -1209,7 +1197,6 @@ mod tests {
         let decision = chain.check().await.unwrap();
         assert_eq!(decision, Decision::allowed_default());
 
-        // 检查统计
         let stats = chain.stats().await;
         assert_eq!(stats.total_checks, 1);
         assert_eq!(stats.allowed_count, 1);
@@ -1251,19 +1238,15 @@ mod tests {
 
         let chain = DecisionChain::with_dependencies(vec![node]);
 
-        // 发送一些请求
         for _ in 0..5 {
             chain.check().await.unwrap();
         }
 
-        // 检查统计
         let stats = chain.stats().await;
         assert_eq!(stats.total_checks, 5);
 
-        // 重置统计
         chain.reset_stats().await;
 
-        // 检查重置后的统计
         let stats = chain.stats().await;
         assert_eq!(stats.total_checks, 0);
     }
@@ -1289,7 +1272,6 @@ mod tests {
             ));
         }
 
-        // 等待所有检查完成
         let mut results = Vec::new();
         for handle in handles {
             results.push(handle.await.unwrap());
@@ -1300,12 +1282,11 @@ mod tests {
             assert_eq!(result, Decision::allowed_default());
         }
 
-        // 检查统计
         let stats = chain.stats().await;
         assert_eq!(stats.total_checks, 10);
     }
 
-    // ==================== AtomicChainStats 测试 ====================
+    // AtomicChainStats 测试
 
     #[test]
     fn test_atomic_chain_stats_new() {
@@ -1386,12 +1367,10 @@ mod tests {
     fn test_atomic_chain_stats_reset() {
         let stats = AtomicChainStats::new();
 
-        // 添加一些数据
         stats.increment_total();
         stats.increment_allowed();
         stats.increment_node_rejection("node1");
 
-        // 重置
         stats.reset();
 
         let snapshot = stats.snapshot();
@@ -1420,12 +1399,10 @@ mod tests {
             }));
         }
 
-        // 等待所有线程完成
         for handle in handles {
             handle.join().unwrap();
         }
 
-        // 验证计数正确
         let snapshot = stats.snapshot();
         assert_eq!(snapshot.total_checks, 100);
         assert_eq!(snapshot.allowed_count, 100);
@@ -1447,12 +1424,10 @@ mod tests {
             }));
         }
 
-        // 等待所有线程完成
         for handle in handles {
             handle.join().unwrap();
         }
 
-        // 验证计数正确
         let snapshot = stats.snapshot();
 
         // node1 应该有 50 + 10 = 60 次拒绝（每个线程增加一次，加上 i % 5 == 1 的情况）
@@ -1482,7 +1457,6 @@ mod tests {
 
         let chain = DecisionChain::with_dependencies(vec![node]);
 
-        // 发送10个请求
         for _ in 0..10 {
             chain.check().await.unwrap();
         }
@@ -1532,18 +1506,16 @@ mod tests {
             }));
         }
 
-        // 等待所有线程完成
         for handle in handles {
             handle.join().unwrap();
         }
 
-        // 验证计数正确
         let snapshot = stats.snapshot();
         assert_eq!(snapshot.total_checks, 100_000);
         assert_eq!(snapshot.allowed_count, 100_000);
     }
 
-    // ==================== 并发安全测试 ====================
+    // 并发安全测试
 
     /// 测试 DecisionChain 高并发检查的线程安全
     ///
@@ -1570,10 +1542,8 @@ mod tests {
             let barrier_clone = Arc::clone(&barrier);
             let start_signal_clone = Arc::clone(&start_signal);
             handles.push(tokio::spawn(async move {
-                // 等待所有任务准备就绪
                 barrier_clone.wait().await;
 
-                // 等待开始信号
                 while !start_signal_clone.load(std::sync::atomic::Ordering::SeqCst) {
                     std::hint::spin_loop();
                 }
@@ -1589,7 +1559,6 @@ mod tests {
             }));
         }
 
-        // 设置开始信号
         start_signal.store(true, std::sync::atomic::Ordering::SeqCst);
 
         let mut total_allowed = 0;
@@ -1706,7 +1675,6 @@ mod tests {
             handle.await.unwrap();
         }
 
-        // 验证统计一致性
         let stats = chain.stats_sync();
         assert!(stats.total_checks <= 10000);
     }
@@ -1767,7 +1735,6 @@ mod tests {
             let chain_clone = Arc::clone(&chain);
             handles.push(tokio::spawn(async move {
                 if i % 2 == 0 {
-                    // 检查请求
                     let chain = chain_clone.read().await;
                     let _ = chain.check().await;
                 } else {
@@ -1786,7 +1753,6 @@ mod tests {
             handle.await.unwrap();
         }
 
-        // 验证最终状态一致
         let chain = chain.read().await;
         let stats = chain.stats_sync();
         assert!(stats.total_checks <= 10000);
@@ -1854,7 +1820,7 @@ mod tests {
         assert!(matches!(decision, Decision::Rejected(_)));
     }
 
-    // ==================== DecisionNode::new() 测试 ====================
+    // DecisionNode::new 测试
 
     #[test]
     fn test_decision_node_new_backward_compat() {
@@ -1868,7 +1834,7 @@ mod tests {
         assert_eq!(node.cost, 1);
     }
 
-    // ==================== DecisionChain Builder 测试 ====================
+    // DecisionChain Builder 测试
 
     #[test]
     fn test_decision_chain_builder_method() {
@@ -1882,7 +1848,7 @@ mod tests {
         let _builder = DecisionChainBuilder::default();
     }
 
-    // ==================== DecisionChain Error Path 测试 ====================
+    // DecisionChain Error Path 测试
 
     struct ErrorLimiter;
 
@@ -1929,7 +1895,7 @@ mod tests {
         assert_eq!(stats.error_count, 1);
     }
 
-    // ==================== DecisionChain Non-Short-Circuit 测试 ====================
+    // DecisionChain Non-Short-Circuit 测试
 
     #[tokio::test]
     async fn test_decision_chain_non_short_circuit_final() {
@@ -1970,7 +1936,7 @@ mod tests {
         assert_eq!(stats.rejected_count, 1);
     }
 
-    // ==================== DecisionChain Node Not Found 测试 ====================
+    // DecisionChain Node Not Found 测试
 
     #[tokio::test]
     async fn test_decision_chain_enable_node_not_found() {
@@ -2030,7 +1996,6 @@ mod tests {
         assert!(!chain.set_short_circuit("nonexistent", true));
     }
 
-    // ========================================================================
     // stats race condition 修复测试
     //
     // 验证策略：
@@ -2040,7 +2005,6 @@ mod tests {
     // total 已 increment 而分类计数尚未 increment 的中间态，违反业务不变式
     // allowed + rejected + error >= total（每次分类必伴随 total）。
     // SeqCst 保证代码顺序即全局可见顺序，消除此类中间态观测。
-    // ========================================================================
 
     #[test]
     fn test_atomic_chain_stats_concurrent_snapshot_monotonic() {
@@ -2103,9 +2067,9 @@ mod tests {
         use std::thread;
 
         // 模拟 DecisionChain::check 的统计更新模式：
-        //   拒绝：increment_total + increment_rejected
-        //   错误：increment_total + increment_error
-        //   允许：increment_total + increment_allowed
+        // 拒绝：increment_total + increment_rejected
+        // 错误：increment_total + increment_error
+        // 允许：increment_total + increment_allowed
         // 验证"最终一致性"：所有工作线程结束后，fetch_add 的原子性保证
         // total == allowed + rejected + error（每轮 total+1 且恰好一个分类+1）。
         // 注意：snapshot() 内部多个 load 非原子，无法在并发期间验证

@@ -402,9 +402,7 @@ impl OperationAuthorizationProviderBuilder {
     }
 }
 
-// ============================================================================
 // 单元测试
-// ============================================================================
 
 #[cfg(test)]
 pub(crate) mod tests {
@@ -501,7 +499,6 @@ pub(crate) mod tests {
     fn test_simple_authorization_provider_add_remove_role() {
         let mut provider = SimpleAuthorizationProvider::new(vec!["admin".to_string()]);
 
-        // 添加角色
         provider.add_role("moderator".to_string());
         assert!(provider.is_authorized("moderator"));
 

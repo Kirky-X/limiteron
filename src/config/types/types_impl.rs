@@ -32,7 +32,6 @@ impl FlowControlConfig {
         // 校验规则
         let mut rule_ids = HashSet::new();
         for (index, rule) in self.rules.iter().enumerate() {
-            // 检查规则ID是否唯一
             if !rule_ids.insert(&rule.id) {
                 return Err(format!("Duplicate rule ID: {}", rule.id));
             }

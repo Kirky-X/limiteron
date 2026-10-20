@@ -64,7 +64,6 @@ async fn demo_basic_chain() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Chain has {} nodes", chain.node_count());
     println!("  Enabled nodes: {}", chain.enabled_node_count());
 
-    // 执行检查
     for i in 0..6 {
         let decision = chain.check().await?;
         let result = match &decision {
@@ -218,7 +217,6 @@ async fn demo_chain_stats() -> Result<(), Box<dyn std::error::Error>> {
         .add_node(node2)
         .build();
 
-    // 发送 5 个请求
     for _ in 0..5 {
         let _ = chain.check().await?;
     }
@@ -233,7 +231,6 @@ async fn demo_chain_stats() -> Result<(), Box<dyn std::error::Error>> {
         println!("    - {}: {}", node_id, count);
     }
 
-    // 重置统计
     chain.reset_stats().await;
     let after = chain.stats().await;
     println!("\n  After reset: total_checks={}", after.total_checks);

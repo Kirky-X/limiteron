@@ -17,9 +17,7 @@
 /// [`validate_cost()`]: crate::limiters::validate_cost
 pub(crate) const MAX_COST: u64 = 1_000_000;
 
-// ============================================================================
 // Rate Limiter Maximums
-// ============================================================================
 
 /// Maximum token bucket capacity (10M tokens).
 ///
@@ -53,9 +51,7 @@ pub(crate) const MAX_SLIDING_LOG_REQUESTS: u64 = 100_000;
 /// Prevents oversized concurrency control structures.
 pub(crate) const MAX_CONCURRENT_REQUESTS: u64 = 100_000;
 
-// ============================================================================
 // Circuit Breaker Constants
-// ============================================================================
 
 /// Default failure threshold for circuit breaker.
 ///
@@ -113,9 +109,7 @@ pub(crate) const DEFAULT_MANUAL_CIRCUIT_BREAKER_HALF_OPEN_INTERVAL_SECS: u64 = 3
 #[cfg(feature = "circuit-breaker")]
 pub(crate) const DEFAULT_MANUAL_CIRCUIT_BREAKER_HALF_OPEN_MAX_SUCCESSES: u64 = 3;
 
-// ============================================================================
 // Validation Constants
-// ============================================================================
 
 /// Maximum API key length (512 characters).
 ///

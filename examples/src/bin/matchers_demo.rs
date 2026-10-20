@@ -243,7 +243,6 @@ fn demo_matcher_stats() {
         println!("  Last match time:  {:?}", last);
     }
 
-    // 重置统计
     matcher.reset_stats();
     let after_reset = matcher.stats();
     println!(

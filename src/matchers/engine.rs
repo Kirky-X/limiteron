@@ -15,9 +15,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
-// ============================================================================
 // 匹配条件
-// ============================================================================
 
 /// 匹配条件
 ///
@@ -55,9 +53,7 @@ impl std::fmt::Debug for MatchCondition {
     }
 }
 
-// ============================================================================
 // IP范围
-// ============================================================================
 
 /// IP范围
 #[derive(Debug, Clone)]
@@ -122,14 +118,12 @@ impl IpRange {
         let full_segments = (prefix / 16) as usize;
         let remaining_bits = prefix % 16;
 
-        // 检查完整的段
         for i in 0..full_segments {
             if ip_segments[i] != network_segments[i] {
                 return false;
             }
         }
 
-        // 检查剩余的位
         if remaining_bits > 0 && full_segments < 8 {
             let mask = 0xFFFFu16 << (16 - remaining_bits);
             if (ip_segments[full_segments] & mask) != (network_segments[full_segments] & mask) {
@@ -246,9 +240,7 @@ impl IpRange {
     }
 }
 
-// ============================================================================
 // 逻辑操作符
-// ============================================================================
 
 /// 逻辑操作符
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -261,9 +253,7 @@ pub enum LogicalOperator {
     Not,
 }
 
-// ============================================================================
 // 复合条件
-// ============================================================================
 
 /// 复合条件
 ///
@@ -303,9 +293,7 @@ impl Clone for CompositeCondition {
     }
 }
 
-// ============================================================================
 // 条件评估器
-// ============================================================================
 
 /// 条件评估器 trait
 ///
@@ -398,9 +386,7 @@ impl ConditionEvaluator for CompositeCondition {
     }
 }
 
-// ============================================================================
 // 规则
-// ============================================================================
 
 /// 规则
 pub struct Rule {
@@ -442,9 +428,7 @@ impl Clone for Rule {
     }
 }
 
-// ============================================================================
 // 匹配器统计
-// ============================================================================
 
 /// 匹配器统计信息
 #[derive(Debug, Clone, Default)]
@@ -459,9 +443,7 @@ pub struct MatcherStats {
     pub avg_match_time_ns: u64,
 }
 
-// ============================================================================
 // 规则匹配器
-// ============================================================================
 
 /// 规则匹配器
 ///
@@ -600,7 +582,6 @@ impl RuleMatcher {
             }
 
             if rule.condition.evaluate(context) {
-                // 更新统计信息
                 let elapsed = start.elapsed().as_nanos() as u64;
                 {
                     let mut stats = self.stats.write();
@@ -719,7 +700,7 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    // ==================== IpRange ====================
+    // IpRange
 
     #[test]
     fn test_ip_range_single() {
@@ -770,7 +751,7 @@ mod tests {
         assert!("::1/129".parse::<IpRange>().is_err());
     }
 
-    // ==================== MatchCondition ====================
+    // MatchCondition
 
     fn make_ctx(headers: Vec<(&str, &str)>, client_ip: Option<&str>) -> RequestContext {
         let mut ctx = RequestContext::new();
@@ -914,7 +895,7 @@ mod tests {
         assert_eq!(cond.description(), "Custom condition");
     }
 
-    // ==================== CompositeCondition ====================
+    // CompositeCondition
 
     #[test]
     fn test_composite_and_all_true() {
@@ -998,7 +979,7 @@ mod tests {
         assert!(!cond.evaluate(&ctx));
     }
 
-    // ==================== RuleMatcher ====================
+    // RuleMatcher
 
     #[test]
     fn test_rule_matcher_match() {
@@ -1210,7 +1191,7 @@ mod tests {
         assert_eq!(matcher.rule_count(), 2);
     }
 
-    // ==================== Edge cases ====================
+    // Edge cases
 
     #[test]
     fn test_empty_rules_no_match() {
@@ -1317,7 +1298,7 @@ mod tests {
         assert!(cond.description().contains("IP in"));
     }
 
-    // ==================== IpRange additional error paths ====================
+    // IpRange additional error paths
 
     #[test]
     fn test_ip_range_invalid_cidr_extra_parts() {
@@ -1334,7 +1315,7 @@ mod tests {
         assert!("10.0.0.10-10.0.0.5".parse::<IpRange>().is_err());
     }
 
-    // ==================== IpRange cross-type ====================
+    // IpRange cross-type
 
     #[test]
     fn test_ip_range_ipv4_cidr_with_ipv6() {
@@ -1354,7 +1335,7 @@ mod tests {
         assert!(!range.contains(&"::1".parse::<IpAddr>().unwrap()));
     }
 
-    // ==================== Debug implementations ====================
+    // Debug implementations
 
     #[test]
     fn test_match_condition_debug_all() {
@@ -1387,7 +1368,7 @@ mod tests {
         let _ = format!("{:?}", rule);
     }
 
-    // ==================== Clone implementations ====================
+    // Clone implementations
 
     #[test]
     fn test_composite_condition_clone() {
@@ -1416,7 +1397,7 @@ mod tests {
         assert!(cloned.enabled);
     }
 
-    // ==================== from_config additional config types ====================
+    // from_config additional config types
 
     #[test]
     fn test_from_config_api_version() {
@@ -1452,7 +1433,7 @@ mod tests {
         assert!(matcher.matches(&ctx).is_none());
     }
 
-    // ==================== matches() EMA path ====================
+    // matches EMA path
 
     #[test]
     fn test_rule_matcher_stats_ema() {
@@ -1471,7 +1452,7 @@ mod tests {
         assert!(stats.avg_match_time_ns > 0);
     }
 
-    // ==================== IPv6 CIDR 非对齐前缀测试 ====================
+    // IPv6 CIDR 非对齐前缀测试
 
     #[test]
     fn test_ip_range_ipv6_cidr_non_aligned_prefix() {
@@ -1492,7 +1473,7 @@ mod tests {
         assert!(!range.contains(&"2001:db8:abef::1".parse::<IpAddr>().unwrap()));
     }
 
-    // ==================== CompositeCondition description 测试 ====================
+    // CompositeCondition description 测试
 
     #[test]
     fn test_composite_description_and() {

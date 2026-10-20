@@ -75,7 +75,6 @@ mod tests {
 
         let storage = limiteron::storage::MemoryBanStorage::new();
 
-        // 添加封禁
         let ban = BanRecord {
             target: BanTarget::Ip("192.168.1.1".to_string()),
             ban_times: 1,

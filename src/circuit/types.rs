@@ -469,7 +469,6 @@ impl<E> CircuitBreaker<E> {
         // 被熔断/限流拒绝的调用不进入分母——否则它们会稀释慢调用率，
         // 持续推迟慢调用熔断的触发。
 
-        // 检查熔断器状态
         let state = self.state.read().await;
 
         // 标记本次调用是否作为"探针"（半开态准入受 half_open_max_calls 限制）
@@ -477,7 +476,6 @@ impl<E> CircuitBreaker<E> {
 
         match *state {
             CircuitState::Open => {
-                // 检查是否可以尝试恢复
                 let last_failure = self.last_failure_time.read().await;
                 if let Some(last_failure) = *last_failure {
                     if self.clock.now().duration_since(last_failure) >= self.config.timeout {
@@ -609,7 +607,6 @@ impl<E> CircuitBreaker<E> {
                 }
             }
             CircuitState::Open => {
-                // 打开状态不应该执行到这里
                 warn!("{}", t("circuit-success-while-open", &[]));
             }
         }
@@ -642,7 +639,6 @@ impl<E> CircuitBreaker<E> {
                 // 关闭状态下，增加失败计数
                 let failure_count = self.failure_count.fetch_add(1, Ordering::Relaxed) + 1;
 
-                // 记录失败时间
                 *self.last_failure_time.write().await = Some(self.clock.now());
                 *self.last_failure_time_utc.write().await = Some(chrono::Utc::now());
 
@@ -663,7 +659,6 @@ impl<E> CircuitBreaker<E> {
                 self.transition_to_open().await;
             }
             CircuitState::Open => {
-                // 打开状态不应该执行到这里
                 warn!("{}", t("circuit-failure-while-open", &[]));
             }
         }
@@ -685,7 +680,6 @@ impl<E> CircuitBreaker<E> {
                 elapsed, self.config.slow_call_duration_threshold, slow_calls, total_calls
             );
 
-            // 检查慢调用率是否超过阈值
             self.check_slow_call_rate(slow_calls, total_calls).await;
         }
     }
@@ -729,7 +723,6 @@ impl<E> CircuitBreaker<E> {
             return; // 状态未改变，无需处理
         }
 
-        // 更新状态和时间戳
         *self.state.write().await = new_state;
         self.finalize_transition(old_state, new_state).await;
     }
@@ -1142,10 +1135,8 @@ mod tests {
 
         assert!(breaker.is_open().await);
 
-        // 重置
         breaker.reset().await;
 
-        // 验证重置
         assert!(breaker.is_closed().await);
         let stats = breaker.get_stats().await;
         assert_eq!(stats.failure_count, 0);
@@ -1227,7 +1218,7 @@ mod tests {
         assert_eq!(breaker_config.timeout, Duration::from_secs(30));
     }
 
-    // ==================== 增强的状态转换测试 ====================
+    // 增强的状态转换测试
 
     /// 测试 Closed → Open 转换
     #[tokio::test]
@@ -1411,11 +1402,10 @@ mod tests {
         assert_eq!(config.timeout, Duration::from_secs(30));
         assert_eq!(config.half_open_max_calls, 4);
 
-        // 验证初始状态
         assert!(breaker.is_closed().await);
     }
 
-    // ==================== 慢调用检测测试 ====================
+    // 慢调用检测测试
 
     /// 测试慢调用时长阈值配置
     #[tokio::test]
@@ -1919,7 +1909,7 @@ mod tests {
         assert!(breaker.is_open().await, "the state must stay Open");
     }
 
-    // ==================== 泛型错误类型支持 ====================
+    // 泛型错误类型支持
 
     /// 测试用跨库自定义错误类型（非 LimiteronError）
     #[derive(Debug, Clone, PartialEq)]

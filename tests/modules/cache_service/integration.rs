@@ -7,13 +7,9 @@
 use limiteron::error::StorageError;
 use std::time::Duration;
 
-// ============================================================================
 // Mock CacheService for trait testing
-// ============================================================================
 
-// ============================================================================
 // CacheService trait implementation tests（产品 MemoryCache）
-// ============================================================================
 
 #[tokio::test]
 async fn test_mock_cache_service_get_set() {

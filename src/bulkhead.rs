@@ -406,7 +406,6 @@ mod tests {
         }));
         pool.set_circuit_breaker(Some(cb.clone()));
 
-        // 打开该池熔断
         let _ = cb
             .execute(|| async { Err::<(), _>(LimiteronError::Other("boom".to_string())) })
             .await;

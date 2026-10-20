@@ -108,9 +108,7 @@ pub fn parse_quota_limit(quota_str: &str) -> Result<QuotaLimit, String> {
     Ok(QuotaLimit { max, period })
 }
 
-// ============================================================================
 // 单元测试
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

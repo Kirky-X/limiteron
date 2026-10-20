@@ -117,7 +117,6 @@ async fn demo_service_call() -> Result<(), Box<dyn std::error::Error + Send + Sy
     let inner_service = OkService;
     let mut service = layer.layer(inner_service);
 
-    // 构建一个 HTTP 请求
     let request = Request::builder()
         .method("GET")
         .uri("/api/v1/users")

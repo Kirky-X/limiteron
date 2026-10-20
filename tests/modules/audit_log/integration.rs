@@ -9,9 +9,7 @@ mod tests {
     use limiteron::chrono::Utc;
     use limiteron::logging::{AuditEvent, AuditLogEntry, AuditLogStats};
 
-    // ============================================================================
     // AuditEvent Tests
-    // ============================================================================
 
     #[tokio::test]
     async fn test_audit_event_decision() {
@@ -85,9 +83,7 @@ mod tests {
         assert_eq!(event.target(), "RateLimitError");
     }
 
-    // ============================================================================
     // AuditLogEntry Tests
-    // ============================================================================
 
     #[tokio::test]
     async fn test_audit_log_entry_new() {
@@ -222,9 +218,7 @@ mod tests {
         assert_ne!(entry1.signature, entry2.signature);
     }
 
-    // ============================================================================
     // AuditLogStats Tests
-    // ============================================================================
 
     #[test]
     fn test_audit_log_stats_default() {

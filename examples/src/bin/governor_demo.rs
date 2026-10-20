@@ -174,7 +174,6 @@ async fn demo_stats() -> Result<(), Box<dyn std::error::Error>> {
 
     let governor = Governor::new().await?;
 
-    // 发送几个请求
     for i in 0..3 {
         let context = RequestContext::new()
             .with_path("/api/v1/test")

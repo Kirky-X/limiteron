@@ -452,9 +452,7 @@ impl Default for StatsManager {
     }
 }
 
-// ============================================================================
 // 单元测试
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -544,7 +542,6 @@ mod tests {
     fn test_stats_manager_rates() {
         let stats = StatsManager::new();
 
-        // 添加 10 个总请求
         for _ in 0..10 {
             stats.increment_total();
         }
@@ -565,7 +562,6 @@ mod tests {
         // 1 个错误
         stats.increment_error();
 
-        // 验证比率
         assert!((stats.allow_rate() - 0.6).abs() < 0.001);
         assert!((stats.reject_rate() - 0.2).abs() < 0.001);
         assert!((stats.ban_rate() - 0.1).abs() < 0.001);
@@ -606,7 +602,6 @@ mod tests {
             handle.join().unwrap();
         }
 
-        // 验证最终计数
         assert_eq!(stats.total(), 1000);
         assert_eq!(stats.allowed(), 1000);
     }
@@ -632,19 +627,17 @@ mod tests {
         assert_eq!(snapshot.error_count, 0);
     }
 
-    // ========================================================================
     // stats race condition 修复测试
     //
     // 验证策略：
     // 1. 并发 increment 期间 snapshot 看到的每个计数器单调非递减（SeqCst 保证
-    //    fetch_add 的全局顺序，Relaxed 不保证跨计数器的可见性顺序）。
+    // fetch_add 的全局顺序，Relaxed 不保证跨计数器的可见性顺序）。
     // 2. reset 后立即 snapshot 可见到归零状态（SeqCst 的 store 对后续 load 可见）。
     // 3. 模拟 DecisionChain::check 的成对调用模式（increment_total 必先于
-    //    increment_allowed/rejected），验证 snapshot 满足业务不变式
-    //    allowed + rejected + banned + error >= total（每个分类计数伴随 total）。
-    //    在 Relaxed 下，snapshot 可能读到 total 已 increment 但分类计数尚未
-    //    increment 的中间态，违反不变式；SeqCst 保证代码顺序即全局可见顺序。
-    // ========================================================================
+    // increment_allowed/rejected），验证 snapshot 满足业务不变式
+    // allowed + rejected + banned + error >= total（每个分类计数伴随 total）。
+    // 在 Relaxed 下，snapshot 可能读到 total 已 increment 但分类计数尚未
+    // increment 的中间态，违反不变式；SeqCst 保证代码顺序即全局可见顺序。
 
     #[test]
     fn test_stats_manager_concurrent_snapshot_monotonic() {
@@ -710,9 +703,9 @@ mod tests {
         use std::thread;
 
         // 模拟 DecisionChain::check 的统计更新模式：
-        //   拒绝：increment_total + increment_rejected
-        //   错误：increment_total + increment_error
-        //   允许：increment_total + increment_allowed
+        // 拒绝：increment_total + increment_rejected
+        // 错误：increment_total + increment_error
+        // 允许：increment_total + increment_allowed
         // 验证"最终一致性"：所有工作线程结束后，fetch_add 的原子性保证
         // total == 各分类计数之和（每轮 total+1 且恰好一个分类+1）。
         // 注意：snapshot() 内部多个 load 非原子，无法在并发期间验证

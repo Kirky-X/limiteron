@@ -13,9 +13,7 @@ use limiteron::limiters::{
 use std::sync::Arc;
 use std::time::Duration;
 
-// ============================================================================
 // TokenBucketLimiter Tests
-// ============================================================================
 
 #[tokio::test]
 async fn token_bucket_allows_within_capacity() {
@@ -55,9 +53,7 @@ async fn token_bucket_allows_cost_under_limit() {
     assert!(matches!(result, Ok(false))); // only 50 left
 }
 
-// ============================================================================
 // ShardedSlidingWindowLimiter Tests
-// ============================================================================
 
 #[tokio::test]
 async fn sliding_window_allows_within_limit() {
@@ -82,9 +78,7 @@ async fn sliding_window_rejects_zero_cost() {
     assert!(limiter.allow(0).await.is_err());
 }
 
-// ============================================================================
 // FixedWindowLimiter Tests
-// ============================================================================
 
 #[tokio::test]
 async fn fixed_window_allows_within_limit() {
@@ -109,9 +103,7 @@ async fn fixed_window_rejects_zero_cost() {
     assert!(limiter.allow(0).await.is_err());
 }
 
-// ============================================================================
 // ConcurrencyLimiter Tests
-// ============================================================================
 
 #[tokio::test]
 async fn concurrency_limiter_allows_within_limit() {
@@ -166,9 +158,7 @@ async fn concurrency_limiter_with_timeout() {
     assert!(limiter.timeout().is_some());
 }
 
-// ============================================================================
 // ShardedSlidingWindowLimiter Tests
-// ============================================================================
 
 #[tokio::test]
 async fn sharded_sliding_window_allows_within_limit() {
@@ -193,9 +183,7 @@ async fn sharded_sliding_window_rejects_zero_cost() {
     assert!(limiter.allow(0).await.is_err());
 }
 
-// ============================================================================
 // Arc-wrapped limiters work the same
-// ============================================================================
 
 #[tokio::test]
 async fn token_bucket_arc_works() {
@@ -206,9 +194,7 @@ async fn token_bucket_arc_works() {
     assert!(r1.is_ok() && r2.is_ok());
 }
 
-// ============================================================================
 // Trait object tests
-// ============================================================================
 
 #[tokio::test]
 async fn limiter_trait_allows_dynamic_dispatch() {

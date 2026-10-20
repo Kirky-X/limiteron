@@ -333,7 +333,7 @@ mod tests {
     use super::*;
     use crate::config::QuotaType;
 
-    // ==================== parse_window_size ====================
+    // parse_window_size
 
     #[test]
     fn test_parse_ms() {
@@ -409,7 +409,7 @@ mod tests {
         assert!(parse_window_size("abc").is_err());
     }
 
-    // ==================== LimiterConfig::validate ====================
+    // LimiterConfig::validate
 
     #[test]
     fn test_token_bucket_valid() {
@@ -646,7 +646,7 @@ mod tests {
         assert!(config.validate().is_ok());
     }
 
-    // ==================== OverdraftConfig ====================
+    // OverdraftConfig
 
     #[test]
     fn test_overdraft_enabled_valid() {

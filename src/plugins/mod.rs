@@ -277,9 +277,7 @@ impl PluginRegistry {
     }
 }
 
-// ============================================================================
 // 内置示例插件
-// ============================================================================
 
 /// 示例插件：结构化日志记录裁决终态（`log` 门面，消费方可接 tracing 桥）
 ///
@@ -390,7 +388,6 @@ mod tests {
         let registry = PluginRegistry::new();
         let counter = CounterPlugin::new();
 
-        // 注册
         registry.register(counter.clone()).unwrap();
         assert_eq!(registry.len(), 1);
         assert_eq!(registry.list_names(), vec!["counter".to_string()]);

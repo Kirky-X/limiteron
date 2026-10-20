@@ -65,9 +65,7 @@ fn sqlite_triple(
     )
 }
 
-// ============================================================================
 // Storage（KV）适配器
-// ============================================================================
 
 #[tokio::test]
 async fn kv_set_get_delete_roundtrip() {
@@ -93,9 +91,7 @@ async fn kv_ttl_expiry() {
     assert_eq!(storage.get("ttl-key").await.unwrap(), None);
 }
 
-// ============================================================================
 // BanStorage 适配器（含原生 SQL 原子路径）
-// ============================================================================
 
 #[tokio::test]
 async fn ban_save_is_banned_and_fields() {
@@ -182,9 +178,7 @@ async fn ban_list_bans_active_only_and_pagination() {
     assert_eq!(paged.len(), 1);
 }
 
-// ============================================================================
 // QuotaStorage 适配器（原子消费 / 退款 / 重置 / 窗口翻滚）
-// ============================================================================
 
 #[tokio::test]
 async fn quota_consume_exhaustion_refund_reset() {
@@ -286,9 +280,7 @@ async fn quota_cost_over_i64_is_rejected() {
     );
 }
 
-// ============================================================================
 // StorageFactory 全链路 + BanManager 适配
-// ============================================================================
 
 #[tokio::test]
 async fn factory_creates_usable_sqlite_backends() {
@@ -382,9 +374,7 @@ async fn factory_pragmas_passthrough_wal_persistence() {
     assert_eq!(mode, "wal", "WAL must persist across independent reopen");
 }
 
-// ============================================================================
 // 与 Redis 形后端（cache-redis）行为对拍（关键用例）
-// ============================================================================
 // Redis 后端在本仓即 oxcache 支撑的 Cache* 适配器；沙箱无 Redis 时以
 // DashMapMemoryBackend 作为同一代码路径的传输层（生产仅替换传输层实现）。
 

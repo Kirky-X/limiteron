@@ -25,9 +25,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-// ============================================================================
 // 内存分配跟踪器
-// ============================================================================
 
 /// 内存分配跟踪器
 ///
@@ -77,9 +75,7 @@ fn get_memory_usage() -> usize {
     ALLOCATOR.get_allocated()
 }
 
-// ============================================================================
 // 内存占用测量
-// ============================================================================
 
 /// 基准测试：TokenBucket 内存占用
 ///
@@ -258,9 +254,7 @@ fn bench_fixed_window_memory_usage(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 数据结构内存对比
-// ============================================================================
 
 /// 基准测试：SlidingWindowLog 按条目数线性内存增长
 ///
@@ -498,9 +492,7 @@ fn bench_rule_matcher_memory_usage(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 内存稳定性测试
-// ============================================================================
 
 /// 基准测试：持续运行内存稳定性
 ///
@@ -603,7 +595,6 @@ fn bench_high_load_memory_stability(c: &mut Criterion) {
     group.sampling_mode(SamplingMode::Auto);
     group.measurement_time(Duration::from_secs(30));
 
-    // 创建大量请求模拟高负载
     let limiter = Arc::new(ShardedSlidingWindowLimiter::new(
         Duration::from_secs(60),
         10_000_000,
@@ -648,9 +639,7 @@ fn bench_high_load_memory_stability(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 内存泄漏检测
-// ============================================================================
 
 /// 基准测试：内存泄漏检测
 ///
@@ -668,7 +657,6 @@ fn bench_memory_leak_detection(c: &mut Criterion) {
     for iteration in 0..10 {
         let before = get_memory_usage();
 
-        // 创建并使用限流器
         for _ in 0..1000 {
             let limiter = TokenBucketLimiter::new(1000, 100);
             rt.block_on(async {
@@ -731,7 +719,6 @@ fn bench_cache_memory_leak_detection(c: &mut Criterion) {
     for iteration in 0..10 {
         let before = get_memory_usage();
 
-        // 写入和读取缓存
         rt.block_on(async {
             for i in 0..10_000 {
                 let _ = cache
@@ -767,9 +754,7 @@ fn bench_cache_memory_leak_detection(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 并发内存测试
-// ============================================================================
 
 /// 基准测试：并发内存使用
 fn bench_concurrent_memory_usage(c: &mut Criterion) {
@@ -825,9 +810,7 @@ fn bench_concurrent_memory_usage(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // 基准测试组配置
-// ============================================================================
 
 /// 配置 Criterion
 fn configure_criterion() -> Criterion {

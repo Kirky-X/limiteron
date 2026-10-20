@@ -555,7 +555,6 @@ impl GovernorBuilder {
             LimiteronError::DependencyError("ban_storage is required".to_string())
         })?;
 
-        // 创建封禁管理器
         #[cfg(feature = "ban-manager")]
         let ban_manager = {
             use crate::ban::{BanManager, BanManagerConfig};
@@ -599,12 +598,10 @@ impl GovernorBuilder {
             crate::matchers::RuleMatcher::with_dependencies(rules),
         ));
 
-        // 创建决策链
         let decision_chain = Arc::new(tokio::sync::RwLock::new(
             crate::decision_chain::DecisionChain::with_dependencies(vec![]),
         ));
 
-        // 创建熔断器
         #[cfg(feature = "circuit-breaker")]
         let circuit_breaker = self.circuit_breaker.unwrap_or_else(|| {
             Arc::new(CircuitBreaker::with_dependencies(
@@ -612,7 +609,6 @@ impl GovernorBuilder {
             ))
         });
 
-        // 创建审计日志记录器
         #[cfg(feature = "audit-log")]
         let audit_logger = self
             .audit_logger
@@ -631,7 +627,6 @@ impl GovernorBuilder {
         )?;
         let rule_chains = Arc::new(tokio::sync::RwLock::new(rule_chains_map));
 
-        // 创建 缓存
         let l1_cache_config = self
             .l1_cache_config
             .unwrap_or_else(|| L1CacheConfig::new(std::time::Duration::from_secs(60), 10_000));
@@ -808,7 +803,6 @@ impl Governor {
         >,
         #[cfg(feature = "circuit-breaker")] circuit_breaker: Arc<CircuitBreaker>,
     ) -> Result<Self, LimiteronError> {
-        // 创建封禁管理器
         #[cfg(feature = "ban-manager")]
         use crate::ban::{BanManager, BanManagerConfig};
 
@@ -818,7 +812,6 @@ impl Governor {
                 .await
                 .map(Arc::new)?;
 
-        // 创建并行封禁检查器
         #[cfg(feature = "parallel-checker")]
         let parallel_ban_checker: Arc<crate::storage::ParallelBanChecker> =
             Arc::new(crate::storage::ParallelBanChecker::new(ban_manager.clone()));
@@ -1306,7 +1299,6 @@ impl Governor {
 
         for rule in &matched_rules {
             if let Some(chain) = rule_chains.get(&rule.id) {
-                // 执行决策链
                 let result = chain.check().await;
 
                 // 规则维度结果（prometheus 指标与 telemetry span 共用一次判定；
@@ -1502,7 +1494,6 @@ impl Governor {
             )));
         }
 
-        // 尝试从 缓存获取结果
         let identifier = self.identifier_extractor.extract(context).ok_or_else(|| {
             LimiteronError::ConfigError("Failed to extract identifier".to_string())
         })?;
@@ -1885,9 +1876,7 @@ impl Governor {
         self.config_history.read().await.get_records().to_vec()
     }
 
-    // ========================================================================
     // 多租户贯穿（feature `multi-tenant`）
-    // ========================================================================
 
     /// 从请求上下文解析租户命名空间
     ///
@@ -2124,9 +2113,9 @@ impl Governor {
         new_config.validate().map_err(LimiteronError::ConfigError)?;
 
         // 2. 预构建（任何失败都在换装前发生，旧配置不受影响）。
-        //    注：热更新路径不重建自定义匹配器注册表（registry 属构造期
-        //    builder 注入；含 Custom 匹配器的配置请走进程重启或经注册表
-        //    预注册后使用同名字段）。
+        // 注：热更新路径不重建自定义匹配器注册表（registry 属构造期
+        // builder 注入；含 Custom 匹配器的配置请走进程重启或经注册表
+        // 预注册后使用同名字段）。
         let rules = RuleBuilder::build_rules(&new_config)?;
         let new_matcher = RuleMatcher::with_dependencies(rules);
         let new_chains = RuleBuilder::build_rule_chains_with_quota_storage(
@@ -2139,10 +2128,10 @@ impl Governor {
         let rule_count = new_config.rules.len();
 
         // 3. 原子换装（写侧按 matcher→chains→config 固定序在**同一临界区**
-        //    持有全部写锁直至换装完成；读侧 check_internal 同时持有 matcher+
-        //    chains 读锁贯穿规则解析——历史教训：曾逐语句获取/释放三把写锁，
-        //    窗口期并发请求读到「新 matcher+旧 chains」，新规则 ID 查不到
-        //    节点被静默跳过放行，与"不存在撕裂读"的注释不符）
+        // 持有全部写锁直至换装完成；读侧 check_internal 同时持有 matcher+
+        // chains 读锁贯穿规则解析——历史教训：曾逐语句获取/释放三把写锁，
+        // 窗口期并发请求读到「新 matcher+旧 chains」，新规则 ID 查不到
+        // 节点被静默跳过放行，与"不存在撕裂读"的注释不符）
         let (old_version, old_hash) = {
             let mut matcher_guard = self.rule_matcher.write().await;
             let mut chains_guard = self.rule_chains.write().await;
@@ -2164,7 +2153,6 @@ impl Governor {
             log::warn!("apply_config: L1 cache clear failed: {e}");
         }
 
-        // 5. 记录配置变更历史
         self.config_history
             .write()
             .await
@@ -2193,7 +2181,7 @@ impl Governor {
         })
     }
 
-    // ==================== 缓存相关方法 ====================
+    // 缓存相关方法
 
     /// 启用 缓存
     pub fn enable_l1_cache(&self) {
@@ -2293,9 +2281,7 @@ impl Governor {
         guard.as_ref().cloned()
     }
 
-    // ========================================================================
     // 运行时自省
-    // ========================================================================
 
     /// 获取运行时自省快照
     ///
@@ -2667,9 +2653,7 @@ impl HealthStatus {
     }
 }
 
-// ============================================================================
 // 自省快照类型（serde Serialize 供 Admin API JSON 输出）
-// ============================================================================
 
 /// 规则自省摘要
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -2796,9 +2780,7 @@ fn limiter_kind(l: &crate::config::LimiterConfig) -> String {
     }
 }
 
-// ============================================================================
 // Governor Construction Patterns Tests
-// ============================================================================
 
 #[cfg(test)]
 #[allow(clippy::field_reassign_with_default)]
@@ -3566,9 +3548,7 @@ mod governor_construction_tests {
         drop(external_ref);
     }
 
-    // ========================================================================
     // Mock 存储实现（用于测试 health_check 错误路径）
-    // ========================================================================
 
     /// 所有操作均返回 Err 的 Storage mock，用于测试 health_check 错误分支
     struct FailingStorage;
@@ -3655,9 +3635,7 @@ mod governor_construction_tests {
         }
     }
 
-    // ========================================================================
     // health_check 错误路径测试
-    // ========================================================================
 
     /// 验证 health_check() 在存储不可用时返回 Err
     #[tokio::test]
@@ -4001,9 +3979,7 @@ mod governor_construction_tests {
         assert_eq!(stats.total_requests, 0);
     }
 
-    // ============================================================================
     // Builder Error Paths
-    // ============================================================================
 
     #[tokio::test]
     async fn test_builder_missing_storage() {
@@ -4037,9 +4013,7 @@ mod governor_construction_tests {
         }
     }
 
-    // ============================================================================
     // check() Code Paths - Identifier Extraction
-    // ============================================================================
 
     #[tokio::test]
     async fn test_check_identifier_extraction_failure() {
@@ -4081,9 +4055,7 @@ mod governor_construction_tests {
         assert_eq!(stats.banned_requests, 0);
     }
 
-    // ============================================================================
     // check() Code Paths - No Matched Rules (fallthrough to default decision chain)
-    // ============================================================================
 
     fn create_non_matching_config() -> FlowControlConfig {
         FlowControlConfig {
@@ -4149,9 +4121,7 @@ mod governor_construction_tests {
         assert_eq!(stats.allowed_requests, 1);
     }
 
-    // ============================================================================
     // check() Code Paths - Rule Accepts (TokenBucket has capacity)
-    // ============================================================================
 
     #[tokio::test]
     async fn test_check_rule_allowed() {
@@ -4192,9 +4162,7 @@ mod governor_construction_tests {
         assert_eq!(stats.allowed_requests, 1);
     }
 
-    // ============================================================================
     // check() Code Paths - Rule Rejects (TokenBucket exhausted)
-    // ============================================================================
 
     fn create_small_capacity_config() -> FlowControlConfig {
         FlowControlConfig {
@@ -4296,9 +4264,7 @@ mod governor_construction_tests {
         assert_eq!(stats.total_requests, 5);
     }
 
-    // ============================================================================
     // Cache Methods
-    // ============================================================================
 
     #[tokio::test]
     async fn test_l1_cache_enable_disable() {
@@ -4381,9 +4347,7 @@ mod governor_construction_tests {
         assert_eq!(evicted, 0);
     }
 
-    // ============================================================================
     // Stats and Reset
-    // ============================================================================
 
     #[tokio::test]
     async fn test_reset_stats() {
@@ -4414,9 +4378,7 @@ mod governor_construction_tests {
         assert_eq!(stats_after.error_count, 0);
     }
 
-    // ============================================================================
     // Chain and Matcher Stats
-    // ============================================================================
 
     #[tokio::test]
     async fn test_decision_chain_stats() {
@@ -4449,9 +4411,7 @@ mod governor_construction_tests {
         assert_eq!(stats.total_mismatches, 0);
     }
 
-    // ============================================================================
     // Config and Administrative Methods
-    // ============================================================================
 
     #[tokio::test]
     async fn test_get_config_history() {
@@ -4513,9 +4473,7 @@ mod governor_construction_tests {
         assert!(result.is_ok());
     }
 
-    // ============================================================================
     // Ban/Unban Operations (feature-gated)
-    // ============================================================================
 
     #[cfg(feature = "ban-manager")]
     #[tokio::test]
@@ -4627,9 +4585,7 @@ mod governor_construction_tests {
         }
     }
 
-    // ============================================================================
     // GovernorBuilder - Full configuration chain
-    // ============================================================================
 
     #[tokio::test]
     async fn test_governor_builder_full_chain() {
@@ -4667,9 +4623,7 @@ mod governor_construction_tests {
         assert!(governor.is_l1_cache_enabled());
     }
 
-    // ============================================================================
     // Cache Invalidation Methods
-    // ============================================================================
 
     #[tokio::test]
     async fn test_invalidate_l1_cache() {
@@ -4687,9 +4641,7 @@ mod governor_construction_tests {
         assert_eq!(governor.l1_cache_size().await, 0);
     }
 
-    // ============================================================================
     // From/Into Implementations
-    // ============================================================================
 
     #[test]
     fn test_governor_stats_from_snapshot() {
@@ -4710,9 +4662,7 @@ mod governor_construction_tests {
         assert!(stats.last_updated.is_some());
     }
 
-    // ============================================================================
     // Trait Implementations (Default, Debug, Clone)
-    // ============================================================================
 
     #[test]
     fn test_governor_stats_default_impl() {
@@ -4745,9 +4695,7 @@ mod governor_construction_tests {
         assert_eq!(cloned.total_requests, 42);
     }
 
-    // ============================================================================
     // Cache - pub(crate) Stats
-    // ============================================================================
 
     #[tokio::test]
     async fn test_l1_cache_stats() {
@@ -4767,9 +4715,7 @@ mod governor_construction_tests {
         assert_eq!(stats.current_size, 0);
     }
 
-    // ============================================================================
     // Governor::with_dependencies() Constructor
-    // ============================================================================
 
     #[tokio::test]
     async fn test_with_dependencies_constructor() {
@@ -4825,9 +4771,7 @@ mod governor_construction_tests {
         assert_eq!(stats.total_requests, 0);
     }
 
-    // ============================================================================
     // build_cache_key / build_cache_key_multi - All Identifier Types
-    // ============================================================================
 
     // build_cache_key 仅存在于 fallback 特性下（降级路径专用）
     #[cfg(feature = "fallback")]
@@ -4900,9 +4844,7 @@ mod governor_construction_tests {
         assert_eq!(key, "rl:ip:192.168.1.1:rule_a|rule_b");
     }
 
-    // ============================================================================
     // Governor::from_config_file
-    // ============================================================================
 
     #[tokio::test]
     async fn test_governor_from_config_file_json() {
@@ -4942,9 +4884,7 @@ mod governor_construction_tests {
         let _ = std::fs::remove_dir(&dir);
     }
 
-    // ============================================================================
     // Governor::from_config_with_env
-    // ============================================================================
 
     #[tokio::test]
     async fn test_governor_from_config_with_env_json() {
@@ -5013,9 +4953,7 @@ mod governor_construction_tests {
         }
     }
 
-    // ============================================================================
     // Health Check - feature-gated sub-checks with all features enabled
-    // ============================================================================
 
     #[tokio::test]
     async fn test_health_check_with_all_features() {
@@ -5036,9 +4974,7 @@ mod governor_construction_tests {
     }
 }
 
-// ============================================================================
 // Feature-Gated Code Paths
-// ============================================================================
 
 #[cfg(test)]
 // 部分测试助手仅被 feature 门控用例引用（默认组合下无调用方），保留放行。
@@ -5072,9 +5008,7 @@ mod governor_feature_gated_tests {
         }
     }
 
-    // ============================================================================
     // Builder Feature-Gated Methods
-    // ============================================================================
 
     #[cfg(feature = "circuit-breaker")]
     #[tokio::test]
@@ -5847,10 +5781,8 @@ mod governor_feature_gated_tests {
         assert_eq!(stats.total_requests, 0);
     }
 
-    // ============================================================================
     // check() with Fallback Manager
     // Covers: check() dispatch to check_with_fallback, check_with_fallback body
-    // ============================================================================
 
     #[cfg(feature = "fallback")]
     #[tokio::test]
@@ -5945,11 +5877,9 @@ mod governor_feature_gated_tests {
         assert!(result.is_err());
     }
 
-    // ============================================================================
     // check() - Parallel ban check integration in check_internal
     // With parallel-checker + ban-manager, every check() with a valid identifier
     // goes through the parallel ban checker code path.
-    // ============================================================================
 
     #[cfg(feature = "parallel-checker")]
     #[tokio::test]
@@ -5973,9 +5903,7 @@ mod governor_feature_gated_tests {
         );
     }
 
-    // ============================================================================
     // check_resource_parallel (parallel-checker feature gate)
-    // ============================================================================
 
     #[cfg(feature = "parallel-checker")]
     #[tokio::test]
@@ -5995,9 +5923,7 @@ mod governor_feature_gated_tests {
         }
     }
 
-    // ============================================================================
     // Audit Logger Set/Get (audit-log feature gate)
-    // ============================================================================
 
     #[cfg(feature = "audit-log")]
     #[tokio::test]
@@ -6023,10 +5949,8 @@ mod governor_feature_gated_tests {
         assert!(retrieved.is_some(), "audit_logger should be Some after set");
     }
 
-    // ============================================================================
     // check_l1_cache_only - 直接测试各分支（fallback feature gate）
     // 覆盖 lines 943-1023 的多个分支
-    // ============================================================================
 
     /// 创建使用 IP matcher 的测试配置（匹配所有 IP）
     fn create_ip_test_config() -> FlowControlConfig {
@@ -6382,11 +6306,9 @@ mod governor_feature_gated_tests {
         // 验证不会 panic 即可（stats.increment_error 内部是原子操作）
     }
 
-    // ============================================================================
     // metrics feature 门控计数测试
     // metrics 隐含 prometheus，启用后 governor check() 中 allow/reject/ban
     // 三点指标记录自动激活
-    // ============================================================================
 
     #[cfg(feature = "metrics")]
     #[tokio::test]

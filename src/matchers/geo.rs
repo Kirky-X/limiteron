@@ -44,9 +44,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-// ============================================================================
 // 地理信息结构
-// ============================================================================
 
 #[cfg(feature = "geo-matching")]
 /// 地理信息
@@ -107,9 +105,7 @@ impl Default for GeoInfo {
     }
 }
 
-// ============================================================================
 // 地理匹配条件
-// ============================================================================
 
 #[cfg(feature = "geo-matching")]
 /// 地理匹配条件
@@ -171,7 +167,6 @@ impl GeoCondition {
             return true;
         }
 
-        // 检查国家匹配
         if !self.countries.is_empty() {
             if let Some(country_code) = &info.country_code
                 && self.countries.contains(country_code)
@@ -182,7 +177,6 @@ impl GeoCondition {
             return false;
         }
 
-        // 检查城市匹配
         if !self.cities.is_empty() {
             if let Some(city) = &info.city
                 && self.cities.contains(city)
@@ -192,7 +186,6 @@ impl GeoCondition {
             return false;
         }
 
-        // 检查大洲匹配
         if !self.continents.is_empty() {
             if let Some(continent) = &info.continent
                 && self.continents.contains(continent)
@@ -212,9 +205,7 @@ impl Default for GeoCondition {
     }
 }
 
-// ============================================================================
 // 地理匹配器
-// ============================================================================
 
 /// 地理匹配器
 ///
@@ -281,7 +272,6 @@ impl GeoMatcher {
     ) -> Result<Self, LimiteronError> {
         let db_path = db_path.as_ref();
 
-        // 检查文件是否存在
         if !db_path.exists() {
             return Err(LimiteronError::ConfigError(t(
                 "geo-db-not-found",
@@ -295,7 +285,6 @@ impl GeoMatcher {
             t("geo-db-loading", &[("path", db_path.display().to_string())])
         );
 
-        // 获取文件元数据
         let metadata = std::fs::metadata(db_path).map_err(LimiteronError::IoError)?;
 
         // 文件大小仅作启发式告警，不做硬性下限：GeoLite2-City 全量库通常 > 50MB，
@@ -327,10 +316,8 @@ impl GeoMatcher {
             );
         }
 
-        // 读取数据库文件
         let db_content = std::fs::read(db_path).map_err(LimiteronError::IoError)?;
 
-        // 验证文件大小一致性
         if db_content.len() as u64 != file_size {
             return Err(LimiteronError::ConfigError(t(
                 "geo-db-incomplete-read",
@@ -370,12 +357,10 @@ impl GeoMatcher {
             // 让后续的 Reader::from_source 来验证
         }
 
-        // 创建读取器
         let reader = Reader::from_source(db_content).map_err(|e| {
             LimiteronError::ConfigError(t("geo-db-invalid", &[("reason", e.to_string())]))
         })?;
 
-        // 验证数据库元数据
         log::info!(
             "{}",
             t(
@@ -443,7 +428,6 @@ impl GeoMatcher {
     /// # }
     /// ```
     pub async fn lookup(&self, ip: IpAddr) -> Result<GeoInfo, LimiteronError> {
-        // 检查缓存
         let ip_str = ip.to_string();
         if let Ok(Some(cached)) = self.cache.get(&ip_str).await {
             log::debug!("cache hit: {}", ip);
@@ -451,7 +435,6 @@ impl GeoMatcher {
             return Ok(cached);
         }
 
-        // 记录缓存未命中
         self.cache_misses.fetch_add(1, Ordering::Relaxed);
 
         log::debug!("looking up IP geolocation: {}", ip);
@@ -638,9 +621,7 @@ impl GeoMatcher {
     }
 }
 
-// ============================================================================
 // 缓存統計信息
-// ============================================================================
 
 #[cfg(feature = "geo-matching")]
 /// 地理缓存统计信息
@@ -658,9 +639,7 @@ pub struct GeoCacheStats {
     pub misses: u64,
 }
 
-// ============================================================================
 // 单元测试
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -1080,9 +1059,7 @@ mod tests {
         assert!(debug.contains("GeoInfo"));
     }
 
-    // ------------------------------------------------------------------------
     // GeoMatcher 测试（需要 geo-matching feature）
-    // ------------------------------------------------------------------------
 
     #[cfg(feature = "geo-matching")]
     #[tokio::test]
@@ -1118,7 +1095,6 @@ mod tests {
         std::fs::write(&temp_path, b"too small to be a real mmdb file").unwrap();
 
         let result = GeoMatcher::new(&temp_path).await;
-        // 清理临时文件
         let _ = std::fs::remove_file(&temp_path);
 
         assert!(result.is_err());

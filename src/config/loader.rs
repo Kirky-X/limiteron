@@ -109,7 +109,7 @@ impl ConfigLoader {
 
 /// confers `ConfigError` → limiteron 公开错误契约映射
 ///
-/// - `FileNotFound` → "Config file not found: {}"（T009 钉死）；
+/// - `FileNotFound` → "Config file not found: {}"；
 /// - `ParseError` → "Failed to parse {FORMAT} config: {}"（FORMAT 为
 ///   confers 侧大写 YAML/TOML/JSON，与旧契约一致）；
 /// - 其余（`InvalidValue` 覆盖目录/特殊文件/路径穿越等 confers 防护
@@ -375,7 +375,7 @@ on_exceed = "degrade"
         assert!(matches!(result, Err(LimiteronError::ConfigError(_))));
     }
 
-    // ===== load_from_file_with_env 测试 =====
+    // load_from_file_with_env 测试
     // 注意：环境变量是进程级全局状态，并行测试会互相污染。
     // 使用 mutex 序列化所有 env 相关测试，确保它们不会同时运行。
 

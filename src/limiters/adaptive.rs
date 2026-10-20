@@ -221,7 +221,7 @@ impl AdaptiveConcurrencyLimiter {
     /// 尝试占用 `units` 个并发额度（成功返回许可，Drop 自动释放）
     ///
     /// 注：熔断联动在 [`Limiter::allow`]（异步路径）生效；本同步方法不做
-    /// 熔断判定（熔断状态读取是异步的）。
+    /// 熔断判定（熔断状态读取是异步）。
     pub fn try_acquire(self: &Arc<Self>, units: u64) -> Option<AdaptivePermit> {
         // CAS 占用：in_flight + units <= current_max
         loop {

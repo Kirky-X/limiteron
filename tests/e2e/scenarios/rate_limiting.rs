@@ -17,7 +17,7 @@ use limiteron::{BanStorage, Storage};
 use std::sync::Arc;
 use std::time::Duration;
 
-// ==================== Test Helpers ====================
+// Test Helpers
 
 async fn create_governor_with_low_limit() -> Arc<Governor> {
     let config = FlowControlConfig {
@@ -72,7 +72,7 @@ fn create_request(user_id: &str, ip: &str) -> RequestContext {
     ctx
 }
 
-// ==================== E2E Scenario Tests ====================
+// E2E Scenario Tests
 
 /// 场景 1: 用户请求超过限流被拒绝
 ///
@@ -209,7 +209,6 @@ async fn e2e_rate_limiting_sliding_window() {
         "Request 4 should be denied"
     );
 
-    // 等待窗口滑动
     tokio::time::sleep(Duration::from_millis(250)).await;
 
     // 现在应该可以再次请求
@@ -261,7 +260,6 @@ async fn e2e_rate_limiting_concurrent_requests() {
         "Total requests should be 10"
     );
 
-    // 验证至少有一些请求被允许
     assert!(allowed_count > 0, "Some requests should be allowed");
 
     // 验证限流器在高并发情况下不会崩溃或死锁
@@ -280,7 +278,6 @@ async fn e2e_rate_limiting_statistics_tracking() {
     let governor = create_governor_with_low_limit().await;
     let user_id = "stats_user";
 
-    // 发送多个请求
     for _ in 0..3 {
         let ctx = create_request(user_id, "192.168.1.50");
         let _ = governor.check(&ctx).await;

@@ -17,7 +17,7 @@ use limiteron::{BanHistory, BanRecord, BanStorage, BanTarget, QuotaInfo, Storage
 use std::sync::Arc;
 use std::time::Duration;
 
-// ==================== Test Helpers ====================
+// Test Helpers
 
 async fn create_governor() -> Arc<limiteron::Governor> {
     let config = FlowControlConfig {
@@ -72,7 +72,7 @@ fn create_test_request(user_id: &str, ip: &str) -> RequestContext {
     ctx
 }
 
-// ==================== Tests ====================
+// Tests
 
 /// 测试控制器模块导入
 #[tokio::test]
@@ -80,7 +80,7 @@ async fn test_governor_module_import() {
     let _ = GovernorStats::default();
 }
 
-// ==================== 并发安全测试 ====================
+// 并发安全测试
 
 /// 测试 Governor 高并发检查的线程安全
 #[tokio::test]
@@ -238,7 +238,7 @@ async fn test_governor_concurrent_stats_reset() {
     let _ = governor.stats().await;
 }
 
-// ==================== 边界条件测试 ====================
+// 边界条件测试
 
 /// 测试 Governor 空请求上下文
 #[tokio::test]
@@ -293,7 +293,7 @@ async fn test_governor_multiple_ips() {
     assert_eq!(stats.total_requests, 50);
 }
 
-// ==================== Governor Integration Tests ====================
+// Governor Integration Tests
 
 /// 2.6.1: Governor checks request against limiter
 #[tokio::test]

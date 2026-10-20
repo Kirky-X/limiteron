@@ -46,7 +46,7 @@ pub(crate) fn service_error_message(e: &AdminServiceError) -> String {
     }
 }
 
-// ==================== 响应类型 ====================
+// 响应类型
 
 /// 通用响应
 #[derive(Serialize)]
@@ -132,7 +132,7 @@ pub async fn metrics() -> axum::response::Response {
         .into_response()
 }
 
-// ==================== 系统状态 ====================
+// 系统状态
 
 /// 系统整体状态
 #[derive(Serialize)]
@@ -151,7 +151,7 @@ pub async fn get_status(State(state): State<LimiteronState>) -> Json<ApiResponse
     Json(ApiResponse::ok(state.service().status().await))
 }
 
-// ==================== Governor 自省 ====================
+// Governor 自省
 
 /// GET /api/v1/introspect —— 运行时自省快照（JSON）
 ///
@@ -162,7 +162,7 @@ pub async fn introspect(State(state): State<LimiteronState>) -> Json<serde_json:
     Json(state.service().introspect().await)
 }
 
-// ==================== 规则热更新 / 批量 API ====================
+// 规则热更新 / 批量 API
 
 /// 批量检查/预取的条目数上限（防单请求打爆控制面）
 pub(crate) const BATCH_MAX_ITEMS: usize = 1000;
@@ -298,7 +298,7 @@ pub async fn prefetch_tokens(
     }
 }
 
-// ==================== 封禁管理 ====================
+// 封禁管理
 
 /// 解除封禁请求
 #[derive(Deserialize)]
@@ -435,7 +435,7 @@ pub async fn create_ban() -> (StatusCode, Json<ApiResponse<()>>) {
     )
 }
 
-// ==================== 配额管理 ====================
+// 配额管理
 
 /// 更新配额请求
 #[derive(Deserialize)]
@@ -485,7 +485,7 @@ pub async fn update_quota(
     )
 }
 
-// ==================== 熔断器状态 ====================
+// 熔断器状态
 
 /// 熔断器状态响应
 #[derive(Serialize)]
@@ -532,10 +532,8 @@ pub(crate) mod tests {
     use crate::storage::{BanStorage, MemoryBanStorage, MemoryStorage, Storage};
     use std::sync::Arc;
 
-    // ========================================================================
     // 共享测试夹具：service / server / client / web / routes 的测试
     // 经 `crate::admin::handlers::tests` 复用以下构造
-    // ========================================================================
 
     /// 构造包含至少一条规则的合法 FlowControlConfig
     ///
@@ -660,9 +658,7 @@ pub(crate) mod tests {
         assert_eq!(resp2.message, "borrowed error");
     }
 
-    // ========================================================================
     // Handler 集成测试
-    // ========================================================================
 
     #[tokio::test]
     async fn test_get_status_empty_governor() {
@@ -1048,7 +1044,6 @@ pub(crate) mod tests {
         use crate::ban::BanTarget;
         use crate::storage::BanRecord;
         let ban_manager = Arc::new(BanManager::new().await.unwrap());
-        // 创建 MAC 封禁
         let target = BanTarget::Mac("aa:bb:cc:dd:ee:ff".to_string());
         let now = chrono::Utc::now();
         ban_manager
@@ -1154,9 +1149,7 @@ pub(crate) mod tests {
         assert!(data.failure_rate > 0.0);
     }
 
-    // ========================================================================
     // 规则热更新 / 批量检查 / 批量令牌预取
-    // ========================================================================
 
     /// 构造一条合法规则的最小配置（结构同共享夹具 make_valid_config，版本/规则不同以模拟热更新）
     fn t613_valid_config() -> crate::config::FlowControlConfig {

@@ -41,16 +41,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use woothee::parser::Parser;
 
-// ============================================================================
 // 输入验证常量
-// ============================================================================
 
 /// 最大 User-Agent 长度
 const MAX_USER_AGENT_LENGTH: usize = 2048;
 
-// ============================================================================
 // 输入验证函数
-// ============================================================================
 
 /// 清理 User-Agent 字符串
 ///
@@ -66,9 +62,7 @@ fn sanitize_user_agent(user_agent: &str) -> String {
         .collect()
 }
 
-// ============================================================================
 // 设备类型
-// ============================================================================
 
 #[cfg(feature = "device-matching")]
 /// 设备类型
@@ -131,9 +125,7 @@ impl std::fmt::Display for DeviceType {
     }
 }
 
-// ============================================================================
 // 设备信息
-// ============================================================================
 
 #[cfg(feature = "device-matching")]
 /// 设备信息
@@ -258,9 +250,7 @@ impl Default for DeviceInfo {
     }
 }
 
-// ============================================================================
 // 设备匹配条件
-// ============================================================================
 
 #[cfg(feature = "device-matching")]
 /// 设备匹配条件
@@ -326,7 +316,6 @@ impl DeviceCondition {
             return true;
         }
 
-        // 检查设备类型匹配
         if !self.device_types.is_empty() && !self.device_types.contains(&info.device_type) {
             return false;
         }
@@ -369,9 +358,7 @@ impl Default for DeviceCondition {
     }
 }
 
-// ============================================================================
 // 设备匹配器
-// ============================================================================
 
 /// 设备匹配器
 ///
@@ -579,7 +566,6 @@ impl DeviceMatcher {
     /// # }
     /// ```
     pub async fn parse(&self, user_agent: &str) -> Result<DeviceInfo, LimiteronError> {
-        // 清理 User-Agent
         let sanitized = sanitize_user_agent(user_agent);
         let user_agent = sanitized.trim();
 
@@ -596,7 +582,6 @@ impl DeviceMatcher {
             )));
         }
 
-        // 检查缓存
         let cache_key = user_agent.to_string();
         if let Ok(Some(cached)) = self.cache.get(&cache_key).await {
             log::debug!(target: "device", "cache hit: {}", user_agent);
@@ -604,7 +589,6 @@ impl DeviceMatcher {
             return Ok(cached);
         }
 
-        // 记录缓存未命中
         self.cache_misses.fetch_add(1, Ordering::Relaxed);
 
         log::debug!(target: "device", "parsing User-Agent: {}", user_agent);
@@ -635,7 +619,6 @@ impl DeviceMatcher {
         };
         info.user_agent = Some(user_agent.to_string());
 
-        // 更新缓存
         self.update_cache(user_agent, &info).await;
 
         log::debug!(
@@ -971,7 +954,7 @@ impl DeviceMatcherBuilder {
     /// - `Err(LimiteronError)`: 创建失败
     pub async fn build(self) -> Result<DeviceMatcher, LimiteronError> {
         // 修复 E3：旧实现 `custom_rules = self.custom_rules` 用 builder 的
-        // （初始为空的）规则列表整体覆盖 new() 的内置默认规则，导致
+        // （初始为空）规则列表整体覆盖 new 的内置默认规则，导致
         // builder 路径产出的匹配器丢失全部内置规则；改为在默认规则
         // 基础上追加。缓存容量直接传入构造，由 Moka 真实强制执行。
         let mut matcher = DeviceMatcher::with_cache_capacity(self.cache_size_limit).await?;
@@ -992,9 +975,7 @@ impl Default for DeviceMatcherBuilder {
     }
 }
 
-// ============================================================================
 // 缓存统计信息
-// ============================================================================
 
 /// 设备缓存统计信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1011,9 +992,7 @@ pub struct DeviceCacheStats {
     pub misses: u64,
 }
 
-// ============================================================================
 // 单元测试
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

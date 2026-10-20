@@ -61,9 +61,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-// ============================================================================
 // 输入验证常量
-// ============================================================================
 
 /// 最大匹配器名称长度
 const MAX_MATCHER_NAME_LENGTH: usize = 100;
@@ -77,9 +75,7 @@ const MAX_HEADER_VALUE_LENGTH: usize = 4096;
 /// 最大允许的 HTTP 头值数量
 const MAX_ALLOWED_VALUES_COUNT: usize = 100;
 
-// ============================================================================
 // 输入验证函数
-// ============================================================================
 
 /// 验证匹配器名称
 ///
@@ -213,9 +209,7 @@ fn is_token_byte(b: u8) -> bool {
         )
 }
 
-// ============================================================================
 // CustomMatcher Trait
-// ============================================================================
 
 /// 自定义匹配器 trait
 ///
@@ -250,9 +244,7 @@ pub trait CustomMatcher: Send + Sync {
     fn load_config(&mut self, config: Value) -> Result<(), LimiteronError>;
 }
 
-// ============================================================================
 // CustomMatcherRegistry
-// ============================================================================
 
 /// 自定义匹配器注册表
 ///
@@ -332,7 +324,6 @@ impl CustomMatcherRegistry {
         name: String,
         matcher: Box<dyn CustomMatcher>,
     ) -> Result<(), LimiteronError> {
-        // 验证匹配器名称
         validate_matcher_name(&name)?;
 
         let mut matchers = self.matchers.write().await;
@@ -527,9 +518,7 @@ impl CustomMatcherRegistryBuilder {
     }
 }
 
-// ============================================================================
 // TimeWindowMatcher 示例实现
-// ============================================================================
 
 /// 时间窗口匹配器
 ///
@@ -619,7 +608,6 @@ impl CustomMatcher for TimeWindowMatcher {
         let now = chrono::Utc::now();
         let hour = now.hour() as u8;
 
-        // 检查当前小时是否在时间窗口内
         let matches = if self.start_hour <= self.end_hour {
             // 正常时间窗口（如 9-18）
             hour >= self.start_hour && hour <= self.end_hour
@@ -717,9 +705,7 @@ impl TimeWindowMatcherBuilder {
     }
 }
 
-// ============================================================================
 // HeaderMatcher 示例实现
-// ============================================================================
 
 /// HTTP头匹配器
 ///
@@ -788,7 +774,6 @@ impl HeaderMatcher {
     /// let matcher = HeaderMatcher::new("X-API-Key", vec!["secret123".to_string()]).unwrap();
     /// ```
     pub fn new(header_name: &str, allowed_values: Vec<String>) -> Result<Self, LimiteronError> {
-        // 验证 HTTP 头名称
         validate_header_name(header_name)?;
 
         // 空 allowlist 的匹配器静默永不命中，与 MethodMatcher 的空列表
@@ -806,7 +791,6 @@ impl HeaderMatcher {
             )));
         }
 
-        // 验证每个值
         for value in &allowed_values {
             validate_header_value(value)?;
         }
@@ -1098,9 +1082,7 @@ impl HeaderMatcherBuilder {
     }
 }
 
-// ============================================================================
 // MethodMatcher（请求方法匹配）
-// ============================================================================
 
 /// 请求方法匹配器
 ///
@@ -1241,9 +1223,7 @@ impl MethodMatcherBuilder {
     }
 }
 
-// ============================================================================
 // RegexPathMatcher（路径正则匹配，feature `regex-matching`）
-// ============================================================================
 
 /// 路径正则匹配器（feature `regex-matching`）
 ///
@@ -1376,16 +1356,14 @@ impl CustomMatcher for RegexPathMatcher {
     }
 }
 
-// ============================================================================
 // 单元测试
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::matchers::RequestContext;
 
-    // ==================== CustomMatcherRegistry 测试 ====================
+    // CustomMatcherRegistry 测试
 
     #[tokio::test]
     async fn test_registry_new() {
@@ -1517,7 +1495,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ==================== TimeWindowMatcher 测试 ====================
+    // TimeWindowMatcher 测试
 
     #[tokio::test]
     async fn test_time_window_matcher_new() {
@@ -1572,7 +1550,7 @@ mod tests {
         TimeWindowMatcher::new(9, 25);
     }
 
-    // ==================== HeaderMatcher 测试 ====================
+    // HeaderMatcher 测试
 
     #[tokio::test]
     async fn test_header_matcher_new() {
@@ -1657,7 +1635,7 @@ mod tests {
         assert_eq!(matcher.allowed_values().len(), 1);
     }
 
-    // ==================== 并发测试 ====================
+    // 并发测试
 
     #[tokio::test]
     async fn test_registry_concurrent_register() {
@@ -1714,7 +1692,7 @@ mod tests {
         assert_eq!(success_count, 100);
     }
 
-    // ==================== 输入验证函数测试 ====================
+    // 输入验证函数测试
 
     #[test]
     fn test_validate_matcher_name_empty() {
@@ -1767,7 +1745,7 @@ mod tests {
         assert!(validate_header_value("valid-value").is_ok());
     }
 
-    // ==================== CustomMatcherRegistry 补充测试 ====================
+    // CustomMatcherRegistry 补充测试
 
     #[tokio::test]
     async fn test_registry_default() {
@@ -1835,7 +1813,7 @@ mod tests {
         assert!(list.is_empty());
     }
 
-    // ==================== TimeWindowMatcher 补充测试 ====================
+    // TimeWindowMatcher 补充测试
 
     #[test]
     fn test_time_window_matcher_builder() {
@@ -1900,7 +1878,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ==================== HeaderMatcher 补充测试 ====================
+    // HeaderMatcher 补充测试
 
     #[test]
     fn test_header_matcher_new_empty_name() {
@@ -2027,7 +2005,7 @@ mod tests {
         assert_eq!(matcher.allowed_values()[2], "v3");
     }
 
-    // ==================== HeaderMatcher 前缀/相等模式 ====================
+    // HeaderMatcher 前缀/相等模式
 
     fn ctx_with_header(name: &str, value: &str) -> RequestContext {
         RequestContext::new().with_header(name, value)
@@ -2254,7 +2232,7 @@ mod tests {
         assert_eq!(matcher.match_mode(), HeaderMatchMode::Prefix);
     }
 
-    // ==================== MethodMatcher ====================
+    // MethodMatcher
 
     #[test]
     fn test_method_matcher_new_normalizes_case() {
@@ -2350,7 +2328,7 @@ mod tests {
         assert!(result.is_err(), "unregistering must error explicitly");
     }
 
-    // ==================== RegexPathMatcher（regex-matching feature） ====================
+    // RegexPathMatcher（regex-matching feature）
 
     #[cfg(feature = "regex-matching")]
     #[tokio::test]
@@ -2424,7 +2402,7 @@ mod tests {
         assert!(registry.match_with("api_paths", &ctx).await.is_err());
     }
 
-    // ==================== 三 matcher 注册表注册/注销集成 ====================
+    // 三 matcher 注册表注册/注销集成
 
     #[tokio::test]
     async fn test_registry_register_duplicate_rejected() {

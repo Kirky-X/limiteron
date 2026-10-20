@@ -115,7 +115,6 @@ impl Limiter for SlidingWindowLimiter {
             return Ok(false);
         }
 
-        // 添加新的请求记录
         for _ in 0..cost {
             requests.push_back(now);
         }

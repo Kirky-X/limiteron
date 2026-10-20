@@ -497,9 +497,7 @@ mod tests {
         assert!(empty.storage().is_none());
         assert!(empty.ban_storage().is_none());
     }
-    // ========================================================================
     // 健康/生命周期端口 + OxcacheModule 缓存注入
-    // ========================================================================
 
     /// AsyncHealthCheck：健康 Governor → Healthy
     #[tokio::test]

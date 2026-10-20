@@ -131,7 +131,6 @@ impl DistributedLimiter for InMemoryDistributedLimiter {
         let now = Instant::now();
         let expires_at = now + ttl;
 
-        // 清理过期条目
         self.cleanup_expired();
 
         // 历史教训：曾每次递增都刷新 expires_at——持续流量的 key
@@ -386,7 +385,6 @@ mod tests {
     #[tokio::test]
     async fn test_reset_nonexistent_key() {
         let limiter = InMemoryDistributedLimiter::new();
-        // 重置不存在的键不应报错
         let result = limiter.reset("nonexistent").await;
         assert!(result.is_ok());
     }
@@ -399,11 +397,9 @@ mod tests {
     }
 }
 
-// ============================================================================
 // Redis 分布式限流器
 // 通过 oxcache Cache 的 eval_lua 执行 Lua 脚本实现原子操作，
 // 需要 `distributed` + `lua-script` 两个 feature 同时启用。
-// ============================================================================
 
 /// 原子递增 Lua 脚本
 /// KEYS\[1\] = key, ARGV\[1\] = amount → 返回递增后的值

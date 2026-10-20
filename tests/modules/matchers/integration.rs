@@ -10,9 +10,7 @@ use limiteron::matchers::{
     MacExtractor, RequestContext, RuleMatcher, UserIdExtractor,
 };
 
-// ============================================================================
 // IpExtractor Tests
-// ============================================================================
 //
 // vuln-0003 修复后，X-Forwarded-For 等转发头仅在直接 TCP 对端（client_ip）
 // 为可信代理时才被信任。下述测试均构造可信代理转发场景，以验证头提取行为。
@@ -88,9 +86,7 @@ async fn test_ip_extractor_default() {
     assert!(id.is_some());
 }
 
-// ============================================================================
 // UserIdExtractor Tests
-// ============================================================================
 
 #[tokio::test]
 async fn test_user_id_extractor_header() {
@@ -120,9 +116,7 @@ async fn test_user_id_extractor_query_param() {
     assert!(id.is_some());
 }
 
-// ============================================================================
 // ApiKeyExtractor Tests
-// ============================================================================
 
 #[tokio::test]
 async fn test_api_key_extractor() {
@@ -152,9 +146,7 @@ async fn test_api_key_extractor_bearer() {
     assert!(id.is_some());
 }
 
-// ============================================================================
 // MacExtractor Tests
-// ============================================================================
 
 #[tokio::test]
 async fn test_mac_extractor_header() {
@@ -183,9 +175,7 @@ async fn test_mac_extractor_query_param() {
     assert!(id.is_some());
 }
 
-// ============================================================================
 // CompositeExtractor Tests
-// ============================================================================
 
 #[tokio::test]
 async fn test_composite_extractor_first_success() {
@@ -224,9 +214,7 @@ async fn test_composite_extractor_fallback() {
     assert!(id.is_none()); // no IP extractor in this composite
 }
 
-// ============================================================================
 // RuleMatcher Tests
-// ============================================================================
 
 #[tokio::test]
 async fn test_rule_matcher_empty_rules() {
@@ -243,9 +231,7 @@ async fn test_rule_matcher_id_generation() {
     assert_eq!(matcher.rule_count(), 0);
 }
 
-// ============================================================================
 // RequestContext Tests
-// ============================================================================
 
 #[tokio::test]
 async fn test_request_context_basics() {
@@ -268,9 +254,7 @@ async fn test_request_context_builder() {
     assert_eq!(ctx.query_params.get("page").map(|s| s.as_str()), Some("1"));
 }
 
-// ============================================================================
 // Identifier Tests
-// ============================================================================
 
 #[tokio::test]
 async fn test_identifier_debug() {

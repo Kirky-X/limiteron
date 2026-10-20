@@ -497,7 +497,6 @@ bans:
         assert_eq!(result.failure_count, 0);
         assert!(result.errors.is_empty());
 
-        // 验证封禁已写入存储
         let ban = manager
             .read_ban(&BanTarget::Ip("192.168.1.1".to_string()))
             .await
@@ -699,13 +698,11 @@ bans:
         let r = loader.load_once(&manager).await.expect("load failed");
         assert_eq!(r.success_count, 1);
 
-        // 启动监听
         loader
             .start_watching(manager.clone())
             .await
             .expect("failed to start watcher");
 
-        // 等待监听就绪
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // 修改文件，追加一条封禁
@@ -725,7 +722,6 @@ bans:
         // 等待 notify 触发 + 重载完成
         tokio::time::sleep(Duration::from_secs(3)).await;
 
-        // 验证新封禁已加载
         let ban = manager
             .read_ban(&BanTarget::Ip("10.0.0.2".to_string()))
             .await
@@ -735,11 +731,10 @@ bans:
             "the new ban must be queryable after hot reload"
         );
 
-        // 停止监听
         loader.stop_watching().await;
     }
 
-    // ==================== load_once 错误与部分失败路径（确定性分支） ====================
+    // load_once 错误与部分失败路径（确定性分支）
 
     /// 文件不存在必须显式报错（不得静默返回空结果，避免运维误判"已加载"）
     #[tokio::test]

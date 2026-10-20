@@ -522,7 +522,6 @@ impl MonitoringSystem {
             return;
         }
 
-        // 更新最后告警时间
         *self.last_alert_time.lock() = now;
 
         // 告警日志由 send_alert_notifications 统一输出（J5：此前两处
@@ -721,7 +720,6 @@ mod tests {
             monitoring.record_request_failure(timer);
         }
 
-        // 等待统计稳定
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         let snapshot = monitoring.metrics.snapshot();
@@ -1085,7 +1083,6 @@ mod tests {
         };
         let mut state = MetricAlertState::default();
 
-        // Build up consecutive warnings
         MonitoringSystem::apply_jitter(Some(AlertLevel::Warning), &mut state, &config);
         MonitoringSystem::apply_jitter(Some(AlertLevel::Warning), &mut state, &config);
         assert_eq!(state.consecutive, 2);

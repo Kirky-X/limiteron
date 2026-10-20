@@ -560,7 +560,7 @@ mod tests {
     mod log_redaction_tests {
         use super::*;
 
-        // ===== 引擎无关锚（inklog DataMasker 迁移前后均应绿）=====
+        // 引擎无关锚（inklog DataMasker 迁移前后均应绿）
 
         #[test]
         fn test_redact_advanced_field_name_gate() {
@@ -804,7 +804,7 @@ mod tests {
             assert_eq!(config.format(|_| None), "{}");
         }
 
-        // ===== 新引擎覆盖锚（inklog DataMasker 迁移后转绿）=====
+        // 新引擎覆盖锚（inklog DataMasker 迁移后转绿）
 
         #[test]
         fn test_redact_advanced_non_sensitive_value_unchanged() {

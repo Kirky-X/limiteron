@@ -15,7 +15,7 @@ use limiteron::{BanRecord, BanStorage, BanTarget, Storage};
 use std::sync::Arc;
 use std::time::Duration;
 
-// ==================== Test Helpers ====================
+// Test Helpers
 
 pub async fn create_governor() -> Arc<Governor> {
     let config = GovernorConfig {
@@ -81,7 +81,7 @@ pub fn create_ban_record(target: BanTarget, duration_secs: u64, reason: &str) ->
     }
 }
 
-// ==================== RequestContext 构建器 ====================
+// RequestContext 构建器
 
 pub struct RequestContextBuilder {
     ctx: limiteron::matchers::RequestContext,
@@ -155,7 +155,7 @@ impl Default for RequestContextBuilder {
     }
 }
 
-// ==================== 专用断言宏 ====================
+// 专用断言宏
 
 #[macro_export]
 macro_rules! assert_allowed {

@@ -72,10 +72,7 @@ sea-orm = { version = "2.0", default-features = false, features = ["macros", "wi
 # 缓存库
 oxcache = { version = "0.5.0-rc.9", default-features = false, features = ["core"] }
 
-# 数据库抽象层 — dbnexus。注意：此处不启用 postgres/mysql/sqlite 等数据库驱动，
-# 驱动由各 feature 显式请求（limiteron 的 `postgres` feature 会启用 dbnexus/postgres）。
-# 若在此写死 "postgres"，会强制 server-side 驱动，与下游使用 dbnexus/sqlite 的
-# 应用在同一次构建中合并，触发 dbnexus 的 embedded/server-side 互斥编译错误。
+# dbnexus 抽象层：此处不启用驱动，驱动由各 feature 显式请求
 dbnexus = { version = "0.6.0-rc.10", default-features = false, features = ["macros", "sql-parser", "permission"] }
 
 # 宏
@@ -150,9 +147,7 @@ ahash.workspace = true
 # 数据库操作（可选）
 dbnexus = { workspace = true, optional = true }
 sea-orm = { workspace = true, optional = true }
-# 安全约束：CVE-2025-48369，强制 rustls-webpki >= 0.103.13
-# 通过 dbnexus/sea-orm/reqwest 的 TLS 依赖间接引入，显式约束最低版本以防止 Cargo 解析到脆弱版本。
-# 注：版本格式为例外（用户规则要求 x.x，但安全约束需要 patch 段），安全优先级高于代码质量规则。
+# 安全约束：强制 rustls-webpki >= 0.103.13（CVE-369），安全优先于版本号规则
 rustls-webpki = { version = "0.103.15", optional = true }
 
 # 缓存库（必需）
@@ -199,16 +194,11 @@ hyper = { version = "1", default-features = false, features = ["http1", "client"
 hyper-util = { version = "0.1", default-features = false, features = ["client", "http1", "tokio"], optional = true }
 http-body-util = { version = "0.1", optional = true }
 
-# 国际化 (optional, feature-gated via `i18n`).
-# ICU4X 2.x 提供 locale 感知的数字/日期/复数/排序格式化。
-# Mirrors trait-kit/oxcache i18n pattern.
+# 国际化 (optional, feature-gated via `i18n`).ICU4X 2.x 提供 locale 感知的数字/日期/复数/排序格式化
 icu = { version = "2.3", default-features = false, features = ["compiled_data"], optional = true }
 writeable = { version = "0.6", optional = true }
 
-# i18n 基础设施（常驻依赖，不经 feature 门控）：Fluent 消息目录 + 语言检测链。
-# 错误双轨（Display 英文规范串 + to_localized_string）、CLI/admin HTTP 出口与
-# tower-middleware 默认文案在默认构建下即消费本地化路径，故 fluent 三件套常驻；
-# 仅 ICU 格式化器（LimiterI18nFormatter）继续由 `i18n` feature 门控。
+# i18n 基础设施（常驻依赖，不经 feature 门控）：Fluent 消息目录 + 语言检测链
 fluent-bundle = "0.16"
 unic-langid = "0.9"
 sys-locale = "0.3"
@@ -247,9 +237,7 @@ serial_test.workspace = true
 limiteron = { path = ".", default-features = false, features = ["test-clock"] }
 
 [features]
-# ============================================
 # Feature Presets (预定义组合)
-# ============================================
 
 # 测试时钟 MockClock 的公开门控 feature（不入任何生产 preset；
 # src 内联测试经 cfg(test) 可见，tests/ 外部用例经 self dev-dep 开启）
@@ -257,9 +245,7 @@ test-clock = []
 # 配置 CLI：`limiteron-cli` 二进制 + src/cli 可单测核心。
 # 默认不编译（决策热路径零开销）。
 cli = []
-# 封禁跨实例同步：经 oxcache Pub/Sub 总线（协议层）广播封禁变更。
-# ban_sync 模块依赖 event-system 的 EventEmitter/EventDispatcher，故一并启用，
-# 避免单开 ban-sync 时模块静默缺席。
+# 封禁跨实例同步：经 oxcache Pub/Sub 广播，依赖 event-system 故一并启用
 ban-sync = ["event-system", "oxcache/invalidation"]
 # ============================================
 # Minimal: 核心限流功能（无外部存储依赖）；sync 为 tokio-free 同步原语（std + parking_lot）
@@ -272,13 +258,7 @@ sync = []
 # 驱动共存，钉死驱动会与下游叠加的后端 feature 冲突）；按需自行叠加 sqlite/postgres/mysql
 standard = ["ban-manager", "quota-control", "circuit-breaker"]
 
-# Full: 除存储后端外的全部功能（后端同样按需叠加 sqlite/postgres/mysql）。
-# 2026-09-19 审计补齐：bulkhead/validation/i18n/inklog/config-confers(-reload)/
-# kit/adaptive-limiting/distributed/ban-sync 均为已实现模块，此前缺席导致这些
-# 源文件在 full 口径下从不参与编译（存在破损而不可知）。
-# 刻意不入 full：metrics（经 dbnexus/metrics 拉入存储栈，违背本 preset 的
-# "无存储后端"承诺）、cli（二进制面，默认不编译，见其定义处注释）、
-# test-clock（测试专用，见注释）。
+# Full: 除存储后端外的全部功能（后端同样按需叠加 sqlite/postgres/mysql）
 full = [
     "cache-redis",
     "ban-manager",
@@ -325,43 +305,24 @@ default = []
 # Compatibility features（vecboost 兼容声明）。
 # adaptive-limiting 自 rc4 起为真实实现（AIMD 自适应并发限流器）。
 adaptive-limiting = []
-# 自适应阈值限流器：滑动观测窗口错误率/延迟驱动动态配额（统计启发式，
-# 非 ML——显式决策见 src/limiters/adaptive_threshold.rs 模块文档）。
-# 决策记录：独立默认关 feature，刻意不入任何 preset（含 full），
-# 与 capacity-dial 同口径——调光/反馈接入点由消费方装配。
+# 自适应阈值限流：滑动窗口错误率/延迟驱动动态配额（启发式，默认关，不入 preset）
 adaptive-threshold = []
-# 六档容量调光（DialLevel L0-L5 / DialThresholds / CapacityDial）。
-# 独立默认关 feature，与既有模块零耦合，刻意不入任何 preset（含 full）：
-# 调光执行点（指标采集、按 capacity_ratio 放行）由消费方装配。
+# 六档容量调光（DialLevel L0-L5）；默认关，不入任何 preset，执行点由消费方装配
 capacity-dial = []
 # 优先级队列限流器：按优先级调度的配额分配（保留额 + 严格优先级借用）。
 priority-queue = []
 # 准入控制器：并发 + 速率双门准入与按原因拒绝计数。
 admission-control = []
-# 插件系统：决策生命周期钩子（on_admit/on_reject/on_degrade）+ 编译期注册制。
-# 决策记录：入 full preset——运行时功能面（非文档/工具面）；动态 .so 明确不做，
-# 边界说明见 src/plugins/mod.rs 模块文档。
+# 插件系统：决策生命周期钩子（on_admit/on_reject/on_degrade）+ 编译期注册制
 plugins = ["dep:futures"]
 
-# ============================================
-# Storage Features (存储后端)
-# ============================================
-# PostgreSQL 存储 - 使用 dbnexus（显式 opt-in：默认不启用，仅在启用本 feature 时才
-# 拉入 dbnexus/postgres server-side 驱动；其它 feature（如 metrics）只激活 dbnexus 非
-# 驱动能力，不会与下游嵌入式数据库（sqlite/duckdb/ladybug）特性冲突）。
-# 含 rustls-webpki 显式约束（CVE-2025-48369 最低版本锁）
+# 存储后端：显式 opt-in，仅本 feature 拉入 dbnexus/postgres，不与其他驱动冲突
 postgres = ["dep:dbnexus", "dbnexus/postgres", "dbnexus/runtime-tokio-rustls", "dep:sea-orm", "dep:rustls-webpki"]
 
-# SQLite 存储 - 使用 dbnexus 嵌入式驱动（默认本地后端，无需外部服务）。
-# 与 postgres 互斥（dbnexus 禁止 embedded 与 server-side 驱动共存于同一构建，
-# Cargo 无 feature 互斥语法 → `--all-features` 会同时启用二者触发 dbnexus
-# compile_error，多后端 crate 不适用 --all-features 验证，用两组显式 features）。
-# 本地开发 / 单机部署 / 测试默认使用本 feature。
+# SQLite 存储 - 使用 dbnexus 嵌入式驱动（默认本地后端，无需外部服务）
 sqlite = ["dep:dbnexus", "dbnexus/sqlite", "dbnexus/runtime-tokio-rustls", "dep:sea-orm"]
 
-# MySQL 存储 - 使用 dbnexus server-side 驱动（与 postgres/sqlite 并列提供）。
-# dbnexus 驱动互斥（严格）：mysql 与 postgres 互斥、与 embedded（sqlite/duckdb）
-# 互斥——多后端 crate 不适用 --all-features 验证，用显式单驱动 features 组合。
+# MySQL 存储 - 使用 dbnexus server-side 驱动（与 postgres/sqlite 并列提供）
 mysql = ["dep:dbnexus", "dbnexus/mysql", "dbnexus/runtime-tokio-rustls", "dep:sea-orm"]
 
 # Redis 缓存后端 - 经 oxcache 接入 Redis（原 cache-storage，更名以消除与
@@ -373,22 +334,16 @@ cache-storage = ["cache-redis"]
 # Lua 脚本支持 - 使用 oxcache 的 lua-script 特性
 lua-script = ["oxcache/lua", "dep:redis"]
 
-# 路径正则匹配器（RegexPathMatcher）：引入 regex 引擎参与自定义匹配。
-# 注意：消费的 workspace regex 依赖保留全量默认特性（unicode 大表），
-# 启用本特性有编译时间与二进制体积代价
+# 路径正则匹配：引入 regex 全量 unicode 表，有编译时间与体积代价
 regex-matching = ["dep:regex"]
 
 # ahash 不再作为特性，直接在依赖中定义
 
-# ============================================
 # Core Features (核心功能)
-# ============================================
 ban-manager = []
 # 舱壁隔离：按资源组分池 + 独立并发预算/熔断/隔离指标
 bulkhead = []
-# 限流器管理器：LimiterManager / GLOBAL_LIMITER_MANAGER（按 key 缓存限流器实例）。
-# #[flow_control] 宏展开代码引用全局管理器，故 macros 组合隐含本 feature，
-# 单开 macros 时展开代码仍可编译；本 feature 亦可不经宏独立启用。
+# 限流器管理器：全局实例缓存；#[flow_control] 宏展开隐含本 feature
 manager = []
 quota-control = []
 circuit-breaker = []
@@ -400,54 +355,32 @@ cache-service = []
 # GCRA 限流算法
 gcra = []
 
-# ============================================
-# Security Features (安全功能)
-# ============================================
-# 日志脱敏：脱敏引擎经 inklog DataMasker + MaskRuleRegistry 承载
-# （复用 inklog 别名 feature，避免两条开启同一可选依赖的路径）；
-# regex 依赖保留给 matchers / device-matching 等其余消费点
+# 日志脱敏：复用 inklog DataMasker；regex 供 matchers / device-matching 使用
 log-redaction = ["inklog"]
 validation = []
 
-# ============================================
 # Performance Features (性能优化)
-# ============================================
 parallel-checker = ["ban-manager", "dep:futures"]
 
-# ============================================
 # Advanced Matching (高级匹配)
-# ============================================
 geo-matching = ["dep:maxminddb"]
 device-matching = ["dep:woothee", "dep:regex"]
 
-# ============================================
 # Admin API (管理控制面)
-# ============================================
 admin-api = ["dep:axum", "dep:tower", "dep:http"]
-# OpenAPI 文档面：手写构建器（src/admin/openapi.rs）+ 入库产物防漂移测试。
-# 决策记录（feature 进/出 preset）：openapi 是文档工具面，非运行时能力，
-# 不入 full preset（与 cli/test-clock 同口径：默认不编译的二进制/文档面）。
+# OpenAPI 文档面：手写构建器 + 防漂移测试；文档工具面不入 full preset
 openapi = ["admin-api"]
-# Admin API 薄客户端（hyper http1，已是 axum 传递依赖，零新增依赖树重量）。
-# 临时验证面：sdforge-R11 SDK 生成器落地后接替（演进注记见 src/admin/client.rs）。
-# 决策记录：admin-client 是消费端工具面，不入 full preset（同 openapi 口径）。
+# Admin API 薄客户端（hyper http1，已是 axum 传递依赖，零新增依赖树重量）
 admin-client = ["admin-api", "dep:hyper", "dep:hyper-util", "dep:http-body-util"]
-# 只读管理 Web UI：内嵌单页（无构建链），机械只读守卫（路由表全 GET +
-# 注册完整性 + 只读投影类型窄化，见 src/admin/web.rs 模块文档）。
-# 默认绑定 127.0.0.1；无认证，非回环绑定须前置反向代理（模块文档显著警示）。
-# 决策记录：admin-ui 是 UI 面，不入 full preset（同 openapi/admin-client 口径）。
+# 只读管理 Web UI：内嵌单页（无构建链），机械只读守卫（路由表全 GET +注册完整性 + 只读投影类型窄化，见 src/admin/web.rs 模块文档）
 admin-ui = ["admin-api"]
 
-# ============================================
 # Observability Features (可观测性)
-# ============================================
 telemetry = [
     "dep:tracing-subscriber",
     "dep:scopeguard",
 ]
-# prometheus 特性：Prometheus 指标导出（Metrics struct + Prometheus registry）。
-# 由 `monitoring` 更名而来——该特性实为 Prometheus 专属，按「特性名即能力」
-# 惯例取依赖实名（与 telemetry/otlp/audit-log 同口径）；旧名保留为兼容别名
+# prometheus：Prometheus 指标导出（由 monitoring 更名，旧名保留为别名）
 prometheus = ["dep:prometheus", "dep:scopeguard"]
 monitoring = ["prometheus"]
 # metrics 特性：启用 governor allow/reject/ban 三点指标记录 + dbnexus 指标传递
@@ -458,53 +391,32 @@ audit-log = ["telemetry", "dep:hmac", "dep:sha2", "dep:hex"]
 # （手工 HTTP/1.1 客户端，无新增依赖；传输可 mock，mock collector 单测覆盖）
 otlp = ["telemetry"]
 
-# ============================================
 # Tooling Features (工具)
-# ============================================
 macros = ["dep:limiteron-macros", "manager"]
 config-watcher = ["dep:notify"]
 # webhook 外发（含 HMAC-SHA256 签名头 + 时间戳防重放，签名依赖与 audit-log 共享）
 webhook = ["dep:reqwest", "dep:hmac", "dep:sha2", "dep:hex"]
 
-# ============================================
 # Event System (事件系统)
-# ============================================
 event-system = []
 
-# ============================================
 # Multi-Tenant Features (多租户)
-# ============================================
 multi-tenant = []
 
-# ============================================
 # Tower Middleware (HTTP 中间件)
-# ============================================
 tower-middleware = ["dep:tower", "dep:tower-layer", "dep:http"]
 
-# ============================================
-# Distributed Features (分布式支持)
-# ============================================
-# 分布式限流支持 - 提供 incr 等原子方法，兼容分布式 DAO（如 BulwarkDao）
-# 进程内限流器只需 Limiter trait；分布式限流器实现 DistributedLimiter trait
+# 分布式限流：提供 incr 等原子方法，实现 DistributedLimiter trait
 distributed = []
 
-# ============================================
-# External Integrations (外部集成)
-# ============================================
-# trait-kit AsyncKit integration (LimiteronModule). Pulls in trait-kit
-# with `async`/`health`/`lifecycle` — default features are disabled (Rule 6).
-# Mirrors oxcache's `kit` feature.
-# kit（对齐 dbnexus 范式）：依赖 oxcache/kit 经 OxcacheModule 注入缓存，
-# trait-kit 补 health/lifecycle 端口供 LimiteronModule 健康与生命周期实现
+# External Integrations (外部集成)trait-kit AsyncKit integration (LimiteronModule).
 kit = ["dep:trait-kit", "dep:futures", "oxcache/kit"]
 
 # ICU4X 国际化能力 (locale 感知的数字/日期/复数/排序格式化).
 # Mirrors trait-kit/oxcache `i18n` feature.
 i18n = ["dep:icu", "dep:writeable"]
 
-# inklog structured logging integration. Replaces bare `log`/`tracing` output
-# with inklog's LoggerManager (console/file/database sinks). When disabled,
-# limiteron retains its original `log`/`tracing` behavior unchanged.
+# inklog structured logging integration.
 inklog = ["dep:inklog"]
 
 # confers configuration integration (three-tier pattern mirroring trait-kit).
@@ -513,13 +425,7 @@ config-confers = []
 # Hot-reload: watch config files and atomically swap Governor config.
 config-confers-reload = ["config-confers", "confers/watch"]
 
-# ============================================================================
-# 测试目标显式注册
-# ============================================================================
-# e2e_advanced 迁入 tests/e2e/ 目录承载（e2e_* 不得裸放顶层）；顶层文件迁入
-# 子目录后脱离 Cargo 自动发现范围（仅自动发现顶层 *.rs 与 */main.rs），
-# 不注册则 65 个测试静默消失。文件按 mod 域组织，仅 gcra 域有
-# #[cfg(feature = "gcra")] 门控，其余用默认 feature API，无需 required-features。
+# 测试目标显式注册：e2e_advanced 迁入子目录后需手动注册，否则测试静默消失
 [[test]]
 name = "e2e_advanced"
 path = "tests/e2e/e2e_advanced.rs"

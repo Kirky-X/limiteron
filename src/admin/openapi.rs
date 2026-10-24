@@ -58,14 +58,30 @@ fn error_response(description: &str) -> serde_json::Value {
     })
 }
 
-/// 带 Bearer 安全要求的 operation 构造
-fn operation(summary: &str, tag: &str, mut operation: serde_json::Value) -> serde_json::Value {
-    operation["summary"] = serde_json::json!(summary);
-    operation["tags"] = serde_json::json!([tag]);
-    if operation.get("responses").is_none() {
-        operation["responses"] = serde_json::json!({});
+/// Path Item Object 的 operation 键（HTTP 方法）
+const HTTP_METHODS: [&str; 8] = [
+    "get", "put", "post", "delete", "options", "head", "patch", "trace",
+];
+
+/// 为路径项内每个 operation 附加 summary/tags/responses
+///
+/// 写入目标是 operation 层而非 Path Item 层：Path Item 的合法键只有 HTTP 方法与
+/// `$ref`/`summary`/`description`/`servers`/`parameters`，`tags`/`responses` 挂在
+/// Path Item 上会让整份文档不符合 OpenAPI 3.0（且 Swagger UI/Redoc 的接口分组
+/// 依赖 operation 级 `tags`）。
+fn operation(summary: &str, tag: &str, mut path_item: serde_json::Value) -> serde_json::Value {
+    let obj = path_item.as_object_mut().expect("path item object");
+    for (method, op) in obj.iter_mut() {
+        if !HTTP_METHODS.contains(&method.as_str()) {
+            continue;
+        }
+        op["summary"] = serde_json::json!(summary);
+        op["tags"] = serde_json::json!([tag]);
+        if op.get("responses").is_none() {
+            op["responses"] = serde_json::json!({});
+        }
     }
-    operation
+    path_item
 }
 
 /// 构建完整 OpenAPI 文档
@@ -203,7 +219,8 @@ pub fn openapi_document() -> serde_json::Value {
                     },
                     "responses": {
                         "200": ok_json("Removal result", "#/components/schemas/Unit"),
-                        "400": error_response("Unsupported type"),
+                        "400": error_response("Unsupported type or invalid target format"),
+                        "403": error_response("Operator not authorized"),
                         "404": error_response("Ban not found"),
                         "500": error_response("Internal error"),
                         "503": error_response("ban-manager not configured")
@@ -222,7 +239,7 @@ pub fn openapi_document() -> serde_json::Value {
                     },
                     "responses": {
                         "200": ok_json("Operation result", "#/components/schemas/UpdateQuotaResponse"),
-                        "400": error_response("Unsupported operation"),
+                        "400": error_response("Unsupported operation; user_id/resource must not contain ':'"),
                         "500": error_response("Internal error"),
                         "503": error_response("quota-control not configured")
                     }
@@ -373,6 +390,82 @@ pub fn openapi_document_pretty() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// OpenAPI 3.0 Path Item Object 的合法键（HTTP 方法与 Path Item 字段）
+    const PATH_ITEM_KEYS: [&str; 13] = [
+        "$ref",
+        "summary",
+        "description",
+        "servers",
+        "parameters",
+        "get",
+        "put",
+        "post",
+        "delete",
+        "options",
+        "head",
+        "patch",
+        "trace",
+    ];
+
+    /// 断言路径项只带合法键、operation 自带 summary/tags/responses
+    ///
+    /// `tags`/`responses` 是 operation 级概念：挂在 Path Item 上会让文档不符合
+    /// OpenAPI 3.0（Path Item 的 `additionalProperties` 为 false），同时让
+    /// Swagger UI/Redoc 丢失接口分组。
+    fn assert_path_items_are_legal(paths: &serde_json::Map<String, serde_json::Value>) {
+        assert!(!paths.is_empty(), "document must expose at least one path");
+        for (path, path_item) in paths {
+            let item = path_item.as_object().expect("path item object");
+            for key in item.keys() {
+                assert!(
+                    PATH_ITEM_KEYS.contains(&key.as_str()) || key.starts_with("x-"),
+                    "path item {path} carries illegal key {key}: Path Item Object allows only HTTP methods, $ref/summary/description/servers/parameters and x- extensions"
+                );
+            }
+            for (method, op) in item {
+                if !HTTP_METHODS.contains(&method.as_str()) {
+                    continue;
+                }
+                let operation = op.as_object().expect("operation object");
+                let summary = operation["summary"].as_str().unwrap_or_default();
+                assert!(
+                    !summary.is_empty(),
+                    "operation {method} {path} carries no summary"
+                );
+                let tags = operation["tags"].as_array().expect("operation tags array");
+                assert!(
+                    !tags.is_empty(),
+                    "operation {method} {path} carries no tags (interface grouping is lost)"
+                );
+                let responses = operation["responses"]
+                    .as_object()
+                    .expect("operation responses object");
+                assert!(
+                    !responses.is_empty(),
+                    "operation {method} {path} declares no response code"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn path_items_carry_no_operation_level_keys() {
+        let doc = openapi_document();
+        let paths = doc["paths"].as_object().expect("paths object");
+        assert_path_items_are_legal(paths);
+    }
+
+    #[test]
+    fn committed_artifact_carry_no_operation_level_keys() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/docs/openapi.json");
+        let text = std::fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("failed to read artifact {path}: {e}"));
+        let doc: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|e| panic!("artifact is not valid JSON: {e}"));
+        let paths = doc["paths"].as_object().expect("paths object");
+        assert_path_items_are_legal(paths);
+    }
 
     #[test]
     fn document_is_valid_structure() {

@@ -23,7 +23,7 @@ use super::handlers::{BanResponse, BanTargetQuery, CreateBanRequest, UnbanReques
 use super::handlers::{BatchCheckBody, SystemStatus, TokenPrefetchBody};
 #[cfg(feature = "quota-control")]
 use super::handlers::{UpdateQuotaRequest, UpdateQuotaResponse};
-#[cfg(feature = "ban-manager")]
+#[cfg(any(feature = "ban-manager", feature = "quota-control"))]
 use crate::error::LimiteronError;
 
 /// 管理操作错误（类别即协议适配层的语义映射依据）
@@ -55,6 +55,27 @@ impl std::fmt::Display for AdminServiceError {
 }
 
 impl std::error::Error for AdminServiceError {}
+
+/// 内部错误 → 对外稳定的错误类别
+///
+/// 原始错误文本可能含存储驱动原文（表名/列名/约束名/SQL 片段）与内部
+/// 路径，不进响应体；对外只给稳定类别，原始错误落服务端日志。
+fn error_category(e: &crate::error::LimiteronError) -> &'static str {
+    use crate::error::LimiteronError;
+    match e {
+        LimiteronError::ValidationError(_) => "validation",
+        LimiteronError::StorageError(_) => "storage",
+        LimiteronError::ConfigError(_) => "config",
+        LimiteronError::AuthorizationError(_) => "authorization",
+        LimiteronError::RateLimitExceeded(_)
+        | LimiteronError::QuotaExceeded(_)
+        | LimiteronError::ConcurrencyLimitExceeded(_)
+        | LimiteronError::Throttled(_) => "throttled",
+        LimiteronError::BanError(_) => "ban",
+        LimiteronError::CircuitBreakerError(_) => "circuit_breaker",
+        _ => "internal",
+    }
+}
 
 /// 协议无关管理服务契约
 ///
@@ -334,11 +355,13 @@ impl AdminService for GovernorAdminService {
                     }));
                 }
                 Err(e) => {
+                    // 原始错误只进服务端日志；响应体只给稳定类别
+                    log::error!(target: "admin-api", "batch check item {index} failed: {e}");
                     results.push(serde_json::json!({
                         "index": index,
                         "allowed": false,
                         "decision": "Error",
-                        "error": e.to_string(),
+                        "error": error_category(&e),
                     }));
                 }
             }
@@ -437,9 +460,17 @@ impl AdminService for GovernorAdminService {
         match ban_manager.delete_ban(&ban_target, operator).await {
             Ok(true) => Ok(req.reason.unwrap_or_else(|| "Ban removed".to_string())),
             Ok(false) => Err(AdminServiceError::NotFound("Ban not found".to_string())),
-            Err(e) => Err(AdminServiceError::Internal(format!(
-                "Failed to remove ban: {e}"
-            ))),
+            // 目标校验失败（validation feature）→ 400，与 create_ban 同口径；
+            // 授权拒绝 → 403（与 create_ban 同口径）；
+            // 其余为内部错误（原文只进服务端日志）
+            Err(e) => Err(match &e {
+                LimiteronError::ValidationError(_) => AdminServiceError::Invalid(e.to_string()),
+                // 消息透传 LimiteronError 的 Display（与 create_ban 同一契约）
+                LimiteronError::AuthorizationError(_) => {
+                    AdminServiceError::Forbidden(e.to_string())
+                }
+                _ => AdminServiceError::Internal(format!("Failed to remove ban: {e}")),
+            }),
         }
     }
 
@@ -468,9 +499,12 @@ impl AdminService for GovernorAdminService {
                             .unwrap_or(0)
                     }),
                 }),
-                Err(e) => Err(AdminServiceError::Internal(format!(
-                    "Failed to reset quota: {e}"
-                ))),
+                // 键校验失败（user_id/resource 含 ':'）属客户端输入错误 → 400，
+                // 与 create_ban / delete_ban 同口径；其余为内部错误
+                Err(e) => Err(match &e {
+                    LimiteronError::ValidationError(_) => AdminServiceError::Invalid(e.to_string()),
+                    _ => AdminServiceError::Internal(format!("Failed to reset quota: {e}")),
+                }),
             }
         } else {
             Err(AdminServiceError::Invalid(
@@ -642,6 +676,120 @@ mod tests {
             matches!(err, AdminServiceError::Forbidden { .. }),
             "AuthorizationError must map to Forbidden(403): {err:?}"
         );
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn delete_ban_authorization_error_maps_to_forbidden() {
+        use super::super::handlers::{BanTargetQuery, UnbanRequest};
+        use crate::authorization::SimpleAuthorizationProvider;
+        use crate::ban::BanManager;
+
+        // 仅授权 admin 的授权提供者：operator "intruder" 触发 AuthorizationError
+        let governor = Arc::new(crate::admin::handlers::tests::make_governor().await);
+        let ban_manager = Arc::new(
+            BanManager::builder()
+                .with_authorization_provider(Arc::new(SimpleAuthorizationProvider::new(vec![
+                    "admin".to_string(),
+                ])))
+                .build()
+                .await
+                .expect("ban manager with authorization provider"),
+        );
+        let service = GovernorAdminService {
+            governor,
+            ban_manager: Some(ban_manager),
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+        };
+
+        let result = service
+            .delete_ban(
+                "intruder".to_string(),
+                "10.0.0.9".to_string(),
+                BanTargetQuery::default(),
+                UnbanRequest {
+                    reason: None,
+                    operator: None,
+                },
+            )
+            .await;
+        let Err(err) = result else {
+            panic!("delete_ban for an unauthorized operator must fail");
+        };
+
+        // 响应体契约与 create_ban 一致：消息保持旧版 "Authorization error: {msg}"
+        let message = err.to_string();
+        assert!(
+            message.starts_with("Authorization error: "),
+            "403 response body message must keep the legacy contract, got: {message}"
+        );
+        assert!(
+            message.contains("intruder"),
+            "message must carry the operator detail: {message}"
+        );
+        assert!(
+            matches!(err, AdminServiceError::Forbidden { .. }),
+            "AuthorizationError must map to Forbidden(403), not Internal(500): {err:?}"
+        );
+    }
+
+    #[cfg(feature = "quota-control")]
+    #[tokio::test]
+    async fn update_quota_rejects_key_collision_input_as_invalid() {
+        use super::super::handlers::UpdateQuotaRequest;
+        use crate::quota::{QuotaConfig, QuotaController};
+        use crate::storage::MemoryQuotaStorage;
+
+        let governor = Arc::new(crate::admin::handlers::tests::make_governor().await);
+        let quota_controller = Arc::new(QuotaController::with_dependencies(
+            Arc::new(MemoryQuotaStorage::new()),
+            QuotaConfig::default(),
+        ));
+        let service = GovernorAdminService {
+            governor,
+            #[cfg(feature = "ban-manager")]
+            ban_manager: None,
+            quota_controller: Some(quota_controller),
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+        };
+
+        // user_id 含 ':' 会与 resource 拼出同一存储键（配额键碰撞防护），
+        // 属客户端输入错误 → 400（Invalid），不得记为服务端故障（500）
+        let result = service
+            .update_quota(
+                "a:b",
+                UpdateQuotaRequest {
+                    resource: "api".to_string(),
+                    new_limit: 0,
+                    duration_secs: None,
+                },
+            )
+            .await;
+        let Err(err) = result else {
+            panic!("a key-collision user_id must be rejected");
+        };
+        assert!(
+            matches!(err, AdminServiceError::Invalid(_)),
+            "key-collision user_id must map to Invalid(400), got: {err:?}"
+        );
+
+        // 合法 user_id 仍走成功路径
+        let ok = service
+            .update_quota(
+                "user-1",
+                UpdateQuotaRequest {
+                    resource: "api".to_string(),
+                    new_limit: 0,
+                    duration_secs: None,
+                },
+            )
+            .await
+            .expect("valid user_id must be accepted");
+        assert!(ok.success);
     }
 
     #[test]

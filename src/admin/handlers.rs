@@ -36,12 +36,19 @@ pub(crate) fn service_error_status(e: &AdminServiceError) -> StatusCode {
 /// 双轨：`AdminServiceError` 的 Display 恒为英文规范串（见 `service.rs`），
 /// NotConfigured 的响应体本地化面经 FTL 键渲染；其余变体载荷本身已是英文
 /// 规范串，直出 Display。
+///
+/// `Internal` 例外：其载荷是内部错误原文（可能含存储驱动的表名/列名/
+/// 约束名/SQL 片段），不进响应体——原文只落服务端日志，对外固定文案。
 pub(crate) fn service_error_message(e: &AdminServiceError) -> String {
     match e {
         AdminServiceError::NotConfigured(what) => crate::i18n::t(
             "admin-service-not-configured",
             &[("what", (*what).to_string())],
         ),
+        AdminServiceError::Internal(detail) => {
+            log::error!(target: "admin-api", "admin api internal error: {detail}");
+            "internal server error".to_string()
+        }
         other => other.to_string(),
     }
 }
@@ -456,7 +463,7 @@ pub struct UpdateQuotaResponse {
 /// PUT /api/v1/quota/{user_id}
 ///
 /// 路径段为 user_id（重置该 user 的配额使用量；租户维度配额不在此端点）。
-/// 状态码：200=成功, 400=不支持的操作, 503=未配置, 500=内部错误
+/// 状态码：200=成功, 400=不支持的操作或非法 user_id/resource（含 ':'）, 503=未配置, 500=内部错误
 #[cfg(feature = "quota-control")]
 pub async fn update_quota(
     State(state): State<LimiteronState>,
@@ -1066,8 +1073,11 @@ pub(crate) mod tests {
                 ..Default::default()
             },
         );
-        // 不指定 type → 自动推断为 UserId（MAC 字符串不是合法 IP）→ 404 NOT_FOUND
-        // 这验证了 ?type=mac 是解封 MAC 的必要条件（修复前的 bug 复现）
+        // 不指定 type → 自动推断为 UserId（MAC 字符串不是合法 IP）
+        // 目标校验开启时：MAC 串不是合法 user id（含 ':'）→ 目标非法且无对应
+        // 记录 → 400 INVALID（与 create_ban 同口径）
+        // 目标校验关闭时：目标无匹配记录 → 404 NOT_FOUND
+        // 两种结果都验证了 ?type=mac 是解封 MAC 的必要条件（修复前的 bug 复现）
         let req = UnbanRequest {
             reason: None,
             operator: None,
@@ -1080,8 +1090,79 @@ pub(crate) mod tests {
             Json(req),
         )
         .await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
-        assert_eq!(resp.0.message, "Ban not found");
+        #[cfg(feature = "validation")]
+        {
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert!(!resp.0.success);
+            assert!(
+                resp.0.message.contains("Validation error"),
+                "unexpected message: {}",
+                resp.0.message
+            );
+        }
+        #[cfg(not(feature = "validation"))]
+        {
+            assert_eq!(status, StatusCode::NOT_FOUND);
+            assert_eq!(resp.0.message, "Ban not found");
+        }
+    }
+
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_delete_ban_fallback_userid_keeps_mac_ban() {
+        use crate::BanManager;
+        use crate::ban::BanTarget;
+        use crate::storage::BanRecord;
+        let ban_manager = Arc::new(BanManager::new().await.unwrap());
+        let target = BanTarget::Mac("aa:bb:cc:dd:ee:ff".to_string());
+        let now = chrono::Utc::now();
+        ban_manager
+            .add_ban(BanRecord {
+                target: target.clone(),
+                ban_times: 1,
+                duration: std::time::Duration::from_secs(3600),
+                banned_at: now,
+                expires_at: now + chrono::Duration::seconds(3600),
+                is_manual: true,
+                reason: "mac ban".to_string(),
+            })
+            .await
+            .unwrap();
+        let governor = Arc::new(make_governor().await);
+        let state = make_state_with(
+            governor,
+            TestDeps {
+                ban_manager: Some(Arc::clone(&ban_manager)),
+                ..Default::default()
+            },
+        );
+        // 不指定 type → 目标按 UserId 解释，与 MAC 封禁是不同键
+        let req = UnbanRequest {
+            reason: None,
+            operator: None,
+        };
+        let (status, resp) = delete_ban(
+            State(state),
+            Extension(OperatorIdentity("tester".to_string())),
+            Path("aa:bb:cc:dd:ee:ff".to_string()),
+            Query(Default::default()),
+            Json(req),
+        )
+        .await;
+        // 目标校验开启：UserId 非法且无对应记录 → 400 INVALID
+        // 目标校验关闭：UserId 无记录 → 404 NOT_FOUND
+        #[cfg(feature = "validation")]
+        {
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert!(!resp.0.success);
+        }
+        #[cfg(not(feature = "validation"))]
+        {
+            assert_eq!(status, StatusCode::NOT_FOUND);
+            assert_eq!(resp.0.message, "Ban not found");
+        }
+        // 回退到 UserId 的解封不得误删 MAC 封禁记录
+        assert!(ban_manager.is_banned(&target).await.unwrap().is_some());
     }
 
     #[cfg(feature = "quota-control")]

@@ -6,6 +6,21 @@ use ahash::AHashMap as HashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+/// API key 最小长度（字节）
+///
+/// 凭证强度策略的唯一真源：`validate()`、路由鉴权（`routes::create_router`）
+/// 与 `is_valid_api_key` 共用同一阈值。
+pub(crate) const MIN_API_KEY_LEN: usize = 16;
+
+/// 角色映射中的 key 是否可作为有效凭证
+///
+/// 与主 `api_key` 同口径：非空且长度 ≥ [`MIN_API_KEY_LEN`]。
+/// 过短的 key 是可穷举的活凭证（映射为角色后即获管理面访问权），
+/// 一律拒绝而非仅告警。
+pub(crate) fn role_key_is_acceptable(key: &str) -> bool {
+    !key.trim().is_empty() && key.len() >= MIN_API_KEY_LEN
+}
+
 /// Admin API configuration validation error
 ///
 /// 双轨：Display 英文规范串 + [`crate::i18n::LocalizedMsg`]（键
@@ -99,9 +114,11 @@ pub struct AdminApiConfig {
     pub api_key_roles: HashMap<String, AdminRole>,
     /// 按路径分组的速率限制配置 (vuln-0002 修复)
     ///
-    /// key = 分组名（"ban" / "quota" / "default"），value = (max_requests, window_secs)。
+    /// key = 分组名（"ban" / "quota" / "metrics" / "default"），value = (max_requests, window_secs)。
     /// middleware 在鉴权之前检查速率限制，超限返回 429 + Retry-After。
-    /// 默认：ban=(100,60), quota=(50,60), default=(200,60)。
+    /// 默认：ban=(100,60), quota=(50,60), metrics=(600,60), default=(200,60)。
+    /// 配置只覆盖部分分组时，未覆盖的分组回退到同表默认额度
+    /// （见 `default_rate_limit_for`），不会因缺项而放宽限流。
     #[serde(default = "default_rate_limits")]
     pub rate_limits: HashMap<String, (u64, u64)>,
 }
@@ -110,27 +127,48 @@ pub struct AdminApiConfig {
 // `api_key`，误用 `println!("{config:?}")` 即泄露管理凭证
 impl std::fmt::Debug for AdminApiConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // 两张映射表的 key 即 API key 本身（可直接登录管理面的活凭证），
+        // Debug 只输出操作者/角色分布，绝不输出 key 原文。
+        let operators: Vec<&str> = self
+            .api_key_operators
+            .values()
+            .map(String::as_str)
+            .collect();
+        let roles: Vec<&str> = self.api_key_roles.values().map(|r| r.as_str()).collect();
         f.debug_struct("AdminApiConfig")
             .field("host", &self.host)
             .field("port", &self.port)
             .field(
                 "api_key",
-                &format!("<redacted; {} chars>", self.api_key.len()),
+                &format!("<redacted; {} chars>", self.api_key.chars().count()),
             )
             .field("enabled", &self.enabled)
-            .field("api_key_operators", &self.api_key_operators)
-            .field("api_key_roles", &self.api_key_roles)
+            .field("api_key_operators", &operators)
+            .field("api_key_roles", &roles)
             .field("rate_limits", &self.rate_limits)
             .finish()
     }
 }
 
-/// 默认速率限制配置：ban=100/min, quota=50/min, default=200/min
+/// 分组默认额度（单一事实源）
+///
+/// 配置默认 map（[`default_rate_limits`]）与"分组缺席配置时的回退"
+/// （`routes::create_router`）共用此表，二者不会漂移。
+pub(crate) fn default_rate_limit_for(group: &str) -> (u64, u64) {
+    match group {
+        "ban" => (100, 60),
+        "quota" => (50, 60),
+        "metrics" => (600, 60),
+        _ => (200, 60),
+    }
+}
+
+/// 默认速率限制配置：ban=100/min, quota=50/min, metrics=600/min, default=200/min
 fn default_rate_limits() -> HashMap<String, (u64, u64)> {
     let mut m = HashMap::new();
-    m.insert("ban".to_string(), (100, 60));
-    m.insert("quota".to_string(), (50, 60));
-    m.insert("default".to_string(), (200, 60));
+    for group in ["ban", "quota", "metrics", "default"] {
+        m.insert(group.to_string(), default_rate_limit_for(group));
+    }
     m
 }
 
@@ -236,11 +274,33 @@ impl AdminApiConfig {
             .unwrap_or(AdminRole::Admin)
     }
 
+    /// 主 `api_key` 是否可作为有效凭证
+    ///
+    /// 与 [`Self::validate`] 同口径：非空且长度 ≥ [`MIN_API_KEY_LEN`]。
+    /// 路由鉴权与 [`Self::is_valid_api_key`] 共用此判定，策略只写一处。
+    pub(crate) fn primary_key_is_acceptable(&self) -> bool {
+        !self.api_key.is_empty() && self.api_key.len() >= MIN_API_KEY_LEN
+    }
+
     /// 判定 key 是否为合法凭证（多 key 支持）
     ///
-    /// 主 `api_key` 恒合法；`api_key_roles` 中登记的 key 亦合法。
+    /// 主 `api_key` 须先通过强度校验（非空且长度 ≥ [`MIN_API_KEY_LEN`]，
+    /// 同 `validate()`）方视为有效凭证；`api_key_roles` 中登记的 key
+    /// 同口径要求 16 字符下限（过短即拒绝），空白 key 不作凭证。
+    /// 空 key 一律不合法：主 key 为空（未配置）时，空串会与其相等，
+    /// 从而让退化凭证通过判定。
     pub fn is_valid_api_key(&self, api_key: &str) -> bool {
-        api_key == self.api_key || self.api_key_roles.contains_key(api_key)
+        if api_key.is_empty() {
+            return false;
+        }
+        let primary_ok = self.primary_key_is_acceptable()
+            && crate::admin::routes::constant_time_eq(api_key, &self.api_key);
+        let role_ok = self
+            .api_key_roles
+            .keys()
+            .filter(|k| role_key_is_acceptable(k))
+            .any(|k| crate::admin::routes::constant_time_eq(api_key, k));
+        primary_ok || role_ok
     }
 
     /// 查找 API key 对应的 operator 身份
@@ -271,7 +331,7 @@ impl AdminApiConfig {
         if self.enabled && self.api_key.is_empty() {
             return Err(ConfigError::ApiKeyRequired);
         }
-        if !self.api_key.is_empty() && self.api_key.len() < 16 {
+        if !self.api_key.is_empty() && !self.primary_key_is_acceptable() {
             return Err(ConfigError::ApiKeyTooShort(self.api_key.len()));
         }
         Ok(())
@@ -428,6 +488,71 @@ mod tests {
         // 未在 mapping 中的 key → None
         assert_eq!(config.operator_for_api_key("unknown-key"), None);
     }
+
+    #[test]
+    fn test_is_valid_api_key_rejects_short_primary_api_key() {
+        // 主 key 未过强度校验时不是有效凭证——与路由口径一致，
+        // 外部消费方不得把它当成合法凭证
+        let config = AdminApiConfig::new("k");
+        assert!(
+            !config.is_valid_api_key("k"),
+            "a primary api_key shorter than the minimum length must not authenticate"
+        );
+        let just_below_min = "a".repeat(MIN_API_KEY_LEN - 1);
+        let config = AdminApiConfig::new(just_below_min.clone());
+        assert!(
+            !config.is_valid_api_key(&just_below_min),
+            "a primary api_key one character below the minimum must not authenticate"
+        );
+    }
+
+    #[test]
+    fn test_is_valid_api_key_accepts_primary_key_at_minimum_length() {
+        assert_eq!(MIN_API_KEY_LEN, 16);
+        let at_min = "a".repeat(MIN_API_KEY_LEN);
+        let config = AdminApiConfig::new(at_min.clone());
+        assert!(config.is_valid_api_key(&at_min));
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_is_valid_api_key_rejects_blank_role_mapped_key() {
+        // 路由剔除空白角色 key（否则退化为 "Bearer " 畸形凭证）
+        let config = AdminApiConfig::new("primary-key-16chars!!!")
+            .with_api_key_role("   ", AdminRole::Viewer);
+        assert!(!config.is_valid_api_key("   "));
+    }
+
+    #[test]
+    fn test_is_valid_api_key_rejects_short_role_mapped_key() {
+        // 角色映射 key 与主 key 同口径：过短即拒绝（可穷举的活凭证），
+        // 恰好达到下限仍有效
+        let config = AdminApiConfig::new("primary-key-16chars!!!")
+            .with_api_key_role("v", AdminRole::Viewer)
+            .with_api_key_role("0123456789abcdef", AdminRole::Viewer);
+        assert!(!config.is_valid_api_key("v"));
+        assert!(config.is_valid_api_key("0123456789abcdef"));
+        assert!(config.is_valid_api_key("primary-key-16chars!!!"));
+    }
+
+    #[test]
+    fn test_is_valid_api_key_agrees_with_validate_for_primary_key() {
+        // helper 与 validate() 对主 key 的判定必须同口径
+        let keys = [
+            String::new(),
+            "k".to_string(),
+            "a".repeat(MIN_API_KEY_LEN - 1),
+            "a".repeat(MIN_API_KEY_LEN),
+        ];
+        for key in keys {
+            let config = AdminApiConfig::new(key.clone());
+            assert_eq!(
+                config.is_valid_api_key(&key),
+                config.validate().is_ok(),
+                "is_valid_api_key must follow the same policy as validate() for key {key:?}"
+            );
+        }
+    }
 }
 
 // RBAC 角色矩阵
@@ -491,5 +616,75 @@ mod t605_role_tests {
         );
         let role: AdminRole = serde_json::from_str("\"viewer\"").unwrap();
         assert_eq!(role, AdminRole::Viewer);
+    }
+
+    #[test]
+    fn test_t605_debug_output_redacts_api_keys() {
+        // 映射表的 key 即活凭证：Debug 不得输出任何 key 原文
+        let config = AdminApiConfig::new("primary-key-16chars!!!")
+            .with_api_key_role("viewer-key-16chars!!", AdminRole::Viewer)
+            .with_api_key_operator("viewer-key-16chars!!", "ops-alice");
+        let debug = format!("{:?}", config);
+        assert!(
+            !debug.contains("primary-key-16chars!!!"),
+            "primary api key leaked in Debug: {debug}"
+        );
+        assert!(
+            !debug.contains("viewer-key-16chars!!"),
+            "role-mapped api key leaked in Debug: {debug}"
+        );
+        assert!(
+            debug.contains("<redacted"),
+            "redaction marker missing in Debug: {debug}"
+        );
+    }
+
+    #[test]
+    fn test_debug_output_counts_api_key_in_chars() {
+        // 多字节 key：字节数 ≠ 字符数，标签写 "chars" 必须按字符计
+        // （"密钥abc" = 5 chars / 9 bytes）
+        let config = AdminApiConfig::new("密钥abc");
+        let debug = format!("{:?}", config);
+        assert!(
+            debug.contains("<redacted; 5 chars>"),
+            "api key length must be counted in chars: {debug}"
+        );
+        assert!(
+            !debug.contains("<redacted; 9 chars>"),
+            "api key length must not be counted in bytes: {debug}"
+        );
+    }
+
+    #[test]
+    fn test_t605_is_valid_api_key_rejects_empty() {
+        // 空 key 不得成为有效凭证（否则退化凭证可通过鉴权）
+        let config = AdminApiConfig::new("primary-key-16chars!!!");
+        assert!(!config.is_valid_api_key(""));
+        let disabled = AdminApiConfig::default();
+        assert!(!disabled.is_valid_api_key(""));
+    }
+
+    #[test]
+    fn test_is_valid_api_key_rejects_short_primary_key() {
+        // 主 key 过短时同样不是有效凭证（与路由鉴权 fail closed 同口径）
+        let config = AdminApiConfig::new("k");
+        assert!(!config.is_valid_api_key("k"));
+    }
+
+    #[test]
+    fn test_default_rate_limits_match_group_fallback_table() {
+        // 配置默认 map 与"分组缺席配置时的回退"共用同一张表：值必须一致
+        let defaults = default_rate_limits();
+        assert_eq!(defaults.get("ban"), Some(&(100, 60)));
+        assert_eq!(defaults.get("quota"), Some(&(50, 60)));
+        assert_eq!(defaults.get("metrics"), Some(&(600, 60)));
+        assert_eq!(defaults.get("default"), Some(&(200, 60)));
+        for group in ["ban", "quota", "metrics", "default"] {
+            assert_eq!(
+                defaults.get(group).copied(),
+                Some(default_rate_limit_for(group)),
+                "the default map and the group fallback must agree on {group}"
+            );
+        }
     }
 }

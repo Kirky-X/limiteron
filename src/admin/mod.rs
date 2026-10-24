@@ -44,4 +44,4 @@ pub use server::LimiteronState;
 #[cfg(feature = "admin-api")]
 pub use service::{AdminService, AdminServiceError, GovernorAdminService};
 #[cfg(feature = "admin-ui")]
-pub use web::{ReadOnlySnapshotSource, WebUiConfig, WebUiServer};
+pub use web::{HostCheck, ReadOnlySnapshotSource, WebUiAccess, WebUiConfig, WebUiServer};

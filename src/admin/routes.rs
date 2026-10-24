@@ -20,7 +20,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::{
-    config::{AdminApiConfig, AdminRole},
+    config::{
+        AdminApiConfig, AdminRole, MIN_API_KEY_LEN, default_rate_limit_for, role_key_is_acceptable,
+    },
     handlers,
     server::LimiteronState,
 };
@@ -55,9 +57,12 @@ pub(crate) fn role_allows(role: AdminRole, method: &http::Method) -> bool {
 
 /// per-client rate limit bucket 类型
 ///
-/// key = (group, client_ip)，value = (request_count, window_start Instant)。
+/// key = (group, client_ip)，value = (request_count, window_start Instant,
+/// window Duration)。窗口长度随 entry 存储：各组窗口可不同，用「当前组」
+/// 的窗口判定所有组 entry 是否过期会让长窗口组的计数被短窗口组提前清零
+/// （限流被跨组绕过）。
 /// 提取为 type alias 以避免 clippy::type_complexity 警告。
-type RateBucketMap = AHashMap<(String, String), (u64, Instant)>;
+type RateBucketMap = AHashMap<(String, String), (u64, Instant, Duration)>;
 type RateBuckets = Arc<Mutex<RateBucketMap>>;
 
 /// 补强：per-client bucket 内存上限。
@@ -66,7 +71,8 @@ type RateBuckets = Arc<Mutex<RateBucketMap>>;
 /// 此处设硬上限：超过则先清扫已过期窗口的 entry；若清扫后仍超限，移除最旧（最小 window_start）的 entry。
 const RATE_BUCKET_MAX_ENTRIES: usize = 10_000;
 
-fn constant_time_eq(a: &str, b: &str) -> bool {
+/// 常量时间字符串比较（凭证比对，避免计时侧信道）
+pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -98,10 +104,16 @@ fn lock_rate_buckets(buckets: &Mutex<RateBucketMap>) -> std::sync::MutexGuard<'_
 
 /// K8s 探针/指标端点 bypass 路径
 ///
-/// 这些端点跳过速率限制与 API key 认证：K8s kubelet 探针与 Prometheus
-/// 抓取器不携带管理凭证；端点本身只读且不泄露敏感数据（/metrics 仅暴露
-/// 流量指标）。
+/// 这些端点跳过 API key 认证：K8s kubelet 探针与 Prometheus 抓取器
+/// 不携带管理凭证；端点本身只读（/metrics 仅暴露流量指标）。
+///
+/// `/healthz` `/readyz` 完全 bypass 速率限制——K8s 探针被限流会触发
+/// Pod 重启；`/metrics` 仍走速率限制（免凭证反复抓取会放大为资源消耗），
+/// 默认额度高于业务端点（Prometheus 按目标批量抓取）。
 const PROBE_PATHS: [&str; 3] = ["/healthz", "/readyz", "/metrics"];
+
+/// 指标端点路径（免认证但受限流）
+const METRICS_PATH: &str = "/metrics";
 
 fn is_probe_path(path: &str) -> bool {
     PROBE_PATHS.contains(&path)
@@ -112,12 +124,18 @@ fn is_probe_path(path: &str) -> bool {
 /// 用于按端点分组应用不同的速率限制策略：
 /// - `/api/v1/ban*` → "ban"（默认 100/min）
 /// - `/api/v1/quota*` → "quota"（默认 50/min）
+/// - `/metrics` → "metrics"（默认 600/min）
 /// - 其他 → "default"（默认 200/min）
+///
+/// 各组默认额度取自 `config::default_rate_limit_for`（与配置默认 map 同源）；
+/// 配置只覆盖部分分组时，未覆盖的分组回退到同一额度，不会因缺项而放宽。
 fn group_for_path(path: &str) -> &'static str {
     if path.starts_with("/api/v1/ban") {
         "ban"
     } else if path.starts_with("/api/v1/quota") {
         "quota"
+    } else if path == METRICS_PATH {
+        "metrics"
     } else {
         "default"
     }
@@ -154,7 +172,41 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
     let api_key = config.api_key.clone();
     let operator_mapping = config.api_key_operators.clone();
     let role_mapping = config.api_key_roles.clone();
-    let valid_keys = config.api_key_roles.keys().cloned().collect::<Vec<_>>();
+    // 主 api_key 的强度校验与 AdminServer::start/into_router 同口径：
+    // 校验失败（空 key / 长度 <16）时主 key 不得成为有效凭证——否则直接
+    // 调用本函数（绕过 AdminServer）的部署可用 1 字符主 key 构造出
+    // 接受该 key 的路由。校验不通过即拒绝主 key（fail closed），并显性
+    // 记错；空主 key 的畸形凭证（"Bearer "）另行在鉴权处排除。
+    let main_key_accepted = match config.validate() {
+        Ok(()) => config.primary_key_is_acceptable(),
+        Err(e) => {
+            log::error!(
+                target: "admin-api",
+                "admin API config invalid, the primary api_key is rejected: {e}"
+            );
+            false
+        }
+    };
+    // 角色映射中的 key 同样是可直接登录管理面的活凭证：空白 key 会退化为
+    // "Bearer " 形如畸形凭证，一律剔除；短于最小长度的 key 与主 key 同口径
+    // fail closed——不作有效凭证（过短的 key 可被穷举，映射为角色后即获
+    // 管理面访问权），并显性记错（只报角色，不输出 key 原文）。
+    let mut valid_keys = Vec::new();
+    for (key, role) in &config.api_key_roles {
+        if key.trim().is_empty() {
+            continue;
+        }
+        if !role_key_is_acceptable(key) {
+            log::error!(
+                target: "admin-api",
+                "api_key_roles contains a key shorter than {} characters (role {}); it is rejected",
+                MIN_API_KEY_LEN,
+                role.as_str()
+            );
+            continue;
+        }
+        valid_keys.push(key.clone());
+    }
     let rate_limits = config.rate_limits.clone();
     // per-client rate buckets，key = (group, client_ip)
     //
@@ -175,13 +227,15 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
             let rate_limits = rate_limits.clone();
             let rate_buckets = rate_buckets.clone();
             async move {
-                // 探针/指标端点 bypass 速率限制与认证
-                if is_probe_path(req.uri().path()) {
+                let path = req.uri().path();
+                let is_probe = is_probe_path(path);
+                // 探针端点（healthz/readyz）完全 bypass 速率限制与认证：
+                // K8s 探针被限流会触发 Pod 重启
+                if is_probe && path != METRICS_PATH {
                     return next.run(req).await;
                 }
 
                 // vuln-0002 修复：速率限制检查（在鉴权之前，防止暴力破解和 DDoS）
-                let path = req.uri().path();
                 let group = group_for_path(path);
                 // 提取 client IP 用于 per-client 分桶
                 let client_ip = req
@@ -189,33 +243,39 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
                     .get::<ConnectInfo<SocketAddr>>()
                     .map(|ci| ci.0.ip().to_string())
                     .unwrap_or_else(|| "unknown".to_string());
-                let (max, window_secs) = rate_limits.get(group).copied().unwrap_or((200, 60));
+                let (max, window_secs) = rate_limits
+                    .get(group)
+                    .copied()
+                    .unwrap_or_else(|| default_rate_limit_for(group));
                 let window = Duration::from_secs(window_secs);
                 let now = Instant::now();
                 {
                     let mut buckets = lock_rate_buckets(&rate_buckets);
-                    // 补强：先清扫本窗口已过期 entry，防止 map 无限膨胀（OOM DoS）。
-                    buckets.retain(|_, (_, start)| now.duration_since(*start) < window);
+                    // 补强：先清扫已过期 entry，防止 map 无限膨胀（OOM DoS）。
+                    // 过期判定用 entry 自带的窗口：各组窗口长度可不同，
+                    // 用当前组的窗口判定所有组会提前清零长窗口组的计数。
+                    buckets.retain(|_, (_, start, w)| now.duration_since(*start) < *w);
                     // 清扫后若仍超容量上限，淘汰最旧（window_start 最小）的 entry。
                     if buckets.len() >= RATE_BUCKET_MAX_ENTRIES
                         && let Some(oldest) = buckets
                             .iter()
-                            .min_by_key(|(_, (_, start))| *start)
+                            .min_by_key(|(_, (_, start, _))| *start)
                             .map(|(k, _)| k.clone())
                     {
                         buckets.remove(&oldest);
                     }
                     let key = (group.to_string(), client_ip);
-                    let entry = buckets.entry(key).or_insert((0, now));
-                    if now.duration_since(entry.1) >= window {
-                        // 窗口过期，重置计数
-                        *entry = (1, now);
+                    let entry = buckets.entry(key).or_insert((0, now, window));
+                    if now.duration_since(entry.1) >= entry.2 {
+                        // 窗口过期，重置计数（保留本组窗口长度）
+                        let entry_window = entry.2;
+                        *entry = (1, now, entry_window);
                     } else if entry.0 < max {
                         entry.0 += 1;
                     } else {
                         // 超限：返回 429 + Retry-After（响应体经 FTL 目录本地化，
                         // 当前 locale → en 回退）
-                        let retry_after = window - now.duration_since(entry.1);
+                        let retry_after = entry.2 - now.duration_since(entry.1);
                         let mut resp = axum::response::Response::new(Body::from(
                             crate::i18n::t_simple("rate-limit-exceeded"),
                         ));
@@ -231,6 +291,12 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
                     }
                 }
 
+                // /metrics 免 API key 认证（Prometheus 抓取器不携带管理凭证），
+                // 但已受上方速率限制约束（免凭证反复抓取会放大为资源消耗）
+                if is_probe {
+                    return next.run(req).await;
+                }
+
                 // 鉴权
                 let auth_header = req
                     .headers()
@@ -239,8 +305,12 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
 
                 let expected = format!("Bearer {}", api_key);
                 let token = match auth_header {
+                    // 空主 key 不得作为有效凭证：否则 "Bearer " 形如畸形凭证
+                    // 可通过鉴权（validate() 仅在 enabled 时要求非空，直接
+                    // 调用 create_router 可绕过该校验）；主 key 未通过强度
+                    // 校验（过短）时同样不作为有效凭证
                     Some(token)
-                        if constant_time_eq(token, &expected)
+                        if (main_key_accepted && constant_time_eq(token, &expected))
                             || valid_keys
                                 .iter()
                                 .any(|k| constant_time_eq(token, &format!("Bearer {k}"))) =>
@@ -397,7 +467,7 @@ mod tests {
         assert!(guard.is_empty(), "the recovered guard must access the map");
         guard.insert(
             ("default".to_string(), "127.0.0.1".to_string()),
-            (1, Instant::now()),
+            (1, Instant::now(), Duration::from_secs(60)),
         );
         assert_eq!(guard.len(), 1, "the recovered guard must write normally");
     }
@@ -890,6 +960,74 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "ban-manager")]
+    #[tokio::test]
+    async fn test_delete_ban_authorization_denied_returns_403() {
+        use crate::BanManager;
+        use crate::authorization::SimpleAuthorizationProvider;
+        use crate::ban::{BanSource, BanTarget};
+        use std::sync::Arc;
+
+        // API key → "admin-bob" 映射；授权提供者只允许 "admin-alice"
+        let config = AdminApiConfig::new("test-api-key-16chars!!")
+            .with_api_key_operator("test-api-key-16chars!!", "admin-bob");
+
+        let auth_provider = Arc::new(SimpleAuthorizationProvider::new(vec![
+            "admin-alice".to_string(),
+        ]));
+        let ban_manager = Arc::new(
+            BanManager::builder()
+                .with_authorization_provider(auth_provider)
+                .build()
+                .await
+                .unwrap(),
+        );
+
+        // 预先用被授权的 operator 建封：确保 403 来自授权拒绝，
+        // 而不是"目标无封禁"（404）
+        let target = BanTarget::Ip("198.51.100.7".to_string());
+        ban_manager
+            .create_ban(
+                target.clone(),
+                "unban 授权测试".to_string(),
+                BanSource::Manual {
+                    operator: "admin-alice".to_string(),
+                },
+                serde_json::json!({}),
+                Some(std::time::Duration::from_secs(3600)),
+            )
+            .await
+            .unwrap();
+
+        let governor = Arc::new(make_governor().await);
+        let state = LimiteronState {
+            governor,
+            ban_manager: Some(ban_manager),
+            #[cfg(feature = "quota-control")]
+            quota_controller: None,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: None,
+            #[cfg(feature = "prometheus")]
+            metrics: None,
+        };
+        let app = create_router(state, &config);
+
+        let req = Request::builder()
+            .uri("/api/v1/ban/198.51.100.7")
+            .method("DELETE")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"reason":"unban"}"#.to_string()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        // 403 = 授权拒绝；500 = 授权错误被误映射为内部错误
+        assert_eq!(
+            resp.status(),
+            StatusCode::FORBIDDEN,
+            "an operator without remove_ban permission must get 403, not 500"
+        );
+    }
+
     // ========================================================================
     // vuln-0002 修复测试：Admin API 速率限制
     //
@@ -1211,6 +1349,366 @@ mod tests {
             resp.status(),
             StatusCode::OK,
             "different groups of the same client must count independently"
+        );
+    }
+
+    // ========================================================================
+    // 跨组限流窗口不互清
+    //
+    // 回归场景：default 组窗口 600s、ban 组窗口 1s。default 组配额耗尽后，
+    // ban 组请求（窗口 1s）不得把 default 组的 entry 当过期 entry 清掉——
+    // 否则长窗口组的计数被短窗口组提前清零，限流被绕过。
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_rate_limit_group_windows_do_not_clear_each_other() {
+        let state = make_state().await;
+        let config = AdminApiConfig::new("test-api-key-16chars!!")
+            .with_rate_limit("default", 2, 600)
+            .with_rate_limit("ban", 2, 1);
+        let app = create_router(state, &config);
+
+        // default 组耗尽配额（2 次）
+        for i in 0..2 {
+            let req = Request::builder()
+                .uri("/api/v1/status")
+                .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+                .body(Body::empty())
+                .unwrap();
+            let resp = app.clone().oneshot(req).await.unwrap();
+            assert_eq!(
+                resp.status(),
+                StatusCode::OK,
+                "default request {i} should pass"
+            );
+        }
+
+        // 等 ban 组窗口（1s）过期：default 组窗口（600s）未过期
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+
+        // ban 组请求触发过期清扫（该组窗口为 1s）
+        let req = Request::builder()
+            .uri("/api/v1/ban")
+            .method("POST")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                r#"{"target":{"type":"ip","value":"1.2.3.4"},"reason":"test"}"#.to_string(),
+            ))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_ne!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "the ban group must not be limited by its own fresh bucket"
+        );
+
+        // default 组配额仍耗尽：长窗口组的计数未被短窗口组清零
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "the long-window group's counter must survive the short-window group's sweep"
+        );
+    }
+
+    // ========================================================================
+    // /metrics 独立限流（免认证但受限流，超限 429）
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_metrics_endpoint_has_its_own_rate_limit() {
+        let state = make_state().await;
+        let config = AdminApiConfig::new("test-api-key-16chars!!")
+            .with_rate_limit("metrics", 2, 60)
+            .with_rate_limit("default", 1, 60);
+        let app = create_router(state, &config);
+
+        // /metrics 免认证：前 2 次抓取成功
+        for i in 0..2 {
+            let req = Request::builder()
+                .uri("/metrics")
+                .body(Body::empty())
+                .unwrap();
+            let resp = app.clone().oneshot(req).await.unwrap();
+            assert_eq!(
+                resp.status(),
+                StatusCode::OK,
+                "metrics scrape {i} should succeed without credentials"
+            );
+        }
+
+        // 第 3 次超出 metrics 组配额 → 429
+        let req = Request::builder()
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "the metrics group quota must be enforced independently"
+        );
+
+        // metrics 组耗尽不影响 default 组
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "the metrics group exhaustion must not affect the default group"
+        );
+    }
+
+    // ========================================================================
+    // 主 api_key 强度校验（直接调用 create_router 时同样生效）
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_create_router_rejects_short_primary_api_key() {
+        let state = make_state().await;
+        // 1 字符主 key：AdminServer::start/into_router 会拒绝，直接调用
+        // create_router 也不得把它当作有效凭证
+        let config = AdminApiConfig::new("k");
+        let app = create_router(state, &config);
+
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer k")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "a primary api_key shorter than 16 characters must not authenticate"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_router_accepts_valid_primary_api_key() {
+        let state = make_state().await;
+        let config = AdminApiConfig::new("test-api-key-16chars!!");
+        let app = create_router(state, &config);
+
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    // ========================================================================
+    // 角色映射 key 的强度（与公开辅助函数 is_valid_api_key 同口径）
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_create_router_rejects_short_role_key() {
+        let state = make_state().await;
+        // 1 字符角色 key：映射到 admin 后即获管理面访问权，可被穷举，
+        // 与主 key 同口径 fail closed——不得作为有效凭证
+        let config =
+            AdminApiConfig::new("primary-key-16chars!!!").with_api_key_role("k", AdminRole::Admin);
+        let app = create_router(state, &config);
+
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer k")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "a role-mapped api_key shorter than 16 characters must not authenticate"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_router_rejects_short_role_key_with_viewer_role() {
+        let state = make_state().await;
+        // 短角色 key 一律拒绝，与所映射的角色无关（viewer 同样不得通过）
+        let config =
+            AdminApiConfig::new("primary-key-16chars!!!").with_api_key_role("k", AdminRole::Viewer);
+        let app = create_router(state, &config);
+
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer k")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "a short role-mapped api_key must not authenticate for any role"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_router_accepts_role_key_at_minimum_length() {
+        let state = make_state().await;
+        // 恰好 16 字符的角色 key：达到下限，仍是有效凭证
+        let config = AdminApiConfig::new("primary-key-16chars!!!")
+            .with_api_key_role("0123456789abcdef", AdminRole::Viewer);
+        let app = create_router(state, &config);
+
+        let req = Request::builder()
+            .uri("/api/v1/status")
+            .header(AUTHORIZATION, "Bearer 0123456789abcdef")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "a role-mapped api_key of exactly 16 characters must still authenticate"
+        );
+    }
+
+    // ========================================================================
+    // 部分 rate_limits 配置的回退额度（不得弱于文档值）
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_partial_rate_limits_fall_back_to_documented_ban_quota() {
+        let state = make_state().await;
+        // 配置只覆盖 "default" 组：ban / quota 组缺席配置，必须回退到
+        // 文档默认额度（ban=100/min, quota=50/min），而非统一的 200/min
+        let mut rate_limits = AHashMap::new();
+        rate_limits.insert("default".to_string(), (200, 60));
+        let config = AdminApiConfig {
+            api_key: "test-api-key-16chars!!".to_string(),
+            enabled: true,
+            rate_limits,
+            ..Default::default()
+        };
+        let app = create_router(state, &config);
+
+        // ban 组：前 100 次放行，第 101 次超限（回退额度为 100/min）
+        for i in 0..100 {
+            let req = Request::builder()
+                .uri("/api/v1/ban")
+                .method("POST")
+                .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    r#"{"target":{"type":"ip","value":"1.2.3.4"},"reason":"test"}"#.to_string(),
+                ))
+                .unwrap();
+            let resp = app.clone().oneshot(req).await.unwrap();
+            assert_ne!(
+                resp.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "ban request {i} must stay within the documented 100/min fallback"
+            );
+        }
+        let req = Request::builder()
+            .uri("/api/v1/ban")
+            .method("POST")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                r#"{"target":{"type":"ip","value":"1.2.3.4"},"reason":"test"}"#.to_string(),
+            ))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "the missing ban group must fall back to 100/min, not the generic 200/min"
+        );
+
+        // quota 组：前 50 次放行，第 51 次超限（回退额度为 50/min）
+        for i in 0..50 {
+            let req = Request::builder()
+                .uri("/api/v1/quota/user-1")
+                .method("PUT")
+                .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+                .header("Content-Type", "application/json")
+                .body(Body::from(r#"{"limit":10}"#.to_string()))
+                .unwrap();
+            let resp = app.clone().oneshot(req).await.unwrap();
+            assert_ne!(
+                resp.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "quota request {i} must stay within the documented 50/min fallback"
+            );
+        }
+        let req = Request::builder()
+            .uri("/api/v1/quota/user-1")
+            .method("PUT")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"limit":10}"#.to_string()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "the missing quota group must fall back to 50/min, not the generic 200/min"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_partial_rate_limits_keep_configured_group_untouched() {
+        let state = make_state().await;
+        // 配置只覆盖 "default" 组且额度极低：ban 组缺席配置，回退到
+        // 文档额度 100/min（不受 default 组的低额度影响）
+        let mut rate_limits = AHashMap::new();
+        rate_limits.insert("default".to_string(), (1, 60));
+        let config = AdminApiConfig {
+            api_key: "test-api-key-16chars!!".to_string(),
+            enabled: true,
+            rate_limits,
+            ..Default::default()
+        };
+        let app = create_router(state, &config);
+
+        for i in 0..100 {
+            let req = Request::builder()
+                .uri("/api/v1/ban")
+                .method("POST")
+                .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    r#"{"target":{"type":"ip","value":"1.2.3.4"},"reason":"test"}"#.to_string(),
+                ))
+                .unwrap();
+            let resp = app.clone().oneshot(req).await.unwrap();
+            assert_ne!(
+                resp.status(),
+                StatusCode::TOO_MANY_REQUESTS,
+                "the missing ban group must keep its own 100/min budget (request {i})"
+            );
+        }
+
+        // 第 101 次触发 ban 组自身的回退额度（100/min），与 default 组的 1/min 无关
+        let req = Request::builder()
+            .uri("/api/v1/ban")
+            .method("POST")
+            .header(AUTHORIZATION, "Bearer test-api-key-16chars!!")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                r#"{"target":{"type":"ip","value":"1.2.3.4"},"reason":"test"}"#.to_string(),
+            ))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::TOO_MANY_REQUESTS,
+            "the missing ban group must fall back to 100/min regardless of the default group's quota"
         );
     }
 

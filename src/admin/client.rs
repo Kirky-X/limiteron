@@ -22,7 +22,7 @@ use serde::de::DeserializeOwned;
 use std::time::Duration;
 
 /// Admin API 客户端
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AdminClient {
     /// 形如 `http://127.0.0.1:9090` 的基址（不含路径）
     base_url: String,
@@ -30,6 +30,21 @@ pub struct AdminClient {
     api_key: String,
     /// 请求超时（默认 10s；管理面低频操作，长超时无收益）
     timeout: Duration,
+}
+
+// 手动实现 Debug 并脱敏 api_key：派生的 Debug 会以明文打印 `api_key`，
+// 误用 `println!("{client:?}")` 即泄露管理凭证（同 AdminApiConfig 口径）
+impl std::fmt::Debug for AdminClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdminClient")
+            .field("base_url", &self.base_url)
+            .field(
+                "api_key",
+                &format!("<redacted; {} chars>", self.api_key.chars().count()),
+            )
+            .field("timeout", &self.timeout)
+            .finish()
+    }
 }
 
 impl AdminClient {
@@ -472,6 +487,54 @@ mod tests {
         assert!(
             matches!(err, AdminClientError::InvalidBaseUrl(ref m) if m.contains("https")),
             "https base_url must error explicitly: {err:?}"
+        );
+    }
+
+    #[test]
+    fn debug_output_redacts_api_key() {
+        // 派生 Debug 会明文打印 Bearer 凭证：必须走手写脱敏实现
+        let client = AdminClient::new("http://127.0.0.1:9090", "SUPER-SECRET-ADMIN-KEY-123");
+        let debug = format!("{:?}", client);
+        assert!(
+            !debug.contains("SUPER-SECRET-ADMIN-KEY-123"),
+            "api key leaked in Debug: {debug}"
+        );
+        assert!(
+            debug.contains("<redacted"),
+            "redaction marker missing in Debug: {debug}"
+        );
+    }
+
+    #[test]
+    fn debug_output_counts_api_key_in_chars() {
+        // 多字节 key：字节数 ≠ 字符数，标签写 "chars" 必须按字符计
+        // （"密钥abc" = 5 chars / 9 bytes）
+        let client = AdminClient::new("http://127.0.0.1:9090", "密钥abc");
+        let debug = format!("{:?}", client);
+        assert!(
+            debug.contains("<redacted; 5 chars>"),
+            "api key length must be counted in chars: {debug}"
+        );
+        assert!(
+            !debug.contains("<redacted; 9 chars>"),
+            "api key length must not be counted in bytes: {debug}"
+        );
+    }
+
+    #[test]
+    fn debug_output_matches_admin_config_char_count() {
+        // 客户端与 AdminApiConfig 同口径（见 Debug impl 注释）：同一把
+        // 多字节 key 在两处 Debug 必须报出同一个字符数
+        let key = "密钥abc";
+        let client = AdminClient::new("http://127.0.0.1:9090", key);
+        let config = AdminApiConfig::new(key);
+        assert!(
+            format!("{:?}", client).contains("<redacted; 5 chars>"),
+            "client char count mismatch: {client:?}"
+        );
+        assert!(
+            format!("{:?}", config).contains("<redacted; 5 chars>"),
+            "config char count mismatch: {config:?}"
         );
     }
 }

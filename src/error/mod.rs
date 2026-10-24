@@ -115,6 +115,22 @@ pub enum LimiteronError {
     Other(String),
 }
 
+/// Webhook URL 校验错误
+///
+/// 区分「永久拒绝」与「瞬时失败」：前者重试无意义（协议不符 / 字面量命中
+/// 禁止地址段 / 域名解析结果全部落在禁止段），后者源于 DNS 解析失败或
+/// 预检超时，解析器恢复后重试可成功。
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+pub enum WebhookUrlError {
+    /// 永久性拒绝
+    #[error("{0}")]
+    Rejected(String),
+
+    /// 瞬时性失败：DNS 解析失败或预检超时，可重试
+    #[error("{0}")]
+    DnsTransient(String),
+}
+
 /// 存储错误
 #[derive(Error, Debug, Clone)]
 pub enum StorageError {

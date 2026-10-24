@@ -4,6 +4,7 @@
 //!
 //! 监听事件通道并将事件分发给注册的处理器和 Webhook。
 
+use crate::error::WebhookUrlError;
 use crate::events::EventEmitter;
 // `Event` 仅被 webhook 发送路径（send_webhook 及其调用点）消费，
 // 与 webhook 特性同门控，避免 webhook-off 构建下 unused import 告警。
@@ -12,7 +13,10 @@ use crate::events::EventHandler;
 #[cfg(feature = "webhook")]
 use crate::events::{Event, EventHandler};
 #[cfg(feature = "webhook")]
-use crate::webhook_validator::validate_webhook_url;
+use crate::webhook_validator::{
+    WebhookTransportPolicy, validate_webhook_url_async, validate_webhook_url_for_send,
+    webhook_http_client,
+};
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -60,8 +64,11 @@ pub struct EventDispatcher {
     /// 共享 HTTP 客户端（webhook 外发复用连接池；
     /// Client 内部为 Arc，克隆廉价。每次发送新建 Client 会丢失
     /// TCP/TLS 复用，高事件量下造成套接字抖动）
+    ///
+    /// 构建失败（TLS 后端初始化失败等）时为 `None`：分发器照常工作，
+    /// 仅 webhook 外发被跳过。
     #[cfg(feature = "webhook")]
-    http_client: reqwest::Client,
+    http_client: Option<reqwest::Client>,
 }
 
 impl EventDispatcher {
@@ -72,13 +79,31 @@ impl EventDispatcher {
     pub fn new(emitter: EventEmitter) -> Self {
         let webhook_urls = emitter.config().webhook_urls.clone();
 
+        // 事件分发的传输策略与本模块的 URL 校验口径一致（`!cfg!(debug_assertions)`：
+        // release 要求 HTTPS，debug 放行明文便于本地联调）。
+        #[cfg(feature = "webhook")]
+        let http_client = {
+            let policy = if !cfg!(debug_assertions) {
+                WebhookTransportPolicy::HttpsRequired
+            } else {
+                WebhookTransportPolicy::Lax
+            };
+            match webhook_http_client(policy) {
+                Ok(client) => Some(client),
+                Err(e) => {
+                    error!("Failed to build webhook HTTP client, webhook delivery disabled: {e}");
+                    None
+                }
+            }
+        };
+
         Self {
             emitter,
             handlers: Arc::new(RwLock::new(Vec::new())),
             dispatch_handle: Arc::new(RwLock::new(None)),
             webhook_urls: Arc::new(RwLock::new(webhook_urls)),
             #[cfg(feature = "webhook")]
-            http_client: reqwest::Client::new(),
+            http_client,
         }
     }
 
@@ -105,18 +130,49 @@ impl EventDispatcher {
     /// - `url`: Webhook URL
     ///
     /// webhook feature 启用时在存储前预校验 URL（F6）：非法/内网 URL
-    /// 立即拒绝并告警，而非作为无效条目累积到发送阶段才暴露。
+    /// 立即拒绝并告警，而非作为无效条目累积到发送阶段才暴露。预校验含
+    /// DNS 解析结果判定（域名解析到内网同样拒绝）。
+    ///
+    /// 校验失败的原因只记入告警、不返回给调用方；需要据此重试的调用方
+    /// 请用 [`EventDispatcher::try_add_webhook_url`]。
     pub async fn add_webhook_url(&self, url: String) {
-        #[cfg(feature = "webhook")]
-        if let Err(e) = validate_webhook_url(&url, !cfg!(debug_assertions)) {
-            warn!("Rejected invalid webhook URL ({}): {}", url, e);
-            return;
+        if let Err(e) = self.try_add_webhook_url(url.clone()).await {
+            let summary = crate::logging::redaction::redact_url(Some(&url));
+            match e {
+                WebhookUrlError::Rejected(msg) => {
+                    warn!("Rejected invalid webhook URL ({}): {}", summary, msg);
+                }
+                WebhookUrlError::DnsTransient(msg) => {
+                    warn!(
+                        "Webhook URL pre-check failed, retryable ({}): {}",
+                        summary, msg
+                    );
+                }
+            }
         }
+    }
+
+    /// 添加 Webhook URL 并返回校验结果
+    ///
+    /// 与 [`EventDispatcher::add_webhook_url`] 的区别：校验失败时**不写入**
+    /// URL 列表，并把失败原因返回给调用方——[`WebhookUrlError::DnsTransient`]
+    /// 表示 DNS 解析失败/预检超时等瞬时故障（可重试），
+    /// [`WebhookUrlError::Rejected`] 表示永久性拒绝（重试无意义）。
+    ///
+    /// webhook feature 未启用时不做校验，恒返回 `Ok(())`。
+    pub async fn try_add_webhook_url(&self, url: String) -> Result<(), WebhookUrlError> {
+        #[cfg(feature = "webhook")]
+        validate_webhook_url_async(&url, !cfg!(debug_assertions)).await?;
+
         let mut urls = self.webhook_urls.write().await;
         if !urls.contains(&url) {
-            info!("Adding webhook URL: {}", url);
+            info!(
+                "Adding webhook URL: {}",
+                crate::logging::redaction::redact_url(Some(&url))
+            );
             urls.push(url);
         }
+        Ok(())
     }
 
     /// 移除 Webhook URL
@@ -126,7 +182,10 @@ impl EventDispatcher {
     pub async fn remove_webhook_url(&self, url: &str) {
         let mut urls = self.webhook_urls.write().await;
         urls.retain(|u| u != url);
-        info!("Removed webhook URL: {}", url);
+        info!(
+            "Removed webhook URL: {}",
+            crate::logging::redaction::redact_url(Some(url))
+        );
     }
 
     /// 启动事件分发任务
@@ -180,11 +239,15 @@ impl EventDispatcher {
                         // 发送到 Webhook（webhook 特性关闭时无 http_client 且
                         // send_webhook 为 2 参存根，整个分派块必须同门控）
                         #[cfg(feature = "webhook")]
-                        {
+                        if let Some(client) = http_client.as_ref() {
                             let urls = webhook_urls.read().await.clone();
                             for url in &urls {
-                                if let Err(e) = send_webhook(&http_client, url, &event).await {
-                                    error!("Failed to send webhook to {}: {}", url, e);
+                                if let Err(e) = send_webhook(client, url, &event).await {
+                                    error!(
+                                        "Failed to send webhook to {}: {}",
+                                        crate::logging::redaction::redact_url(Some(url)),
+                                        e
+                                    );
                                 }
                             }
                         }
@@ -297,9 +360,10 @@ pub(crate) async fn send_webhook(
     url: &str,
     event: &Event,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // 安全验证：检查 URL 是否安全（生产环境要求 HTTPS）
-    validate_webhook_url(url, !cfg!(debug_assertions))
-        .map_err(Box::<dyn std::error::Error + Send + Sync>::from)?;
+    // 安全验证：字面量判定（协议要求 / 字面量地址段）；域名面由连接期的
+    // SSRF 解析器权威判定——发送路径不重复 DNS 预检（预检的瞬时故障会把
+    // 本可成功的投递判死，且同一投递解析两次）。
+    validate_webhook_url_for_send(url, !cfg!(debug_assertions))?;
 
     let (payload, signing_headers) = signed_webhook_payload(event)?;
 
@@ -317,7 +381,10 @@ pub(crate) async fn send_webhook(
     let response = request.body(payload).send().await?;
 
     if response.status().is_success() {
-        debug!("Webhook sent successfully to {}", url);
+        debug!(
+            "Webhook sent successfully to {}",
+            crate::logging::redaction::redact_url(Some(url))
+        );
         Ok(())
     } else {
         Err(format!("Webhook returned error status: {}", response.status()).into())
@@ -410,6 +477,101 @@ mod tests {
         let urls = dispatcher.webhook_urls.read().await;
         assert_eq!(urls.len(), 1);
         assert_eq!(urls[0], "https://example.com/hook2");
+    }
+
+    /// 注册路径的校验失败必须返回给调用方（可区分永久拒绝与瞬时故障），
+    /// 且被拒绝的 URL 不得写入列表
+    #[cfg(feature = "webhook")]
+    #[tokio::test]
+    async fn test_try_add_webhook_url_surfaces_rejection() {
+        let emitter = EventEmitter::with_default_config();
+        let dispatcher = EventDispatcher::new(emitter);
+
+        let err = dispatcher
+            .try_add_webhook_url("https://127.0.0.1/hook".to_string())
+            .await
+            .expect_err("a loopback webhook URL must be rejected");
+        assert!(
+            matches!(err, WebhookUrlError::Rejected(_)),
+            "a literal rejection must be permanent, got: {err:?}"
+        );
+
+        let urls = dispatcher.webhook_urls.read().await;
+        assert!(
+            urls.is_empty(),
+            "a rejected URL must not be stored, got: {urls:?}"
+        );
+    }
+
+    /// DNS 解析失败属瞬时故障：按可重试的瞬时错误上报，且不写入列表
+    #[cfg(feature = "webhook")]
+    #[tokio::test]
+    async fn test_try_add_webhook_url_surfaces_transient_failure() {
+        let emitter = EventEmitter::with_default_config();
+        let dispatcher = EventDispatcher::new(emitter);
+
+        // .invalid 是 RFC 2606 保留域名，恒不解析
+        let err = dispatcher
+            .try_add_webhook_url("https://nonexistent-host-xyzzy.invalid/hook".to_string())
+            .await
+            .expect_err("a non-resolvable host must fail the pre-check");
+        assert!(
+            matches!(err, WebhookUrlError::DnsTransient(_)),
+            "DNS resolution failure must be transient, got: {err:?}"
+        );
+
+        let urls = dispatcher.webhook_urls.read().await;
+        assert!(
+            urls.is_empty(),
+            "a URL that failed the pre-check must not be stored, got: {urls:?}"
+        );
+    }
+
+    /// 薄封装只记告警：校验失败不写入列表，也不向调用方抛错
+    #[cfg(feature = "webhook")]
+    #[tokio::test]
+    async fn test_add_webhook_url_ignores_validation_failure() {
+        let emitter = EventEmitter::with_default_config();
+        let dispatcher = EventDispatcher::new(emitter);
+
+        dispatcher
+            .add_webhook_url("https://127.0.0.1/hook".to_string())
+            .await;
+
+        let urls = dispatcher.webhook_urls.read().await;
+        assert!(
+            urls.is_empty(),
+            "a rejected URL must not be stored, got: {urls:?}"
+        );
+    }
+
+    /// 发送路径的预检必须有界：解析器不可用时返回错误，而不是挂起分派任务
+    #[cfg(feature = "webhook")]
+    #[tokio::test]
+    async fn test_send_webhook_precheck_failure_does_not_hang() {
+        let client = webhook_http_client(WebhookTransportPolicy::Lax)
+            .expect("the webhook client must build");
+        let event = Event::new(EventType::RateLimitTriggered {
+            key: "test".to_string(),
+            rule_id: "rule".to_string(),
+            decision: "Deny".to_string(),
+        });
+
+        // .invalid 是 RFC 2606 保留域名，恒不解析
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            send_webhook(
+                &client,
+                "https://nonexistent-host-xyzzy.invalid/hook",
+                &event,
+            ),
+        )
+        .await
+        .expect("a stalled resolver must not hang the send path");
+        assert!(
+            result.is_err(),
+            "a host that fails the pre-check must not be sent to"
+        );
     }
 
     #[tokio::test]

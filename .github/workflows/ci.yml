@@ -43,6 +43,10 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --no-default-features --features full,postgres -- -D warnings
+      # 脱敏引擎（inklog DataMasker）不在 full 预设内，该腿显式开启以编译并
+      # 静态检查高级脱敏代码路径
+      - name: Run clippy (log-redaction)
+        run: cargo clippy --workspace --all-targets --no-default-features --features full,postgres,log-redaction -- -D warnings
 
   check:
     name: Check
@@ -54,6 +58,10 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Check full features
         run: cargo check --workspace --no-default-features --features full,postgres
+      # 脱敏引擎（inklog DataMasker）不在 full 预设内，该腿显式开启以编译
+      # 高级脱敏代码路径
+      - name: Check log-redaction feature
+        run: cargo check --workspace --no-default-features --features full,postgres,log-redaction
       - name: Check no default features
         run: cargo check --workspace --no-default-features
       # 2026-09-19 审计补腿：sqlite/mysql 驱动闭包此前从未被编译验证
@@ -78,6 +86,20 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Run tests
         run: cargo test --workspace --no-default-features --features full,postgres
+
+  # 脱敏腿：log-redaction 不在 full 预设内（掩码能力是对 inklog 掩码引擎的
+  # 可选借用），该腿显式开启以编译并执行高级脱敏代码路径与其测试。
+  # dbnexus 驱动互斥约束同 postgres 腿（一次构建只叠加一个驱动）。
+  test-log-redaction:
+    name: Test (log-redaction)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4716b85f2fac3e324e64fa2810f6b5c3905760a5 # 1.97.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Run tests (log-redaction)
+        run: cargo test --workspace --no-default-features --features full,postgres,log-redaction
 
   # sqlite 测试腿：sqlite PRAGMA 透传（含 WAL 端到端）仅在 sqlite 驱动下
   # 可跑，而 dbnexus 的 sqlite/postgres 驱动互斥（compile_error!），
@@ -126,6 +148,12 @@ jobs:
         run: ./scripts/check-docs-consistency.sh
       - name: Build documentation
         run: cargo doc --workspace --no-deps --no-default-features --features full,postgres
+        env:
+          RUSTDOCFLAGS: -D warnings
+      # docs.rs 元数据含 log-redaction，该腿与之对齐：脱敏引擎的公开 API
+      # 须能生成无警告的文档
+      - name: Build documentation (log-redaction)
+        run: cargo doc --workspace --no-deps --no-default-features --features full,postgres,log-redaction
         env:
           RUSTDOCFLAGS: -D warnings
 

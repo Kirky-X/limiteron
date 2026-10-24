@@ -87,14 +87,16 @@ mod ban_manager_tests {
     async fn test_unban_nonexistent() {
         let manager = create_ban_manager().await;
 
-        // 解封不存在的记录应该成功（幂等操作，返回 Ok(false)）
+        // 解封不存在的记录应该成功（幂等操作，返回 Ok(false)）；
+        // 目标须是合法 IP（TEST-NET-3 保留段，无封禁记录）——非法目标
+        // 走校验错误路径，与本用例的"记录不存在"语义不同
         let result = manager
             .delete_ban(
-                &limiteron::BanTarget::Ip("nonexistent_ip".to_string()),
+                &limiteron::BanTarget::Ip("203.0.113.10".to_string()),
                 "admin".to_string(),
             )
             .await;
-        assert!(result.is_ok(), "Unban nonexistent should succeed");
+        assert!(!result.unwrap(), "Unban nonexistent should succeed");
     }
 
     // 封禁过期测试

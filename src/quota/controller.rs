@@ -32,7 +32,9 @@ use crate::error::{ConsumeResult, LimiteronError};
 use crate::i18n::t;
 use crate::storage::QuotaStorage;
 #[cfg(feature = "webhook")]
-use crate::webhook_validator::validate_webhook_url;
+use crate::webhook_validator::{
+    WebhookTransportPolicy, validate_webhook_url_for_send, webhook_http_client,
+};
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
 use log::debug;
@@ -434,12 +436,24 @@ impl QuotaController {
         // 存储 key，含 ':' 的输入会使 ("a:b","c") 与 ("a","b:c") 共享同一 key，
         // 造成跨账户配额污染。封禁路径已有 validate_user_id 同类防护，
         // 配额路径在此补齐。
+        Self::validate_quota_key_parts(user_id, resource)?;
+        self.consume_keyed(user_id, resource, cost).await
+    }
+
+    /// 校验配额键的 user_id / resource 不含 ':'（防键碰撞）
+    ///
+    /// 存储键为 `{user_id}:{resource}`（DB 与缓存后端同构），含 ':' 的
+    /// 输入使 ("a:b","c") 与 ("a","b:c") 共享同一键，造成跨账户配额污染。
+    /// 所有 user 维度的配额键入口（consume / get_quota / reset_quota）
+    /// 统一经此校验；租户路径的键由 `tenant_user_key` 固定前缀构造，
+    /// 走内部 `*_keyed` 入口。
+    fn validate_quota_key_parts(user_id: &str, resource: &str) -> Result<(), LimiteronError> {
         if user_id.contains(':') || resource.contains(':') {
             return Err(LimiteronError::ValidationError(
                 "user_id/resource must not contain ':' (quota key collision)".to_string(),
             ));
         }
-        self.consume_keyed(user_id, resource, cost).await
+        Ok(())
     }
 
     /// 以最终存储键消费配额（`consume` 与租户配额路径共用）
@@ -531,6 +545,21 @@ impl QuotaController {
         user_id: &str,
         resource: &str,
     ) -> Result<Option<QuotaState>, LimiteronError> {
+        // 防碰撞校验：与 consume 同口径（键为 `{user_id}:{resource}`），
+        // 否则 ("a:b","c") 与 ("a","b:c") 命中同一账本
+        Self::validate_quota_key_parts(user_id, resource)?;
+        self.get_quota_keyed(user_id, resource).await
+    }
+
+    /// 以最终存储键读取配额（`get_quota` 与租户配额路径共用）
+    ///
+    /// 调用方负责保证键无歧义：租户路径的键含 ':'，由 `tenant_user_key`
+    /// 的固定前缀保证不与 user 维度键碰撞。
+    async fn get_quota_keyed(
+        &self,
+        user_id: &str,
+        resource: &str,
+    ) -> Result<Option<QuotaState>, LimiteronError> {
         let quota_info = self
             .storage
             .get_quota(user_id, resource)
@@ -560,6 +589,16 @@ impl QuotaController {
     /// - `Ok(())`: 重置成功
     /// - `Err(error)`: 错误信息
     pub async fn reset_quota(&self, user_id: &str, resource: &str) -> Result<(), LimiteronError> {
+        // 防碰撞校验：与 consume 同口径（键为 `{user_id}:{resource}`）
+        Self::validate_quota_key_parts(user_id, resource)?;
+        self.reset_quota_keyed(user_id, resource).await
+    }
+
+    /// 以最终存储键重置配额（`reset_quota` 与租户配额路径共用）
+    ///
+    /// 调用方负责保证键无歧义（租户路径的键含 ':'，由 `tenant_user_key`
+    /// 的固定前缀保证不与 user 维度键碰撞）。
+    async fn reset_quota_keyed(&self, user_id: &str, resource: &str) -> Result<(), LimiteronError> {
         self.storage
             .reset(
                 user_id,
@@ -640,7 +679,7 @@ impl QuotaController {
     ) -> Result<Option<QuotaState>, LimiteronError> {
         Self::validate_tenant_quota_args(tenant_id, user_id, resource)?;
         let keyed = Self::tenant_user_key(tenant_id, user_id);
-        self.get_quota(&keyed, resource).await
+        self.get_quota_keyed(&keyed, resource).await
     }
 
     /// 按租户重置配额
@@ -653,7 +692,7 @@ impl QuotaController {
     ) -> Result<(), LimiteronError> {
         Self::validate_tenant_quota_args(tenant_id, user_id, resource)?;
         let keyed = Self::tenant_user_key(tenant_id, user_id);
-        self.reset_quota(&keyed, resource).await
+        self.reset_quota_keyed(&keyed, resource).await
     }
 
     /// 获取或创建配额状态
@@ -662,7 +701,8 @@ impl QuotaController {
         user_id: &str,
         resource: &str,
     ) -> Result<QuotaState, LimiteronError> {
-        if let Some(state) = self.get_quota(user_id, resource).await? {
+        // 键可能来自租户路径（含 ':'），走内部入口不做分隔符校验
+        if let Some(state) = self.get_quota_keyed(user_id, resource).await? {
             return Ok(state);
         }
 
@@ -964,10 +1004,16 @@ async fn send_webhook_alert(
     url: &str,
     alert_info: &AlertInfo,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // 安全验证：检查 URL 是否安全
-    validate_webhook_url(url, true).map_err(crate::error::LimiteronError::ConfigError)?;
+    // 安全验证：字面量判定（协议要求 / 字面量地址段）；域名面由连接期的
+    // SSRF 解析器权威判定——发送路径不重复 DNS 预检（预检的瞬时故障会把
+    // 本可成功的投递判死，且同一投递解析两次）。
+    validate_webhook_url_for_send(url, true)
+        .map_err(|e| crate::error::LimiteronError::ConfigError(e.to_string()))?;
 
-    let client = reqwest::Client::new();
+    // 配额告警载荷含敏感数据：传输策略恒为强制 HTTPS（重定向目标同样
+    // 必须 HTTPS），与本路径的 URL 校验口径一致。
+    let client = webhook_http_client(WebhookTransportPolicy::HttpsRequired)
+        .map_err(|e| crate::error::LimiteronError::ConfigError(e.to_string()))?;
     let response = client
         .post(url)
         .json(alert_info)
@@ -1248,9 +1294,15 @@ mod tests {
         let controller = QuotaController::with_dependencies(storage, config);
 
         let r1 = controller.consume("a:b", "resource", 1).await;
-        assert!(r1.is_err(), "user_id containing ':' must be rejected");
+        assert!(
+            matches!(r1, Err(LimiteronError::ValidationError(_))),
+            "user_id containing ':' must be rejected with a validation error, got: {r1:?}"
+        );
         let r2 = controller.consume("user", "re:source", 1).await;
-        assert!(r2.is_err(), "resource containing ':' must be rejected");
+        assert!(
+            matches!(r2, Err(LimiteronError::ValidationError(_))),
+            "resource containing ':' must be rejected with a validation error, got: {r2:?}"
+        );
 
         // 合法输入不受影响
         assert!(controller.consume("user", "resource", 1).await.is_ok());
@@ -2491,6 +2543,70 @@ mod tests {
 
         // 让 spawned 的 webhook 任务有机会执行完毕（显式让出调度，不用真实 sleep）
         tokio::task::yield_now().await;
+    }
+
+    /// 预检失败的 Webhook 告警必须归还 permit，不阻塞后续告警
+    ///
+    /// 告警任务持有 permit 跨越预检（预检内含 DNS 解析）：预检失败或超时
+    /// 后若 permit 未归还，并发上限（DEFAULT_ALERT_CONCURRENCY）会被无效
+    /// 告警占满，后续告警因 try_acquire_owned 失败而被静默跳过。
+    #[cfg(feature = "webhook")]
+    #[tokio::test]
+    async fn test_alert_webhook_precheck_failure_releases_permit() {
+        let storage = Arc::new(TestQuotaStorage::new());
+        let config = QuotaConfig {
+            quota_type: QuotaType::Count,
+            limit: 100,
+            window_size: 3600,
+            allow_overdraft: false,
+            overdraft_limit_percent: 0,
+            alert_config: AlertConfig {
+                enabled: true,
+                thresholds: vec![50],
+                channels: vec![AlertChannel::Webhook {
+                    // 回环字面量：预检立即判永久拒绝（无 DNS 等待）
+                    url: "https://127.0.0.1/webhook".to_string(),
+                }],
+                dedup_window: 1,
+            },
+        };
+
+        let controller = QuotaController::with_dependencies(storage, config);
+
+        // 预检拒绝时 send_webhook_alert 必须返回 Err（而非挂起或误判成功）
+        let alert_info = AlertInfo {
+            user_id: "user1".to_string(),
+            resource: "resource1".to_string(),
+            quota_type: QuotaType::Count,
+            threshold: 50,
+            current_usage: 80,
+            limit: 100,
+            triggered_at: Utc::now(),
+        };
+        let err = send_webhook_alert("https://127.0.0.1/webhook", &alert_info)
+            .await
+            .expect_err("a loopback webhook target must be rejected by the pre-check");
+        assert!(
+            err.downcast_ref::<crate::error::LimiteronError>()
+                .is_some_and(|e| matches!(e, crate::error::LimiteronError::ConfigError(_))),
+            "the pre-check rejection must surface as a config error, got: {err}"
+        );
+
+        // 触发告警：spawn 出的 webhook 任务在预检处失败
+        let result = controller.consume("user1", "resource1", 80).await.unwrap();
+        assert!(result.alert_triggered);
+
+        // 给 spawn 出的告警任务运行窗口
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // 告警任务结束后 permit 必须归还（预检无上界时会长期占住 permit）
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while controller.alert_semaphore.available_permits() < DEFAULT_ALERT_CONCURRENCY {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("the alert task must release its permit after the pre-check fails");
     }
 
     /// 测试多次触发不同 Webhook URL（测试 send_webhook_alert 被多次调用）

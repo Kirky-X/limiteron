@@ -689,7 +689,11 @@ mod tests {
             },
             latency_thresholds_ms: AlertThresholdU64 {
                 warning: 15,
-                critical: 30,
+                // 告警样本含一次 200ms 慢请求（11 个样本，均值理论下限
+                // ≈27ms），critical 取 30 时机器稍忙即越过 30ms 变成
+                // Critical，"延迟告警为 Warning" 的断言随机器负载翻转。
+                // critical 取足够大的值，告警级别只取决于 warning 门限。
+                critical: 10_000,
             },
             error_rate_thresholds: AlertThresholdF64 {
                 warning: 0.03,

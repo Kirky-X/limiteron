@@ -288,6 +288,8 @@ pub struct BanManagerBuilder {
     storage: Option<Arc<dyn BanStorage>>,
     config: Option<BanManagerConfig>,
     authorization_provider: Option<Arc<dyn AuthorizationProvider>>,
+    /// 是否强制要求授权提供者（未配置则构建失败）
+    require_authorization_provider: bool,
     #[cfg(feature = "event-system")]
     event_emitter: Option<Arc<crate::events::EventEmitter>>,
     file_loader_path: Option<PathBuf>,
@@ -300,6 +302,7 @@ impl BanManagerBuilder {
             storage: None,
             config: None,
             authorization_provider: None,
+            require_authorization_provider: false,
             #[cfg(feature = "event-system")]
             event_emitter: None,
             file_loader_path: None,
@@ -352,6 +355,23 @@ impl BanManagerBuilder {
         self
     }
 
+    /// 强制要求授权提供者（未配置则 `build()` 失败）
+    ///
+    /// 默认关闭（`false`）：未配置 `authorization_provider` 时构建成功，
+    /// 手动封禁/解封跳过细粒度授权（仅靠管理面 API key 的粗粒度 RBAC
+    /// 兜底）——行为与既有部署一致。开启后，未注入授权提供者的构建直接
+    /// 失败（fail closed），杜绝"部署以为有细粒度授权、实际没有"的状态。
+    ///
+    /// **作用范围**：fail closed 仅在 `BanManagerBuilder::build()` 内生效。
+    /// `BanManager::new` / `BanManager::with_dependencies` /
+    /// `BanManager::with_dependencies_and_auth` 不经本构建器，无法开启该
+    /// 约束——它们在未注入授权提供者时仍构建成功（仅告警）。
+    #[must_use]
+    pub fn with_required_authorization(mut self, required: bool) -> Self {
+        self.require_authorization_provider = required;
+        self
+    }
+
     /// 设置事件发射器
     #[cfg(feature = "event-system")]
     pub fn with_event_emitter(mut self, emitter: Arc<crate::events::EventEmitter>) -> Self {
@@ -393,6 +413,15 @@ impl BanManagerBuilder {
     /// **注意**：默认内存存储不适用于多实例生产环境。
     pub async fn build(self) -> Result<BanManager, LimiteronError> {
         use crate::storage::MemoryBanStorage;
+
+        // 强制授权模式：未注入授权提供者时直接失败（fail closed），
+        // 杜绝"以为有细粒度授权、实际手动封禁无授权"的部署状态
+        if self.require_authorization_provider && self.authorization_provider.is_none() {
+            return Err(LimiteronError::ConfigError(t(
+                "ban-manager-authorization-provider-required",
+                &[],
+            )));
+        }
 
         let storage = match self.storage {
             Some(s) => s,
@@ -777,7 +806,8 @@ impl BanManager {
                         "ban-manual-skip-authorization",
                         &[
                             ("operator", operator.clone()),
-                            ("target", format!("{:?}", target)),
+                            // 目标经统一脱敏口径输出，避免原始 IP/用户 ID 进日志
+                            ("target", crate::logging::redact_ban_target(&target)),
                         ],
                     )
                 );
@@ -792,8 +822,10 @@ impl BanManager {
         validate_ban_reason(&reason)?;
 
         info!(
-            "Creating ban: target={:?}, reason={}, source={:?}",
-            target, reason, source
+            "Creating ban: target={}, reason={}, source={:?}",
+            crate::logging::redact_ban_target(&target),
+            reason,
+            source
         );
 
         // 获取历史记录（用于退避时长计算的名义值）
@@ -951,6 +983,11 @@ impl BanManager {
     /// # 返回
     /// - 是否成功解封
     ///
+    /// 目标非法（`validation` 特性下按统一校验口径判定）时：存储中存在该
+    /// 目标的封禁记录（早期版本或经其他写入路径写入的非法目标）则照常
+    /// 删除并返回 `Ok(true)`；不存在则返回 `Err(ValidationError)`，由调用
+    /// 方映射为 400（与 `create_ban` 同口径）。
+    ///
     /// # 授权检查
     /// 如果设置了授权提供者，会先检查操作者是否有权限执行此操作。
     pub async fn delete_ban(
@@ -962,6 +999,39 @@ impl BanManager {
         if let Some(provider) = &self.authorization_provider {
             self.check_authorization(provider, "remove_ban", &unbanned_by, target)
                 .await?;
+        } else {
+            // 未配置 provider 时显式告警（与 create_ban 同口径）：
+            // 跳过授权链路必须留痕，不得静默
+            log::warn!(
+                "{}",
+                t(
+                    "ban-unban-skip-authorization",
+                    &[
+                        ("operator", unbanned_by.clone()),
+                        // 目标经统一脱敏口径输出，避免原始 IP/用户 ID 进日志
+                        ("target", crate::logging::redact_ban_target(target)),
+                    ],
+                )
+            );
+        }
+
+        // 输入验证：目标校验依赖 validation 模块（feature 关闭时跳过），
+        // 与 create_ban 同口径——解封目标同样来自外部输入（管理 API 的
+        // URL 路径段），未校验的目标会带着任意字符进入存储键与日志。
+        //
+        // 校验失败不短路：存储中可能存在早期版本或经其他写入路径
+        // （governor 直接落库）写入的非法目标记录，直接拒绝会让这类
+        // 记录永远无法解封。仍按目标键查一次存储——命中即删除并返回
+        // Ok(true)；未命中才按校验错误返回 Err(ValidationError)。
+        #[cfg(feature = "validation")]
+        let target_validation = validate_ban_target(target).err();
+
+        #[cfg(feature = "validation")]
+        if target_validation.is_some() {
+            debug!(
+                "Unban target failed validation, checking storage anyway: {}",
+                crate::logging::redact_ban_target(target)
+            );
         }
 
         info!(
@@ -973,6 +1043,11 @@ impl BanManager {
         let record = self.storage.is_banned(target).await?;
 
         if record.is_none() {
+            // 目标非法且无对应记录：返回校验错误（400 语义）
+            #[cfg(feature = "validation")]
+            if let Some(err) = target_validation {
+                return Err(err);
+            }
             debug!(
                 "No active ban found for target: {}",
                 crate::logging::redact_ban_target(target)
@@ -984,7 +1059,10 @@ impl BanManager {
         // 注：对于PostgreSQL，如果需要记录unbanned_by，需要在BanStorage实现中处理
         self.storage.remove_ban(target).await?;
 
-        info!("Ban deleted successfully: target={:?}", target);
+        info!(
+            "Ban deleted successfully: target={}",
+            crate::logging::redact_ban_target(target)
+        );
         Ok(true)
     }
 
@@ -1765,6 +1843,60 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(!result.unwrap());
+    }
+
+    #[cfg(feature = "validation")]
+    #[tokio::test]
+    async fn test_delete_ban_invalid_target_returns_validation_error() {
+        let ban_manager = create_test_ban_manager().await;
+
+        // 非法 IP（校验器拒绝）且存储中无对应记录 → 校验错误，而非"无此封禁"
+        let target = BanTarget::Ip("999.999.999.999".to_string());
+        let result = ban_manager.delete_ban(&target, "admin".to_string()).await;
+
+        match result {
+            Err(LimiteronError::ValidationError(msg)) => {
+                assert!(
+                    msg.contains("Invalid IP address format"),
+                    "unexpected message: {}",
+                    msg
+                );
+            }
+            other => panic!("expected ValidationError, got {:?}", other),
+        }
+    }
+
+    #[cfg(feature = "validation")]
+    #[tokio::test]
+    async fn test_delete_ban_invalid_target_removes_stored_record() {
+        let storage = Arc::new(MockBanStorage::new());
+
+        // 模拟早期版本 / 其他写入路径（如 governor 直接落库）写入的非法目标记录
+        let target = BanTarget::Ip("999.999.999.999".to_string());
+        let now = chrono::Utc::now();
+        storage
+            .save(&BanRecord {
+                target: target.clone(),
+                ban_times: 1,
+                duration: StdDuration::from_secs(3600),
+                banned_at: now,
+                expires_at: now + chrono::Duration::seconds(3600),
+                is_manual: true,
+                reason: "legacy invalid target".to_string(),
+            })
+            .await
+            .unwrap();
+
+        let ban_manager =
+            BanManager::with_dependencies(storage.clone(), BanManagerConfig::default())
+                .await
+                .unwrap();
+
+        let result = ban_manager.delete_ban(&target, "admin".to_string()).await;
+
+        // 存储中确有该非法目标记录时照常解封（否则该记录永远无法被清除）
+        assert!(result.unwrap(), "invalid-target record must be removable");
+        assert!(storage.is_banned(&target).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -2690,6 +2822,78 @@ mod tests {
         // moderator 应该可以操作
         let result = ban_manager
             .delete_ban(&target, "moderator".to_string())
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_with_required_authorization_true_without_provider_fails_build() {
+        let result = BanManager::builder()
+            .with_storage(Arc::new(MockBanStorage::new()))
+            .with_required_authorization(true)
+            .build()
+            .await;
+
+        match result {
+            Err(LimiteronError::ConfigError(msg)) => {
+                // 消息须命中 i18n 目录中的专属键，而非裸键名回退
+                assert_ne!(msg, "ban-manager-authorization-provider-required");
+                assert!(
+                    msg.contains("authorization_provider"),
+                    "unexpected message: {}",
+                    msg
+                );
+            }
+            Err(other) => panic!("expected ConfigError, got {:?}", other),
+            Ok(_) => panic!("expected ConfigError, got Ok(BanManager)"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_with_required_authorization_true_with_provider_builds() {
+        use crate::authorization::SimpleAuthorizationProvider;
+
+        let auth_provider = Arc::new(SimpleAuthorizationProvider::new(vec!["admin".to_string()]));
+
+        let ban_manager = BanManager::builder()
+            .with_storage(Arc::new(MockBanStorage::new()))
+            .with_authorization_provider(auth_provider)
+            .with_required_authorization(true)
+            .build()
+            .await
+            .expect("build must succeed when authorization_provider is provided");
+
+        // provider 须真实接入：未授权操作者被拒绝
+        let target = BanTarget::UserId("user123".to_string());
+        let result = ban_manager
+            .delete_ban(&target, "intruder".to_string())
+            .await;
+        assert!(
+            matches!(result, Err(LimiteronError::AuthorizationError(_))),
+            "expected AuthorizationError, got {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_with_required_authorization_default_false_builds_without_provider() {
+        let ban_manager = BanManager::builder()
+            .with_storage(Arc::new(MockBanStorage::new()))
+            .build()
+            .await
+            .expect("build must succeed without provider by default");
+
+        // 默认（false）保持既有语义：无 provider 时手动封禁放行（仅跳过细粒度授权）
+        let result = ban_manager
+            .create_ban(
+                BanTarget::Ip("192.168.1.1".to_string()),
+                "Test ban".to_string(),
+                BanSource::Manual {
+                    operator: "anyone".to_string(),
+                },
+                serde_json::json!({}),
+                None,
+            )
             .await;
         assert!(result.is_ok());
     }

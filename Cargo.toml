@@ -115,9 +115,10 @@ keywords = ["rate-limiting", "quota", "throttling", "circuit-breaker"]
 categories = ["web-programming", "concurrency"]
 
 # docs.rs 文档构建特征集：preset 与存储后端解耦后 full 不含任何 dbnexus 驱动，
-# 显式叠加 postgres 保持单后端合法且适配器文档完整
+# 显式叠加 postgres 保持单后端合法且适配器文档完整；
+# log-redaction 不在 full 预设内，脱敏引擎的公开 API 须显式叠加才出现在文档中
 [package.metadata.docs.rs]
-features = ["full", "postgres"]
+features = ["full", "postgres", "log-redaction"]
 
 [lints]
 workspace = true
@@ -204,12 +205,16 @@ unic-langid = "0.9"
 sys-locale = "0.3"
 
 # trait-kit integration (optional, feature-gated via `kit`).
-# trait-kit 经 crates.io registry 引入（跨仓依赖已从 path 迁移至 registry）。
+# trait-kit 经 crates.io registry 引入：CI 与发布流程只检出本仓，清单不得声明
+# 指向仓外兄弟目录的 path；本地联调走仓外依赖覆盖（见本文件末尾说明）。
 [dependencies.trait-kit]
 version = "0.5.0-rc.10"
 default-features = false
 features = ["async", "health", "lifecycle"]
 optional = true
+# 脱敏引擎（log-redaction feature 的实现细节）。
+# inklog 的 DataMasker/MaskRule/MaskRuleRegistry 是脱敏规则与优先级的唯一定义处，
+# limiteron 不自建第二套实现；该依赖不对外暴露为 feature，消费方无需感知。
 [dependencies.inklog]
 version = "0.3.0-rc.10"
 default-features = false
@@ -267,7 +272,6 @@ full = [
     "fallback",
     "custom-limiter",
     "gcra",
-    "log-redaction",
     "parallel-checker",
     "geo-matching",
     "device-matching",
@@ -288,7 +292,6 @@ full = [
     "bulkhead",
     "validation",
     "i18n",
-    "inklog",
     "config-confers",
     "config-confers-reload",
     "kit",
@@ -355,8 +358,10 @@ cache-service = []
 # GCRA 限流算法
 gcra = []
 
-# 日志脱敏：复用 inklog DataMasker；regex 供 matchers / device-matching 使用
-log-redaction = ["inklog"]
+# 日志脱敏：脱敏引擎经 inklog DataMasker + MaskRuleRegistry 承载
+# （inklog 依赖为该 feature 的实现细节，不对外暴露为独立 feature）；
+# regex 依赖保留给 matchers / device-matching 等其余消费点
+log-redaction = ["dep:inklog"]
 validation = []
 
 # Performance Features (性能优化)
@@ -415,9 +420,6 @@ kit = ["dep:trait-kit", "dep:futures", "oxcache/kit"]
 # ICU4X 国际化能力 (locale 感知的数字/日期/复数/排序格式化).
 # Mirrors trait-kit/oxcache `i18n` feature.
 i18n = ["dep:icu", "dep:writeable"]
-
-# inklog structured logging integration.
-inklog = ["dep:inklog"]
 
 # confers configuration integration (three-tier pattern mirroring trait-kit).
 # confers 依赖已转必选（config 模块无条件编译），本 feature 保留为兼容名
@@ -497,4 +499,7 @@ strip = true
 [profile.bench]
 inherits = "release"
 
-# 本地开发联调 [patch.crates-io] 占位（当前为空）：联调未发布 crate 时指向本地路径，完成后移除
+# 跨仓自研依赖（oxcache/dbnexus/trait-kit/inklog/confers）一律经 crates.io registry
+# 引入：CI 与发布流程只检出本仓，清单内指向仓外兄弟目录的 path 会让清单解析直接失败。
+# 本地联调未发布版本时，用工作区外的依赖覆盖指向兄弟仓工作树
+# （<工作区根>/.cargo/config.toml 的 [patch.crates-io] 段），该覆盖文件不入本仓。

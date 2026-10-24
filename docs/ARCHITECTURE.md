@@ -119,7 +119,7 @@ sequenceDiagram
 | Validation | `src/validation.rs` | IP / 用户 ID / MAC / API Key 输入校验（`validation` 特性） |
 | Config | `src/config/` | `FlowControlConfig`、`ConfigBuilder`、`ConfigLoader` |
 | Macros | `macros/`、`src/macros.rs` | `#[flow_control]` 声明式宏（`macros` 特性） |
-| Integrations | `src/integrations/` | dbnexus / oxcache / trait-kit / inklog / confers 端口实现 |
+| Integrations | `src/integrations/` | dbnexus / oxcache / trait-kit / confers 端口实现 |
 | Tenant | `src/tenant/` | 多租户复合决策键（`multi-tenant` 特性） |
 
 ---
@@ -163,7 +163,7 @@ flowchart BT
 | 可观测 | `telemetry` / `prometheus` / `metrics` / `audit-log` / `otlp` | 指标、追踪、审计；`metrics` 隐含 `prometheus`，`audit-log` / `otlp` 隐含 `telemetry`（`prometheus` 旧名 `monitoring` 保留为兼容别名） |
 | 控制面 | `admin-api` / `cli` | 管理 REST API 与 `limiteron-cli` |
 | 事件 | `event-system` / `webhook` / `ban-sync` | 事件订阅与 Outbox；`webhook` 签名外发与 `ban-sync` 跨实例广播需与 `event-system` 组合启用 |
-| 生态 | `kit` / `i18n` / `inklog` / `config-confers`(-reload) | trait-kit、ICU4X、inklog、confers 集成 |
+| 生态 | `kit` / `i18n` / `config-confers`(-reload) | trait-kit、ICU4X、confers 集成；结构化日志由 inklog 正主直接提供（应用层调 `inklog::init_inklog_logger()`），脱敏引擎随 `log-redaction` 特性经 inklog 引入 |
 
 ---
 

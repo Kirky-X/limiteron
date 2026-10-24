@@ -73,6 +73,11 @@ webhook-link-local-mapped-forbidden = 禁止使用链路本地地址（IPv4-mapp
 webhook-unspecified-mapped-forbidden = 禁止使用未指定地址（IPv4-mapped IPv6 绕过尝试）
 webhook-unique-local-v6-forbidden = 禁止使用唯一本地 IPv6 地址
 webhook-link-local-v6-forbidden = 禁止使用链路本地 IPv6 地址
+webhook-special-range-forbidden = 禁止使用特殊用途或保留 IP 地址
+webhook-dns-resolve-failed = 解析 webhook 主机 { $host } 失败: { $reason }
+webhook-dns-no-address = webhook 主机 { $host } 无可用地址
+webhook-dns-forbidden = webhook 主机 { $host } 仅解析到被禁止（私有或回环）的地址
+webhook-dns-precheck-timeout = webhook URL 预检超时（{ $seconds } 秒）
 
 # ---- 封禁文件加载（canonical mirror） ----
 ban-file-metadata-read-failed = 读取封禁文件元数据失败 { $path }: { $reason }
@@ -424,8 +429,10 @@ ban-file-load-complete = 文件封禁加载完成: { $count } 条
 ban-file-load-partial-failure = 文件封禁加载存在失败: 成功 { $success } 条, 失败 { $failure } 条
 ban-file-reload-complete = 封禁文件重载完成: 成功 { $success } 条, 失败 { $failure } 条
 ban-file-reload-failed = 封禁文件重载失败: { $reason }
+ban-manager-authorization-provider-required = BanManager 无法构建：已启用 with_required_authorization(true)，必须注入 authorization_provider；缺少细粒度授权提供者时拒绝启动
 ban-manager-no-authorization-provider = BanManager 创建时未配置 authorization_provider，所有手动封禁操作将跳过细粒度授权检查（仅依赖 admin API key 认证）
 ban-manual-skip-authorization = 手动封禁跳过授权检查（未配置 authorization_provider）: operator={ $operator }, target={ $target }
+ban-unban-skip-authorization = 手动解封跳过授权检查（未配置 authorization_provider）: operator={ $operator }, target={ $target }
 ban-reason-empty = 封禁原因不能为空
 ban-reason-invalid-chars = 封禁原因包含非法字符
 ban-reason-too-long = 封禁原因过长，最大长度为 { $max } 字符

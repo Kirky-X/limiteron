@@ -34,6 +34,9 @@
   - [POST /api/v1/ban](#post-apiv1ban)
   - [DELETE /api/v1/ban/{target}](#delete-apiv1bantarget)
 - [⚙️ 配置加载](#️-配置加载)
+- [📨 事件与 Webhook](#-事件与-webhook)
+  - [EventDispatcher::add_webhook_url()](#eventdispatcheradd_webhook_url)
+  - [EventDispatcher::try_add_webhook_url()](#eventdispatchertry_add_webhook_url)
 - [🚨 错误处理](#-错误处理)
 - [📐 类型定义](#-类型定义)
 - [💡 使用示例](#-使用示例)
@@ -947,13 +950,13 @@ let storage = factory.create_storage().await?;
 | 方法与路径 | 说明 | 认证 |
 |-----------|------|------|
 | `GET /healthz` / `GET /readyz` | K8s 探针端点 | 免认证 |
-| `GET /metrics` | Prometheus 指标 | 免认证 |
+| `GET /metrics` | Prometheus 指标 | 免认证（受独立速率限制约束） |
 | `GET /api/v1/status` | 运行状态 | Bearer |
 | `GET /api/v1/status/circuit-breaker` | 熔断器状态 | Bearer |
 | `GET /api/v1/introspect` | 规则/决策链/配额/封禁/熔断自省 JSON | Bearer |
 | `POST /api/v1/ban` | 创建封禁（需 `ban-manager`） | Bearer |
-| `DELETE /api/v1/ban/{target}` | 解除封禁（需 `ban-manager`） | Bearer |
-| `PUT /api/v1/quota/{user_id}` | 按 user 重置配额使用量（`new_limit=0`；租户维度配额用 `QuotaController::reset_quota_for_tenant`） | Bearer |
+| `DELETE /api/v1/ban/{target}` | 解除封禁（需 `ban-manager`；目标非法时返回 400，与创建封禁同口径校验） | Bearer |
+| `PUT /api/v1/quota/{user_id}` | 按 user 重置配额使用量（`new_limit=0`；租户维度配额用 `QuotaController::reset_quota_for_tenant`；`user_id`/`resource` 含 `':'` 返回 400） | Bearer |
 | `POST /api/v1/config` | 原子热更新配置 | Bearer |
 | `POST /api/v1/check/batch` | 批量决策检查 | Bearer |
 | `POST /api/v1/tokens/prefetch` | 批量令牌预取（`BatchTokenPrefetcher`） | Bearer |
@@ -962,20 +965,35 @@ let storage = factory.create_storage().await?;
 
 **OpenAPI 产物（`openapi` 特性）**：完整契约见入库产物 [`docs/openapi.json`](openapi.json)（OpenAPI 3.0.3，12 条路由与 schema）。产物由内存构建器单一事实来源生成，`tests/openapi_drift.rs` 防漂移守卫保证二者逐字节一致——契约变更时红灯，`UPDATE_OPENAPI=1 cargo test --features openapi --test openapi_drift` 重写后须人工复核 diff。协议无关操作面见 `AdminService` trait（`src/admin/service.rs`）：axum handlers 与薄客户端共享同一契约，错误类别到状态码的映射唯一（NotConfigured→503 / Invalid→400 / NotFound→404 / Forbidden→403 / Internal→500）。
 
+> **错误响应不外泄内部信息**：`Internal` 类错误的响应体为固定文案 `internal server error`，原始错误文本（可能含存储驱动的表名/列名/约束名/SQL 片段）只落服务端日志。`POST /api/v1/check/batch` 的逐条 `error` 字段同理只给稳定类别（`validation` / `storage` / `config` / `authorization` / `throttled` / `ban` / `circuit_breaker` / `internal`），原始错误只落日志。
+
 **薄客户端（`admin-client` 特性）**：`AdminClient::new(base_url, api_key)` 提供与 `AdminService` 一一对应的类型化方法（`status` / `introspect` / `circuit_breaker_status` / `create_ban` / `delete_ban` / `reset_quota` / `apply_config` / `check_batch` / `healthz`）。hyper http1 每请求新建连接，管理面低频场景适用；**临时验证面**——SDK 生成器（sdforge-R11）落地后由生成的 client 接替。
 
 ### 只读管理 Web UI（`admin-ui` 特性）
 
-> ⚠️ **无认证警示**：本 UI 面向「本机/可信内网快照查看」设计，**不提供任何认证**。默认绑定 `127.0.0.1:9091`（仅本机可访问）；改为非回环地址会将管理快照（规则、统计、健康、熔断状态）暴露给同网段所有主机——**必须前置带认证的反向代理（并在其上终止 TLS）**。服务启动时对非回环绑定发出 `tracing::warn!` 日志留痕。
+> ⚠️ **默认无认证**：本 UI 面向「本机/可信内网快照查看」设计，**默认不提供任何认证**。默认绑定 `127.0.0.1:9091`（仅本机可访问）；改为非回环地址会将管理快照（规则、统计、健康、熔断状态）暴露给同网段所有主机——**必须前置带认证的反向代理（并在其上终止 TLS）**。服务启动时对非回环绑定发出 `tracing::warn!` 日志留痕。
+>
+> **可选访问控制（`WebUiAccess`）**：路由层内置两项 opt-in 控制，默认关闭（既有行为不变）：
+> - **Host 校验**（`WebUiAccess::strict()`）：放行 IP 字面量、`localhost` 与 `allowed_hosts` 中的域名，其余 DNS 名返回 `421 Misdirected Request`（DNS rebinding 的收敛面）。严格模式会打断「按域名访问」的部署（含保留 Host 的反向代理），此类部署须把域名列入 `allowed_hosts`。Host 取 `Host` 头，缺失时回退 URI authority（HTTP/2 只有 `:authority`），两者皆缺即拒绝。
+> - **API key 鉴权**（`WebUiAccess::with_api_key(...)`）：数据端点（`/snapshot`、`/circuit-breaker`）要求 `Authorization: Bearer <key>`（scheme 大小写不敏感，RFC 7235 §2.1），缺失或不符返回 `401`；key 须非空且长度 ≥ 16 字符（与 `AdminApiConfig` 同口径，`with_api_key` 在构造期即拒绝违规 key）。静态页 `/` 不含数据，豁免凭证校验（Host 校验仍覆盖全部路由）；鉴权失败按客户端 IP 限流，窗口内失败次数达上限返回 `429`（附 `Retry-After`）。
+>
+> **浏览器使用方式**：启用 API key 后，页面提供 key 输入入口（存于 `sessionStorage`，不落 URL、不进浏览器历史与反代日志），请求自动带 `Authorization: Bearer <key>`；未提供或 key 不正确时页面显式渲染「API key required」状态。
+>
+> **封禁清单降敏**：`/snapshot` 的 `active_bans` 数组只给聚合面——封禁目标（IP / 用户 ID / MAC / 网段）按 `logging::redaction` 口径脱敏，封禁原因文本整体剔除；封禁次数、是否手动、到期时间保留。带 Bearer 认证的 `/api/v1/introspect` 返回完整封禁清单。
 
 ```rust
-use limiteron::admin::{WebUiConfig, WebUiServer};
+use limiteron::admin::{WebUiAccess, WebUiConfig, WebUiServer};
 
 let config = WebUiConfig {
     host: "127.0.0.1".to_string(), // 默认；非回环须前置反向代理
     port: 9091,
 };
-let server = WebUiServer::new(state, config);
+// 可选：严格 Host 校验 + API key 鉴权
+let server = WebUiServer::new(state, config).with_access(
+    WebUiAccess::strict()
+        .with_allowed_hosts(["admin.example.com"])
+        .with_api_key("web-ui-key-16chars!!"),
+);
 server.start().await?;
 ```
 
@@ -1069,8 +1087,9 @@ pub struct UnbanRequest {
 | 状态码 | 含义 |
 |--------|------|
 | `200 OK` | 解封成功 |
-| `400 Bad Request` | 不支持的 `type` 值 |
+| `400 Bad Request` | 不支持的 `type` 值，或目标格式非法（与创建封禁同口径校验） |
 | `401 Unauthorized` | 缺少或错误的 `Authorization` 头部 |
+| `403 Forbidden` | `AuthorizationError`（授权拒绝） |
 | `404 Not Found` | 目标未被封禁 |
 | `503 Service Unavailable` | 未配置 ban_manager |
 | `500 Internal Server Error` | 其他内部错误 |
@@ -1139,6 +1158,38 @@ let config = ConfigLoader::load_from_file_with_env("config.toml")?;
 
 ---
 
+## 📨 事件与 Webhook
+
+事件系统需要 `event-system` 特性；webhook 外发另需 `webhook` 特性。`EventDispatcher` 把事件分发给注册的处理器与 webhook 目标。
+
+### EventDispatcher::add_webhook_url()
+
+```rust
+pub async fn add_webhook_url(&self, url: String)
+```
+
+登记 webhook 目标。`webhook` 特性启用时先做 SSRF 预校验（协议 / 内网地址段 / 域名解析结果），不通过则拒绝登记并记入告警；**校验失败的原因不返回给调用方**。
+
+### EventDispatcher::try_add_webhook_url()
+
+```rust
+pub async fn try_add_webhook_url(&self, url: String) -> Result<(), WebhookUrlError>
+```
+
+与 `add_webhook_url` 同义，但把校验失败的原因返回给调用方，且失败时不登记 URL。调用方可据此区分「永久拒绝」与「可重试的瞬时故障」：
+
+```rust
+match dispatcher.try_add_webhook_url(url).await {
+    Ok(()) => {}
+    Err(WebhookUrlError::Rejected(msg)) => eprintln!("❌ 目标被拒: {msg}"),
+    Err(WebhookUrlError::DnsTransient(msg)) => eprintln!("⚠️ 解析暂时失败，可重试: {msg}"),
+}
+```
+
+`webhook` 特性未启用时不做校验，恒返回 `Ok(())`。
+
+---
+
 ## 🚨 错误处理
 
 ### `LimiteronError` 枚举
@@ -1170,6 +1221,19 @@ pub enum LimiteronError {
 ```
 
 类型别名 `pub type LimiteronResult<T> = std::result::Result<T, LimiteronError>;`
+
+### `WebhookUrlError` 枚举
+
+位于 `limiteron::error`，区分 webhook URL 校验的永久拒绝与瞬时故障：
+
+```rust
+pub enum WebhookUrlError {
+    Rejected(String),      // 永久拒绝：协议不符 / 命中内网禁止段 / 解析结果全落在禁止段
+    DnsTransient(String),  // 瞬时故障：DNS 解析失败或预检超时（2s 上限），可重试
+}
+```
+
+DNS 预检带 2s 耗时上限：解析器卡死时按瞬时故障返回，不会挂起事件分发的发送路径。
 
 ### 错误处理模式
 

@@ -74,6 +74,11 @@ webhook-link-local-mapped-forbidden = Link-local addresses are forbidden (IPv4-m
 webhook-unspecified-mapped-forbidden = Unspecified addresses are forbidden (IPv4-mapped IPv6 bypass attempt)
 webhook-unique-local-v6-forbidden = Unique local IPv6 addresses are forbidden
 webhook-link-local-v6-forbidden = Link-local IPv6 addresses are forbidden
+webhook-special-range-forbidden = Special-purpose or reserved IP addresses are forbidden
+webhook-dns-resolve-failed = Failed to resolve webhook host { $host }: { $reason }
+webhook-dns-no-address = Webhook host { $host } has no address
+webhook-dns-forbidden = Webhook host { $host } resolves only to forbidden (private or loopback) addresses
+webhook-dns-precheck-timeout = Webhook URL pre-check timed out after { $seconds } seconds
 
 # ---- Ban file loader (canonical mirror) ----
 ban-file-metadata-read-failed = Failed to read ban file metadata { $path }: { $reason }
@@ -427,8 +432,10 @@ ban-file-load-complete = Ban file load complete: { $count } entries
 ban-file-load-partial-failure = Ban file load had failures: { $success } succeeded, { $failure } failed
 ban-file-reload-complete = Ban file reload complete: { $success } succeeded, { $failure } failed
 ban-file-reload-failed = Ban file reload failed: { $reason }
+ban-manager-authorization-provider-required = BanManager cannot be built: authorization_provider is required because with_required_authorization(true) was set; refusing to start without fine-grained authorization
 ban-manager-no-authorization-provider = BanManager created without authorization_provider; all manual ban operations will skip fine-grained authorization checks (admin API key authentication only)
 ban-manual-skip-authorization = Manual ban skipping authorization check (no authorization_provider configured): operator={ $operator }, target={ $target }
+ban-unban-skip-authorization = Manual unban skipping authorization check (no authorization_provider configured): operator={ $operator }, target={ $target }
 ban-reason-empty = Ban reason cannot be empty
 ban-reason-invalid-chars = Ban reason contains illegal characters
 ban-reason-too-long = Ban reason too long, maximum length is { $max } characters

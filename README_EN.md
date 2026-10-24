@@ -91,7 +91,7 @@ One Governor entrypoint where multi-algorithm limiting and layered control decid
 - Batch APIs: batch decision checks and batch token prefetching (`BatchTokenPrefetcher`)
 - Hot reload: atomic config swap via `POST /api/v1/config`, config file watching (`config-watcher`), confers-based hot reload
 - Event system: `EventEmitter` / `EventDispatcher`, Transactional Outbox, signed outbound webhooks
-- Probe endpoints: `/healthz`, `/readyz`, `/metrics` (authentication bypassed by design)
+- Probe endpoints: `/healthz`, `/readyz`, `/metrics` (authentication bypassed by design; `/metrics` is additionally rate-limited on its own quota, while `/healthz` and `/readyz` are never rate-limited so K8s probes cannot fail and restart the pod)
 - Internationalization: ICU4X locale-aware formatting (`i18n`)
 - Limit pre-check: non-consuming `Limiter::peek(cost)` / `remaining()` with IETF `RateLimit-*` header data
 
@@ -201,7 +201,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 |--------|-------------|------------------|
 | `minimal` | Core rate limiting, no external storage dependencies | none |
 | `standard` | Core features (ban / quota / circuit breaker) | `ban-manager`, `quota-control`, `circuit-breaker` |
-| `full` | Everything except storage backends (excludes `cli`) | 38 features, see Cargo.toml |
+| `full` | Everything except storage backends (excludes `cli`) | 36 features, see Cargo.toml |
 
 > Note: presets include no storage backend; add `sqlite` / `postgres` / `mysql` on top for persistence (dbnexus drivers are mutually exclusive — only one per build).
 >
@@ -245,7 +245,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td><code>custom-limiter</code></td><td>Custom rate limiter support</td><td>❌</td></tr>
 <tr><td><code>cache-service</code></td><td>Unified cache service (DI support)</td><td>❌</td></tr>
 <tr><td><code>gcra</code></td><td>GCRA rate limiting algorithm</td><td>❌</td></tr>
-<tr><td rowspan="2">Security</td><td><code>log-redaction</code></td><td>Log redaction</td><td>❌</td></tr>
+<tr><td rowspan="2">Security</td><td><code>log-redaction</code></td><td>Log redaction (engine carried by inklog's <code>DataMasker</code> / <code>MaskRuleRegistry</code>; not in the <code>full</code> preset — must be enabled explicitly)</td><td>❌</td></tr>
 <tr><td><code>validation</code></td><td>Identifier input validation (IP / User ID / MAC)</td><td>❌</td></tr>
 <tr><td>Performance</td><td><code>parallel-checker</code></td><td>Parallel ban checking</td><td>❌</td></tr>
 <tr><td rowspan="3">Advanced Matching</td><td><code>geo-matching</code></td><td>Geographic matching (MaxMindDB)</td><td>❌</td></tr>
@@ -254,7 +254,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td rowspan="5">Control Plane</td><td><code>admin-api</code></td><td>Admin REST API (axum, with RBAC and self rate-limit protection; protocol-agnostic operations surface in the <code>AdminService</code> trait)</td><td>❌</td></tr>
 <tr><td><code>openapi</code></td><td>OpenAPI 3.0.3 document builder + committed artifact <code>docs/openapi.json</code> with drift guard test</td><td>❌</td></tr>
 <tr><td><code>admin-client</code></td><td>Thin Admin API client (hyper http1; temporary verification surface, superseded once the SDK generator lands)</td><td>❌</td></tr>
-<tr><td><code>admin-ui</code></td><td>Read-only admin Web UI (embedded single page, no build chain; mechanical read-only guards: all-GET route table + read-only projection typing; binds 127.0.0.1 by default, <b>no authentication</b> — non-loopback bindings require a reverse proxy in front)</td><td>❌</td></tr>
+<tr><td><code>admin-ui</code></td><td>Read-only admin Web UI (embedded single page, no build chain; mechanical read-only guards: all-GET route table + read-only projection typing; binds 127.0.0.1 by default, <b>no authentication</b> — non-loopback bindings require a reverse proxy in front; optional Host allowlist and API key auth)</td><td>❌</td></tr>
 <tr><td><code>cli</code></td><td><code>limiteron-cli</code> binary: rule file validation / export / apply dry-run</td><td>❌</td></tr>
 <tr><td rowspan="5">Observability</td><td><code>telemetry</code></td><td>Tracing initialization (tracing-subscriber)</td><td>❌</td></tr>
 <tr><td><code>prometheus</code></td><td>Prometheus metrics (global + per-rule/per-limiter dimensions and degraded counter, configurable off; legacy name <code>monitoring</code> kept as a compat alias)</td><td>❌</td></tr>
@@ -273,9 +273,8 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td><code>adaptive-threshold</code></td><td>Adaptive threshold limiter (sliding-window error-rate/latency-driven dynamic quota, statistical heuristics; thresholds and cooldown fully explicit)</td><td>❌</td></tr>
 <tr><td><code>priority-queue</code></td><td>Priority-queue scheduling (<code>PriorityQueueLimiter</code>: quota dispatch by priority)</td><td>❌</td></tr>
 <tr><td><code>admission-control</code></td><td>Admission control (<code>AdmissionController</code>: concurrency + rate dual gate)</td><td>❌</td></tr>
-<tr><td rowspan="5">Ecosystem</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> integration (health/lifecycle ports)</td><td>❌</td></tr>
+<tr><td rowspan="4">Ecosystem</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> integration (health/lifecycle ports)</td><td>❌</td></tr>
 <tr><td><code>i18n</code></td><td>ICU4X locale-aware formatting</td><td>❌</td></tr>
-<tr><td><code>inklog</code></td><td>inklog structured logging integration</td><td>❌</td></tr>
 <tr><td><code>config-confers</code></td><td>Load configuration from confers sources</td><td>❌</td></tr>
 <tr><td><code>config-confers-reload</code></td><td>confers hot reload (implies <code>config-confers</code>)</td><td>❌</td></tr>
 <tr><td>Development/Testing</td><td><code>test-clock</code></td><td><code>MockClock</code> test clock (external test consumers only)</td><td>❌</td></tr>
@@ -381,8 +380,9 @@ Limiteron collaborates closely with its sibling crates in the workspace; each in
 | [dbnexus](https://github.com/Kirky-X/dbnexus) | `postgres` / `sqlite` / `mysql` | Database abstraction layer providing persistent storage adapters and metrics propagation |
 | [oxcache](https://github.com/Kirky-X/oxcache) | `cache-service` / `cache-redis` / `lua-script` / `ban-sync` | Unified cache service, Redis cache backend, Lua execution, Pub/Sub ban broadcast |
 | [trait-kit](https://github.com/Kirky-X/trait-kit) | `kit` | `LimiteronModule` modular integration + health/lifecycle ports |
-| [inklog](https://github.com/Kirky-X/inklog) | `inklog` | Structured logging (console/file/database sinks) with the `SinkRateLimit` port |
 | [confers](https://github.com/Kirky-X/confers) | `config-confers` / `config-confers-reload` | Configuration source loading and hot reload (automatic rollback on validation failure) |
+
+Structured logging is provided directly by [inklog](https://github.com/Kirky-X/inklog); limiteron no longer forwards an initialization entry point — depend on inklog in the application layer and call `inklog::init_inklog_logger()` (or `inklog::init_inklog_logger_with_config(config)`) to install the global subscriber, and limiteron's own `log::`/`tracing::` calls route into inklog's sinks.
 
 Additionally, the `i18n` feature integrates [ICU4X](https://github.com/unicode-org/icu4x) for locale-aware formatting.
 
@@ -482,10 +482,10 @@ cargo bench --features full
 
 **Security design highlights** (each traceable in the source and the [Security document](docs/SECURITY.md)):
 
-- **Input defenses** — tenant/environment identifier sanitization (`src/tenant/config.rs` escapes `:` to prevent namespace-prefix injection); IP / user ID / MAC format validation (`src/validation.rs`)
+- **Input defenses** — tenant/environment identifier sanitization (`src/tenant/config.rs` escapes `:` to prevent namespace-prefix injection); IP / user ID / MAC format validation (`src/validation.rs`); a tenant ID taken from a request header must be overwritten by a trusted gateway, or constrained with `HeaderTenantResolver::with_allowed_tenants` (`src/tenant/resolver.rs`)
 - **Algorithm boundaries** — saturating arithmetic and capacity capping in the token bucket; clock-fallback protection in quota windows
 - **Admin self-protection** — per-path/per-client rate limiting on admin endpoints + bucket memory caps + multi-key token authentication with an admin/viewer role matrix (RBAC)
-- **Read-only Web UI unauthenticated warning** — the `admin-ui` embedded page issues GET requests only and is mechanically guarded (all-GET route table + read-only projection typing, `src/admin/web.rs`); it binds `127.0.0.1` by default and has **no authentication** — a non-loopback binding exposes admin snapshots to the whole subnet and must sit behind an authenticating reverse proxy (the server logs a warning on non-loopback binds)
+- **Read-only Web UI unauthenticated warning** — the `admin-ui` embedded page issues GET requests only and is mechanically guarded (all-GET route table + read-only projection typing, `src/admin/web.rs`); it binds `127.0.0.1` by default and has **no authentication** — a non-loopback binding exposes admin snapshots to the whole subnet and must sit behind an authenticating reverse proxy (the server logs a warning on non-loopback binds). Optional access controls: `WebUiAccess::strict()` enables a Host allowlist (closes the DNS rebinding surface), `WebUiAccess::with_api_key(...)` requires a Bearer credential (key length ≥ 16, failed authentications are rate limited per client IP); once enabled, the browser is prompted for the key inside the page (kept in `sessionStorage`, never in the URL) and data endpoints automatically carry `Authorization: Bearer <key>`
 - **Data protection** — secrecy for sensitive data, log redaction (`log-redaction`), HMAC-SHA256 hash-chained audit events with tamper detection
 - **Transport defenses** — trusted-proxy X-Forwarded-For extraction; outbound webhook signatures + timestamp replay protection + URL validation (SSRF)
 - **Supply chain** — rustls-webpki minimum version pin (CVE-2025-48369); [cargo-deny](deny.toml) checks vulnerabilities/licenses/duplicate dependencies; the CI Security job and the pre-push hook run `cargo deny check` and `cargo audit`
@@ -590,7 +590,7 @@ Copyright (c) 2026 Kirky.X🌠
   - [dbnexus](https://github.com/Kirky-X/dbnexus) — Database abstraction layer
   - [oxcache](https://github.com/Kirky-X/oxcache) — Unified cache service
   - [trait-kit](https://github.com/Kirky-X/trait-kit) — Trait integration modules
-  - [inklog](https://github.com/Kirky-X/inklog) — Structured logging
+  - [inklog](https://github.com/Kirky-X/inklog) — Structured logging and the log-redaction masking engine
   - [dashmap](https://github.com/xacrimon/dashmap) — Concurrent HashMap
 - 👥 **Contributors** — Thanks to all contributors!
 - 💬 **Community** — Special thanks to community members

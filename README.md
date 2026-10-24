@@ -91,7 +91,7 @@
 - 批量 API：批量决策检查、批量令牌预取（`BatchTokenPrefetcher`）
 - 热更新：`POST /api/v1/config` 原子换配置、配置文件监听（`config-watcher`）、confers 集成热重载
 - 事件系统：`EventEmitter` / `EventDispatcher`、Transactional Outbox、Webhook 外发签名
-- 探针端点：`/healthz`、`/readyz`、`/metrics`（bypass 认证）
+- 探针端点：`/healthz`、`/readyz`、`/metrics`（bypass 认证；`/metrics` 另受独立速率限制约束，`/healthz` `/readyz` 完全不限流以免 K8s 探针失败触发 Pod 重启）
 - 国际化：ICU4X locale 感知格式化（`i18n`）
 - 限流预检：`Limiter::peek(cost)` / `remaining()` 非消费查询与 IETF `RateLimit-*` 头数据
 
@@ -201,7 +201,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 |------|------|------------|
 | `minimal` | 核心限流，无外部存储依赖 | 无 |
 | `standard` | 核心功能（封禁 / 配额 / 熔断） | `ban-manager`、`quota-control`、`circuit-breaker` |
-| `full` | 除存储后端外的全部功能（不含 `cli`） | 38 项特性，见 Cargo.toml |
+| `full` | 除存储后端外的全部功能（不含 `cli`） | 36 项特性，见 Cargo.toml |
 
 > 注：preset 均不含存储后端，持久化需自行叠加 `sqlite` / `postgres` / `mysql`（dbnexus 驱动互斥，一次构建只能叠加一个）。
 >
@@ -245,7 +245,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>custom-limiter</code></td><td>自定义限流器扩展</td><td>❌</td></tr>
 <tr><td><code>cache-service</code></td><td>统一缓存服务（DI 支持）</td><td>❌</td></tr>
 <tr><td><code>gcra</code></td><td>GCRA 限流算法</td><td>❌</td></tr>
-<tr><td rowspan="2">安全</td><td><code>log-redaction</code></td><td>日志脱敏</td><td>❌</td></tr>
+<tr><td rowspan="2">安全</td><td><code>log-redaction</code></td><td>日志脱敏（脱敏引擎由 inklog 的 <code>DataMasker</code> / <code>MaskRuleRegistry</code> 承载；不在 <code>full</code> 预设内，须在依赖声明中显式开启）</td><td>❌</td></tr>
 <tr><td><code>validation</code></td><td>标识符输入校验（IP / 用户 ID / MAC）</td><td>❌</td></tr>
 <tr><td>性能</td><td><code>parallel-checker</code></td><td>并行封禁检查</td><td>❌</td></tr>
 <tr><td rowspan="3">高级匹配</td><td><code>geo-matching</code></td><td>地理位置匹配（MaxMindDB）</td><td>❌</td></tr>
@@ -254,7 +254,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td rowspan="5">控制面</td><td><code>admin-api</code></td><td>管理 REST API（axum，含 RBAC 与限流自保护；协议无关操作面见 <code>AdminService</code> trait）</td><td>❌</td></tr>
 <tr><td><code>openapi</code></td><td>OpenAPI 3.0.3 文档构建器 + 入库产物 <code>docs/openapi.json</code> 防漂移测试</td><td>❌</td></tr>
 <tr><td><code>admin-client</code></td><td>Admin API 薄客户端（hyper http1；临时验证面，SDK 生成器落地后接替）</td><td>❌</td></tr>
-<tr><td><code>admin-ui</code></td><td>只读管理 Web UI（内嵌单页无构建链；机械只读守卫：路由表全 GET + 只读投影类型窄化；默认绑定 127.0.0.1，<b>无认证</b>，非回环绑定须前置反向代理）</td><td>❌</td></tr>
+<tr><td><code>admin-ui</code></td><td>只读管理 Web UI（内嵌单页无构建链；机械只读守卫：路由表全 GET + 只读投影类型窄化；默认绑定 127.0.0.1，<b>无认证</b>，非回环绑定须前置反向代理；可选 Host 白名单与 API key 鉴权）</td><td>❌</td></tr>
 <tr><td><code>cli</code></td><td><code>limiteron-cli</code> 二进制：规则文件校验 / 导出 / apply dry-run</td><td>❌</td></tr>
 <tr><td rowspan="5">可观测性</td><td><code>telemetry</code></td><td>追踪初始化（tracing-subscriber）</td><td>❌</td></tr>
 <tr><td><code>prometheus</code></td><td>Prometheus 指标（全局 + per-rule/per-limiter 维度与降级计数，可配置关闭；旧名 <code>monitoring</code> 保留为兼容别名）</td><td>❌</td></tr>
@@ -273,9 +273,8 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>adaptive-threshold</code></td><td>自适应阈值限流（滑动窗口错误率/延迟驱动动态配额，统计启发式；阈值与冷却期全显式配置）</td><td>❌</td></tr>
 <tr><td><code>priority-queue</code></td><td>优先级队列调度（<code>PriorityQueueLimiter</code>：按优先级调度配额）</td><td>❌</td></tr>
 <tr><td><code>admission-control</code></td><td>准入控制（<code>AdmissionController</code>：并发 + 速率双门准入）</td><td>❌</td></tr>
-<tr><td rowspan="5">生态集成</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> 集成（健康/生命周期端口）</td><td>❌</td></tr>
+<tr><td rowspan="4">生态集成</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> 集成（健康/生命周期端口）</td><td>❌</td></tr>
 <tr><td><code>i18n</code></td><td>ICU4X 国际化格式化</td><td>❌</td></tr>
-<tr><td><code>inklog</code></td><td>inklog 结构化日志集成</td><td>❌</td></tr>
 <tr><td><code>config-confers</code></td><td>confers 配置源加载</td><td>❌</td></tr>
 <tr><td><code>config-confers-reload</code></td><td>confers 热重载（隐含 <code>config-confers</code>）</td><td>❌</td></tr>
 <tr><td>开发/测试</td><td><code>test-clock</code></td><td><code>MockClock</code> 测试时钟（外部测试消费者专用）</td><td>❌</td></tr>
@@ -381,8 +380,9 @@ Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式
 | [dbnexus](https://github.com/Kirky-X/dbnexus) | `postgres` / `sqlite` / `mysql` | 数据库抽象层，提供持久化存储适配器与指标传递 |
 | [oxcache](https://github.com/Kirky-X/oxcache) | `cache-service` / `cache-redis` / `lua-script` / `ban-sync` | 统一缓存服务、Redis 缓存后端、Lua 执行、Pub/Sub 封禁广播 |
 | [trait-kit](https://github.com/Kirky-X/trait-kit) | `kit` | `LimiteronModule` 模块化接入 + 健康/生命周期端口 |
-| [inklog](https://github.com/Kirky-X/inklog) | `inklog` | 结构化日志（console/file/database sinks），含 `SinkRateLimit` 限流端口 |
 | [confers](https://github.com/Kirky-X/confers) | `config-confers` / `config-confers-reload` | 配置源加载与热重载（验证失败自动回滚） |
+
+结构化日志由 [inklog](https://github.com/Kirky-X/inklog) 正主直接提供，limiteron 不再转发初始化入口——应用层直接依赖 inklog 并调用 `inklog::init_inklog_logger()`（或 `inklog::init_inklog_logger_with_config(config)`）安装全局 subscriber 即可，limiteron 自身的 `log::`/`tracing::` 调用随之路由进 inklog 的 sink。
 
 另通过 `i18n` 特性集成 [ICU4X](https://github.com/unicode-org/icu4x) 提供 locale 感知格式化。
 
@@ -482,10 +482,10 @@ cargo bench --features full
 
 **安全设计要点**（均可在源码与[安全文档](docs/SECURITY.md)中对应）：
 
-- **输入防线** — 租户 / 环境标识符消毒（转义 `:` 防命名空间前缀注入，`src/tenant/config.rs`）；IP / 用户 ID / MAC 格式校验（`src/validation.rs`）
+- **输入防线** — 租户 / 环境标识符消毒（转义 `:` 防命名空间前缀注入，`src/tenant/config.rs`）；IP / 用户 ID / MAC 格式校验（`src/validation.rs`）；租户 ID 取自请求头时须由可信网关覆写，或用 `HeaderTenantResolver::with_allowed_tenants` 限定租户白名单（`src/tenant/resolver.rs`）
 - **算法边界** — 令牌桶时间差与补充使用饱和运算封顶；配额窗口内置时钟回退防护
 - **Admin 自保护** — 管理端点自身限流 + 分桶内存上限 + 多 key 令牌认证与 admin/viewer 角色矩阵（RBAC）
-- **只读 Web UI 无认证警示** — `admin-ui` 内嵌单页仅发起 GET 且经机械守卫（路由表全 GET + 只读投影类型窄化，`src/admin/web.rs`）；默认绑定 `127.0.0.1` 且**无认证**——改为非回环地址会将管理快照暴露给同网段，必须前置带认证的反向代理（服务启动时对非回环绑定发出 warn 日志）
+- **只读 Web UI 无认证警示** — `admin-ui` 内嵌单页仅发起 GET 且经机械守卫（路由表全 GET + 只读投影类型窄化，`src/admin/web.rs`）；默认绑定 `127.0.0.1` 且**无认证**——改为非回环地址会将管理快照暴露给同网段，必须前置带认证的反向代理（服务启动时对非回环绑定发出 warn 日志）。可选访问控制：`WebUiAccess::strict()` 启用 Host 白名单（收敛 DNS rebinding 面），`WebUiAccess::with_api_key(...)` 要求 Bearer 凭证（key 长度 ≥ 16，鉴权失败按客户端 IP 限流）；启用后浏览器在页面内输入 key（存 `sessionStorage`，不落 URL），数据端点自动带 `Authorization: Bearer <key>`
 - **数据保护** — secrecy 保护敏感数据、日志脱敏（`log-redaction`）、审计事件 HMAC-SHA256 链式签名与篡改检测
 - **传输防线** — 可信代理 X-Forwarded-For 提取；Webhook 外发签名 + 时间戳防重放 + URL 校验（SSRF）
 - **供应链** — rustls-webpki 最低版本锁（CVE-2025-48369）；[cargo-deny](deny.toml) 校验漏洞/许可证/重复依赖；CI Security 任务与 pre-push 钩子运行 `cargo deny check` 与 `cargo audit`
@@ -590,7 +590,7 @@ Copyright (c) 2026 Kirky.X🌠
   - [dbnexus](https://github.com/Kirky-X/dbnexus) — 数据库抽象层
   - [oxcache](https://github.com/Kirky-X/oxcache) — 统一缓存服务
   - [trait-kit](https://github.com/Kirky-X/trait-kit) — trait 集成模块
-  - [inklog](https://github.com/Kirky-X/inklog) — 结构化日志
+  - [inklog](https://github.com/Kirky-X/inklog) — 结构化日志与日志脱敏引擎
   - [dashmap](https://github.com/xacrimon/dashmap) — 并发 HashMap
 - 👥 **贡献者** — 感谢所有贡献者！
 - 💬 **社区** — 特别感谢社区成员的支持

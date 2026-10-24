@@ -35,6 +35,63 @@
 
 ## [Unreleased]
 
+### 变更
+
+- **移除 `inklog` feature 与 `limiteron::integrations::inklog` 模块**：limiteron 不再向
+  应用层转发 inklog 结构化日志的初始化入口，该模块整体删除，公开 API
+  `init_inklog_logger` / `init_inklog_logger_with_config` / `LimiteronSinkRateLimit`
+  一并消失；`full` 预设中的 `inklog` 条目同步移除。下游 `features = ["inklog"]`
+  会因未知 feature 报错，需删除该条目，改为直接依赖 inklog 并调用正主 API
+  `inklog::init_inklog_logger()`（或 `init_inklog_logger_with_config(config)`）。
+  `log-redaction` 特性保留，脱敏引擎仍由 inklog 的 `DataMasker` 承载，该依赖是
+  `log-redaction` 的实现细节，不对外暴露为独立 feature。完整迁移指引见仓库根目录
+  [CHANGELOG.md](../CHANGELOG.md)。
+
+### 新增
+
+- **`HeaderTenantResolver::with_allowed_tenants`（`multi-tenant`）**：新增租户 ID 白名单——白名单外的请求头值不解析为租户（回退默认命名空间），避免请求方逐请求轮换该头自选租户命名空间、绕开封禁命名空间。类型文档同时登记使用前提：租户 ID 取自请求头时须由可信网关剥离/覆写，或用本白名单约束。
+- **只读 Web UI 访问控制面（`admin-ui`）**：新增 `WebUiAccess`（`HostCheck` 严格/宽松 + `allowed_hosts` + 可选 `api_key`）与 `WebUiServer::with_access(...)` / `create_router_with_access(...)`。严格模式下仅放行 IP 字面量、`localhost` 与显式配置的 host（其余 DNS 名 421，DNS rebinding 的收敛面）；配置 `api_key` 后要求 `Authorization: Bearer <key>`（缺失/不符 401）。**默认行为不变**（宽松 Host、无鉴权），既有部署无需改动。
+- **BanManager 强制授权提供者**：`BanManagerBuilder::with_required_authorization(true)`——未注入 `authorization_provider` 时 `build()` 直接失败（fail closed），杜绝"以为有细粒度授权、实际手动封禁无授权"的部署状态。默认关闭，既有构建行为不变。该开关只在 `BanManagerBuilder::build()` 内生效——`BanManager::new` / `with_dependencies` / `with_dependencies_and_auth` 不经该构建器，无法开启 fail closed。
+- **`EventDispatcher::try_add_webhook_url` 与 `WebhookUrlError`（`event-system`）**：webhook URL 注册此前只记告警、丢弃失败原因（`add_webhook_url` 返回 `()`），调用方无法区分「永久拒绝」与「DNS 解析瞬时失败」，一次解析抖动即把合法端点变成不可恢复的丢失。新增 `try_add_webhook_url` 返回分类结果（`WebhookUrlError::Rejected` 永久拒绝 / `DnsTransient` 瞬时故障可重试），失败时不登记 URL；`add_webhook_url` 签名不变，作为只记告警的薄封装保留。
+
+### 变更
+
+- **`POST /api/v1/check/batch` 逐条 `error` 字段改为稳定类别（破坏性）**：此前直出原始错误文本，现为稳定类别（`validation` / `storage` / `config` / `authorization` / `throttled` / `ban` / `circuit_breaker` / `internal`）。**破坏性变更**：按错误文本解析的下游须改按类别判定（原始错误文本只落服务端日志）。
+- **解封非法目标不再短路存储**：解封目标校验失败时仍按目标键查一次存储——命中即删除并返回 200（早期版本或经其他写入路径落库的非法目标记录否则永远无法清除），未命中才返回 400（与创建封禁同口径）。
+- **租户解析器未设白名单时告警**：`HeaderTenantResolver` 未配置 `with_allowed_tenants` 且首次解析到租户头时告警一次（该头的值完全由请求方控制，库侧无法替调用方建立身份绑定）。
+- **租户解析器空白名单告警**：`HeaderTenantResolver::with_allowed_tenants` 传入空白名单时告警一次——空白名单会把所有租户头的流量并入默认命名空间（租户维度额度与封禁隔离失效），此前该误配静默生效。空白名单语义不变（仍拒绝所有租户头，不放行自选命名空间）。
+
+### 修复
+
+- **只读 Web UI 访问控制的六处收紧（`admin-ui`）**：`WebUiAccess` 的派生 `Debug` 会以明文打印 `api_key`（改为手写脱敏，同 `AdminApiConfig` 口径）；严格 Host 校验在 `Host` 头缺失时整条跳过（HTTP/2 只有 `:authority`，不回退 URI authority 即被绕过），畸形 IPv6 字面量（`[::1]evil.example.com`）被截成合法 IP 放行；`with_api_key` 不校验 key 长度（空 key 与畸形凭证 `"Bearer "` 相等即通过鉴权），现要求非空且 ≥16 字符（构造期即拒绝），鉴权处显式排除空 token；Web UI 鉴权无任何限流（可无限次在线猜测），现按客户端 IP 对**失败**鉴权限流（超限 429）；Bearer scheme 此前大小写敏感（与 RFC 7235 §2.1 偏差）。同时：静态页 `/` 豁免凭证校验（此前启用 API key 后浏览器连页面都打不开），页面新增 key 入口（存 `sessionStorage`，不落 URL）并在 fetch 上带 `Authorization: Bearer <key>`；`/snapshot` 封禁清单降敏对未知 `BanTarget` 变体/异常结构默认遮蔽（此前原样输出）；访问控制句柄改 `Arc` 共享（此前每请求复制 key 明文）
+- **脱敏函数多字节 UTF-8 panic**：`redact_basic` / `redact_email` 此前按**字节**切片（`&value[..2]`、`&local_part[..prefix_len]`），`is_sensitive_field_name` 的高危前缀判定按固定字节长度切词元——首字符为 3/4 字节 UTF-8（中文、emoji）时切片落在字符内部触发 str 切片 panic。管理 API 的 `DELETE /api/v1/ban/{target}`（目标取自 URL 路径段）可在 handler 内触发；对外导出的 `redact_basic` / `redact_user_id` / `redact_ip` / `redact_email` / `redact_advanced` 为无条件 panic。现一律按**字符**计长与截取（含 `redact_advanced` 的 ≤4 字符短值整段脱敏阈值，此前按字节计数会漏过多字节短值），ASCII 输入逐位不变
+- **解封目标缺校验**：`BanManager::delete_ban` 补 `validate_ban_target`（与 `create_ban` 同口径，`validation` feature 门控）；管理面 `DELETE /api/v1/ban/{target}` 对非法目标返回 400（此前落入 500/404）
+- **批量预取桶表无上限**：`BatchTokenPrefetcher` 的桶表此前无条目上限、无淘汰，管理 API `POST /api/v1/tokens/prefetch` 可用新 key 单调撑大至 OOM。现加容量上限（`MAX_PREFETCH_ENTRIES=10000`、触发阈值 `PREFETCH_CLEANUP_THRESHOLD=11000`，超限淘汰最旧项）与单 key 长度上限（256 字节）
+- **Webhook 重定向绕过 SSRF 校验**：出站客户端此前用 `reqwest::Client::new()`（默认跟随 10 跳重定向），SSRF 校验只覆盖初始 URL，公网地址 302 → 内网即绕过。现每一跳重跑 `validate_webhook_url`，命中内网/回环/link-local 即停止跟随
+- **Webhook 重定向链无跳数上限**：reqwest 的 `Policy::custom` 不自带链长限制（custom 变体不会自动限制跳数），自定义策略无条件 `follow` 时攻击者可用长重定向链耗尽出站资源。现上限 5 跳，超限以错误终止
+- **Webhook SSRF 域名面未闭合**：SSRF 校验此前只判定 URL 字面量（域名一律放行），内部域名解析到 10.x / 127.x / 169.254.x 仍可出站；DNS rebinding 亦无覆盖。现出站客户端装用 SSRF 安全解析器——在**连接所用的那一次解析**上拒绝内网/回环/link-local 目标（解析结果即连接目标，无"先校验后连接"的漂移窗口），并新增 `validate_webhook_url_async` 预检（域名解析结果全落在禁止段时提前失败）
+- **Webhook 预检的 DNS 解析无耗时上限**：发送路径与注册路径的 SSRF 预检直接 `lookup_host`，且预检发生在请求自身的 5s 超时之前——慢解析器（或卡死的解析器）会无限期占用唯一的分派任务（webhook 扇出为顺序 await），广播通道积压后事件被丢弃。现 DNS 预检带 2s 上限（`WEBHOOK_DNS_PRECHECK_TIMEOUT`，小于请求预算），超时按瞬时故障上报
+- **直接调用 `create_router` 绕过主 api_key 强度校验**：`AdminServer::start` / `into_router` 会先 `AdminApiConfig::validate()`（主 `api_key` ≥16 字符），但直接调用公开的 `routes::create_router` 可用 1 字符主 key 构造出接受该 key 的路由。现 `create_router` 同样执行 `validate()`，校验不通过时主 key 不作为有效凭证（fail closed）并显性记错
+- **批量预取淘汰的临时分配放大**：桶表超限时此前把全部 key 克隆进 `Vec` 再排序（满表约数 MB 临时分配，key 上限 256 字节）。现只收集创建时刻定位淘汰水位（O(n) 选择），仅克隆并删除水位以下的 key
+- **管理端点错误外泄内部信息**：`AdminServiceError::Internal` 的响应体此前直出内部错误原文（可能含存储驱动的表名/列名/约束名/SQL 片段）；现为固定文案 `internal server error`，原文只落服务端日志
+- **管理面限流跨组提前清零**：限流分桶清扫用「当前请求所属组」的窗口长度判定所有组 entry 是否过期，长窗口组（如 ban=100/小时）的计数会被短窗口组（default=60s）的请求清零，限流被绕过。现窗口长度随 entry 存储，按各组自身窗口判定
+- **凭证经 Debug 泄漏**：`AdminClient` 的派生 `Debug` 明文打印 Bearer `api_key`（与 `AdminApiConfig` 的脱敏口径矛盾）；`AdminApiConfig` 的手写 `Debug` 脱敏了主 `api_key`，却原样打印以 API key 为键的两张映射表。现两处均脱敏（映射表只输出操作者/角色分布）
+- **退化凭证可过鉴权**：主 `api_key` 为空时，期望凭证退化为字面量 `"Bearer "`（`create_router` 可绕过 `validate()`）。现空主 key 与空角色映射 key 一律不作为有效凭证
+- **只读 Web UI 封禁清单降敏**：`/snapshot`（无鉴权）此前原样输出封禁目标（IP / 用户 ID / MAC）与封禁原因；现目标按 `logging::redaction` 口径遮罩、原因剔除，仅保留聚合面（封禁次数/是否手动/到期时间）
+- **`/metrics` 免凭证且不限流**：`/metrics` 保留免认证契约（Prometheus 不携带凭证），但纳入独立速率限制分组（默认 600/min）；`/healthz` `/readyz` 仍完全不限流（K8s 探针被限流会触发 Pod 重启）
+- **配额键分隔符校验缺口**：`QuotaController::get_quota` / `reset_quota` 此前无 `consume` 同款的 `:` 碰撞校验（管理面 `PUT /api/v1/quota/{user_id}` 的路径段与 body 字段均受调用方控制）。现统一经 `validate_quota_key_parts`；租户路径改走内部 `*_keyed` 入口（其键含 `:`，由固定前缀保证不与 user 维度键碰撞）
+- **封禁目标日志脱敏不一致**：`create_ban` / `delete_ban` 的日志此前输出未脱敏目标（`{:?}`），现统一走 `redact_ban_target`
+- **公开辅助函数 `is_valid_api_key` 弱于路由口径**：`AdminApiConfig::is_valid_api_key`（公开 API）此前把主 `api_key` 恒判为合法（含短于 16 字符者），与路由的 `validate()` 口径分叉——外部消费方拿它当鉴权谓词即拿到弱于内置路由的策略；凭证比对亦为非常量时间（`==` 与哈希查找）。现主 `api_key` 须先过强度校验（同 `validate()`，非空且 ≥16 字符）方视为有效凭证，角色映射 key 须同样满足 ≥16 字符下限（过短即拒绝，与路由同口径）、空白 key 不作凭证，比对统一走常量时间比较；强度判定收敛到单一真源，路由鉴权与该 helper 共用
+- **角色映射中的短 key 仍是活凭证**：`api_key_roles` 中登记的 key 与主 `api_key` 同为可直接登录管理面的凭证，此前短于 16 字符者仅告警、仍进入有效凭证集合（1 字符 key 映射为 admin 后即可穷举爆破管理面）。现与主 key 同口径 fail closed——短 key 不作有效凭证（401），并以 `log::error!` 显性记错（只报角色与长度，不输出 key 原文）；`AdminApiConfig::is_valid_api_key` 同步收紧。**兼容性影响**：依赖短角色 key 的部署该凭证将失效（401），主 `api_key` 走独立校验不受影响
+- **部分 `rate_limits` 配置弱化限流**：分组缺席配置时的回退额度此前统一为 200/min，与文档记载的分组默认（ban=100/min、quota=50/min）矛盾——配置只覆盖部分分组时 ban/quota 限流被放宽（quota 弱 4 倍）。现默认额度表收敛到单一事实源 `config::default_rate_limit_for`（ban=100/min、quota=50/min、metrics=600/min、default=200/min），配置默认 map 与缺失分组回退共用同一表，二者不再漂移
+- **Webhook SSRF 禁止段覆盖不全**：判定表此前只含回环 / 未指定 / 私有 / 链路本地 / 唯一本地 IPv6 与 IPv4-mapped IPv6 的内嵌 IPv4，特殊用途段可直接作为出站目标——`100.64.0.0/10`（运营商级 NAT，Tailscale 等隧道工具的默认段，可直达宿主机上的服务）、`0.0.0.0/8`、`192.0.0.0/24`、`198.18.0.0/15`、`224.0.0.0/4` 及以上保留段（组播 / 广播），以及 v6 侧的 `ff00::/8` 组播、`fec0::/10` 站点本地、IPv4 兼容写法 `::a.b.c.d`（`std` 的 `to_ipv4_mapped` 不认该形态）与 NAT64 前缀 `64:ff9b::/96`。现字面量路径与出站解析器**共用同一判定**（`forbidden_target_reason`），两处口径不再漂移；NAT64 按内嵌 IPv4 判定，不整段拉黑以免误伤纯 NAT64 部署
+- **Webhook 出站客户端走环境代理**：`ALL_PROXY` / `HTTP_PROXY` / `HTTPS_PROXY` 存在时，reqwest 默认启用系统代理——代理会去解析目标主机名，本地只解析到代理主机，目标地址从此逃过 SSRF 解析器的判定，域名型重定向到内网直达。现出站客户端一律 `.no_proxy()`，所有名字解析都经过 SSRF 安全解析器
+- **Webhook 重定向链跳数少算一跳**：跳数比较用的是 reqwest 的 `attempt.previous().len()`（**含初始 URL**，一基），此前按 `<` 比较，实际只跟随 `MAX_WEBHOOK_REDIRECTS - 1` 跳即以「跳数超限」终止，与常量承诺的跳数不符。现按 `<=` 比较（与 reqwest `Policy::limited(n)` 同口径），恰好允许 `MAX_WEBHOOK_REDIRECTS` 跳
+- **Webhook 重定向的 HTTPS 要求由构建 profile 推断**：出站客户端被事件分发与配额告警两个策略不同的调用方共享，而重定向目标的 HTTPS 要求此前硬编码为 `!cfg!(debug_assertions)`——debug 构建下配额路径（载荷含敏感数据）允许 HTTPS→HTTP 明文降级，release 构建下事件分发路径的 http→http 合法重定向链被无谓拒绝。现传输策略经工厂参数传入（`WebhookTransportPolicy`），调用方按自身口径传入，并按策略分桶缓存客户端
+- **Webhook 客户端构建失败即 panic**：`ClientBuilder::build()` 的失败（TLS 后端初始化失败、系统配置不可读）此前经 `expect` 变成进程 panic；配额路径还在每次告警时重建客户端（丢失连接池复用）。现工厂返回 `Result`，调用方自行处置（事件分发路径记错并停用 webhook 外发，配额路径转为配置错误），客户端按策略缓存复用
+- **Webhook 发送路径重复 DNS 预检**：预检与连接期解析是两次解析，且预检的瞬时故障（解析器抖动 / 超时）会把本可成功的投递判死。现发送路径只判定字面量面，域名面交由连接期的 SSRF 解析器权威判定（解析结果即连接目标，无漂移窗口）；DNS 预检只保留在注册路径——那里要回答「该端点此刻是否可用」，故仍区分永久拒绝与瞬时故障
+- **Webhook URL 整条入日志**：重定向目标由远端服务端给出，其 path/query 可能携带令牌（如带签名的回调 URL），此前整条回显等于把远端可控内容写进日志文件；分发器的注册 / 移除 / 发送日志同样整条打印配置的 URL。现统一经 `logging::redaction::redact_url` 只保留 scheme 与 host
+
 ## [0.3.0-rc.8] - 2026-10-19
 
 ### 变更

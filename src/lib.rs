@@ -35,7 +35,7 @@
 //! - trait-kit AsyncKit integration (requires `kit` feature)
 //! - Internationalization: Fluent catalog + locale detection + error dual-track
 //!   (always available); ICU number/date/plural/sort formatting (requires `i18n` feature)
-//! - inklog structured logging (requires `inklog` feature)
+//! - Log redaction via inklog's masking engine (requires `log-redaction` feature)
 //!
 //! # Examples
 //!
@@ -66,7 +66,7 @@
 //! - **Distributed rate limiting**: `DistributedLimiter` trait + `InMemoryDistributedLimiter` implementation (requires `distributed` feature)
 //! - **trait-kit integration**: AsyncKit `LimiteronModule` (requires `kit` feature)
 //! - **Internationalization**: Fluent message catalog (en/zh) + locale detection chain + error dual-track (always compiled); ICU4X locale-aware number/date/plural/sort formatting (requires `i18n` feature)
-//! - **inklog logging**: inklog structured logging integration (requires `inklog` feature)
+//! - **inklog logging**: inklog's `LoggerManager` installs the global tracing subscriber and `log` bridge; initialize it from inklog's own crate-level init API (this crate exposes no `inklog` feature)
 //! - **Priority queue**: quota allocation with priority scheduling — per-level reserved
 //!   bands, strict-priority borrowing from lower levels only (requires `priority-queue` feature)
 //! - **Admission control**: concurrency + rate dual-gate admission with per-reason
@@ -171,6 +171,12 @@ pub mod integrations;
 #[cfg(feature = "tower-middleware")]
 pub mod middleware;
 
+// 清单与 CI 配置不变式守卫（仅测试期编译）
+#[cfg(test)]
+mod dependency_source_tests;
+#[cfg(test)]
+mod feature_coverage_tests;
+
 // 重新导出常用类型
 #[cfg(feature = "ban-manager")]
 pub use authorization::OperationAuthorizationProvider;
@@ -200,7 +206,7 @@ pub use decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, Decisi
 // AtomicChainStats 改为 pub(crate)，不再公开导出
 pub use error::{
     BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, LimiteronError,
-    LimiteronResult, StorageError,
+    LimiteronResult, StorageError, WebhookUrlError,
 };
 // Event system types (feature-gated)
 #[cfg(feature = "event-system")]

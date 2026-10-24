@@ -210,4 +210,301 @@ mod tests {
             "unsupported language must terminate in en"
         );
     }
+
+    /// 单条精确渲染用例：(键, 占位符实参, en 期望, zh 期望)。
+    type RenderCase = (
+        &'static str,
+        &'static [(&'static str, &'static str)],
+        &'static str,
+        &'static str,
+    );
+
+    /// 守卫：配置校验类键的 en 值与构造点内嵌的规范串逐字一致（canonical mirror
+    /// 不变式）。构造点改了英文、目录没跟上时本测试红灯。
+    #[test]
+    fn test_config_validation_keys_are_canonical_mirror() {
+        let cases: &[(&str, &str)] = &[
+            ("config-version-empty", "Version cannot be empty"),
+            ("config-rule-required", "At least one rule is required"),
+            ("config-rule-id-empty", "Rule ID cannot be empty"),
+            ("config-rule-name-empty", "Rule name cannot be empty"),
+            (
+                "config-rule-matcher-required",
+                "Rule requires at least one matcher",
+            ),
+            (
+                "config-rule-limiter-required",
+                "Rule requires at least one limiter",
+            ),
+            ("config-rule-user-ids-empty", "User ID list cannot be empty"),
+            (
+                "config-rule-ip-ranges-empty",
+                "IP range list cannot be empty",
+            ),
+            (
+                "config-rule-countries-empty",
+                "Country list cannot be empty",
+            ),
+            (
+                "config-rule-api-versions-empty",
+                "API version list cannot be empty",
+            ),
+            (
+                "config-rule-device-types-empty",
+                "Device type list cannot be empty",
+            ),
+            (
+                "config-rule-matcher-name-empty",
+                "Custom matcher name cannot be empty",
+            ),
+            (
+                "config-rule-matcher-config-empty",
+                "Custom matcher config cannot be empty",
+            ),
+            ("config-ban-threshold-not-zero", "Ban threshold cannot be 0"),
+            (
+                "config-backoff-multiplier-positive",
+                "Backoff multiplier must be greater than 0",
+            ),
+            (
+                "config-overdraft-max-not-zero",
+                "Overdraft enabled: max overdraft cannot be 0",
+            ),
+            (
+                "config-token-bucket-capacity-not-zero",
+                "Token bucket capacity cannot be 0",
+            ),
+            (
+                "config-token-bucket-refill-rate-not-zero",
+                "Refill rate cannot be 0",
+            ),
+            ("config-max-requests-not-zero", "Max requests cannot be 0"),
+            ("config-quota-limit-not-zero", "Quota limit cannot be 0"),
+            (
+                "config-max-concurrency-not-zero",
+                "Max concurrency cannot be 0",
+            ),
+            (
+                "config-leaky-bucket-capacity-not-zero",
+                "Leaky bucket capacity cannot be 0",
+            ),
+            (
+                "config-leaky-bucket-leak-rate-not-zero",
+                "Leaky bucket leak_rate cannot be 0",
+            ),
+            (
+                "config-sliding-window-log-max-requests-not-zero",
+                "Sliding window log max_requests cannot be 0",
+            ),
+            (
+                "config-priority-queue-total-per-window-not-zero",
+                "Priority queue total_per_window cannot be 0",
+            ),
+            (
+                "config-priority-queue-level-weights-invalid",
+                "Priority queue level_weights must be non-empty and non-zero",
+            ),
+            (
+                "config-admission-max-concurrent-not-zero",
+                "Admission control max_concurrent cannot be 0",
+            ),
+            (
+                "config-admission-max-per-second-not-zero",
+                "Admission control max_per_second cannot be 0",
+            ),
+            (
+                "config-custom-limiter-name-empty",
+                "Custom limiter name cannot be empty",
+            ),
+            (
+                "config-custom-limiter-config-empty",
+                "Custom limiter config cannot be empty",
+            ),
+            (
+                "telemetry-feature-disabled",
+                "telemetry feature is disabled",
+            ),
+            (
+                "prometheus-feature-disabled",
+                "prometheus feature is disabled",
+            ),
+        ];
+        for (key, expected) in cases {
+            assert_eq!(
+                format_from_bundle("en", key, &[]).as_deref(),
+                Some(*expected),
+                "en value of {key} must stay identical to the construction-site string"
+            );
+        }
+    }
+
+    /// 守卫：配置校验类键在 zh 侧必须渲染出中文（占位符全部解析，不退化为键名）。
+    #[test]
+    fn test_config_validation_keys_render_in_zh() {
+        let cases: &[(&str, &[(&str, &str)])] = &[
+            ("config-version-empty", &[]),
+            ("config-duplicate-rule-id", &[("rule_id", "r7")]),
+            ("config-rule-required", &[]),
+            (
+                "config-rule-validation-failed",
+                &[("index", "2"), ("error", "boom")],
+            ),
+            ("config-rule-id-empty", &[]),
+            ("config-rule-name-empty", &[]),
+            ("config-rule-matcher-required", &[]),
+            ("config-rule-limiter-required", &[]),
+            (
+                "config-matcher-validation-failed",
+                &[("index", "0"), ("error", "boom")],
+            ),
+            (
+                "config-limiter-validation-failed",
+                &[("index", "1"), ("error", "boom")],
+            ),
+            ("config-rule-user-ids-empty", &[]),
+            ("config-rule-ip-ranges-empty", &[]),
+            ("config-rule-countries-empty", &[]),
+            ("config-rule-api-versions-empty", &[]),
+            ("config-rule-device-types-empty", &[]),
+            ("config-rule-matcher-name-empty", &[]),
+            ("config-rule-matcher-config-empty", &[]),
+            ("config-ban-threshold-not-zero", &[]),
+            ("config-backoff-multiplier-positive", &[]),
+            ("config-overdraft-max-not-zero", &[]),
+            ("config-token-bucket-capacity-not-zero", &[]),
+            ("config-token-bucket-capacity-exceeds", &[("max", "1000")]),
+            ("config-token-bucket-refill-rate-not-zero", &[]),
+            ("config-token-bucket-refill-rate-exceeds", &[("max", "100")]),
+            ("config-max-requests-not-zero", &[]),
+            ("config-max-requests-exceeds", &[("max", "1000")]),
+            ("config-quota-limit-not-zero", &[]),
+            ("config-alert-threshold-exceeds", &[("max", "100")]),
+            ("config-max-concurrency-not-zero", &[]),
+            ("config-max-concurrency-exceeds", &[("max", "1000")]),
+            ("config-leaky-bucket-capacity-not-zero", &[]),
+            ("config-leaky-bucket-capacity-exceeds", &[("max", "1000")]),
+            ("config-leaky-bucket-leak-rate-not-zero", &[]),
+            ("config-leaky-bucket-leak-rate-exceeds", &[("max", "100")]),
+            ("config-sliding-window-log-max-requests-not-zero", &[]),
+            (
+                "config-sliding-window-log-max-requests-exceeds",
+                &[("max", "1000")],
+            ),
+            ("config-priority-queue-total-per-window-not-zero", &[]),
+            ("config-priority-queue-level-weights-invalid", &[]),
+            (
+                "config-priority-queue-default-priority-out-of-range",
+                &[("priority", "3"), ("levels", "5")],
+            ),
+            ("config-admission-max-concurrent-not-zero", &[]),
+            ("config-admission-max-per-second-not-zero", &[]),
+            ("config-custom-limiter-name-empty", &[]),
+            ("config-custom-limiter-config-empty", &[]),
+            ("telemetry-feature-disabled", &[]),
+            ("prometheus-feature-disabled", &[]),
+            (
+                "telemetry-bind-port-failed",
+                &[("port", "9090"), ("error", "denied")],
+            ),
+            ("integration-guard-internal-error", &[("error", "boom")]),
+            (
+                "integration-token-bucket-check-failed",
+                &[("error", "boom")],
+            ),
+        ];
+        for (key, args) in cases {
+            let args: Vec<(&str, String)> =
+                args.iter().map(|(k, v)| (*k, (*v).to_string())).collect();
+            let rendered = format_from_bundle("zh", key, &args)
+                .unwrap_or_else(|| panic!("key {key} must resolve in the zh bundle"));
+            assert_ne!(rendered, *key, "key {key} fell back to its own id");
+            assert!(
+                rendered
+                    .chars()
+                    .any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c)),
+                "zh rendering of {key} must contain Chinese, got {rendered:?}"
+            );
+        }
+    }
+
+    /// 守卫：带占位符的配置校验键在双语两侧都必须把占位符解析掉。
+    #[test]
+    fn test_config_validation_placeholders_resolve() {
+        let cases: &[RenderCase] = &[
+            (
+                "config-duplicate-rule-id",
+                &[("rule_id", "r7")],
+                "Duplicate rule ID: r7",
+                "规则 ID 重复: r7",
+            ),
+            (
+                "config-rule-validation-failed",
+                &[("index", "2"), ("error", "boom")],
+                "Rule[2] validation failed: boom",
+                "Rule[2] 校验失败: boom",
+            ),
+            (
+                "config-matcher-validation-failed",
+                &[("index", "0"), ("error", "boom")],
+                "Matcher[0]: boom",
+                "匹配器[0]: boom",
+            ),
+            (
+                "config-limiter-validation-failed",
+                &[("index", "1"), ("error", "boom")],
+                "Limiter[1]: boom",
+                "限流器[1]: boom",
+            ),
+            (
+                "config-token-bucket-capacity-exceeds",
+                &[("max", "1000")],
+                "Token bucket capacity cannot exceed 1000",
+                "令牌桶容量不能超过 1000",
+            ),
+            (
+                "config-alert-threshold-exceeds",
+                &[("max", "100")],
+                "Alert threshold cannot exceed 100%",
+                "告警阈值不能超过 100%",
+            ),
+            (
+                "config-priority-queue-default-priority-out-of-range",
+                &[("priority", "3"), ("levels", "5")],
+                "Priority queue default_priority 3 out of range (levels: 5)",
+                "优先级队列的默认优先级 3 越界（层级数: 5）",
+            ),
+            (
+                "telemetry-bind-port-failed",
+                &[("port", "9090"), ("error", "denied")],
+                "Failed to bind to port 9090: denied",
+                "绑定端口 9090 失败: denied",
+            ),
+            (
+                "integration-guard-internal-error",
+                &[("error", "boom")],
+                "guard internal error: boom",
+                "守卫内部错误: boom",
+            ),
+            (
+                "integration-token-bucket-check-failed",
+                &[("error", "boom")],
+                "limiteron token bucket check failed: boom",
+                "limiteron 令牌桶检查失败: boom",
+            ),
+        ];
+        for (key, args, expected_en, expected_zh) in cases {
+            let args: Vec<(&str, String)> =
+                args.iter().map(|(k, v)| (*k, (*v).to_string())).collect();
+            assert_eq!(
+                format_from_bundle("en", key, &args).as_deref(),
+                Some(*expected_en),
+                "en rendering of {key} drifted"
+            );
+            assert_eq!(
+                format_from_bundle("zh", key, &args).as_deref(),
+                Some(*expected_zh),
+                "zh rendering of {key} drifted"
+            );
+        }
+    }
 }

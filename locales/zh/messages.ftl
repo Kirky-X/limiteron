@@ -488,3 +488,60 @@ alert-sent-info = 发送信息告警: { $level }
 alert-sent-warning = 发送警告告警: { $level }
 governor-ban-check-circuit-open = 封禁检查被熔断跳过: { $error }
 circuit-half-open-escape-timeout = 半开态探针滞留超时，强制回退到打开状态
+
+# ---- 配置校验（canonical mirror：英文模式与 src/config/types/ 构造点内嵌的
+# 规范串逐字一致；中文变体经 limiteron::i18n::t 渲染） ----
+config-version-empty = 版本号不能为空
+config-duplicate-rule-id = 规则 ID 重复: { $rule_id }
+config-rule-required = 至少需要一条规则
+config-rule-validation-failed = Rule[{ $index }] 校验失败: { $error }
+config-rule-id-empty = 规则 ID 不能为空
+config-rule-name-empty = 规则名称不能为空
+config-rule-matcher-required = 规则至少需要一个匹配器
+config-rule-limiter-required = 规则至少需要一个限流器
+config-matcher-validation-failed = 匹配器[{ $index }]: { $error }
+config-limiter-validation-failed = 限流器[{ $index }]: { $error }
+config-rule-user-ids-empty = 用户 ID 列表不能为空
+config-rule-ip-ranges-empty = IP 范围列表不能为空
+config-rule-countries-empty = 国家列表不能为空
+config-rule-api-versions-empty = API 版本列表不能为空
+config-rule-device-types-empty = 设备类型列表不能为空
+config-rule-matcher-name-empty = 自定义匹配器名称不能为空
+config-rule-matcher-config-empty = 自定义匹配器配置不能为空
+config-ban-threshold-not-zero = 封禁阈值不能为 0
+config-backoff-multiplier-positive = 退避倍数必须大于 0
+config-overdraft-max-not-zero = 已启用透支：最大透支额度不能为 0
+config-token-bucket-capacity-not-zero = 令牌桶容量不能为 0
+config-token-bucket-capacity-exceeds = 令牌桶容量不能超过 { $max }
+config-token-bucket-refill-rate-not-zero = 补充速率不能为 0
+config-token-bucket-refill-rate-exceeds = 令牌桶补充速率不能超过 { $max }
+config-max-requests-not-zero = 最大请求数不能为 0
+config-max-requests-exceeds = 最大请求数不能超过 { $max }
+config-quota-limit-not-zero = 配额上限不能为 0
+config-alert-threshold-exceeds = 告警阈值不能超过 { $max }%
+config-max-concurrency-not-zero = 最大并发数不能为 0
+config-max-concurrency-exceeds = 最大并发数不能超过 { $max }
+config-leaky-bucket-capacity-not-zero = 漏桶容量不能为 0
+config-leaky-bucket-capacity-exceeds = 漏桶容量不能超过 { $max }
+config-leaky-bucket-leak-rate-not-zero = 漏桶泄漏速率不能为 0
+config-leaky-bucket-leak-rate-exceeds = 漏桶泄漏速率不能超过 { $max }
+config-sliding-window-log-max-requests-not-zero = 滑动窗口日志模式的最大请求数不能为 0
+config-sliding-window-log-max-requests-exceeds = 滑动窗口日志模式的最大请求数不能超过 { $max }
+config-priority-queue-total-per-window-not-zero = 优先级队列的每窗口总量不能为 0
+config-priority-queue-level-weights-invalid = 优先级队列的层级权重必须非空且非零
+config-priority-queue-default-priority-out-of-range = 优先级队列的默认优先级 { $priority } 越界（层级数: { $levels }）
+config-admission-max-concurrent-not-zero = 准入控制的最大并发数不能为 0
+config-admission-max-per-second-not-zero = 准入控制的每秒最大数不能为 0
+config-custom-limiter-name-empty = 自定义限流器名称不能为空
+config-custom-limiter-config-empty = 自定义限流器配置不能为空
+
+# ---- Feature 门控（与 src/telemetry/ 与 src/config/types/actions.rs 调用点
+# 内嵌的规范串逐字一致） ----
+telemetry-feature-disabled = telemetry feature 未启用
+prometheus-feature-disabled = prometheus feature 未启用
+telemetry-bind-port-failed = 绑定端口 { $port } 失败: { $error }
+
+# ---- 集成 crate（与 integrations/limiteron-sdforge 与
+# integrations/limiteron-dbnexus 调用点内嵌的规范串逐字一致） ----
+integration-guard-internal-error = 守卫内部错误: { $error }
+integration-token-bucket-check-failed = limiteron 令牌桶检查失败: { $error }

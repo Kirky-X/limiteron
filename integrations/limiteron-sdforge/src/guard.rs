@@ -171,7 +171,10 @@ impl Guard {
                         "guard fail-close: governor error, rejecting request"
                     );
                     GuardDecision::Throttled {
-                        reason: format!("guard internal error: {e}"),
+                        reason: limiteron::i18n::t(
+                            "integration-guard-internal-error",
+                            &[("error", e.to_string())],
+                        ),
                         retry_after_secs: 0,
                     }
                 }

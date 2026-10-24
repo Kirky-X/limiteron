@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::actions::ActionConfig;
 use super::limiter::LimiterConfig;
+use crate::i18n::t;
 
 /// 规则配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,33 +26,39 @@ impl Rule {
         // 值与 JSON 缓存键使用，转义由 prometheus/serde_json 兜底，无注入
         // 面；若引入字符集约束属运维加固项，需评估存量配置兼容性
         if self.id.is_empty() {
-            return Err("Rule ID cannot be empty".to_string());
+            return Err(t("config-rule-id-empty", &[]));
         }
 
         if self.name.is_empty() {
-            return Err("Rule name cannot be empty".to_string());
+            return Err(t("config-rule-name-empty", &[]));
         }
 
         if self.matchers.is_empty() {
-            return Err("Rule requires at least one matcher".to_string());
+            return Err(t("config-rule-matcher-required", &[]));
         }
 
         if self.limiters.is_empty() {
-            return Err("Rule requires at least one limiter".to_string());
+            return Err(t("config-rule-limiter-required", &[]));
         }
 
         // 校验匹配器
         for (index, matcher) in self.matchers.iter().enumerate() {
-            matcher
-                .validate()
-                .map_err(|e| format!("Matcher[{index}]: {e}"))?;
+            matcher.validate().map_err(|e| {
+                t(
+                    "config-matcher-validation-failed",
+                    &[("index", index.to_string()), ("error", e)],
+                )
+            })?;
         }
 
         // 校验限流器
         for (index, limiter) in self.limiters.iter().enumerate() {
-            limiter
-                .validate()
-                .map_err(|e| format!("Limiter[{index}]: {e}"))?;
+            limiter.validate().map_err(|e| {
+                t(
+                    "config-limiter-validation-failed",
+                    &[("index", index.to_string()), ("error", e)],
+                )
+            })?;
         }
 
         // 校验动作
@@ -95,35 +102,35 @@ impl Matcher {
         match self {
             Matcher::User { user_ids } => {
                 if user_ids.is_empty() {
-                    return Err("User ID list cannot be empty".to_string());
+                    return Err(t("config-rule-user-ids-empty", &[]));
                 }
             }
             Matcher::Ip { ip_ranges } => {
                 if ip_ranges.is_empty() {
-                    return Err("IP range list cannot be empty".to_string());
+                    return Err(t("config-rule-ip-ranges-empty", &[]));
                 }
             }
             Matcher::Geo { countries } => {
                 if countries.is_empty() {
-                    return Err("Country list cannot be empty".to_string());
+                    return Err(t("config-rule-countries-empty", &[]));
                 }
             }
             Matcher::ApiVersion { versions } => {
                 if versions.is_empty() {
-                    return Err("API version list cannot be empty".to_string());
+                    return Err(t("config-rule-api-versions-empty", &[]));
                 }
             }
             Matcher::Device { device_types } => {
                 if device_types.is_empty() {
-                    return Err("Device type list cannot be empty".to_string());
+                    return Err(t("config-rule-device-types-empty", &[]));
                 }
             }
             Matcher::Custom { name, config } => {
                 if name.is_empty() {
-                    return Err("Custom matcher name cannot be empty".to_string());
+                    return Err(t("config-rule-matcher-name-empty", &[]));
                 }
                 if config.is_null() {
-                    return Err("Custom matcher config cannot be empty".to_string());
+                    return Err(t("config-rule-matcher-config-empty", &[]));
                 }
             }
         }

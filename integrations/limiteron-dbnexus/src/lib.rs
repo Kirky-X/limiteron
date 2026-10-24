@@ -112,7 +112,10 @@ impl DbnexusLimiter {
     /// key 永不写入消息（防用户标识符经适配器泄漏进消费方日志；
     /// 消费方在调用点自行知晓 key 上下文）。
     fn map_err(err: LimiteronError) -> RateLimitError {
-        RateLimitError::new(format!("limiteron token bucket check failed: {err}"))
+        RateLimitError::new(limiteron::i18n::t(
+            "integration-token-bucket-check-failed",
+            &[("error", err.to_string())],
+        ))
     }
 }
 

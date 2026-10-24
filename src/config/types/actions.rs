@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::i18n::t;
+
 /// 超限动作类型
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -220,11 +222,11 @@ impl BanConfig {
     /// 校验封禁配置
     pub fn validate(&self) -> Result<(), String> {
         if self.threshold == 0 {
-            return Err("Ban threshold cannot be 0".to_string());
+            return Err(t("config-ban-threshold-not-zero", &[]));
         }
 
         if self.backoff_multiplier <= 0.0 {
-            return Err("Backoff multiplier must be greater than 0".to_string());
+            return Err(t("config-backoff-multiplier-positive", &[]));
         }
 
         Ok(())

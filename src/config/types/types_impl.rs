@@ -7,6 +7,7 @@
 //! ConfigBuilder, and RuleBuilder.
 
 use super::*;
+use crate::i18n::t;
 
 impl Default for FlowControlConfig {
     fn default() -> Self {
@@ -23,7 +24,7 @@ impl FlowControlConfig {
     pub fn validate(&self) -> Result<(), String> {
         // 校验版本
         if self.version.is_empty() {
-            return Err("Version cannot be empty".to_string());
+            return Err(t("config-version-empty", &[]));
         }
 
         // 校验全局配置
@@ -33,16 +34,23 @@ impl FlowControlConfig {
         let mut rule_ids = HashSet::new();
         for (index, rule) in self.rules.iter().enumerate() {
             if !rule_ids.insert(&rule.id) {
-                return Err(format!("Duplicate rule ID: {}", rule.id));
+                return Err(t(
+                    "config-duplicate-rule-id",
+                    &[("rule_id", rule.id.clone())],
+                ));
             }
 
             // 校验规则
-            rule.validate()
-                .map_err(|e| format!("Rule[{index}] validation failed: {e}"))?;
+            rule.validate().map_err(|e| {
+                t(
+                    "config-rule-validation-failed",
+                    &[("index", index.to_string()), ("error", e)],
+                )
+            })?;
         }
 
         if self.rules.is_empty() {
-            return Err("At least one rule is required".to_string());
+            return Err(t("config-rule-required", &[]));
         }
 
         Ok(())
@@ -212,7 +220,7 @@ impl ConfigBuilder {
         let rules = rules?;
 
         if rules.is_empty() {
-            return Err("At least one rule is required".to_string());
+            return Err(t("config-rule-required", &[]));
         }
 
         let config = FlowControlConfig {
@@ -343,16 +351,16 @@ impl RuleBuilder {
 
     pub fn build(self) -> Result<Rule, String> {
         if self.id.is_empty() {
-            return Err("Rule ID cannot be empty".to_string());
+            return Err(t("config-rule-id-empty", &[]));
         }
         if self.name.is_empty() {
-            return Err("Rule name cannot be empty".to_string());
+            return Err(t("config-rule-name-empty", &[]));
         }
         if self.matchers.is_empty() {
-            return Err("Rule requires at least one matcher".to_string());
+            return Err(t("config-rule-matcher-required", &[]));
         }
         if self.limiters.is_empty() {
-            return Err("Rule requires at least one limiter".to_string());
+            return Err(t("config-rule-limiter-required", &[]));
         }
 
         Ok(Rule {

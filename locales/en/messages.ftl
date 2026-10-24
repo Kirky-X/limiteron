@@ -491,3 +491,61 @@ alert-sent-info = Info alert sent: { $level }
 alert-sent-warning = Warning alert sent: { $level }
 governor-ban-check-circuit-open = Ban check skipped by circuit breaker: { $error }
 circuit-half-open-escape-timeout = Half-open probes stalled; forcing back to open state
+
+# ---- Config validation (canonical mirror: the English patterns below are
+# identical to the canonical strings embedded at the construction sites in
+# src/config/types/; the zh variants render through limiteron::i18n::t) ----
+config-version-empty = Version cannot be empty
+config-duplicate-rule-id = Duplicate rule ID: { $rule_id }
+config-rule-required = At least one rule is required
+config-rule-validation-failed = Rule[{ $index }] validation failed: { $error }
+config-rule-id-empty = Rule ID cannot be empty
+config-rule-name-empty = Rule name cannot be empty
+config-rule-matcher-required = Rule requires at least one matcher
+config-rule-limiter-required = Rule requires at least one limiter
+config-matcher-validation-failed = Matcher[{ $index }]: { $error }
+config-limiter-validation-failed = Limiter[{ $index }]: { $error }
+config-rule-user-ids-empty = User ID list cannot be empty
+config-rule-ip-ranges-empty = IP range list cannot be empty
+config-rule-countries-empty = Country list cannot be empty
+config-rule-api-versions-empty = API version list cannot be empty
+config-rule-device-types-empty = Device type list cannot be empty
+config-rule-matcher-name-empty = Custom matcher name cannot be empty
+config-rule-matcher-config-empty = Custom matcher config cannot be empty
+config-ban-threshold-not-zero = Ban threshold cannot be 0
+config-backoff-multiplier-positive = Backoff multiplier must be greater than 0
+config-overdraft-max-not-zero = Overdraft enabled: max overdraft cannot be 0
+config-token-bucket-capacity-not-zero = Token bucket capacity cannot be 0
+config-token-bucket-capacity-exceeds = Token bucket capacity cannot exceed { $max }
+config-token-bucket-refill-rate-not-zero = Refill rate cannot be 0
+config-token-bucket-refill-rate-exceeds = Token bucket refill rate cannot exceed { $max }
+config-max-requests-not-zero = Max requests cannot be 0
+config-max-requests-exceeds = Max requests cannot exceed { $max }
+config-quota-limit-not-zero = Quota limit cannot be 0
+config-alert-threshold-exceeds = Alert threshold cannot exceed { $max }%
+config-max-concurrency-not-zero = Max concurrency cannot be 0
+config-max-concurrency-exceeds = Max concurrency cannot exceed { $max }
+config-leaky-bucket-capacity-not-zero = Leaky bucket capacity cannot be 0
+config-leaky-bucket-capacity-exceeds = Leaky bucket capacity cannot exceed { $max }
+config-leaky-bucket-leak-rate-not-zero = Leaky bucket leak_rate cannot be 0
+config-leaky-bucket-leak-rate-exceeds = Leaky bucket leak_rate cannot exceed { $max }
+config-sliding-window-log-max-requests-not-zero = Sliding window log max_requests cannot be 0
+config-sliding-window-log-max-requests-exceeds = Sliding window log max_requests cannot exceed { $max }
+config-priority-queue-total-per-window-not-zero = Priority queue total_per_window cannot be 0
+config-priority-queue-level-weights-invalid = Priority queue level_weights must be non-empty and non-zero
+config-priority-queue-default-priority-out-of-range = Priority queue default_priority { $priority } out of range (levels: { $levels })
+config-admission-max-concurrent-not-zero = Admission control max_concurrent cannot be 0
+config-admission-max-per-second-not-zero = Admission control max_per_second cannot be 0
+config-custom-limiter-name-empty = Custom limiter name cannot be empty
+config-custom-limiter-config-empty = Custom limiter config cannot be empty
+
+# ---- Feature gates (canonical mirror of the strings embedded at the call
+# sites in src/telemetry/ and src/config/types/actions.rs) ----
+telemetry-feature-disabled = telemetry feature is disabled
+prometheus-feature-disabled = prometheus feature is disabled
+telemetry-bind-port-failed = Failed to bind to port { $port }: { $error }
+
+# ---- Integration crates (canonical mirror of the strings embedded at the
+# call sites in integrations/limiteron-sdforge and integrations/limiteron-dbnexus) ----
+integration-guard-internal-error = guard internal error: { $error }
+integration-token-bucket-check-failed = limiteron token bucket check failed: { $error }

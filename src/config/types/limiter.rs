@@ -21,7 +21,7 @@ impl OverdraftConfig {
     /// 校验透支配置
     pub fn validate(&self) -> Result<(), String> {
         if self.enabled && self.max_overdraft == 0 {
-            return Err("Overdraft enabled: max overdraft cannot be 0".to_string());
+            return Err(t("config-overdraft-max-not-zero", &[]));
         }
         Ok(())
     }
@@ -106,19 +106,21 @@ impl LimiterConfig {
                 refill_rate,
             } => {
                 if *capacity == 0 {
-                    return Err("Token bucket capacity cannot be 0".to_string());
+                    return Err(t("config-token-bucket-capacity-not-zero", &[]));
                 }
                 if *refill_rate == 0 {
-                    return Err("Refill rate cannot be 0".to_string());
+                    return Err(t("config-token-bucket-refill-rate-not-zero", &[]));
                 }
                 if *capacity > MAX_TOKEN_BUCKET_CAPACITY {
-                    return Err(format!(
-                        "Token bucket capacity cannot exceed {MAX_TOKEN_BUCKET_CAPACITY}"
+                    return Err(t(
+                        "config-token-bucket-capacity-exceeds",
+                        &[("max", MAX_TOKEN_BUCKET_CAPACITY.to_string())],
                     ));
                 }
                 if *refill_rate > MAX_TOKEN_BUCKET_REFILL_RATE {
-                    return Err(format!(
-                        "Token bucket refill rate cannot exceed {MAX_TOKEN_BUCKET_REFILL_RATE}"
+                    return Err(t(
+                        "config-token-bucket-refill-rate-exceeds",
+                        &[("max", MAX_TOKEN_BUCKET_REFILL_RATE.to_string())],
                     ));
                 }
             }
@@ -127,10 +129,13 @@ impl LimiterConfig {
                 max_requests,
             } => {
                 if *max_requests == 0 {
-                    return Err("Max requests cannot be 0".to_string());
+                    return Err(t("config-max-requests-not-zero", &[]));
                 }
                 if *max_requests > MAX_WINDOW_REQUESTS {
-                    return Err(format!("Max requests cannot exceed {MAX_WINDOW_REQUESTS}"));
+                    return Err(t(
+                        "config-max-requests-exceeds",
+                        &[("max", MAX_WINDOW_REQUESTS.to_string())],
+                    ));
                 }
                 Self::validate_window_size(window_size)?;
             }
@@ -139,10 +144,13 @@ impl LimiterConfig {
                 max_requests,
             } => {
                 if *max_requests == 0 {
-                    return Err("Max requests cannot be 0".to_string());
+                    return Err(t("config-max-requests-not-zero", &[]));
                 }
                 if *max_requests > MAX_WINDOW_REQUESTS {
-                    return Err(format!("Max requests cannot exceed {MAX_WINDOW_REQUESTS}"));
+                    return Err(t(
+                        "config-max-requests-exceeds",
+                        &[("max", MAX_WINDOW_REQUESTS.to_string())],
+                    ));
                 }
                 Self::validate_window_size(window_size)?;
             }
@@ -155,12 +163,15 @@ impl LimiterConfig {
             } => {
                 // QuotaType 是枚举，编译时保证类型安全
                 if *limit == 0 {
-                    return Err("Quota limit cannot be 0".to_string());
+                    return Err(t("config-quota-limit-not-zero", &[]));
                 }
                 if let Some(threshold) = alert_threshold
                     && *threshold > 100
                 {
-                    return Err("Alert threshold cannot exceed 100%".to_string());
+                    return Err(t(
+                        "config-alert-threshold-exceeds",
+                        &[("max", "100".to_string())],
+                    ));
                 }
                 Self::validate_window_size(window)?;
                 if let Some(overdraft) = overdraft {
@@ -169,11 +180,12 @@ impl LimiterConfig {
             }
             LimiterConfig::Concurrency { max_concurrent } => {
                 if *max_concurrent == 0 {
-                    return Err("Max concurrency cannot be 0".to_string());
+                    return Err(t("config-max-concurrency-not-zero", &[]));
                 }
                 if *max_concurrent > MAX_CONCURRENT_REQUESTS {
-                    return Err(format!(
-                        "Max concurrency cannot exceed {MAX_CONCURRENT_REQUESTS}"
+                    return Err(t(
+                        "config-max-concurrency-exceeds",
+                        &[("max", MAX_CONCURRENT_REQUESTS.to_string())],
                     ));
                 }
             }
@@ -182,19 +194,21 @@ impl LimiterConfig {
                 leak_rate,
             } => {
                 if *capacity == 0 {
-                    return Err("Leaky bucket capacity cannot be 0".to_string());
+                    return Err(t("config-leaky-bucket-capacity-not-zero", &[]));
                 }
                 if *leak_rate == 0 {
-                    return Err("Leaky bucket leak_rate cannot be 0".to_string());
+                    return Err(t("config-leaky-bucket-leak-rate-not-zero", &[]));
                 }
                 if *capacity > MAX_TOKEN_BUCKET_CAPACITY {
-                    return Err(format!(
-                        "Leaky bucket capacity cannot exceed {MAX_TOKEN_BUCKET_CAPACITY}"
+                    return Err(t(
+                        "config-leaky-bucket-capacity-exceeds",
+                        &[("max", MAX_TOKEN_BUCKET_CAPACITY.to_string())],
                     ));
                 }
                 if *leak_rate > MAX_TOKEN_BUCKET_REFILL_RATE {
-                    return Err(format!(
-                        "Leaky bucket leak_rate cannot exceed {MAX_TOKEN_BUCKET_REFILL_RATE}"
+                    return Err(t(
+                        "config-leaky-bucket-leak-rate-exceeds",
+                        &[("max", MAX_TOKEN_BUCKET_REFILL_RATE.to_string())],
                     ));
                 }
             }
@@ -203,12 +217,13 @@ impl LimiterConfig {
                 max_requests,
             } => {
                 if *max_requests == 0 {
-                    return Err("Sliding window log max_requests cannot be 0".to_string());
+                    return Err(t("config-sliding-window-log-max-requests-not-zero", &[]));
                 }
                 // 日志型窗口内存随配额线性增长（16B/条目），上界比计数器型更严
                 if *max_requests > MAX_SLIDING_LOG_REQUESTS {
-                    return Err(format!(
-                        "Sliding window log max_requests cannot exceed {MAX_SLIDING_LOG_REQUESTS}"
+                    return Err(t(
+                        "config-sliding-window-log-max-requests-exceeds",
+                        &[("max", MAX_SLIDING_LOG_REQUESTS.to_string())],
                     ));
                 }
                 Self::validate_window_size(window_size)?;
@@ -220,21 +235,21 @@ impl LimiterConfig {
                 default_priority,
             } => {
                 if *total_per_window == 0 {
-                    return Err("Priority queue total_per_window cannot be 0".to_string());
+                    return Err(t("config-priority-queue-total-per-window-not-zero", &[]));
                 }
                 Self::validate_window_size(window_size)?;
                 if level_weights.is_empty() || level_weights.contains(&0) {
-                    return Err(
-                        "Priority queue level_weights must be non-empty and non-zero".to_string(),
-                    );
+                    return Err(t("config-priority-queue-level-weights-invalid", &[]));
                 }
                 if let Some(default_priority) = default_priority
                     && *default_priority >= level_weights.len()
                 {
-                    return Err(format!(
-                        "Priority queue default_priority {} out of range (levels: {})",
-                        default_priority,
-                        level_weights.len()
+                    return Err(t(
+                        "config-priority-queue-default-priority-out-of-range",
+                        &[
+                            ("priority", default_priority.to_string()),
+                            ("levels", level_weights.len().to_string()),
+                        ],
                     ));
                 }
             }
@@ -243,18 +258,18 @@ impl LimiterConfig {
                 max_per_second,
             } => {
                 if *max_concurrent == 0 {
-                    return Err("Admission control max_concurrent cannot be 0".to_string());
+                    return Err(t("config-admission-max-concurrent-not-zero", &[]));
                 }
                 if *max_per_second == 0 {
-                    return Err("Admission control max_per_second cannot be 0".to_string());
+                    return Err(t("config-admission-max-per-second-not-zero", &[]));
                 }
             }
             LimiterConfig::Custom { name, config } => {
                 if name.is_empty() {
-                    return Err("Custom limiter name cannot be empty".to_string());
+                    return Err(t("config-custom-limiter-name-empty", &[]));
                 }
                 if config.is_null() {
-                    return Err("Custom limiter config cannot be empty".to_string());
+                    return Err(t("config-custom-limiter-config-empty", &[]));
                 }
             }
         }

@@ -789,7 +789,7 @@ fn init_console_tracer(config: &TelemetryConfig) -> Result<(), String> {
     #[cfg(not(feature = "telemetry"))]
     {
         let _ = config;
-        Err("telemetry feature is disabled".to_string())
+        Err(crate::i18n::t("telemetry-feature-disabled", &[]))
     }
 }
 
@@ -816,7 +816,12 @@ pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result
 
     let listener = TcpListener::bind(format!("127.0.0.1:{}", port))
         .await
-        .map_err(|e| format!("Failed to bind to port {}: {}", port, e))?;
+        .map_err(|e| {
+            crate::i18n::t(
+                "telemetry-bind-port-failed",
+                &[("port", port.to_string()), ("error", e.to_string())],
+            )
+        })?;
 
     info!("Prometheus metrics server listening on port {}", port);
 
@@ -902,7 +907,7 @@ pub async fn start_prometheus_server(metrics: Arc<Metrics>, port: u16) -> Result
 
 #[cfg(not(feature = "prometheus"))]
 pub async fn start_prometheus_server(_metrics: Arc<Metrics>, _port: u16) -> Result<(), String> {
-    Err("prometheus feature is disabled".to_string())
+    Err(crate::i18n::t("prometheus-feature-disabled", &[]))
 }
 
 // ============================================================================

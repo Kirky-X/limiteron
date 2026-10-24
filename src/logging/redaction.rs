@@ -17,14 +17,20 @@ pub fn redact_basic(value: Option<&str>) -> String {
         return "unknown".to_string();
     }
 
-    if value.len() < 4 {
+    // 按字符（而非字节）计长与切片：多字节 UTF-8（中文/emoji）按字节
+    // 切片会落在字符内部，触发 str 切片 panic。
+    let char_count = value.chars().count();
+    if char_count < 4 {
         return "***".to_string();
     }
 
-    let prefix = &value[..2.min(value.len())];
-    let suffix_len = 2.min(value.len().saturating_sub(2));
-    let suffix = &value[value.len().saturating_sub(suffix_len)..];
-    format!("{}***{}", prefix, suffix)
+    // 前缀/后缀按字符边界取字节偏移后直接切片，避免中间 String 分配
+    let prefix_end = value.char_indices().nth(2).map_or(value.len(), |(i, _)| i);
+    let suffix_start = value
+        .char_indices()
+        .nth(char_count - 2)
+        .map_or(0, |(i, _)| i);
+    format!("{}***{}", &value[..prefix_end], &value[suffix_start..])
 }
 
 /// 用户ID脱敏 - 即使没有启用 log-redaction feature 也可用
@@ -75,18 +81,57 @@ pub fn redact_email(value: Option<&str>) -> String {
     }
 
     if let Some(at_pos) = value.find('@') {
+        // '@' 为 ASCII 字节，find 返回的偏移必为字符边界
         let local_part = &value[..at_pos];
         let domain = &value[at_pos..];
 
-        if local_part.len() <= 2 {
+        // 本地部分按字符计长与切片（多字节 UTF-8 按字节切片会 panic）
+        let local_chars = local_part.chars().count();
+        if local_chars <= 2 {
             return format!("***{}", domain);
         }
 
-        let prefix_len = if local_part.len() <= 4 { 1 } else { 2 };
-        return format!("{}***{}", &local_part[..prefix_len], domain);
+        let prefix_len = if local_chars <= 4 { 1 } else { 2 };
+        let prefix_end = local_part
+            .char_indices()
+            .nth(prefix_len)
+            .map_or(local_part.len(), |(i, _)| i);
+        return format!("{}***{}", &local_part[..prefix_end], domain);
     }
 
     redact_basic(Some(value))
+}
+
+/// URL 脱敏：只保留 scheme 与 host，丢弃 path / query / fragment
+///
+/// Webhook 目标的 path/query 可能携带令牌（如带签名的回调 URL），整条
+/// URL 入日志等于把令牌写进日志文件。仅保留 scheme 与 host 足以定位
+/// 「是哪个端点出问题」，又不会外泄凭据。
+///
+/// 无法解析出 scheme://host 时退回基础脱敏（不整条回显）。
+pub(crate) fn redact_url(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "unknown".to_string();
+    };
+
+    let value = value.trim();
+    let Some((scheme, rest)) = value.split_once("://") else {
+        return redact_basic(Some(value));
+    };
+
+    // authority 结束于 path / query / fragment 的分隔符
+    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    if authority.is_empty() {
+        return redact_basic(Some(value));
+    }
+
+    // userinfo（user:pass@host）同样属凭据，不入日志
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
+
+    format!("{scheme}://{host}")
 }
 
 #[cfg(feature = "log-redaction")]
@@ -185,11 +230,32 @@ fn is_sensitive_field_name(field_name: &str) -> bool {
         let exact = SENSITIVE_WORDS
             .iter()
             .any(|&word| token.eq_ignore_ascii_case(word));
-        let prefixed = SENSITIVE_PREFIXES.iter().any(|&prefix| {
-            token.len() >= prefix.len() && token[..prefix.len()].eq_ignore_ascii_case(prefix)
-        });
+        let prefixed = SENSITIVE_PREFIXES
+            .iter()
+            .any(|&prefix| starts_with_ignore_ascii_case(token, prefix));
         exact || prefixed
     })
+}
+
+/// 词元是否以给定 ASCII 前缀开头（按字符逐个比较）
+///
+/// 词元可含多字节 UTF-8（CJK 汉字等字母类字符的 `char::is_alphanumeric` 为真；
+/// emoji 属符号类、被 `split_field_tokens` 视为分隔符），定长字节切片会落在字符内部触发 panic，故此处按字符比较。
+#[cfg(feature = "log-redaction")]
+fn starts_with_ignore_ascii_case(token: &str, prefix: &str) -> bool {
+    let mut token_chars = token.chars();
+    let mut prefix_chars = prefix.chars();
+    loop {
+        match (prefix_chars.next(), token_chars.next()) {
+            (None, _) => return true,
+            (Some(p), Some(t)) => {
+                if !p.eq_ignore_ascii_case(&t) {
+                    return false;
+                }
+            }
+            (Some(_), None) => return false,
+        }
+    }
 }
 
 /// 将字段名切分为小写词元切片（零分配：借用原串的子切片）
@@ -269,8 +335,9 @@ pub fn redact_advanced(value: Option<&str>, field_name: Option<&str>) -> String 
         return "***".to_string();
     }
 
-    // 短值完全脱敏（与引擎无关的安全网）
-    if value.len() <= 4 {
+    // 短值完全脱敏（与引擎无关的安全网）；阈值按字符计，多字节 UTF-8
+    // 的字节数会越过 4 字符的真实长度
+    if value.chars().count() <= 4 {
         return "***".to_string();
     }
 
@@ -386,6 +453,39 @@ mod tests {
         assert_eq!(redact_basic(Some("a")), "***");
     }
 
+    /// URL 脱敏：path / query / fragment 不得外泄
+    #[test]
+    fn test_redact_url_drops_path_and_query() {
+        assert_eq!(
+            redact_url(Some("https://hooks.example.com/services/T00/B00/token")),
+            "https://hooks.example.com"
+        );
+        assert_eq!(
+            redact_url(Some("https://hooks.example.com/cb?token=secret")),
+            "https://hooks.example.com"
+        );
+        assert_eq!(
+            redact_url(Some("https://hooks.example.com:8443/path#frag")),
+            "https://hooks.example.com:8443"
+        );
+        // userinfo 属凭据，一并剔除
+        assert_eq!(
+            redact_url(Some("https://user:pass@hooks.example.com/x")),
+            "https://hooks.example.com"
+        );
+    }
+
+    #[test]
+    fn test_redact_url_fallbacks() {
+        assert_eq!(redact_url(None), "unknown");
+        // 非 URL 串退回基础脱敏，不整条回显
+        let fallback = redact_url(Some("not-a-url-at-all"));
+        assert!(
+            !fallback.contains("not-a-url-at-all"),
+            "a non-URL value must not be echoed in full, got: {fallback}"
+        );
+    }
+
     #[test]
     fn test_redact_user_id() {
         assert_eq!(redact_user_id(None), "unknown");
@@ -489,6 +589,54 @@ mod tests {
         assert_eq!(redact_basic(Some("  ab  ")), "***");
         assert_eq!(redact_basic(Some("  abc  ")), "***");
         assert_eq!(redact_basic(Some("  abcd  ")), "ab***cd");
+    }
+
+    #[test]
+    fn test_redact_basic_non_ascii_no_panic() {
+        // 多字节 UTF-8 按字节切片会 panic（end byte index is not a char boundary）
+        assert_eq!(redact_basic(Some("张三")), "***");
+        assert_eq!(redact_basic(Some("😀ab")), "***");
+        assert_eq!(redact_basic(Some("abcd张")), "ab***d张");
+        assert_eq!(redact_basic(Some("密钥")), "***");
+        assert_eq!(redact_basic(Some("密钥值")), "***");
+    }
+
+    #[test]
+    fn test_redact_basic_char_boundary_slicing() {
+        // 前缀/后缀按字符边界切片：多字节 UTF-8 不落在字符内部
+        assert_eq!(redact_basic(Some("张三abc")), "张三***bc");
+        assert_eq!(redact_basic(Some("密钥abc")), "密钥***bc");
+        assert_eq!(redact_basic(Some("张三李四")), "张三***李四");
+        assert_eq!(redact_basic(Some("张三abcde")), "张三***de");
+    }
+
+    #[test]
+    fn test_redact_ip_non_ascii_no_panic() {
+        assert_eq!(redact_ip(Some("张三abc")), "张三***bc");
+    }
+
+    #[test]
+    fn test_redact_email_non_ascii_no_panic() {
+        assert_eq!(redact_email(Some("张@example.com")), "***@example.com");
+        assert_eq!(redact_email(Some("钥@x.com")), "***@x.com");
+        assert_eq!(redact_email(Some("张abc@example.com")), "张***@example.com");
+        assert_eq!(
+            redact_email(Some("张abcde@example.com")),
+            "张a***@example.com"
+        );
+    }
+
+    #[test]
+    fn test_redact_email_char_boundary_slicing() {
+        // 本地部分前缀按字符边界切片：多字节 UTF-8 不落在字符内部
+        assert_eq!(
+            redact_email(Some("密钥abc@example.com")),
+            "密钥***@example.com"
+        );
+        assert_eq!(
+            redact_email(Some("张三abcde@example.com")),
+            "张三***@example.com"
+        );
     }
 
     #[test]
@@ -597,6 +745,18 @@ mod tests {
         }
 
         #[test]
+        fn test_redact_advanced_short_value_threshold_counts_chars() {
+            // 短值阈值按字符计（非字节）：多字节 UTF-8 的字节数会越过
+            // 4 字符的真实长度，这类短值须整段脱敏
+            assert_eq!(redact_advanced(Some("张三"), None), "***");
+            assert_eq!(redact_advanced(Some("密钥"), None), "***");
+            assert_eq!(redact_advanced(Some("令牌"), None), "***");
+            assert_eq!(redact_advanced(Some("密钥值"), None), "***");
+            // 5 字符的非 ASCII 值越过短值阈值，不再被整段遮蔽
+            assert_eq!(redact_advanced(Some("张三李四王"), None), "张三李四王");
+        }
+
+        #[test]
         fn test_redact_advanced_monkey_not_over_masked() {
             // F3 修复回归：词边界匹配。`monkey` 仅含 `key` 子串，
             // 不整段脱敏（不依赖引擎的字段名门控行为）
@@ -618,6 +778,28 @@ mod tests {
             assert!(!is_sensitive_field_name("username"));
             assert!(!is_sensitive_field_name("message"));
             assert!(!is_sensitive_field_name("role"));
+        }
+
+        #[test]
+        fn test_is_sensitive_field_name_non_ascii_no_panic() {
+            // 词元可含多字节字符（CJK 汉字等字母类字符的 is_alphanumeric 为真；
+            // emoji 为分隔符不入词元）：定长字节前缀切片会落在字符内部触发 panic
+            assert!(!is_sensitive_field_name("密钥"));
+            assert!(!is_sensitive_field_name("令牌"));
+            assert!(!is_sensitive_field_name("密码字段"));
+            // 混合词元仍按 ASCII 前缀命中
+            assert!(is_sensitive_field_name("key密钥"));
+        }
+
+        #[test]
+        fn test_is_sensitive_field_name_emoji_is_separator() {
+            // emoji 属符号类（is_alphanumeric 为假），被 split_field_tokens
+            // 视为分隔符不入词元；CJK 汉字才是字母类字符
+            assert!(!'\u{1F600}'.is_alphanumeric());
+            assert!('密'.is_alphanumeric());
+            assert!(!is_sensitive_field_name("😀abc"));
+            assert!(!is_sensitive_field_name("abc😀"));
+            assert!(!is_sensitive_field_name("🇨🇳🇺🇸"));
         }
 
         #[test]

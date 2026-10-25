@@ -44,8 +44,8 @@
   会因未知 feature 报错，需删除该条目，改为直接依赖 inklog 并调用正主 API
   `inklog::init_inklog_logger()`（或 `init_inklog_logger_with_config(config)`）。
   `log-redaction` 特性保留，脱敏引擎仍由 inklog 的 `DataMasker` 承载，该依赖是
-  `log-redaction` 的实现细节，不对外暴露为独立 feature。完整迁移指引见仓库根目录
-  [CHANGELOG.md](../CHANGELOG.md)。
+  `log-redaction` 的实现细节，不对外暴露为独立 feature。完整迁移指引见
+  [UNRELEASED.md](UNRELEASED.md)。
 
 ### 新增
 

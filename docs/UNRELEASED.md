@@ -1,6 +1,6 @@
-# Changelog
+# 未发布变更
 
-本文件记录 limiteron 的破坏性变更与迁移指引。完整版本历史见 [docs/CHANGELOG.md](docs/CHANGELOG.md)。
+本文件记录 limiteron 的破坏性变更与迁移指引。完整版本历史见 [docs/CHANGELOG.md](CHANGELOG.md)。
 
 ## Unreleased
 

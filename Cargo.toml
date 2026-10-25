@@ -1,11 +1,5 @@
 [workspace]
-members = [
-    ".",
-    "macros",
-    "examples",
-    "integrations/limiteron-sdforge",
-    "integrations/limiteron-dbnexus",
-]
+members = [".", "macros", "examples", "integrations/limiteron-sdforge", "integrations/limiteron-dbnexus"]
 resolver = "2"
 
 [workspace.package]
@@ -15,90 +9,56 @@ rust-version = "1.97.1"
 authors = ["Kirky-X <Kirky-X@outlook.com>"]
 license = "MIT"
 repository = "https://github.com/Kirky-X/limiteron"
+homepage = "https://github.com/Kirky-X/limiteron"
+documentation = "https://docs.rs/limiteron"
 
 [workspace.dependencies]
-# 异步运行时
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "time", "net", "signal", "sync", "io-util"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 async-trait = "0.1"
-
-# 序列化
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde-saphyr = "1.3"
 toml = "1.1"
-
-# 时间和UUID
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.26", features = ["v4", "serde"] }
-
-# 错误处理
 thiserror = "2.0"
-
-# 并发和同步
 parking_lot = "0.12"
 futures = "0.3"
-
-# 日志和追踪
 tracing = "0.1"
 log = "0.4"
 scopeguard = "1.2"
-
-# 数据结构
 dashmap = "6.2"
 ahash = { version = "0.8", features = ["serde"] }
 regex = "1.13"
 ipnet = "2.12"
-
-# 安全
 secrecy = "0.10"
-
-# 宏相关
 proc-macro2 = "1.0"
 syn = { version = "3.0", features = ["full", "extra-traits"] }
 quote = "1.0"
-
-# 开发依赖
 tokio-test = "0.4"
 tempfile = "3.27"
 rand = { version = "0.10", default-features = false, features = ["std_rng"] }
 criterion = { version = "0.8", features = ["async_tokio"] }
 trybuild = "1.0"
 serial_test = { version = "4.0", default-features = false }
-
-# 数据库
 sea-orm = { version = "2.0", default-features = false, features = ["macros", "with-chrono"] }
-
-# 缓存库
 oxcache = { version = "0.5.0-rc.9", default-features = false, features = ["core"] }
-
-# dbnexus 抽象层：此处不启用驱动，驱动由各 feature 显式请求
+# 此处不启用 dbnexus 驱动，驱动由各 feature 显式请求
 dbnexus = { version = "0.6.0-rc.10", default-features = false, features = ["macros", "sql-parser", "permission"] }
-
-# 宏
 limiteron-macros = { version = "0.3.0-rc.8", path = "macros" }
-
-# 监控
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 prometheus = { version = "0.14" }
-
-# 工具
 reqwest = { version = "0.13", features = ["json"] }
 notify = { version = "8.2" }
 proptest = "1.11"
-
-# HTTP 框架
 axum = { version = "0.8", features = ["json"] }
 tower = { version = "0.5" }
 tower-layer = { version = "0.3" }
 http = { version = "1.5" }
-
-# 安全
 hmac = { version = "0.13" }
 sha2 = { version = "0.11" }
 hex = { version = "0.4" }
-
-# 高级匹配
 maxminddb = { version = "0.32" }
 woothee = { version = "0.13" }
 
@@ -110,205 +70,118 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
 description = "Unified flow control framework for Rust"
 keywords = ["rate-limiting", "quota", "throttling", "circuit-breaker"]
 categories = ["web-programming", "concurrency"]
-
-# docs.rs 文档构建特征集：preset 与存储后端解耦后 full 不含任何 dbnexus 驱动，
-# 显式叠加 postgres 保持单后端合法且适配器文档完整；
-# log-redaction 不在 full 预设内，脱敏引擎的公开 API 须显式叠加才出现在文档中
+# docs.rs 特征集：full 不含 dbnexus 驱动，叠加 postgres 保持单后端合法；log-redaction 须显式叠加才出现在文档
 [package.metadata.docs.rs]
 features = ["full", "postgres", "log-redaction"]
-
 [lints]
 workspace = true
 
 [workspace.lints]
 
 [dependencies]
-tokio.workspace = true
-tokio-util.workspace = true
-async-trait.workspace = true
-serde.workspace = true
-serde_json.workspace = true
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 futures = { workspace = true, optional = true }
-serde-saphyr.workspace = true
-toml.workspace = true
-chrono.workspace = true
-uuid.workspace = true
-thiserror.workspace = true
-parking_lot.workspace = true
-tracing.workspace = true
-log.workspace = true
-
-# 并发和数据结构（核心依赖）
-dashmap.workspace = true
-ahash.workspace = true
-
-# 数据库操作（可选）
+serde-saphyr = { workspace = true }
+toml = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }
+tracing = { workspace = true }
+log = { workspace = true }
+dashmap = { workspace = true }
+ahash = { workspace = true }
 dbnexus = { workspace = true, optional = true }
 sea-orm = { workspace = true, optional = true }
 # 安全约束：强制 rustls-webpki >= 0.103.13（CVE-369），安全优先于版本号规则
 rustls-webpki = { version = "0.103.15", optional = true }
-
-# 缓存库（必需）
-oxcache.workspace = true
-
+oxcache = { workspace = true }
 # Redis 客户端（lua-script 特性需要，用于解析 eval_lua 返回值）
 redis = { version = "1.7", default-features = false, optional = true }
-
-# 宏依赖（可选）
 limiteron-macros = { workspace = true, optional = true }
-
-# 监控依赖（可选）
 tracing-subscriber = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 scopeguard = { workspace = true, optional = true }
-
-# 工具依赖（可选）
 reqwest = { workspace = true, optional = true }
 notify = { workspace = true, optional = true }
-
-# HTTP框架 - 管理API（可选）
 axum = { workspace = true, optional = true }
-
-# 安全相关（可选）
 regex = { workspace = true, optional = true }
-secrecy.workspace = true
-ipnet.workspace = true
+secrecy = { workspace = true }
+ipnet = { workspace = true }
 hmac = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
-
-# 高级匹配（可选）
 maxminddb = { workspace = true, optional = true }
 woothee = { workspace = true, optional = true }
-
-# Tower 中间件支持（可选）
 tower = { workspace = true, optional = true }
 tower-layer = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
-
-# Admin 薄客户端（admin-client feature；hyper 1.x http1 client，
-# default-features=false 仅启用 http1+client+tokio 适配，零 TLS 面）
+# Admin 薄客户端（admin-client feature；hyper 1.x http1 client，仅启用 http1+client+tokio 适配，零 TLS 面）
 hyper = { version = "1", default-features = false, features = ["http1", "client"], optional = true }
 hyper-util = { version = "0.1", default-features = false, features = ["client", "http1", "tokio"], optional = true }
 http-body-util = { version = "0.1", optional = true }
-
-# 国际化 (optional, feature-gated via `i18n`).ICU4X 2.x 提供 locale 感知的数字/日期/复数/排序格式化
+# i18n（feature 门控）：ICU4X 2.x 提供 locale 感知的数字/日期/复数/排序格式化
 icu = { version = "2.3", default-features = false, features = ["compiled_data"], optional = true }
 writeable = { version = "0.6", optional = true }
-
 # i18n 基础设施（常驻依赖，不经 feature 门控）：Fluent 消息目录 + 语言检测链
 fluent-bundle = "0.16"
 unic-langid = "0.9"
 sys-locale = "0.3"
+# trait-kit 经 crates.io registry 引入（kit feature）：CI 与发布流程只检出本仓，清单不得声明指向仓外兄弟目录的 path
+trait-kit = { version = "0.5.0-rc.10", default-features = false, features = ["async", "health", "lifecycle"], optional = true }
+# 脱敏引擎（log-redaction 实现）：inklog 的 DataMasker/MaskRule/MaskRuleRegistry 是脱敏规则与优先级的唯一定义处，不对外暴露为 feature
+inklog = { version = "0.3.0-rc.10", default-features = false, optional = true }
+# 配置加载委托 confers loader::load_file：显式开启三元解析器 feature，不开 dotenv（limiteron 无 .env 契约）
+confers = { version = "0.6.0-rc.11", default-features = false, features = ["toml", "json", "yaml"] }
 
-# trait-kit integration (optional, feature-gated via `kit`).
-# trait-kit 经 crates.io registry 引入：CI 与发布流程只检出本仓，清单不得声明
-# 指向仓外兄弟目录的 path；本地联调走仓外依赖覆盖（见本文件末尾说明）。
-[dependencies.trait-kit]
-version = "0.5.0-rc.10"
-default-features = false
-features = ["async", "health", "lifecycle"]
-optional = true
-# 脱敏引擎（log-redaction feature 的实现细节）。
-# inklog 的 DataMasker/MaskRule/MaskRuleRegistry 是脱敏规则与优先级的唯一定义处，
-# limiteron 不自建第二套实现；该依赖不对外暴露为 feature，消费方无需感知。
-[dependencies.inklog]
-version = "0.3.0-rc.10"
-default-features = false
-optional = true
-[dependencies.confers]
-version = "0.6.0-rc.11"
-default-features = false
-# 配置加载（ConfigLoader::load_from_file）委托 confers loader::load_file：
-# 显式开启三元解析器 feature，不开 dotenv（limiteron 无 .env 契约）
-features = ["toml", "json", "yaml"]
 [dev-dependencies]
 # test-util 仅在测试构建生效：退避等待经 tokio paused time 验证，不真睡
 tokio = { workspace = true, features = ["test-util"] }
-tokio-test.workspace = true
-tempfile.workspace = true
-futures.workspace = true
-rand.workspace = true
-criterion.workspace = true
-proptest.workspace = true
+tokio-test = { workspace = true }
+tempfile = { workspace = true }
+futures = { workspace = true }
+rand = { workspace = true }
+criterion = { workspace = true }
+proptest = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 http-body-util = "0.1"
-serial_test.workspace = true
-# 自依赖开启 test-clock：src 内联测试经 cfg(test) 可见，tests/ 目录的
-# property/chaos 用例经此 feature 编译（MockClock 门控后外部 tests 需要）
+serial_test = { workspace = true }
+# 自依赖开启 test-clock：MockClock 门控后 tests/ 目录的 property/chaos 用例经此 feature 编译
 limiteron = { path = ".", default-features = false, features = ["test-clock"] }
 
 [features]
-# Feature Presets (预定义组合)
-
-# 测试时钟 MockClock 的公开门控 feature（不入任何生产 preset；
-# src 内联测试经 cfg(test) 可见，tests/ 外部用例经 self dev-dep 开启）
+# 测试时钟 MockClock 的公开门控 feature（不入任何生产 preset；外部用例经 self dev-dep 开启）
 test-clock = []
-# 配置 CLI：`limiteron-cli` 二进制 + src/cli 可单测核心。
-# 默认不编译（决策热路径零开销）。
+# 配置 CLI：`limiteron-cli` 二进制 + src/cli 可单测核心；默认不编译（决策热路径零开销）
 cli = []
-# 封禁跨实例同步：经 oxcache Pub/Sub 广播，依赖 event-system 故一并启用
+# 封禁跨实例同步：经 oxcache Pub/Sub 广播，隐含 event-system
 ban-sync = ["event-system", "oxcache/invalidation"]
-# ============================================
-# Minimal: 核心限流功能（无外部存储依赖）；sync 为 tokio-free 同步原语（std + parking_lot）
+# Minimal：核心限流（无外部存储）；sync 为 tokio-free 同步原语（std + parking_lot）
 minimal = ["sync"]
 
-# 同步限流原语：SyncCircuitBreaker / SyncFixedWindowLimiter，供纯同步消费者使用
+# 同步限流原语：SyncCircuitBreaker / SyncFixedWindowLimiter
 sync = []
 
-# Standard: 核心功能组合。preset 不含存储后端（dbnexus 禁止 embedded 与 server-side
-# 驱动共存，钉死驱动会与下游叠加的后端 feature 冲突）；按需自行叠加 sqlite/postgres/mysql
+# Standard：核心功能组合。preset 不含存储后端（dbnexus 禁止 embedded 与 server-side 驱动共存，按需自行叠加 sqlite/postgres/mysql）
 standard = ["ban-manager", "quota-control", "circuit-breaker"]
 
-# Full: 除存储后端外的全部功能（后端同样按需叠加 sqlite/postgres/mysql）
-full = [
-    "cache-redis",
-    "ban-manager",
-    "quota-control",
-    "circuit-breaker",
-    "fallback",
-    "custom-limiter",
-    "gcra",
-    "parallel-checker",
-    "geo-matching",
-    "device-matching",
-    "regex-matching",
-    "telemetry",
-    "prometheus",
-    "audit-log",
-    "macros",
-    "config-watcher",
-    "webhook",
-    "cache-service",
-    "tower-middleware",
-    "event-system",
-    "lua-script",
-    "multi-tenant",
-    "admin-api",
-    "sync",
-    "bulkhead",
-    "validation",
-    "i18n",
-    "config-confers",
-    "config-confers-reload",
-    "kit",
-    "adaptive-limiting",
-    "priority-queue",
-    "admission-control",
-    "distributed",
-    "ban-sync",
-    "retry",
-]
+# Full：除存储后端外的全部功能（后端按需叠加 sqlite/postgres/mysql）
+full = ["cache-redis", "ban-manager", "quota-control", "circuit-breaker", "fallback", "custom-limiter", "gcra", "parallel-checker", "geo-matching", "device-matching", "regex-matching", "telemetry", "prometheus", "audit-log", "macros", "config-watcher", "webhook", "cache-service", "tower-middleware", "event-system", "lua-script", "multi-tenant", "admin-api", "sync", "bulkhead", "validation", "i18n", "config-confers", "config-confers-reload", "kit", "adaptive-limiting", "priority-queue", "admission-control", "distributed", "ban-sync", "retry"]
 
 default = []
 
-# Compatibility features（vecboost 兼容声明）。
-# adaptive-limiting 自 rc4 起为真实实现（AIMD 自适应并发限流器）。
+# adaptive-limiting 自 rc4 起为真实实现（AIMD 自适应并发限流器）
 adaptive-limiting = []
-# 自适应阈值限流：滑动窗口错误率/延迟驱动动态配额（启发式，默认关，不入 preset）
+# 自适应阈值限流：滑动窗口错误率/延迟驱动动态配额（默认关，不入 preset）
 adaptive-threshold = []
 # 六档容量调光（DialLevel L0-L5）；默认关，不入任何 preset，执行点由消费方装配
 capacity-dial = []
@@ -328,8 +201,7 @@ sqlite = ["dep:dbnexus", "dbnexus/sqlite", "dbnexus/runtime-tokio-rustls", "dep:
 # MySQL 存储 - 使用 dbnexus server-side 驱动（与 postgres/sqlite 并列提供）
 mysql = ["dep:dbnexus", "dbnexus/mysql", "dbnexus/runtime-tokio-rustls", "dep:sea-orm"]
 
-# Redis 缓存后端 - 经 oxcache 接入 Redis（原 cache-storage，更名以消除与
-# cache-service 的近义混淆）
+# Redis 缓存后端：经 oxcache 接入 Redis（原 cache-storage，更名消除与 cache-service 近义混淆）
 cache-redis = ["cache-service", "oxcache/redis"]
 # Deprecated: cache-storage 的向后兼容别名，等价于 cache-redis
 cache-storage = ["cache-redis"]
@@ -339,8 +211,6 @@ lua-script = ["oxcache/lua", "dep:redis"]
 
 # 路径正则匹配：引入 regex 全量 unicode 表，有编译时间与体积代价
 regex-matching = ["dep:regex"]
-
-# ahash 不再作为特性，直接在依赖中定义
 
 # Core Features (核心功能)
 ban-manager = []
@@ -358,9 +228,7 @@ cache-service = []
 # GCRA 限流算法
 gcra = []
 
-# 日志脱敏：脱敏引擎经 inklog DataMasker + MaskRuleRegistry 承载
-# （inklog 依赖为该 feature 的实现细节，不对外暴露为独立 feature）；
-# regex 依赖保留给 matchers / device-matching 等其余消费点
+# 日志脱敏：经 inklog DataMasker + MaskRuleRegistry 承载（regex 依赖保留给 matchers / device-matching 等其余消费点）
 log-redaction = ["dep:inklog"]
 validation = []
 
@@ -377,29 +245,24 @@ admin-api = ["dep:axum", "dep:tower", "dep:http"]
 openapi = ["admin-api"]
 # Admin API 薄客户端（hyper http1，已是 axum 传递依赖，零新增依赖树重量）
 admin-client = ["admin-api", "dep:hyper", "dep:hyper-util", "dep:http-body-util"]
-# 只读管理 Web UI：内嵌单页（无构建链），机械只读守卫（路由表全 GET +注册完整性 + 只读投影类型窄化，见 src/admin/web.rs 模块文档）
+# 只读管理 Web UI：内嵌单页（无构建链），只读守卫见 src/admin/web.rs 模块文档
 admin-ui = ["admin-api"]
 
 # Observability Features (可观测性)
-telemetry = [
-    "dep:tracing-subscriber",
-    "dep:scopeguard",
-]
+telemetry = ["dep:tracing-subscriber", "dep:scopeguard"]
 # prometheus：Prometheus 指标导出（由 monitoring 更名，旧名保留为别名）
 prometheus = ["dep:prometheus", "dep:scopeguard"]
 monitoring = ["prometheus"]
-# metrics 特性：启用 governor allow/reject/ban 三点指标记录 + dbnexus 指标传递
-# 隐含 prometheus 以激活 Metrics struct 和 Prometheus 计数器
+# metrics：governor allow/reject/ban 三点指标记录 + dbnexus 指标传递（隐含 prometheus）
 metrics = ["prometheus", "dbnexus/metrics"]
 audit-log = ["telemetry", "dep:hmac", "dep:sha2", "dep:hex"]
-# otlp 追踪导出：init_jaeger_tracer 升级为 OTLP/HTTP exporter
-# （手工 HTTP/1.1 客户端，无新增依赖；传输可 mock，mock collector 单测覆盖）
+# otlp 追踪导出：OTLP/HTTP exporter（手工 HTTP/1.1 客户端，无新增依赖；传输可 mock）
 otlp = ["telemetry"]
 
 # Tooling Features (工具)
 macros = ["dep:limiteron-macros", "manager"]
 config-watcher = ["dep:notify"]
-# webhook 外发（含 HMAC-SHA256 签名头 + 时间戳防重放，签名依赖与 audit-log 共享）
+# webhook 外发（HMAC-SHA256 签名头 + 时间戳防重放，签名依赖与 audit-log 共享）
 webhook = ["dep:reqwest", "dep:hmac", "dep:sha2", "dep:hex"]
 
 # Event System (事件系统)
@@ -414,26 +277,23 @@ tower-middleware = ["dep:tower", "dep:tower-layer", "dep:http"]
 # 分布式限流：提供 incr 等原子方法，实现 DistributedLimiter trait
 distributed = []
 
-# External Integrations (外部集成)trait-kit AsyncKit integration (LimiteronModule).
+# trait-kit AsyncKit 集成（LimiteronModule）
 kit = ["dep:trait-kit", "dep:futures", "oxcache/kit"]
 
-# ICU4X 国际化能力 (locale 感知的数字/日期/复数/排序格式化).
-# Mirrors trait-kit/oxcache `i18n` feature.
+# ICU4X 国际化（locale 感知的数字/日期/复数/排序格式化），与 trait-kit/oxcache i18n 同构
 i18n = ["dep:icu", "dep:writeable"]
 
-# confers configuration integration (three-tier pattern mirroring trait-kit).
 # confers 依赖已转必选（config 模块无条件编译），本 feature 保留为兼容名
 config-confers = []
-# Hot-reload: watch config files and atomically swap Governor config.
+# 热重载：监听配置文件并原子替换 Governor 配置
 config-confers-reload = ["config-confers", "confers/watch"]
 
-# 测试目标显式注册：e2e_advanced 迁入子目录后需手动注册，否则测试静默消失
+# e2e_advanced 迁入子目录后需手动注册，否则测试静默消失
 [[test]]
 name = "e2e_advanced"
 path = "tests/e2e/e2e_advanced.rs"
 
-# K8s 探针与指标端点 e2e（/healthz /readyz /metrics，bypass 认证）。
-# 需 admin-api feature；prometheus 相关断言在测试内部按 cfg 门控。
+# K8s 探针与指标端点 e2e（/healthz /readyz /metrics，bypass 认证；需 admin-api，prometheus 断言按 cfg 门控）
 [[test]]
 name = "probes_e2e"
 path = "tests/e2e/probes_e2e.rs"
@@ -457,8 +317,7 @@ name = "governor_span_tests"
 path = "tests/telemetry/governor_span_tests.rs"
 required-features = ["otlp"]
 
-# `limiteron-cli` 二进制（规则文件 校验/导出/apply dry-run）。
-# CLI 核心逻辑在 src/cli（`cli` feature）；二进制仅参数透传。
+# `limiteron-cli` 二进制（规则文件校验/导出/apply dry-run）；核心逻辑在 src/cli，二进制仅参数透传
 [[bin]]
 name = "limiteron-cli"
 path = "src/bin/limiteron_cli.rs"
@@ -467,8 +326,7 @@ required-features = ["cli"]
 [[bench]]
 name = "throughput"
 path = "benches/throughput.rs"
-# criterion 0.8 要求关闭 libtest harness（否则 criterion_main 失效，bench 落入
-# libtest 空跑 "running 0 tests"）
+# criterion 0.8 要求关闭 libtest harness（否则 criterion_main 失效，bench 空跑）
 harness = false
 required-features = ["full"]
 
@@ -499,7 +357,4 @@ strip = true
 [profile.bench]
 inherits = "release"
 
-# 跨仓自研依赖（oxcache/dbnexus/trait-kit/inklog/confers）一律经 crates.io registry
-# 引入：CI 与发布流程只检出本仓，清单内指向仓外兄弟目录的 path 会让清单解析直接失败。
-# 本地联调未发布版本时，用工作区外的依赖覆盖指向兄弟仓工作树
-# （<工作区根>/.cargo/config.toml 的 [patch.crates-io] 段），该覆盖文件不入本仓。
+# 跨仓自研依赖一律经 crates.io registry 引入（CI/发布只检出本仓，仓外 path 会让清单解析失败）；本地联调走 <工作区根>/.cargo/config.toml 的 [patch.crates-io]（不入本仓）

@@ -6,6 +6,10 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords = ["rate-limiting", "quota", "throttling", "circuit-breaker"]
+categories = ["web-programming", "concurrency"]
 description = "Procedural macros for limiteron rate limiting"
 
 [lib]
@@ -15,11 +19,11 @@ proc-macro = true
 workspace = true
 
 [dependencies]
-syn.workspace = true
-quote.workspace = true
-proc-macro2.workspace = true
+syn = { workspace = true }
+quote = { workspace = true }
+proc-macro2 = { workspace = true }
 
 [dev-dependencies]
 limiteron = { path = ".." }
-tokio.workspace = true
-trybuild.workspace = true
+tokio = { workspace = true }
+trybuild = { workspace = true }

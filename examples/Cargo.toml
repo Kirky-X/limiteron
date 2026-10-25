@@ -19,16 +19,15 @@ ahash = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 serde_json = "1.0"
 futures = "0.3"
-# http 用于 tower_middleware 的 Tower Service/Layer 集成（tower 通过 limiteron 重导出访问）
+# tower_middleware 的 Tower Service/Layer 集成（tower 经 limiteron 重导出）
 http = "1.5"
-# reqwest 用于 ban_http_api 示例向 AdminServer 发送 HTTP 请求
+# ban_http_api 示例向 AdminServer 发送 HTTP 请求
 reqwest = { version = "0.13", features = ["json"] }
-# tempfile 用于 ban_file_loader 示例创建临时 YAML 文件
+# ban_file_loader 示例创建临时 YAML 文件
 tempfile = "3.27"
-# axum 用于 ban_http_api 示例后台运行 AdminServer（axum::serve）
+# ban_http_api 示例后台运行 AdminServer（axum::serve）
 axum = "0.8"
-# 安全约束：CVE-2025-48369，强制 rustls-webpki >= 0.103.13
-# 安全优先于 x.x 版本格式规则；此为间接依赖的最低版本约束
+# 安全约束：CVE-2025-48369 强制 rustls-webpki >= 0.103.13（间接依赖最低版本，安全优先于版本格式规则）
 rustls-webpki = "0.103.15"
 
 [[bin]]
@@ -68,7 +67,6 @@ name = "ban_http_api"
 path = "src/bin/ban_http_api.rs"
 required-features = ["ban-manager", "admin-api"]
 
-# Part 1: 核心 API 示例（无 feature 依赖）
 
 [[bin]]
 name = "governor_demo"
@@ -95,7 +93,6 @@ name = "validation_demo"
 path = "src/bin/validation_demo.rs"
 required-features = ["validation"]
 
-# Part 2: Feature-gated 示例
 
 [[bin]]
 name = "storage_factory"
@@ -133,59 +130,32 @@ path = "src/bin/graceful_shutdown.rs"
 
 [features]
 default = []
-# 核心功能
 macros = ["limiteron/macros"]
 circuit-breaker = ["limiteron/circuit-breaker"]
 quota-control = ["limiteron/quota-control"]
 ban-manager = ["limiteron/ban-manager"]
-# 存储后端
 postgres = ["limiteron/postgres"]
 cache-service = ["limiteron/cache-service"]
-# 可观测性
 telemetry = ["limiteron/telemetry"]
 prometheus = ["limiteron/prometheus"]
-# 旧名兼容别名（镜像主 crate Cargo.toml 的别名政策；特性由 monitoring 更名而来）
+# 旧名兼容别名（monitoring 更名而来）
 monitoring = ["prometheus"]
 audit-log = ["limiteron/audit-log"]
-# 降级与中间件
 fallback = ["limiteron/fallback"]
 tower-middleware = ["limiteron/tower-middleware"]
-# 高级匹配
 device-matching = ["limiteron/device-matching"]
 geo-matching = ["limiteron/geo-matching"]
-# 路径正则匹配（custom_matchers 示例的 RegexPathMatcher 段）
+# custom_matchers 示例的 RegexPathMatcher 段
 regex-matching = ["limiteron/regex-matching"]
-# 验证（含 ban-manager workaround：validate_ban_target 需要 ban-manager feature）
+# validate_ban_target 需要 ban-manager feature
 validation = ["limiteron/validation", "limiteron/ban-manager"]
-# 事件系统
 event-system = ["limiteron/event-system"]
-# 限流算法
 gcra = ["limiteron/gcra"]
-# 管理 API（AdminServer）
 admin-api = ["limiteron/admin-api"]
-# 配置/封禁文件热重载（notify crate）
+# 配置/封禁文件热重载
 config-watcher = ["limiteron/config-watcher"]
 # 完整功能（包含所有示例所需的 features）
-full = [
-    "macros",
-    "circuit-breaker",
-    "quota-control",
-    "ban-manager",
-    "postgres",
-    "cache-service",
-    "telemetry",
-    "prometheus",
-    "audit-log",
-    "fallback",
-    "tower-middleware",
-    "device-matching",
-    "geo-matching",
-    "validation",
-    "event-system",
-    "gcra",
-    "admin-api",
-    "config-watcher",
-]
+full = ["macros", "circuit-breaker", "quota-control", "ban-manager", "postgres", "cache-service", "telemetry", "prometheus", "audit-log", "fallback", "tower-middleware", "device-matching", "geo-matching", "validation", "event-system", "gcra", "admin-api", "config-watcher"]
 
 [dev-dependencies]
 tokio-test = "0.4"

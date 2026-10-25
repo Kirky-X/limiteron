@@ -14,25 +14,22 @@ publish = false
 workspace = true
 
 [dependencies]
-limiteron = { path = "../..", version = "0.3.0-rc.8", default-features = false }
+limiteron = { version = "0.3.0-rc.8", path = "../..", default-features = false }
 sdforge = { version = "0.5.0-rc.9", default-features = false, optional = true }
 chrono = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
-tracing.workspace = true
+tracing = { workspace = true }
 
 [dev-dependencies]
-limiteron = { path = "../..", default-features = false, features = [
-    "standard",
-    "parallel-checker",
-] }
-async-trait.workspace = true
+limiteron = { path = "../..", default-features = false, features = ["standard", "parallel-checker"] }
+async-trait = { workspace = true }
 
 [features]
-# 默认仅核心 guard（协议无关，不依赖 sdforge）。
+# 默认仅核心 guard（协议无关，不依赖 sdforge）
 default = []
 # sdforge 适配层：实现 sdforge::domain::ForgeRateLimiter
 sdforge = ["dep:sdforge"]
-# full preset：本 crate 全功能面 = 核心 guard + sdforge 适配层。
+# full preset：核心 guard + sdforge 适配层
 full = ["sdforge"]
 
 [[example]]

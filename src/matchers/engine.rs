@@ -665,7 +665,7 @@ impl RuleMatcher {
                     Box::new(MatchCondition::Device(device_types.clone()))
                 }
                 ConfigMatcher::Custom { name, config: _ } => {
-                    // E1 可见性修复：自定义匹配器尚未与 CustomMatcherRegistry
+                    // 可见性修复：自定义匹配器尚未与 CustomMatcherRegistry
                     // 集成，此处编译为恒 false 的占位条件（fail-open：该规则
                     // 的限制不会生效）。在构建期 warn 一次以确保配置错误
                     // 在启动时可见；热路径仅 debug，避免每次求值刷日志。

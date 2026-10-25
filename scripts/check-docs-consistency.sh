@@ -101,11 +101,11 @@ check_paths() {
                     printf '%s:%s\t%s\n' "$doc" "$line" "$token" >>"$SKIPPED_REFS"
                     ;;
             esac
-        done < <(awk -v tops="$tops" '
-            BEGIN { n = split(tops, arr, "\n"); for (i = 1; i <= n; i++) top[arr[i]] = 1 }
+        done < <(TOPS="$tops" awk '
+            BEGIN { n = split(ENVIRON["TOPS"], arr, "\n"); for (i = 1; i <= n; i++) top[arr[i]] = 1 }
             {
                 s = $0
-                while (match(s, /`[A-Za-z0-9_][A-Za-z0-9_./-]*`/)) {
+                while (match(s, "`[A-Za-z0-9_][A-Za-z0-9_./-]*`")) {
                     token = substr(s, RSTART + 1, RLENGTH - 2)
                     s = substr(s, RSTART + RLENGTH)
                     # target/ 下的路径是构建产物（如 criterion 报告）：其存在性

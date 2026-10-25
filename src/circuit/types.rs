@@ -483,7 +483,7 @@ impl<E> CircuitBreaker<E> {
                         // 判定与写入在同一写锁内（旧实现
                         // 「读锁检查 + 无守卫写入」的 TOCTOU 会让并发的
                         // 第二个转换重复执行 finalize，把 half_open_calls
-                        // 清零而部分击穿 B1 的精确准入）。
+                        // 清零而部分击穿精确准入）。
                         drop(state);
                         if self.transition_to_half_open_if_open().await {
                             half_open_probe = true;
@@ -517,7 +517,7 @@ impl<E> CircuitBreaker<E> {
 
         // 半开准入检查：对 Open 超时转来的调用者与 HalfOpen 调用者一视同仁，
         // 只放行 half_open_max_calls 个并发探针，其余拒绝。
-        // CAS 原子准入：load + fetch_add 分离会让并发探针超额进入（B1）。
+        // CAS 原子准入：load + fetch_add 分离会让并发探针超额进入。
         if half_open_probe {
             loop {
                 let calls = self.half_open_calls.load(Ordering::Relaxed);
@@ -594,7 +594,7 @@ impl<E> CircuitBreaker<E> {
 
                 if success_count >= self.config.success_threshold {
                     // 达到成功阈值，切换到关闭状态。
-                    // 仅在仍为 HalfOpen 时关闭（B4）：并发探针失败可能已把
+                    // 仅在仍为 HalfOpen 时关闭：并发探针失败可能已把
                     // 状态重新切到 Open，陈旧的成功不得把 Open 强行转为 Closed
                     // 造成"故障刚触发熔断即被误关闭"。
                     drop(state);
@@ -616,7 +616,7 @@ impl<E> CircuitBreaker<E> {
     ///
     /// `was_probe` 表示本次失败来自半开准入的探针调用。探针失败是
     /// 后端仍处于故障状态的确证：即使准入后状态被并发的其他探针成功
-    /// 漂移回 Closed，也必须重新熔断，而非按 Closed 计数等待阈值（B3）。
+    /// 漂移回 Closed，也必须重新熔断，而非按 Closed 计数等待阈值。
     async fn on_failure_probe_aware(&self, error: &E, was_probe: bool) {
         // 使用错误分类器判断是否应该计入失败计数。
         // 此处不复读错误内容（E 无 bound）：错误经 CircuitCallError::Inner
@@ -798,7 +798,7 @@ impl<E> CircuitBreaker<E> {
                 self.half_open_calls.store(0, Ordering::Relaxed);
                 self.slow_call_count.store(0, Ordering::Relaxed);
                 *self.half_open_entered_at.write().await = None;
-                // 同步重置 total_calls（B2）：它作为慢调用率分母，跨熔断周期
+                // 同步重置 total_calls：它作为慢调用率分母，跨熔断周期
                 // 单调增长会持续稀释慢调用率，延迟/阻碍慢调用熔断触发
                 self.total_calls.store(0, Ordering::Relaxed);
                 info!(
@@ -909,7 +909,7 @@ impl<E> CircuitBreaker<E> {
             failure_count: self.failure_count.load(Ordering::Relaxed),
             success_count: self.success_count.load(Ordering::Relaxed),
             total_calls: self.total_calls.load(Ordering::Relaxed),
-            // 直接读取事件发生点的墙钟时间戳（B5）：旧的「时钟域时长
+            // 直接读取事件发生点的墙钟时间戳：旧的「时钟域时长
             // 倒推墙钟」在 MockClock（虚拟时间）下产生错误时间
             last_failure_time: *last_failure,
             last_state_change: *last_state_change,
@@ -1805,7 +1805,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_half_open_admission_cas_no_overshoot() {
-        // B1 回归：半开准入的 load + fetch_add 分离会让并发探针超额进入。
+        // 回归：半开准入的 load + fetch_add 分离会让并发探针超额进入。
         // CAS 原子准入后，放行数必须精确等于 half_open_max_calls。
         let config =
             CircuitBreakerConfig::new(1, 100, Duration::from_millis(50)).half_open_max_calls(3);
@@ -1859,7 +1859,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_total_calls_excludes_rejected_requests() {
-        // B2 回归：被熔断拒绝的调用不得计入 total_calls（慢调用率分母），
+        // 回归：被熔断拒绝的调用不得计入 total_calls（慢调用率分母），
         // 否则会持续稀释慢调用率、阻碍慢调用熔断。
         let config = CircuitBreakerConfig::new(1, 1, Duration::from_secs(3600));
         let breaker = CircuitBreaker::new(config);
@@ -1893,7 +1893,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_transition_to_closed_only_from_half_open() {
-        // B4 回归：陈旧的成功不得把 Open 强行转为 Closed。
+        // 回归：陈旧的成功不得把 Open 强行转为 Closed。
         // transition_to_closed_if_half_open 仅在 HalfOpen 态生效。
         let breaker = CircuitBreaker::new(CircuitBreakerConfig::new(2, 1, Duration::from_secs(60)));
 

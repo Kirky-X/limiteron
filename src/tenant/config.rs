@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_namespace_with_special_characters() {
-        // MEDIUM-fix: tenant_id/environment 中的 ":" 被转义为 "::" 防止前缀注入
+        // tenant_id/environment 中的 ":" 被转义为 "::" 防止前缀注入
         let ns = Namespace::new("tenant_a/b:c@d!", "prod-v1.2.3");
         assert_eq!(ns.tenant_id(), "tenant_a/b:c@d!");
         assert_eq!(ns.environment(), "prod-v1.2.3");

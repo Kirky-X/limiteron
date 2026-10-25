@@ -859,7 +859,7 @@ impl BanManager {
         let ban_times = u32::try_from(stored_times).unwrap_or(u32::MAX);
 
         let detail = BanDetail {
-            // 与 From<BanRecord> 一致：由目标确定性派生 id（G4）
+            // 与 From<BanRecord> 一致：由目标确定性派生 id
             id: stable_ban_detail_id(&target),
             target,
             ban_times,
@@ -3273,7 +3273,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_ban_priority_not_banned_first_does_not_mask_ban() {
-        // G3 回归：select_all 单次收割会把「首个完成且未封禁」误判为
+        // 回归：select_all 单次收割会把「首个完成且未封禁」误判为
         // 整体未封禁并丢弃其余 pending 检查（漏判假阴性）。
         // user_fast 立即返回未封禁且先完成；user_slow 延迟后返回封禁——
         // 修复后必须等待并找到 user_slow 的封禁。
@@ -3303,7 +3303,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ban_detail_id_stable_for_same_target() {
-        // G4 回归：BanDetail::from(BanRecord) 每次生成随机 v4，同一目标
+        // 回归：BanDetail::from(BanRecord) 每次生成随机 v4，同一目标
         // 每次读取 id 不同。修复后 id 由目标确定性派生。
         let record_a1 = make_ban_record(
             BanTarget::UserId("stable_user".to_string()),

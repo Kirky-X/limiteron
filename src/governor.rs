@@ -329,7 +329,7 @@ pub struct GovernorBuilder {
     #[cfg(feature = "event-system")]
     event_emitter: Option<Arc<crate::events::EventEmitter>>,
     /// 自定义匹配器注册表（可选）：提供后，配置中的 `Custom` 匹配器
-    /// 在构建期从注册表解析并真实参与运行时求值（E1）
+    /// 在构建期从注册表解析并真实参与运行时求值
     custom_matcher_registry: Option<Arc<crate::matchers::custom::CustomMatcherRegistry>>,
     /// 租户解析器（可选）
     #[cfg(feature = "multi-tenant")]
@@ -399,7 +399,7 @@ impl GovernorBuilder {
         self
     }
 
-    /// 注入自定义匹配器注册表（E1）
+    /// 注入自定义匹配器注册表
     ///
     /// 提供后，配置中的 `Custom` 匹配器在 `build()` 时从注册表解析：
     /// 已注册的匹配器真实参与运行时求值，未注册的仍为恒不匹配占位
@@ -587,7 +587,7 @@ impl GovernorBuilder {
             )
         };
 
-        // 使用 RuleBuilder 创建规则匹配器（E1：提供注册表时 Custom
+        // 使用 RuleBuilder 创建规则匹配器（提供注册表时 Custom
         // 匹配器真实参与求值）
         let rules = if let Some(registry) = &self.custom_matcher_registry {
             RuleBuilder::build_rules_with_registry(&config, registry).await?

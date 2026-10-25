@@ -129,7 +129,7 @@ impl QuotaStorage for DBNexusQuotaStorageAdapter {
 
     /// Consume quota
     ///
-    /// 原子条件 UPDATE（A3）：限额检查与累加在单条 SQL 内由数据库完成
+    /// 原子条件 UPDATE：限额检查与累加在单条 SQL 内由数据库完成
     /// （`WHERE consumed + cost <= "limit"` + `RETURNING`），消除
     /// read-check-write 竞态下的静默超额放行。未命中时区分「超限拒绝」
     /// 与「无活跃记录」；后者经新窗口原子重启（复用过期行）或守卫式

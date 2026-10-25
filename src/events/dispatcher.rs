@@ -129,7 +129,7 @@ impl EventDispatcher {
     /// # 参数
     /// - `url`: Webhook URL
     ///
-    /// webhook feature 启用时在存储前预校验 URL（F6）：非法/内网 URL
+    /// webhook feature 启用时在存储前预校验 URL：非法/内网 URL
     /// 立即拒绝并告警，而非作为无效条目累积到发送阶段才暴露。预校验含
     /// DNS 解析结果判定（域名解析到内网同样拒绝）。
     ///

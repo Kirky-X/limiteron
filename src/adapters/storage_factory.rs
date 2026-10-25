@@ -48,7 +48,7 @@ use std::sync::Arc;
 /// 存储类型枚举
 ///
 /// serde 表示与 [`StorageType::as_str`] 保持一致（`dbnexus_postgres` 等）。
-/// 修复（I1）：此前 `rename_all = "lowercase"` 产出 `"dbnexuspostgres"`
+/// 修复：此前 `rename_all = "lowercase"` 产出 `"dbnexuspostgres"`
 /// （无下划线），与 `parse()`/`as_str()` 的下划线形式无法互相转换；
 /// `alias` 保留对旧序列化形式的兼容反序列化。
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -836,7 +836,7 @@ mod tests {
 
     #[test]
     fn test_storage_type_serde_roundtrip() {
-        // I1 修复回归：serde 表示与 as_str()/parse() 一致（带下划线），
+        // 修复回归：serde 表示与 as_str()/parse() 一致（带下划线），
         // 且与 parse 往环闭合；旧的无下划线形式经 alias 兼容反序列化
         let st = StorageType::DBNexusSQLite;
         let json = serde_json::to_string(&st).unwrap();

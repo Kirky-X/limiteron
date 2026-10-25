@@ -203,7 +203,7 @@ fn build_data_masker() -> DataMasker {
     DataMasker::builder().with_registry(registry).build()
 }
 
-/// 判断字段名是否为敏感字段（词边界匹配，修复 F3 误脱敏）
+/// 判断字段名是否为敏感字段（词边界匹配，修复误脱敏）
 ///
 /// 将字段名切分为词元（按 `_`/`-`/`.`/空格等分隔符与 camelCase 边界），
 /// 命中规则：任一词元等于敏感关键词，或以高危关键词为前缀
@@ -324,7 +324,7 @@ pub fn redact_advanced(value: Option<&str>, field_name: Option<&str>) -> String 
 
     // 检查是否是已知的敏感字段
     //
-    // 词边界匹配（修复 F3 误脱敏）：将字段名按分隔符（`_`/`-`/`.`/空格）
+    // 词边界匹配（修复误脱敏）：将字段名按分隔符（`_`/`-`/`.`/空格）
     // 与 camelCase 边界切分为词元，仅当任一词元命中敏感关键词（或以
     // 高危词元开头，如 `keychain` → `key`）时才整体脱敏。inklog 的
     // `is_sensitive_field` 为词边界正则，`keychain`/`tokenizer` 不判
@@ -758,7 +758,7 @@ mod tests {
 
         #[test]
         fn test_redact_advanced_monkey_not_over_masked() {
-            // F3 修复回归：词边界匹配。`monkey` 仅含 `key` 子串，
+            // 修复回归：词边界匹配。`monkey` 仅含 `key` 子串，
             // 不整段脱敏（不依赖引擎的字段名门控行为）
             let masked = redact_advanced(Some("value"), Some("monkey"));
             assert_ne!(masked, "***", "monkey must not be fully masked");

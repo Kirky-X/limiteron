@@ -47,7 +47,7 @@ pub(crate) fn service_error_message(e: &AdminServiceError) -> String {
         ),
         AdminServiceError::Internal(detail) => {
             log::error!(target: "admin-api", "admin api internal error: {detail}");
-            "internal server error".to_string()
+            crate::i18n::t_simple("admin-service-internal-error")
         }
         other => other.to_string(),
     }
@@ -311,7 +311,7 @@ pub async fn prefetch_tokens(
 #[derive(Deserialize)]
 pub struct UnbanRequest {
     pub reason: Option<String>,
-    /// 操作者标识（已弃用，vuln-0001 修复后由 API key mapping 决定）
+    /// 操作者标识（已弃用，由 API key mapping 决定）
     ///
     /// 此字段保留仅为向后兼容（旧客户端仍可发送），但服务端会忽略其值。
     /// 实际 operator 身份由 `OperatorIdentity`（来自鉴权 middleware）决定。
@@ -336,7 +336,7 @@ pub struct BanTargetQuery {
 /// ip/user/mac/geo/cidr 之一，以解封非 IP/UserId 目标。
 /// 状态码：200=成功, 400=不支持的 type, 404=未找到, 503=未配置, 500=内部错误
 ///
-/// vuln-0001 修复：operator 身份由 `OperatorIdentity`（鉴权 middleware 注入）决定，
+/// operator 身份由 `OperatorIdentity`（鉴权 middleware 注入）决定，
 /// 不再使用 JSON body 中的 `operator` 字段。
 #[cfg(feature = "ban-manager")]
 pub async fn delete_ban(
@@ -388,7 +388,7 @@ pub struct CreateBanRequest {
     pub target: crate::storage::BanTarget,
     /// 封禁原因
     pub reason: String,
-    /// 操作者标识（已弃用，vuln-0001 修复后由 API key mapping 决定）
+    /// 操作者标识（已弃用，由 API key mapping 决定）
     ///
     /// 此字段保留仅为向后兼容（旧客户端仍可发送），但服务端会忽略其值。
     /// 实际 operator 身份由 `OperatorIdentity`（来自鉴权 middleware）决定。
@@ -414,7 +414,7 @@ pub struct BanResponse {
 /// 创建封禁。支持 ip/user/mac/geo 四种 target 类型。
 /// 错误映射：ValidationError→400, AuthorizationError→403, 其他→500。
 ///
-/// vuln-0001 修复：operator 身份由 `OperatorIdentity`（鉴权 middleware 注入）决定，
+/// operator 身份由 `OperatorIdentity`（鉴权 middleware 注入）决定，
 /// 不再使用 JSON body 中的 `operator` 字段。
 #[cfg(feature = "ban-manager")]
 pub async fn create_ban(

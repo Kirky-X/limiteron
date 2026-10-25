@@ -19,13 +19,13 @@ use limiteron::matchers::{Identifier, IdentifierExtractor, IpExtractor, RequestC
 
 // IP 地址注入测试
 //
-// vuln-0003 修复后，X-Forwarded-For 等转发头仅在直接 TCP 对端（client_ip）
+// X-Forwarded-For 等转发头仅在直接 TCP 对端（client_ip）
 // 为可信代理时才被信任；非可信代理直连时必须忽略转发头，回退到直接对端 IP。
 
 /// 测试 X-Forwarded-For 头伪造攻击
 ///
 /// 攻击场景：攻击者尝试通过伪造 X-Forwarded-For 头来绕过 IP 限制
-/// 防御措施（vuln-0003 修复后）：
+/// 防御措施：
 /// - 非可信代理直连时必须忽略 X-Forwarded-For，使用直接 TCP 对端 IP
 /// - 可信代理转发时从右向左跳过可信代理 IP，取第一个非可信 IP 作为客户端 IP
 #[tokio::test]
@@ -150,7 +150,7 @@ async fn test_invalid_ip_injection() {
 /// 验证系统正确处理 IPv6 地址格式
 #[tokio::test]
 async fn test_ipv6_injection() {
-    // vuln-0003: 通过可信代理转发时，验证 IPv6 地址可被正确提取
+    // 通过可信代理转发时，验证 IPv6 地址可被正确提取
     let config = TrustedProxyConfig {
         enabled: true,
         proxies: vec!["10.0.0.1".to_string()],
@@ -183,7 +183,7 @@ async fn test_ipv6_injection() {
 /// 验证系统正确处理包含多个 IP 的 X-Forwarded-For 头
 #[tokio::test]
 async fn test_ip_list_parsing_security() {
-    // vuln-0003: 通过可信代理转发时，验证 IP 列表解析与 DoS 防护
+    // 通过可信代理转发时，验证 IP 列表解析与 DoS 防护
     let config = TrustedProxyConfig {
         enabled: true,
         proxies: vec!["10.0.0.1".to_string()],
@@ -203,7 +203,7 @@ async fn test_ip_list_parsing_security() {
 
     // 测试超大 IP 列表（DoS 防护）
     // max_hops 默认是 10，超过时 parse_forwarded_chain 拒绝解析整个 X-Forwarded-For 头。
-    // vuln-0003: 头解析失败后，extract() 回退到直接对端 IP（client_ip），始终可信。
+    // 头解析失败后，extract() 回退到直接对端 IP（client_ip），始终可信。
     // 因此超 max_hops 时不会返回 None，而是返回直接对端 IP（拒绝伪造头，使用真实对端）。
     let many_ips: String = (0..20)
         .map(|i| format!("192.168.{}.{}", i / 256, i % 256))
@@ -242,7 +242,7 @@ async fn test_ip_list_parsing_security() {
 /// 验证系统在多代理场景下的 IP 提取行为
 #[tokio::test]
 async fn test_proxy_trust_chain() {
-    // vuln-0003: 通过可信代理转发时，验证头优先级与多代理链解析
+    // 通过可信代理转发时，验证头优先级与多代理链解析
     let config = TrustedProxyConfig {
         enabled: true,
         proxies: vec!["10.0.0.1".to_string(), "10.0.0.2".to_string()],

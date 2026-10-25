@@ -164,7 +164,7 @@ impl SyncCircuitBreaker {
     ///
     /// 历史教训：曾对任意状态无条件回闭合——`call()` 放行的慢请求在途
     /// 期间，其他线程把熔断打到 Open；该慢请求成功返回时会把 Open 强行
-    /// 关闭（async 版对此有 B4 防护：Open 态迟到成功只告警不改状态）。
+    /// 关闭（async 版对此有防护：Open 态迟到成功只告警不改状态）。
     /// sync 版补齐同一防护。
     pub fn record_success(&self) {
         let mut state = self.state.lock();
@@ -351,7 +351,7 @@ mod tests {
 
     #[test]
     fn test_late_success_in_open_does_not_close() {
-        // B4 防护对齐回归：call() 放行的慢请求在途期间熔断被其他线程
+        // 防护对齐回归：call() 放行的慢请求在途期间熔断被其他线程
         // 打到 Open；该请求迟到成功不得把 Open 强行关闭。
         // （async 版已有防护；sync 版曾无条件回闭合。）
         let circuit = SyncCircuitBreaker::new(1, Duration::from_secs(60));

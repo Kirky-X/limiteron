@@ -376,7 +376,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_sliding_log_reject_path_no_repeated_rescan() {
-        // 拒绝热路径复杂度回归（审查 F1/F8）：窗口填满后时间推进使全部
+        // 拒绝热路径复杂度回归：窗口填满后时间推进使全部
         // 条目过期（空闲驻留），随后洪泛拒绝请求 + 连续 remaining 读。
         // 确认游标必须单调推进：首笔读付一次确认成本后，无新增过期时
         // 游标不再移动（虚拟视图不重复扫描同一前缀），allow 的逐出一次

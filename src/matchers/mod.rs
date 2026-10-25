@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn test_ip_extractor_from_header() {
         let extractor = IpExtractor::from_header("X-Forwarded-For");
-        // vuln-0003: 默认配置下转发头被忽略，使用直接对端 IP
+        // 默认配置下转发头被忽略，使用直接对端 IP
         let context = RequestContext::new()
             .with_header("X-Forwarded-For", "192.168.1.1")
             .with_client_ip("192.168.1.1");
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn test_ip_extractor_multiple_headers() {
         let extractor = IpExtractor::from_headers(vec!["X-Real-IP", "X-Forwarded-For"]);
-        // vuln-0003: 默认配置下转发头被忽略，使用直接对端 IP
+        // 默认配置下转发头被忽略，使用直接对端 IP
         let context = RequestContext::new()
             .with_header("X-Forwarded-For", "192.168.1.1")
             .with_header("X-Real-IP", "10.0.0.1")
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_ip_extractor_parse_list() {
-        // vuln-0003: 多 IP 列表解析仅在可信代理场景下生效
+        // 多 IP 列表解析仅在可信代理场景下生效
         let config = crate::config::TrustedProxyConfig {
             enabled: true,
             proxies: vec!["10.0.0.1".to_string(), "172.16.0.1".to_string()],
@@ -629,7 +629,7 @@ mod tests {
     #[test]
     fn test_ip_extractor_ipv6() {
         let extractor = IpExtractor::from_header("X-Forwarded-For");
-        // vuln-0003: 默认配置下转发头被忽略，使用直接对端 IP
+        // 默认配置下转发头被忽略，使用直接对端 IP
         let context = RequestContext::new()
             .with_header("X-Forwarded-For", "2001:0db8:85a3:0000:0000:8a2e:0370:7334")
             .with_client_ip("2001:0db8:85a3:0000:0000:8a2e:0370:7334");
@@ -643,7 +643,7 @@ mod tests {
 
     #[test]
     fn test_ip_extractor_ipv6_list() {
-        // vuln-0003: 多 IP 列表解析仅在可信代理场景下生效
+        // 多 IP 列表解析仅在可信代理场景下生效
         let config = crate::config::TrustedProxyConfig {
             enabled: true,
             proxies: vec!["2001:db8::2".to_string(), "2001:db8::3".to_string()],
@@ -675,7 +675,7 @@ mod tests {
             .header_name("X-Forwarded-For")
             .validate(false)
             .build();
-        // vuln-0003: 默认配置下转发头被忽略；validate=false 时直接对端 IP 不做格式校验
+        // 默认配置下转发头被忽略；validate=false 时直接对端 IP 不做格式校验
         let context = RequestContext::new()
             .with_header("X-Forwarded-For", "invalid-ip")
             .with_client_ip("invalid-ip");
@@ -696,7 +696,7 @@ mod tests {
     #[test]
     fn test_ip_extractor_whitespace_handling() {
         let extractor = IpExtractor::from_header("X-Forwarded-For");
-        // vuln-0003: 默认配置下转发头被忽略；parse_direct_ip 会 trim 直接对端 IP 的空白
+        // 默认配置下转发头被忽略；parse_direct_ip 会 trim 直接对端 IP 的空白
         let context = RequestContext::new()
             .with_header("X-Forwarded-For", "  192.168.1.1  ")
             .with_client_ip("  192.168.1.1  ");
@@ -707,7 +707,7 @@ mod tests {
 
     #[test]
     fn test_ip_extractor_list_with_spaces() {
-        // vuln-0003: 多 IP 列表解析仅在可信代理场景下生效
+        // 多 IP 列表解析仅在可信代理场景下生效
         let config = crate::config::TrustedProxyConfig {
             enabled: true,
             proxies: vec!["10.0.0.1".to_string(), "172.16.0.1".to_string()],
@@ -726,7 +726,7 @@ mod tests {
 
     #[test]
     fn test_ip_extractor_header_priority() {
-        // vuln-0003: 头优先级仅在可信代理场景下生效
+        // 头优先级仅在可信代理场景下生效
         let config = crate::config::TrustedProxyConfig {
             enabled: true,
             proxies: vec!["10.0.0.1".to_string()],
@@ -764,7 +764,7 @@ mod tests {
             .validate(true)
             .build();
 
-        // vuln-0003: 默认配置下转发头被忽略，使用直接对端 IP
+        // 默认配置下转发头被忽略，使用直接对端 IP
         let context = RequestContext::new()
             .with_header("X-Forwarded-For", "192.168.1.1")
             .with_client_ip("192.168.1.1");
@@ -780,7 +780,7 @@ mod tests {
             true,
         );
 
-        // vuln-0003: 默认配置下转发头被忽略，使用直接对端 IP
+        // 默认配置下转发头被忽略，使用直接对端 IP
         let context = RequestContext::new()
             .with_header("X-Real-IP", "10.0.0.1")
             .with_client_ip("10.0.0.1");
@@ -2474,7 +2474,7 @@ mod tests {
         let extractor =
             IpExtractor::with_trusted_proxies(vec!["X-Forwarded-For".to_string()], true, config);
 
-        // vuln-0003: 禁用可信代理模式时，转发头被忽略，使用直接对端 IP
+        // 禁用可信代理模式时，转发头被忽略，使用直接对端 IP
         let context = RequestContext::new()
             .with_header("X-Forwarded-For", "10.0.0.1, 192.168.1.1")
             .with_client_ip("192.168.1.1");

@@ -1534,7 +1534,7 @@ mod tests {
 
     #[test]
     fn test_sanitize_identifier_ipv6() {
-        // F2 回归：IPv6 不含 '.'，旧实现落入通用掩码路径，与 IPv4 脱敏不一致
+        // 回归：IPv6 不含 '.'，旧实现落入通用掩码路径，与 IPv4 脱敏不一致
         assert_eq!(
             sanitize_identifier("2001:0db8:85a3:0000:0000:8a2e:0370:7334"),
             "2001:db8:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx"
@@ -1869,7 +1869,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_batch_file_roundtrip_verify() {
-        // F1 回归测试：write_batch 落盘格式必须与 read_and_verify 的逐行
+        // 回归测试：write_batch 落盘格式必须与 read_and_verify 的逐行
         // 解析兼容。旧实现以 pretty JSON（多行）落盘，read_and_verify
         // 逐行解析全部失败——审计完整性验证对自身文件 100% 失效。
         let dir = tempfile::tempdir().unwrap();

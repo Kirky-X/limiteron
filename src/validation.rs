@@ -70,16 +70,19 @@ use crate::storage::BanTarget;
 /// ```
 pub fn validate_ip_address(ip: &str) -> Result<(), LimiteronError> {
     if ip.is_empty() {
-        return Err(LimiteronError::ValidationError(
-            "IP address cannot be empty".to_string(),
-        ));
+        return Err(LimiteronError::ValidationError(t(
+            "validation-ip-empty",
+            &[],
+        )));
     }
 
     if ip.len() > MAX_IP_ADDRESS_LENGTH {
-        return Err(LimiteronError::ValidationError(format!(
-            "IP address exceeds maximum length (max: {}, actual: {})",
-            MAX_IP_ADDRESS_LENGTH,
-            ip.len()
+        return Err(LimiteronError::ValidationError(t(
+            "validation-ip-length-exceeded",
+            &[
+                ("max", MAX_IP_ADDRESS_LENGTH.to_string()),
+                ("actual", ip.len().to_string()),
+            ],
         )));
     }
 
@@ -105,9 +108,10 @@ fn extract_ip_part(ip: &str) -> Result<&str, LimiteronError> {
         if let Some(close_bracket) = ip.find(']') {
             return Ok(&ip[1..close_bracket]);
         }
-        return Err(LimiteronError::ValidationError(
-            "Invalid IPv6 address format: missing closing bracket".to_string(),
-        ));
+        return Err(LimiteronError::ValidationError(t(
+            "validation-ipv6-missing-bracket",
+            &[],
+        )));
     }
 
     // IPv4 地址带端口格式：IPv4:port
@@ -138,21 +142,25 @@ fn extract_ip_part(ip: &str) -> Result<&str, LimiteronError> {
 /// 规范化掩码），此处沿用其行为不做额外收紧。
 pub fn validate_cidr(cidr: &str) -> Result<(), LimiteronError> {
     if cidr.is_empty() {
-        return Err(LimiteronError::ValidationError(
-            "CIDR cannot be empty".to_string(),
-        ));
-    }
-
-    if cidr.len() > MAX_IP_ADDRESS_LENGTH + 4 {
-        return Err(LimiteronError::ValidationError(format!(
-            "CIDR exceeds maximum length (max: {}, actual: {})",
-            MAX_IP_ADDRESS_LENGTH + 4,
-            cidr.len()
+        return Err(LimiteronError::ValidationError(t(
+            "validation-cidr-empty",
+            &[],
         )));
     }
 
-    cidr.parse::<ipnet::IpNet>()
-        .map_err(|_| LimiteronError::ValidationError(format!("Invalid CIDR format: {}", cidr)))?;
+    if cidr.len() > MAX_IP_ADDRESS_LENGTH + 4 {
+        return Err(LimiteronError::ValidationError(t(
+            "validation-cidr-length-exceeded",
+            &[
+                ("max", (MAX_IP_ADDRESS_LENGTH + 4).to_string()),
+                ("actual", cidr.len().to_string()),
+            ],
+        )));
+    }
+
+    cidr.parse::<ipnet::IpNet>().map_err(|_| {
+        LimiteronError::ValidationError(t("validation-cidr-invalid", &[("cidr", cidr.to_string())]))
+    })?;
 
     Ok(())
 }
@@ -167,15 +175,16 @@ pub fn validate_cidr(cidr: &str) -> Result<(), LimiteronError> {
 /// * `Err(LimiteronError)` - Validation failed
 pub fn validate_user_id(user_id: &str) -> Result<(), LimiteronError> {
     if user_id.is_empty() {
-        return Err(LimiteronError::ValidationError(
-            "User ID cannot be empty".to_string(),
-        ));
+        return Err(LimiteronError::ValidationError(t(
+            "validation-user-id-empty",
+            &[],
+        )));
     }
 
     if user_id.len() > MAX_USER_ID_LENGTH {
-        return Err(LimiteronError::ConfigError(format!(
-            "User ID exceeds maximum length ({})",
-            MAX_USER_ID_LENGTH
+        return Err(LimiteronError::ConfigError(t(
+            "validation-user-id-length-exceeded",
+            &[("max", MAX_USER_ID_LENGTH.to_string())],
         )));
     }
 
@@ -184,9 +193,10 @@ pub fn validate_user_id(user_id: &str) -> Result<(), LimiteronError> {
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '@' || c == '.')
     {
-        return Err(LimiteronError::ValidationError(
-            "User ID contains invalid characters".to_string(),
-        ));
+        return Err(LimiteronError::ValidationError(t(
+            "validation-user-id-invalid-chars",
+            &[],
+        )));
     }
 
     Ok(())
@@ -202,30 +212,33 @@ pub fn validate_user_id(user_id: &str) -> Result<(), LimiteronError> {
 /// * `Err(LimiteronError)` - Validation failed
 pub fn validate_mac_address(mac: &str) -> Result<(), LimiteronError> {
     if mac.is_empty() {
-        return Err(LimiteronError::ValidationError(
-            "MAC address cannot be empty".to_string(),
-        ));
+        return Err(LimiteronError::ValidationError(t(
+            "validation-mac-empty",
+            &[],
+        )));
     }
 
     if mac.len() > MAX_MAC_ADDRESS_LENGTH {
-        return Err(LimiteronError::ConfigError(format!(
-            "MAC address exceeds maximum length ({})",
-            MAX_MAC_ADDRESS_LENGTH
+        return Err(LimiteronError::ConfigError(t(
+            "validation-mac-length-exceeded",
+            &[("max", MAX_MAC_ADDRESS_LENGTH.to_string())],
         )));
     }
 
     // Standard MAC format: XX:XX:XX:XX:XX:XX or with hyphens/periods
     let cleaned = mac.replace([':', '-', '.'], "");
     if cleaned.len() != 12 {
-        return Err(LimiteronError::ValidationError(
-            "Invalid MAC address format".to_string(),
-        ));
+        return Err(LimiteronError::ValidationError(t(
+            "validation-mac-invalid-format",
+            &[],
+        )));
     }
 
     if !cleaned.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(LimiteronError::ValidationError(
-            "MAC address contains invalid characters".to_string(),
-        ));
+        return Err(LimiteronError::ValidationError(t(
+            "validation-mac-invalid-chars",
+            &[],
+        )));
     }
 
     Ok(())
@@ -247,9 +260,12 @@ pub fn validate_length(
     field_name: &str,
 ) -> Result<(), LimiteronError> {
     if value.len() > max_length {
-        return Err(LimiteronError::ConfigError(format!(
-            "{} exceeds maximum length ({})",
-            field_name, max_length
+        return Err(LimiteronError::ConfigError(t(
+            "validation-length-exceeded",
+            &[
+                ("field", field_name.to_string()),
+                ("max", max_length.to_string()),
+            ],
         )));
     }
     Ok(())
@@ -264,7 +280,11 @@ pub fn validate_length(
 /// * `Ok(())` - Valid reason
 /// * `Err(LimiteronError)` - Validation failed
 pub fn validate_ban_reason(reason: &str) -> Result<(), LimiteronError> {
-    validate_length(reason, MAX_BAN_REASON_LENGTH, "Ban reason")
+    validate_length(
+        reason,
+        MAX_BAN_REASON_LENGTH,
+        &t("validation-field-ban-reason", &[]),
+    )
 }
 
 /// Validates an API key.
@@ -276,7 +296,11 @@ pub fn validate_ban_reason(reason: &str) -> Result<(), LimiteronError> {
 /// * `Ok(())` - Valid API key
 /// * `Err(LimiteronError)` - Validation failed
 pub fn validate_api_key(api_key: &str) -> Result<(), LimiteronError> {
-    validate_length(api_key, MAX_API_KEY_LENGTH, "API key")
+    validate_length(
+        api_key,
+        MAX_API_KEY_LENGTH,
+        &t("validation-field-api-key", &[]),
+    )
 }
 
 /// Validates a header value.
@@ -288,7 +312,11 @@ pub fn validate_api_key(api_key: &str) -> Result<(), LimiteronError> {
 /// * `Ok(())` - Valid header value
 /// * `Err(LimiteronError)` - Validation failed
 pub fn validate_header_value(value: &str) -> Result<(), LimiteronError> {
-    validate_length(value, MAX_HEADER_VALUE_LENGTH, "Header value")
+    validate_length(
+        value,
+        MAX_HEADER_VALUE_LENGTH,
+        &t("validation-field-header-value", &[]),
+    )
 }
 
 /// Validates a path.
@@ -300,7 +328,7 @@ pub fn validate_header_value(value: &str) -> Result<(), LimiteronError> {
 /// * `Ok(())` - Valid path
 /// * `Err(LimiteronError)` - Validation failed
 pub fn validate_path(path: &str) -> Result<(), LimiteronError> {
-    validate_length(path, MAX_PATH_LENGTH, "Path")
+    validate_length(path, MAX_PATH_LENGTH, &t("validation-field-path", &[]))
 }
 
 /// Validates a ban target.

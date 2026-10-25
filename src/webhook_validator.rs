@@ -618,7 +618,7 @@ mod tests {
         }
     }
 
-    // SSRF 防护测试（P0 修复）
+    // SSRF 防护测试
 
     #[test]
     fn test_ipv4_mapped_ipv6_private_rejected() {

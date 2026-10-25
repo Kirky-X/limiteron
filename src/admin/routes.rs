@@ -27,7 +27,7 @@ use super::{
     server::LimiteronState,
 };
 
-/// vuln-0001 修复：通过 request extensions 传递的鉴权 operator 身份
+/// 通过 request extensions 传递的鉴权 operator 身份
 ///
 /// middleware 在通过 API key 鉴权后，根据 `AdminApiConfig::api_key_operators`
 /// 解析对应 operator 身份并写入 request extensions。handlers 优先使用此值，
@@ -119,7 +119,7 @@ fn is_probe_path(path: &str) -> bool {
     PROBE_PATHS.contains(&path)
 }
 
-/// 按路径前缀分组（vuln-0002 修复）
+/// 按路径前缀分组
 ///
 /// 用于按端点分组应用不同的速率限制策略：
 /// - `/api/v1/ban*` → "ban"（默认 100/min）
@@ -210,7 +210,7 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
     let rate_limits = config.rate_limits.clone();
     // per-client rate buckets，key = (group, client_ip)
     //
-    // vuln-0002 原实现按 group 全局共享计数器，单个恶意客户端耗尽配额后
+    // 原实现按 group 全局共享计数器，单个恶意客户端耗尽配额后
     // 所有合法管理员也被限制（DoS 放大器）。此处改为按 (group, client_ip)
     // 分桶，每个客户端在每组内有独立配额。
     //
@@ -235,7 +235,7 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
                     return next.run(req).await;
                 }
 
-                // vuln-0002 修复：速率限制检查（在鉴权之前，防止暴力破解和 DDoS）
+                // 速率限制检查（在鉴权之前，防止暴力破解和 DDoS）
                 let group = group_for_path(path);
                 // 提取 client IP 用于 per-client 分桶
                 let client_ip = req
@@ -320,12 +320,14 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
                     _ => None,
                 };
                 let Some(token) = token else {
-                    let mut resp = axum::response::Response::new(Body::from("Invalid API key"));
+                    let mut resp = axum::response::Response::new(Body::from(
+                        crate::i18n::t_simple("admin-api-invalid-key"),
+                    ));
                     *resp.status_mut() = StatusCode::UNAUTHORIZED;
                     return resp;
                 };
 
-                // vuln-0001 修复：API key 鉴权通过后，
+                // API key 鉴权通过后，
                 // 将 operator 身份从 mapping 解析并写入 request extensions。
                 // 必须用请求中实际提交的 token（而非全局单一 api_key）查映射，
                 // 否则多 key 部署下所有 key 都落到同一 operator，丧失身份隔离。
@@ -361,7 +363,7 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
                         )
                     );
                     let mut resp = axum::response::Response::new(Body::from(
-                        "Insufficient role for this operation",
+                        crate::i18n::t_simple("admin-rbac-insufficient-role"),
                     ));
                     *resp.status_mut() = StatusCode::FORBIDDEN;
                     return resp;
@@ -779,7 +781,7 @@ mod tests {
     }
 
     // ========================================================================
-    // vuln-0001 修复测试：operator 身份必须由 API key mapping 决定，
+    // operator 身份必须由 API key mapping 决定，
     // body 中的 operator 字段必须被忽略。
     //
     // 验证策略：使用 SimpleAuthorizationProvider 作为 oracle。
@@ -1029,7 +1031,7 @@ mod tests {
     }
 
     // ========================================================================
-    // vuln-0002 修复测试：Admin API 速率限制
+    // Admin API 速率限制
     //
     // 验证策略：配置小限制值，发送超过限制的请求，断言第 N+1 次返回 429。
     // 速率限制在鉴权之前执行，防止暴力破解和 DDoS。

@@ -432,7 +432,7 @@ impl QuotaController {
         resource: &str,
         cost: u64,
     ) -> Result<ConsumeResult, LimiteronError> {
-        // 防碰撞校验（I2）：user_id/resource 以 `{user_id}:{resource}` 拼接为
+        // 防碰撞校验：user_id/resource 以 `{user_id}:{resource}` 拼接为
         // 存储 key，含 ':' 的输入会使 ("a:b","c") 与 ("a","b:c") 共享同一 key，
         // 造成跨账户配额污染。封禁路径已有 validate_user_id 同类防护，
         // 配额路径在此补齐。
@@ -498,7 +498,7 @@ impl QuotaController {
         // 更新消费量（上方已验证 cost ≤ total_limit - consumed，不会溢出）
         let new_consumed = updated_state.consumed + cost;
 
-        // 保存到存储并尊重存储侧的裁决（A8）：存储层（如 DB 条件 UPDATE）
+        // 保存到存储并尊重存储侧的裁决：存储层（如 DB 条件 UPDATE）
         // 是权威账本，其并发裁决可能拒绝本次消费——若无视 allowed=false
         // 仍向上层返回放行，会造成「消费未落账但请求已放行」的配额绕过。
         let stored = self
@@ -821,7 +821,7 @@ impl QuotaController {
                 let dedup_key = format!("{}:{}:{}", user_id, resource, threshold);
                 let now = self.clock.now_datetime();
 
-                // entry API 原子完成「检查 + 占位」（A7）：旧实现
+                // entry API 原子完成「检查 + 占位」：旧实现
                 // get → await send_alert → insert，await 窗口内并发的同键
                 // 告警会双双通过去重检查，造成重复告警。现在占位先行，
                 // 同键并发只会有一个通过。
@@ -1275,7 +1275,7 @@ mod tests {
         );
     }
 
-    /// I2 回归测试：user_id/resource 含 ':' 会被拒绝，防止
+    /// 回归测试：user_id/resource 含 ':' 会被拒绝，防止
     /// ("a:b","c") 与 ("a","b:c") 生成同一配额 key 造成跨账户污染
     #[tokio::test]
     async fn test_consume_rejects_colon_in_identifiers() {

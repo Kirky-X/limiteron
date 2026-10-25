@@ -392,7 +392,7 @@ impl RuleBuilder {
                     continue;
                 }
                 // Custom 匹配器：未提供注册表的构建路径编译为恒不匹配
-                // 占位（E1 可见性修复：构建期 warn 一次，热路径降 debug）
+                // 占位（可见性修复：构建期 warn 一次，热路径降 debug）
                 let ConfigMatcher::Custom { name, .. } = matcher else {
                     unreachable!("base_condition returns None only for Custom");
                 };
@@ -417,7 +417,7 @@ impl RuleBuilder {
         Ok(rules)
     }
 
-    /// 带自定义匹配器注册表的规则构建（E1 完整集成）
+    /// 带自定义匹配器注册表的规则构建（完整集成）
     ///
     /// 与 [`Self::build_rules`] 相同，但配置中的 `Custom` 匹配器会从
     /// `registry` 解析：已注册的匹配器被快照（`Arc`）进条件闭包并真实
@@ -605,7 +605,7 @@ mod tests {
         );
     }
 
-    /// E1 集成回归：build_rules_with_registry 下已注册的 Custom 匹配器
+    /// 集成回归：build_rules_with_registry 下已注册的 Custom 匹配器
     /// 真实参与求值；未注册的为恒不匹配占位。
     #[tokio::test]
     async fn test_build_rules_with_registry_resolves_custom_matcher() {

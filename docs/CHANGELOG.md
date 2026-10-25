@@ -184,7 +184,7 @@
 
 ### 变更
 
-- **i18n 整改**：迁移 unify-rust-i18n——生产路径中文字面量清零、日志/错误消息键接线（T016/T025）
+- **i18n 整改**：迁移 unify-rust-i18n——生产路径中文字面量清零、日志/错误消息键接线
 - 版权头统一改写为 2025-2026
 
 ### 修复
@@ -201,14 +201,13 @@
 
 ### 修复
 
-- **OCR 审查系列**：
-  - **HTB/inklog Sink**：令牌扣减原子化——单临界区内完成刷新+扣减，借用不足整体回滚，消除并发透支
-  - **限流器并发**：自适应/并发/固定窗口/批量预取——release 饱和扣减、注入信号量容量观测、溢出比较、预取校验失败留痕
-  - **事件链路**：webhook 共享 `Client` 与常量头名、outbox 事务语义文档纠偏与损坏 payload 告警、ban-sync 解码失败留痕
-  - **存储与审计**：审计链批写移入阻塞线程池；ban 存储改原子自增 UPDATE 并显性限定 Postgres 方言；存储契约补 TTL 过期断言
-  - **配额控制器**：超限比较去溢出、告警百分比钳制 255、克隆句柄计数防误取消后台任务
-  - **telemetry/存储/CLI**：epoch 时间去 panic、metrics 并发占位原子化、CLI 序列化失败显性报错、`Debug`/`PartialEq` 派生补全、OTLP 测试 Content-Length 下溢防护
-  - **Admin API**：`into_router` 配置校验、status 饱和运算、config `PartialEq`
+- **HTB/inklog Sink**：令牌扣减原子化——单临界区内完成刷新+扣减，借用不足整体回滚，消除并发透支
+- **限流器并发**：自适应/并发/固定窗口/批量预取——release 饱和扣减、注入信号量容量观测、溢出比较、预取校验失败留痕
+- **事件链路**：webhook 共享 `Client` 与常量头名、outbox 事务语义文档纠偏与损坏 payload 告警、ban-sync 解码失败留痕
+- **存储与审计**：审计链批写移入阻塞线程池；ban 存储改原子自增 UPDATE 并显性限定 Postgres 方言；存储契约补 TTL 过期断言
+- **配额控制器**：超限比较去溢出、告警百分比钳制 255、克隆句柄计数防误取消后台任务
+- **telemetry/存储/CLI**：epoch 时间去 panic、metrics 并发占位原子化、CLI 序列化失败显性报错、`Debug`/`PartialEq` 派生补全、OTLP 测试 Content-Length 下溢防护
+- **Admin API**：`into_router` 配置校验、status 饱和运算、config `PartialEq`
 
 ### 变更
 
@@ -227,43 +226,43 @@
 
 ### 新增
 
-- **K8s 探针与指标端点**：admin API `/healthz` `/readyz` `/metrics`（bypass 认证，T601）
-- **多租户贯穿 Governor**：tenant+key 复合决策键，存储/配额/封禁按租户隔离（T602）
-- **限流预检**：`Limiter::peek(cost)`/`remaining()` 非消费查询 + IETF 标准 `RateLimit-*` 头数据（T603）
-- **CIDR 网段封禁**：IPv4/IPv6 CIDR 段匹配 + 最长前缀匹配（T604）
-- **Admin RBAC**：多 key 令牌认证 + admin/viewer 角色矩阵（越权 403，T605）
-- **OTLP 追踪导出**：`otlp` feature 的 OTLP/HTTP exporter 替代 stub（mock collector 单测，T606）
-- **MySQL 存储后端**：`mysql` feature（dbnexus server-side 驱动，契约测试共享，T607）
-- **Governor 自省 API**：`GET /api/v1/introspect` 规则/决策链/配额/封禁/熔断 JSON（T608）
-- **审计哈希链**：审计事件 HMAC-SHA256(prev‖payload) 链式签名 + `verify_chain` 篡改检测（T609）
-- **AIMD 自适应并发限流**：`adaptive-limiting` feature 真实实现（延迟/错误率反馈调窗，熔断联动，T610）
-- **舱壁隔离**：`bulkhead` feature——按资源组分池 + 独立并发预算/熔断/隔离指标（T611）
-- **配置 CLI**：`limiteron-cli` 二进制（`cli` feature）——规则文件校验/导出/apply dry-run，JSON 输出 + 退出码 0/1/2（T612）
-- **热更新/批量 API**：`POST /api/v1/config` 原子换配置（同步重建规则匹配器与决策链 + L1 失效 + 历史记录）；`POST /api/v1/check/batch` N key 一次决策；`POST /api/v1/tokens/prefetch` 批量令牌预取（`BatchTokenPrefetcher`，T613）
-- **Webhook 签名**：外发事件 HMAC-SHA256 签名头（`X-Limiteron-Signature`）+ 时间戳防重放（`X-Limiteron-Timestamp`，默认 300s 窗口；`webhook` feature，T614）
-- **HTB 分层令牌桶**：`HierarchicalTokenBucket` 父/子借用（全有或全无、兄弟隔离，T615）
-- **宏 throttle 排队**：`on_exceed = "throttle"` 真实实现——有界等待重试（`queue_ms`/`poll_ms` 可配），超时返回 `LimiteronError::Throttled`（T615）
-- **事件 Outbox**：`limiteron_event_outbox` 表（Transactional Outbox，append/pending/mark_published，sqlite 本地测试，T616）
-- **封禁跨实例同步**：`ban-sync` feature 经 oxcache Pub/Sub 协议层广播封禁变更（自消息豁免，mock 单测，T616）
-- **下层端口实现与 kit 对齐**：inklog `SinkRateLimit` 真实实现（按 target 分桶 + ERROR 直通 + 失败归还）；dbnexus `QueryThrottle` 端口语义文档化 + `LimiteronQueryThrottle` 实现；`LimiteronModule` 补 trait-kit `AsyncHealthCheck`/`AsyncLifecycle` 端口并依赖 `OxcacheModule` 注入缓存（dbnexus T413 范式；T617）
+- **K8s 探针与指标端点**：admin API `/healthz` `/readyz` `/metrics`（bypass 认证）
+- **多租户贯穿 Governor**：tenant+key 复合决策键，存储/配额/封禁按租户隔离
+- **限流预检**：`Limiter::peek(cost)`/`remaining()` 非消费查询 + IETF 标准 `RateLimit-*` 头数据
+- **CIDR 网段封禁**：IPv4/IPv6 CIDR 段匹配 + 最长前缀匹配
+- **Admin RBAC**：多 key 令牌认证 + admin/viewer 角色矩阵（越权 403）
+- **OTLP 追踪导出**：`otlp` feature 的 OTLP/HTTP exporter 替代 stub（mock collector 单测）
+- **MySQL 存储后端**：`mysql` feature（dbnexus server-side 驱动，契约测试共享）
+- **Governor 自省 API**：`GET /api/v1/introspect` 规则/决策链/配额/封禁/熔断 JSON
+- **审计哈希链**：审计事件 HMAC-SHA256(prev‖payload) 链式签名 + `verify_chain` 篡改检测
+- **AIMD 自适应并发限流**：`adaptive-limiting` feature 真实实现（延迟/错误率反馈调窗，熔断联动）
+- **舱壁隔离**：`bulkhead` feature——按资源组分池 + 独立并发预算/熔断/隔离指标
+- **配置 CLI**：`limiteron-cli` 二进制（`cli` feature）——规则文件校验/导出/apply dry-run，JSON 输出 + 退出码 0/1/2
+- **热更新/批量 API**：`POST /api/v1/config` 原子换配置（同步重建规则匹配器与决策链 + L1 失效 + 历史记录）；`POST /api/v1/check/batch` N key 一次决策；`POST /api/v1/tokens/prefetch` 批量令牌预取（`BatchTokenPrefetcher`）
+- **Webhook 签名**：外发事件 HMAC-SHA256 签名头（`X-Limiteron-Signature`）+ 时间戳防重放（`X-Limiteron-Timestamp`，默认 300s 窗口；`webhook` feature）
+- **HTB 分层令牌桶**：`HierarchicalTokenBucket` 父/子借用（全有或全无、兄弟隔离）
+- **宏 throttle 排队**：`on_exceed = "throttle"` 真实实现——有界等待重试（`queue_ms`/`poll_ms` 可配），超时返回 `LimiteronError::Throttled`
+- **事件 Outbox**：`limiteron_event_outbox` 表（Transactional Outbox，append/pending/mark_published，sqlite 本地测试）
+- **封禁跨实例同步**：`ban-sync` feature 经 oxcache Pub/Sub 协议层广播封禁变更（自消息豁免，mock 单测）
+- **下层端口实现与 kit 对齐**：inklog `SinkRateLimit` 真实实现（按 target 分桶 + ERROR 直通 + 失败归还）；dbnexus `QueryThrottle` 端口语义文档化 + `LimiteronQueryThrottle` 实现；`LimiteronModule` 补 trait-kit `AsyncHealthCheck`/`AsyncLifecycle` 端口并依赖 `OxcacheModule` 注入缓存（dbnexus 范式）
 
 ### 变更
 
-- `kit` feature 扩展：`dep:trait-kit` + `dep:futures` + `oxcache/kit`；trait-kit 依赖补 `health`/`lifecycle` features（T617）
-- `integrations` 模块改为恒编译（子模块保持各自 feature 门控；`query_throttle` 无外部依赖）（T617）
-- `LimiteronError` 新增 `Throttled` 变体（宏 throttle 队列超时，T615）
+- `kit` feature 扩展：`dep:trait-kit` + `dep:futures` + `oxcache/kit`；trait-kit 依赖补 `health`/`lifecycle` features
+- `integrations` 模块改为恒编译（子模块保持各自 feature 门控；`query_throttle` 无外部依赖）
+- `LimiteronError` 新增 `Throttled` 变体（宏 throttle 队列超时）
 
 ### 新增
 
-- **Redis 分布式限流器** (`RedisDistributedLimiter`)：实现 `DistributedLimiter` trait，5 个 Lua 脚本经 oxcache `eval_lua` 执行，需 `distributed` + `lua-script` 双 feature（T050）
-- **confers 配置集成**：新增 `config-confers` / `config-confers-reload` feature，支持从文件加载 `FlowControlConfig` + FsWatcher 热重载 + 验证失败自动回滚（T054）
+- **Redis 分布式限流器** (`RedisDistributedLimiter`)：实现 `DistributedLimiter` trait，5 个 Lua 脚本经 oxcache `eval_lua` 执行，需 `distributed` + `lua-script` 双 feature
+- **confers 配置集成**：新增 `config-confers` / `config-confers-reload` feature，支持从文件加载 `FlowControlConfig` + FsWatcher 热重载 + 验证失败自动回滚
 - **Governor `config_handle()`**：返回 `Arc<RwLock<FlowControlConfig>>` 供外部原子换配置
-- **inklog 可配置初始化**：`init_inklog_logger_with_config(InklogConfig)` 支持自定义级别/输出（T053）
+- **inklog 可配置初始化**：`init_inklog_logger_with_config(InklogConfig)` 支持自定义级别/输出
 
 ### 修复
 
-- **metrics 死接线**：`metrics` feature 隐含 `monitoring`，governor allow/reject/ban 三点指标记录自动激活（T052）
-- **sqlite 门控修复**：adapters 与 dbnexus_entities 的 cfg 门控改为 `any(postgres, sqlite)`（T051）
+- **metrics 死接线**：`metrics` feature 隐含 `monitoring`，governor allow/reject/ban 三点指标记录自动激活
+- **sqlite 门控修复**：adapters 与 dbnexus_entities 的 cfg 门控改为 `any(postgres, sqlite)`
 
 ### 依赖
 
@@ -305,9 +304,9 @@
 
 ### 新增
 
-- **[T006]** `#[flow_control]` 宏 `on_exceed` 参数实现：`reject`（默认）超限返回错误，`log_only` 超限继续执行，`throttle` 生成 `compile_error!`（`LimiteronError::Throttled` 变体不存在）。parse 阶段拒绝未知 `on_exceed` 值（Rule 12）
-- **[T007]** `#[flow_control]` 宏新增 `key_prefix = "namespace"` 参数，用于多模块同名函数的 key 隔离
-- **[T008]** `#[flow_control]` 宏新增 `tracing = false` / `metrics = false` 参数，可独立禁用 span 和 metrics 记录
+- `#[flow_control]` 宏 `on_exceed` 参数实现：`reject`（默认）超限返回错误，`log_only` 超限继续执行，`throttle` 生成 `compile_error!`（`LimiteronError::Throttled` 变体不存在）。parse 阶段拒绝未知 `on_exceed` 值（Rule 12）
+- `#[flow_control]` 宏新增 `key_prefix = "namespace"` 参数，用于多模块同名函数的 key 隔离
+- `#[flow_control]` 宏新增 `tracing = false` / `metrics = false` 参数，可独立禁用 span 和 metrics 记录
 - `LimiterManager` 全局单例（`GLOBAL_LIMITER_MANAGER`）：按 key 缓存 rate/quota/concurrency 限流器，供 `#[flow_control]` 宏生成的代码使用
 
 ### 修复
@@ -326,38 +325,38 @@
 
 ### 新增
 
-- **[T001]** `#[flow_control]` 宏抽 `build_exceed_handler` 辅助函数，合并 3 个重复的 exceed handler match 表达式（架构-H2 DRY）
-- **[T002]** `#[flow_control]` 宏新增 `sanitize_key_component` 辅助函数（ASCII alphanumeric + `_` `-` `.` + take 128），防御性过滤 `key_prefix` 和 `fname` 中的特殊字符（安全-M1，防止 key 注入和 Unicode 同形字符攻击）
-- **[T003]** `#[flow_control]` 宏 `key_prefix=None` 时无前导冒号修复（架构-M5 breaking change 恢复）
-- **[T005]** `#[flow_control]` 宏 `log_only` 模式下不调用 `allow`/`check`/`acquire`，不消费配额/速率/并发（安全-M2 语义修复）
-- **[T006]** `#[flow_control]` 宏条件生成 `#[allow(unreachable_code)]` attr（仅 reject 模式生成，架构-L1）
-- **[T008]** `LimiterManager::get_*_limiter` 新增参数一致性 `assert!`（Rule 12 显性化）+ get() 快速路径读锁优化
-- **[T009]** `QuotaLimiter` 新增 `max()` / `period()` getter（仅供 manager 参数校验使用）
-- **[T010]** `LimiterManager` 新增 LRU 淘汰机制（`MAX_LIMITER_ENTRIES=100_000` / `CLEANUP_THRESHOLD=110_000` / `CLEANUP_RATIO=0.1`），`*_access_times` 用 `AtomicU64` 无锁更新，cleanup 用 `retain` + `select_nth_unstable_by_key`（性能-HIGH-2）
-- **[T012]** `LimiterManager::clear()` 改为 `#[cfg(test)] pub fn clear_for_test()`，仅测试可用（安全-L1）
+- `#[flow_control]` 宏抽 `build_exceed_handler` 辅助函数，合并 3 个重复的 exceed handler match 表达式
+- `#[flow_control]` 宏新增 `sanitize_key_component` 辅助函数（ASCII alphanumeric + `_` `-` `.` + take 128），防御性过滤 `key_prefix` 和 `fname` 中的特殊字符（防止 key 注入和 Unicode 同形字符攻击）
+- `#[flow_control]` 宏 `key_prefix=None` 时无前导冒号修复（breaking change 恢复）
+- `#[flow_control]` 宏 `log_only` 模式下不调用 `allow`/`check`/`acquire`，不消费配额/速率/并发（语义修复）
+- `#[flow_control]` 宏条件生成 `#[allow(unreachable_code)]` attr（仅 reject 模式生成）
+- `LimiterManager::get_*_limiter` 新增参数一致性 `assert!`（Rule 12 显性化）+ get() 快速路径读锁优化
+- `QuotaLimiter` 新增 `max()` / `period()` getter（仅供 manager 参数校验使用）
+- `LimiterManager` 新增 LRU 淘汰机制（`MAX_LIMITER_ENTRIES=100_000` / `CLEANUP_THRESHOLD=110_000` / `CLEANUP_RATIO=0.1`），`*_access_times` 用 `AtomicU64` 无锁更新，cleanup 用 `retain` + `select_nth_unstable_by_key`
+- `LimiterManager::clear()` 改为 `#[cfg(test)] pub fn clear_for_test()`，仅测试可用
 - 新增 13 个单元测试（3 个并发一致性 + 3 个 LRU 淘汰 + 4 个 redact_key + 2 个 QuotaLimiter 边界 + 1 个 sanitize 边界）
 
 ### 修复
 
-- **[CRITICAL H-002]** `LimiterManager::get_*_limiter` 慢路径 TOCTOU 限流绕过：并发场景下返回本地 `Arc::new(...)` 而非 DashMap 中的，导致限流被绕过。改用 `entry().or_insert_with(|| Arc::new(...)).clone()` 模式（tiangang 安全审查）
-- **[HIGH H-001]** `LimiterManager::get_*_limiter` panic 消息中泄露 key 原文：新增 `redact_key` 函数脱敏（短 key 仅暴露字符数，长 key 暴露前 8 字符 + 总长度），用 `chars().take(8).collect()` 避免 UTF-8 边界切片 panic（tiangang 安全审查）
-- **[CRITICAL C-001]** `LimiterManager::get_*_limiter` 快速路径 `access_times.insert()` 引入写锁 + 堆分配：改用 `DashMap<String, AtomicU64>` 存纳秒时间戳，`store(Ordering::Relaxed)` 无锁更新（diting 性能审查）
-- **[HIGH H-001]** `LimiterManager::cleanup_*_limiters_to` 期间 `iter().collect()` 持有所有 shard 读锁 + 4.4MB 分配：改用 `retain` 替代 `iter+remove`，`select_nth_unstable_by_key` 替代全排序（diting 性能审查）
-- **[HIGH H-002]** `LimiterManager::cleanup` 同步执行阻塞请求 50-200ms：用 `AtomicBool` + `compare_exchange` CAS 限制并发 cleanup（diting 性能审查）
-- **[MEDIUM M-001]** `sanitize_key_component` 用 `is_alphanumeric()` 允许 Unicode 同形字符攻击：改用 `is_ascii_alphanumeric()`（tiangang 安全审查）
-- **[MEDIUM M-001]** 3 个 `cleanup_*_limiters_to` 高度重复：抽 `cleanup_lru<L>` 泛型函数（diting 架构审查 DRY）
-- **[MEDIUM M-003]** 3 个 `*_limiter_count()` 注释"主要用于测试"但未 cfg-gate：改为 `#[cfg(test)] pub`（diting 架构审查）
-- **[MEDIUM M-004/M-003]** LRU 全排序 O(n log n)：用 `select_nth_unstable_by_key` 优化为 O(n) 平均（diting 架构/性能审查）
-- **[MEDIUM M-005]** `assert!` panic 风险：在 `# Panic` 章节文档化"参数不一致是代码 bug，应在开发阶段发现"（diting 架构审查）
-- **[MEDIUM M-008]** 参数一致性校验不完整（`unit_secs` 未校验）：在模块 `# 限制` 章节文档化已知限制（diting 架构审查）
-- **[LOW L-001/性能 M-001]** `key.to_string()` 在 `get_*_limiter` 中调用 3 次：函数开头 `let key = key.to_string()` 缓存（diting 架构审查）
-- **[LOW L-002]** `sanitize_key_component` 缺边界单元测试：新增 `test_sanitize_key_component_edge_cases` + `test_sanitize_key_component_defense_in_depth`（diting 架构审查）
-- **[LOW L-003]** `let _ = rate_limiter;` 写法不够地道：改为 `let _ = &rate_limiter;`（3 处，diting 架构审查）
-- **[LOW L-007]** `build_exceed_handler` 的 `error_variant` 参数可简化：签名从 `syn::Ident` 改为 `&str`（diting 架构审查）
-- **[LOW L-003]** `QuotaLimiter::new` 未校验 `window_size=0`：新增 `assert!(config.window_size > 0)`（tiangang 安全审查）
-- **[MEDIUM M-002]** `QuotaLimiter::max/period` getter 暴露内部配置：添加"仅供 LimiterManager 参数校验使用"注释（diting 架构审查）
-- **[MEDIUM M-006]** 缺并发场景 LRU 一致性测试：新增 3 个 `test_concurrent_get_*_limiter_consistency`（10 线程并发 get 同 key 验证 `Arc::ptr_eq`，diting 架构审查）
-- **[MEDIUM M-007]** `cleanup_quota/concurrency_limiters_to` 缺测试：新增 `test_lru_eviction_quota` + `test_lru_eviction_concurrency`（diting 架构审查）
+- `LimiterManager::get_*_limiter` 慢路径 TOCTOU 限流绕过：并发场景下返回本地 `Arc::new(...)` 而非 DashMap 中的，导致限流被绕过。改用 `entry().or_insert_with(|| Arc::new(...)).clone()` 模式
+- `LimiterManager::get_*_limiter` panic 消息中泄露 key 原文：新增 `redact_key` 函数脱敏（短 key 仅暴露字符数，长 key 暴露前 8 字符 + 总长度），用 `chars().take(8).collect()` 避免 UTF-8 边界切片 panic
+- `LimiterManager::get_*_limiter` 快速路径 `access_times.insert()` 引入写锁 + 堆分配：改用 `DashMap<String, AtomicU64>` 存纳秒时间戳，`store(Ordering::Relaxed)` 无锁更新
+- `LimiterManager::cleanup_*_limiters_to` 期间 `iter().collect()` 持有所有 shard 读锁 + 4.4MB 分配：改用 `retain` 替代 `iter+remove`，`select_nth_unstable_by_key` 替代全排序
+- `LimiterManager::cleanup` 同步执行阻塞请求 50-200ms：用 `AtomicBool` + `compare_exchange` CAS 限制并发 cleanup
+- `sanitize_key_component` 用 `is_alphanumeric()` 允许 Unicode 同形字符攻击：改用 `is_ascii_alphanumeric()`
+- 3 个 `cleanup_*_limiters_to` 高度重复：抽 `cleanup_lru<L>` 泛型函数
+- 3 个 `*_limiter_count()` 注释"主要用于测试"但未 cfg-gate：改为 `#[cfg(test)] pub`
+- LRU 全排序 O(n log n)：用 `select_nth_unstable_by_key` 优化为 O(n) 平均
+- `assert!` panic 风险：在 `# Panic` 章节文档化"参数不一致是代码 bug，应在开发阶段发现"
+- 参数一致性校验不完整（`unit_secs` 未校验）：在模块 `# 限制` 章节文档化已知限制
+- `key.to_string()` 在 `get_*_limiter` 中调用 3 次：函数开头 `let key = key.to_string()` 缓存
+- `sanitize_key_component` 缺边界单元测试：新增 `test_sanitize_key_component_edge_cases` + `test_sanitize_key_component_defense_in_depth`
+- `let _ = rate_limiter;` 写法不够地道：改为 `let _ = &rate_limiter;`（3 处）
+- `build_exceed_handler` 的 `error_variant` 参数可简化：签名从 `syn::Ident` 改为 `&str`
+- `QuotaLimiter::new` 未校验 `window_size=0`：新增 `assert!(config.window_size > 0)`
+- `QuotaLimiter::max/period` getter 暴露内部配置：添加"仅供 LimiterManager 参数校验使用"注释
+- 缺并发场景 LRU 一致性测试：新增 3 个 `test_concurrent_get_*_limiter_consistency`（10 线程并发 get 同 key 验证 `Arc::ptr_eq`）
+- `cleanup_quota/concurrency_limiters_to` 缺测试：新增 `test_lru_eviction_quota` + `test_lru_eviction_concurrency`
 
 ### 测试覆盖
 
@@ -368,13 +367,13 @@
 
 ### 安全修复
 
-- **[vuln-0001]** Admin API operator 身份绑定改用请求中实际提交的 token 查 `api_key_operators` 映射（原实现用全局单一 `api_key` 查，多 key 部署下身份隔离失效）
-- **[vuln-0002]** Admin API 按路径分组的速率限制（per-client 分桶）
-- **[vuln-0003]** X-Forwarded-For IP 伪造防护（仅可信代理直连才信任转发头）
-- **[vuln-0004]** rustls-webpki 升级修复 CVE-2025-48369
-- **[HIGH-001]** per-client 速率分桶增加内存上限（`RATE_BUCKET_MAX_ENTRIES=10000`）+ 过期窗口清扫，防止轮换源 IP 导致 map 无限膨胀的 OOM DoS
-- **[MEDIUM-002]** `rate_buckets` Mutex 中毒时恢复而非 panic
-- **[MEDIUM-003]** 显式锁定 rustls-webpki 版本约束
+- Admin API operator 身份绑定改用请求中实际提交的 token 查 `api_key_operators` 映射（原实现用全局单一 `api_key` 查，多 key 部署下身份隔离失效）
+- Admin API 按路径分组的速率限制（per-client 分桶）
+- X-Forwarded-For IP 伪造防护（仅可信代理直连才信任转发头）
+- rustls-webpki 升级修复 CVE-2025-48369
+- per-client 速率分桶增加内存上限（`RATE_BUCKET_MAX_ENTRIES=10000`）+ 过期窗口清扫，防止轮换源 IP 导致 map 无限膨胀的 OOM DoS
+- `rate_buckets` Mutex 中毒时恢复而非 panic
+- 显式锁定 rustls-webpki 版本约束
 - 修复 namespace key prefix injection 漏洞
 - 修复统计计数器 `Ordering::Relaxed` 高并发下不准确问题
 

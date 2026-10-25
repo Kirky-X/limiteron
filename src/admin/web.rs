@@ -400,7 +400,11 @@ async fn enforce_access(
             });
         if !ok {
             record_auth_failure(buckets, &client, AUTH_FAILURE_WINDOW);
-            return (StatusCode::UNAUTHORIZED, "Invalid API key").into_response();
+            return (
+                StatusCode::UNAUTHORIZED,
+                crate::i18n::t_simple("admin-api-invalid-key"),
+            )
+                .into_response();
         }
     }
 

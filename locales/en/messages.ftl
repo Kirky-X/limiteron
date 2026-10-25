@@ -38,7 +38,7 @@ error-storage-invalid-config = Invalid configuration: { $message }
 error-storage-rate-limit = Rate limit: { $message }
 error-storage-validation = Validation error: { $message }
 
-# ---- Already-English error types aligned with catalog keys (T016) ----
+# ---- Already-English error types aligned with catalog keys ----
 i18n-error-invalid-locale = invalid locale '{ $input }': { $reason }
 i18n-error-invalid-number = invalid number '{ $input }': { $reason }
 i18n-error-date = date error: { $message }
@@ -112,7 +112,7 @@ cli-error-out-requires-file = --out requires a file argument
 cli-error-unknown-option = unknown option '{ $option }'
 cli-error-write-output-failed = failed to write normalized config to '{ $path }': { $reason }
 
-# ---- SafeErrorMessage abstraction (dual-track, T025) ----
+# ---- SafeErrorMessage abstraction (dual-track) ----
 safe-error-config = Configuration error: { $message }
 safe-error-storage = Storage error: { $message }
 safe-error-limit = Rate limit error: { $message }
@@ -164,7 +164,7 @@ general-safe-unauthorized = Unauthorized
 general-safe-forbidden = Forbidden
 general-safe-rate-limited = Rate limited
 
-# ---- Custom matcher registry validation (T025) ----
+# ---- Custom matcher registry validation ----
 matcher-name-empty = Matcher name cannot be empty
 matcher-name-too-long = Matcher name exceeds length limit (max { $max } characters)
 matcher-name-invalid-chars = Matcher name may only contain letters, digits, underscores and hyphens
@@ -193,7 +193,7 @@ matcher-time-window-config-loaded = Time window matcher config loaded: { $start 
 matcher-header-config-loaded = HTTP header matcher config loaded: header='{ $header }', allowed values={ $values }, case sensitive={ $case_sensitive }
 matcher-allowed-values-too-many = Number of allowed values exceeds limit (max { $max })
 
-# ---- Geo matcher (T025) ----
+# ---- Geo matcher ----
 geo-db-not-found = GeoLite2 database file not found: { $path }. Please download GeoLite2-City.mmdb from the MaxMind website
 geo-db-loading = Loading GeoLite2 database: { $path }
 geo-db-size-below-typical = GeoLite2 database file is smaller than a typical full database ({ $size } bytes < { $typical } bytes) — Country/test/custom databases are normal; corrupt files will be rejected by format parsing
@@ -210,7 +210,7 @@ geo-ip-lookup-failed = IP lookup failed: { $reason }
 geo-ip-decode-failed = IP data decode failed: { $reason }
 geo-cache-cleared = Cache cleared, removed { $count } entries
 
-# ---- Device matcher (T025) ----
+# ---- Device matcher ----
 device-matcher-creating = Creating DeviceMatcher
 device-matcher-created = DeviceMatcher created successfully
 device-custom-rule-invalid-regex-skipped = Invalid regex for custom rule '{ $name }', skipped: { $reason }
@@ -220,7 +220,7 @@ device-custom-rule-added = Custom rule added: { $name }
 device-custom-rule-removed = Custom rule removed: { $name }
 device-cache-cleared = Cache cleared, removed { $count } entries
 
-# ---- IP range parsing (T025) ----
+# ---- IP range parsing ----
 iprange-invalid-cidr = Invalid CIDR format: { $input }
 iprange-invalid-ip = Invalid IP address: { $input }
 iprange-invalid-prefix = Invalid prefix: { $input }
@@ -232,13 +232,13 @@ iprange-invalid-end-ip = Invalid end IP: { $input }
 iprange-start-greater-than-end = Start IP cannot be greater than end IP: { $start } - { $end }
 custom-matcher-not-integrated = Custom matcher '{ $name }' is not integrated with CustomMatcherRegistry; the rule will never match (its limits will not take effect)
 
-# ---- IP / identifier extractors (T025) ----
+# ---- IP / identifier extractors ----
 xff-exceeds-max-hops = X-Forwarded-For contains { $count } IPs, exceeding the maximum limit { $max }
 xff-ignored-untrusted-peer = X-Forwarded-For header ignored: direct connection from '{ $addr }' is not in the trusted proxy list (vuln-0003)
 xff-ignored-trusted-proxy-disabled = Forwarded header extraction configured but trusted proxy mode not enabled; to prevent IP spoofing, forwarded headers are ignored and the direct connection IP is used (vuln-0003)
 api-key-query-param-disabled = For security reasons, API key extraction via query parameters has been disabled
 
-# ---- Governor lifecycle / island mode (T025) ----
+# ---- Governor lifecycle / island mode ----
 governor-island-callback-registered = Island mode callback registered with FallbackManager
 governor-request-banned = Request banned: user={ $user }, reason={ $reason }
 governor-resource-banned = Resource banned: resource={ $resource }, reason={ $reason }
@@ -267,7 +267,7 @@ governor-shutdown-started = Starting graceful shutdown of Governor
 governor-shutdown-complete = Governor graceful shutdown complete
 governor-emit-rate-limit-event-failed = Failed to emit rate limit event: { $error }
 
-# ---- Fallback manager (T025) ----
+# ---- Fallback manager ----
 fallback-manager-created = Fallback manager created
 fallback-strategy-set = Fallback strategy set: component={ $component }, strategy={ $strategy }
 fallback-component-op-failed = Component operation failed: component={ $component }, error={ $error }
@@ -287,7 +287,7 @@ fallback-island-exit-notified = Notified all callbacks: exiting island mode
 fallback-first-failure-island = First storage layer failure, triggering island mode
 fallback-all-recovered-island-exit = All storage layers recovered, exiting island mode
 
-# ---- Circuit breaker (T025) ----
+# ---- Circuit breaker ----
 circuit-created = Circuit breaker created: failure_threshold={ $failure_threshold }, success_threshold={ $success_threshold }, timeout={ $timeout }
 circuit-open-rejecting = Circuit breaker open, rejecting request
 circuit-half-open-limit-reached = Half-open state call limit reached, rejecting request
@@ -300,15 +300,17 @@ circuit-state-changed-half-open = Circuit breaker state changed: { $old_state } 
 circuit-state-changed-closed = Circuit breaker state changed: { $old_state } -> Closed
 circuit-reset = Circuit breaker reset
 
-# ---- L1 cache island mode (T025) ----
+# ---- L1 cache island mode ----
 l1-cache-island-entered = L1 cache entered island mode: strategy={ $strategy }
 l1-cache-island-exited = L1 cache exited island mode
 
-# ---- Admin API (T025) ----
+# ---- Admin API ----
 admin-api-disabled = Admin API disabled
 admin-api-started = Admin API server started: http://{ $address }
+admin-api-invalid-key = Invalid API key
 admin-api-key-operator-fallback = API key has no operator mapping, falling back to default 'admin-api'; configure an explicit mapping via AdminApiConfig::with_api_key_operator to prevent operator identity spoofing
 admin-rbac-denied = RBAC denied: role={ $role } has no access to { $method } { $path }
+admin-rbac-insufficient-role = Insufficient role for this operation
 
 # ---- Admin API / Web UI messages (live keys) ----
 admin-config-applied = config applied
@@ -318,6 +320,7 @@ admin-ban-manager-not-configured = Ban manager not configured
 admin-quota-controller-not-configured = Quota controller not configured
 admin-circuit-breaker-not-configured = Circuit breaker not configured
 admin-service-not-configured = { $what } not configured
+admin-service-internal-error = internal server error
 admin-ui-title = Limiteron admin snapshot (read-only)
 admin-ui-meta = This page issues GET requests only; auto-refresh 5s. Data sources: /snapshot, /circuit-breaker.
 admin-ui-header-metric = Metric
@@ -398,7 +401,7 @@ openapi-ban-target-description = ip/user/mac use a string value; geo uses an obj
 openapi-unban-request-operator = Deprecated: ignored by the server
 openapi-update-quota-new-limit = 0 = reset signal
 
-# ---- Audit log (T025) ----
+# ---- Audit log ----
 audit-batch-task-panic = Audit log batch task panicked: { $reason }
 audit-entry = Audit log: { $json }
 audit-entry-missing-signature = Log entry is missing a signature
@@ -416,12 +419,12 @@ audit-signature-verification-failed = Signature verification failed, log may hav
 audit-tampered-entry-discarded = Audit log signature verification failed, discarding tampered entry: { $reason }
 audit-write-task-ended = Audit log write task ended
 
-# ---- Authorization (T025) ----
+# ---- Authorization ----
 authz-operator-not-authorized = Operator '{ $operator }' is not authorized to perform this operation
 authz-operator-not-authorized-for-operation = Operator '{ $operator }' is not authorized to perform operation '{ $operation }'
 authz-unknown-operation = Unknown operation type: '{ $operation }'
 
-# ---- Ban manager / file loader (T025) ----
+# ---- Ban manager / file loader ----
 ban-check-error-fail-open = Ban check failed, treating as not banned (fail-open): { $error }
 ban-check-storage-error-fail-open = Ban check storage error, treating as not banned (fail-open): target={ $target }, error={ $error }
 ban-check-timeout-fail-open = Ban check timed out ({ $timeout }), treating as not banned (fail-open): target={ $target }
@@ -440,7 +443,7 @@ ban-reason-empty = Ban reason cannot be empty
 ban-reason-invalid-chars = Ban reason contains illegal characters
 ban-reason-too-long = Ban reason too long, maximum length is { $max } characters
 
-# ---- Cache storage (T025) ----
+# ---- Cache storage ----
 cache-ban-index-cas-retries-exhausted = ban index CAS retries exhausted (concurrency conflicts too high)
 cache-ban-record-cas-retries-exhausted = ban record CAS retries exhausted (concurrency conflicts too high)
 cache-ban-times-overflow-u32 = ban_times out of u32 range: { $reason }
@@ -452,13 +455,13 @@ concurrency-permits-overflow-u32 = Permit count out of u32 range
 concurrency-semaphore-closed = Semaphore closed
 concurrency-no-runtime-lease-skipped = No tokio runtime: chain lease degraded to immediate release; concurrency limiting inactive
 
-# ---- Custom matcher registry integration (T025) ----
+# ---- Custom matcher registry integration ----
 custom-matcher-eval-failed-no-match = Custom matcher '{ $name }' evaluation failed, treated as no match: { $error }
 custom-matcher-not-registered = Custom matcher '{ $name }' is not registered in the registry; the rule will never match (its limits will not take effect)
 custom-matcher-pending-contract-violation = Custom matcher returned Pending (violates the "first poll is Ready" contract), treated as no match
 custom-matcher-resolved-from-registry = Custom matcher '{ $name }' resolved from registry and active
 
-# ---- Limiter factory validation (T025) ----
+# ---- Limiter factory validation ----
 limiter-admission-control-feature-disabled = admission-control feature is not enabled; rebuild with the `admission-control` feature to use AdmissionController
 limiter-capacity-must-be-positive = Token bucket capacity must be greater than 0
 limiter-capacity-too-large = Token bucket capacity too large, maximum is { $max }
@@ -476,7 +479,7 @@ limiter-leak-rate-too-large = Leaky bucket leak rate too large, maximum is { $ma
 limiter-leaky-capacity-must-be-positive = Leaky bucket capacity must be greater than 0
 limiter-leaky-capacity-too-large = Leaky bucket capacity too large, maximum is { $max }
 
-# ---- Quota alerts (T025) ----
+# ---- Quota alerts ----
 quota-alert-concurrency-limit = Alert concurrency limit of { $max } reached, skipping this alert: user_id={ $user_id }, resource={ $resource }, threshold={ $threshold }%
 quota-alert-triggered = Quota alert triggered: user_id={ $user_id }, resource={ $resource }, quota_type={ $quota_type }, threshold={ $threshold }%, current_usage={ $current_usage }, limit={ $limit }, triggered_at={ $triggered_at }
 quota-alert-webhook-disabled = Webhook feature not enabled; enable the 'webhook' feature
@@ -484,15 +487,33 @@ quota-alert-webhook-error-status = Webhook returned error status code: { $status
 quota-alert-webhook-send-failed = Failed to send webhook alert: { $reason }
 quota-init-conflict-retries-exhausted = Concurrent quota initialization conflict retries exhausted, please retry the request
 
-# ---- Telemetry (T025) ----
+# ---- Telemetry ----
 telemetry-noop-metrics-gather = Metrics is in no-op state: the `monitoring` feature is not enabled; this and subsequent gather() calls return an empty string and metric data is discarded. Enable the `monitoring` feature in Cargo.toml to collect real metrics.
 
-# ---- Validation (T025) ----
+# ---- Validation ----
 validation-country-code-empty = Country code cannot be empty
 validation-country-code-length = Country code must be 2 letters (ISO 3166-1 alpha-2), got { $length } characters: { $code }
 validation-country-code-uppercase = Country code must be uppercase letters: { $code }
+validation-ip-empty = IP address cannot be empty
+validation-ip-length-exceeded = IP address exceeds maximum length (max: { $max }, actual: { $actual })
+validation-ipv6-missing-bracket = Invalid IPv6 address format: missing closing bracket
+validation-cidr-empty = CIDR cannot be empty
+validation-cidr-length-exceeded = CIDR exceeds maximum length (max: { $max }, actual: { $actual })
+validation-cidr-invalid = Invalid CIDR format: { $cidr }
+validation-user-id-empty = User ID cannot be empty
+validation-user-id-length-exceeded = User ID exceeds maximum length ({ $max })
+validation-user-id-invalid-chars = User ID contains invalid characters
+validation-mac-empty = MAC address cannot be empty
+validation-mac-length-exceeded = MAC address exceeds maximum length ({ $max })
+validation-mac-invalid-format = Invalid MAC address format
+validation-mac-invalid-chars = MAC address contains invalid characters
+validation-length-exceeded = { $field } exceeds maximum length ({ $max })
+validation-field-ban-reason = Ban reason
+validation-field-api-key = API key
+validation-field-header-value = Header value
+validation-field-path = Path
 
-# ---- Telemetry alerts (T025) ----
+# ---- Telemetry alerts ----
 alert-sent-critical = Critical alert sent: { $level }
 alert-sent-info = Info alert sent: { $level }
 alert-sent-warning = Warning alert sent: { $level }

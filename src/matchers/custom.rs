@@ -251,7 +251,7 @@ pub trait CustomMatcher: Send + Sync {
 /// 提供线程安全的匹配器注册、查询和注销功能。
 #[derive(Clone)]
 pub struct CustomMatcherRegistry {
-    /// 匹配器存储（Arc 包装以便快照到规则条件中，E1/D3 修复：
+    /// 匹配器存储（Arc 包装以便快照到规则条件中，D3 修复：
     /// 旧实现存 `Box` 且 `get()` 受 trait object 不可克隆限制恒返回 None）
     matchers: Arc<RwLock<HashMap<String, std::sync::Arc<dyn CustomMatcher>>>>,
 }

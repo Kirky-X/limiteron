@@ -524,7 +524,7 @@ impl MonitoringSystem {
 
         *self.last_alert_time.lock() = now;
 
-        // 告警日志由 send_alert_notifications 统一输出（J5：此前两处
+        // 告警日志由 send_alert_notifications 统一输出（此前两处
         // 对同一告警输出完全相同的消息，每条告警必然记两次日志）
 
         self.send_alert_notifications(alerts).await;

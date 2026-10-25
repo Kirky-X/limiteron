@@ -317,7 +317,7 @@ impl CacheQuotaStorage {
     /// 原子 consume：`INCR` 计数后检查限额，超限即原子回滚。
     ///
     /// 单条 `INCRBY` 由后端原子执行，并发消费者的放行决策互不交错
-    /// （修复 A4 跨实例 RMW 覆盖）；超限者回滚自己的增量，计数收敛为
+    /// （修复跨实例 RMW 覆盖）；超限者回滚自己的增量，计数收敛为
     /// 已放行总量。
     async fn consume_atomic(
         &self,
@@ -450,7 +450,7 @@ impl QuotaStorage for CacheQuotaStorage {
 
     /// Consume quota
     ///
-    /// 原子计数方案（修复 A4）：后端支持原子写时，`INCRBY` 单条命令完成
+    /// 原子计数方案（修复）：后端支持原子写时，`INCRBY` 单条命令完成
     /// 「计数 + 限额裁决」，超限回滚本次增量——并发下既不丢更新也不超额。
     /// 无原子能力的后端回退到进程内锁串行化的 RMW。
     async fn consume(
@@ -855,7 +855,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // 并发原子性回归（A4 单实例层）：64 个并发 consume，放行总数精确
+    // 并发原子性回归（单实例层）：64 个并发 consume，放行总数精确
     // 不超过 limit（回退路径经 rw_lock 串行化保证）
     #[tokio::test]
     async fn test_consume_fallback_no_overshoot_under_concurrency() {

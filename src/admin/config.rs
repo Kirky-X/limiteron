@@ -98,7 +98,7 @@ pub struct AdminApiConfig {
     /// Whether to enable the admin API
     #[serde(default = "default_enabled")]
     pub enabled: bool,
-    /// API key → operator identity mapping (vuln-0001 修复)
+    /// API key → operator identity mapping
     ///
     /// 当管理员通过不同 API key 鉴权时，绑定到对应的 operator 身份，
     /// 防止客户端在 JSON body 中伪造 `operator` 字段。mapping 为空时
@@ -112,7 +112,7 @@ pub struct AdminApiConfig {
     /// `api_key`）默认 `Admin`，保持既有单 key 部署的行为逐位一致。
     #[serde(default)]
     pub api_key_roles: HashMap<String, AdminRole>,
-    /// 按路径分组的速率限制配置 (vuln-0002 修复)
+    /// 按路径分组的速率限制配置
     ///
     /// key = 分组名（"ban" / "quota" / "metrics" / "default"），value = (max_requests, window_secs)。
     /// middleware 在鉴权之前检查速率限制，超限返回 429 + Retry-After。
@@ -123,7 +123,7 @@ pub struct AdminApiConfig {
     pub rate_limits: HashMap<String, (u64, u64)>,
 }
 
-// 手动实现 Debug 并脱敏 api_key（F5）：派生的 Debug 会以明文打印
+// 手动实现 Debug 并脱敏 api_key：派生的 Debug 会以明文打印
 // `api_key`，误用 `println!("{config:?}")` 即泄露管理凭证
 impl std::fmt::Debug for AdminApiConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -231,7 +231,7 @@ impl AdminApiConfig {
         self
     }
 
-    /// 添加 API key → operator 映射（vuln-0001 修复）
+    /// 添加 API key → operator 映射
     pub fn with_api_key_operator(
         mut self,
         api_key: impl Into<String>,
@@ -311,7 +311,7 @@ impl AdminApiConfig {
         self.api_key_operators.get(api_key).map(|s| s.as_str())
     }
 
-    /// 设置指定分组的速率限制 (vuln-0002 修复)
+    /// 设置指定分组的速率限制
     ///
     /// # 参数
     /// - `group`: 分组名（"ban" / "quota" / "default"）
@@ -435,7 +435,7 @@ mod tests {
         );
     }
 
-    // vuln-0001 修复测试：api_key_operators 映射
+    // api_key_operators 映射
 
     #[test]
     fn test_default_config_has_empty_api_key_operators() {

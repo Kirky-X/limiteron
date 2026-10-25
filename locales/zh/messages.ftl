@@ -37,7 +37,7 @@ error-storage-invalid-config = 无效配置: { $message }
 error-storage-rate-limit = 速率限制: { $message }
 error-storage-validation = 验证错误: { $message }
 
-# ---- 已英文错误类型补键对齐（T016） ----
+# ---- 已英文错误类型补键对齐 ----
 i18n-error-invalid-locale = 无效的 locale '{ $input }': { $reason }
 i18n-error-invalid-number = 无效的数字 '{ $input }': { $reason }
 i18n-error-date = 日期错误: { $message }
@@ -111,7 +111,7 @@ cli-error-out-requires-file = --out 需要一个文件参数
 cli-error-unknown-option = 未知选项 '{ $option }'
 cli-error-write-output-failed = 写入规范化配置到 '{ $path }' 失败: { $reason }
 
-# ---- 错误消息抽象（SafeErrorMessage 双轨，T025） ----
+# ---- 错误消息抽象（SafeErrorMessage 双轨） ----
 safe-error-config = 配置错误: { $message }
 safe-error-storage = 存储错误: { $message }
 safe-error-limit = 限流错误: { $message }
@@ -163,7 +163,7 @@ general-safe-unauthorized = 未授权
 general-safe-forbidden = 禁止访问
 general-safe-rate-limited = 请求被限流
 
-# ---- 自定义匹配器注册表校验（T025） ----
+# ---- 自定义匹配器注册表校验 ----
 matcher-name-empty = 匹配器名称不能为空
 matcher-name-too-long = 匹配器名称长度超过限制（最大 { $max } 字符）
 matcher-name-invalid-chars = 匹配器名称只能包含字母、数字、下划线和连字符
@@ -192,7 +192,7 @@ matcher-time-window-config-loaded = 加载时间窗口匹配器配置: { $start 
 matcher-header-config-loaded = 加载HTTP头匹配器配置: 头='{ $header }', 允许值={ $values }, 区分大小写={ $case_sensitive }
 matcher-allowed-values-too-many = 允许的值数量超过限制（最大 { $max }）
 
-# ---- 地理匹配器（T025） ----
+# ---- 地理匹配器 ----
 geo-db-not-found = GeoLite2数据库文件不存在: { $path }。请从MaxMind官网下载GeoLite2-City.mmdb文件
 geo-db-loading = 加载GeoLite2数据库: { $path }
 geo-db-size-below-typical = GeoLite2数据库文件小于典型全量库大小（{ $size } bytes < { $typical } bytes）——Country/测试/自定义库属正常，损坏文件将由格式解析阶段拒绝
@@ -209,7 +209,7 @@ geo-ip-lookup-failed = IP查询失败: { $reason }
 geo-ip-decode-failed = IP数据解析失败: { $reason }
 geo-cache-cleared = 缓存已清空，移除 { $count } 条记录
 
-# ---- 设备匹配器（T025） ----
+# ---- 设备匹配器 ----
 device-matcher-creating = 创建DeviceMatcher
 device-matcher-created = DeviceMatcher创建成功
 device-custom-rule-invalid-regex-skipped = 自定义规则 '{ $name }' 的正则无效，已跳过: { $reason }
@@ -219,7 +219,7 @@ device-custom-rule-added = 添加自定义规则: { $name }
 device-custom-rule-removed = 移除自定义规则: { $name }
 device-cache-cleared = 缓存已清空，移除 { $count } 条记录
 
-# ---- IP 范围解析（T025） ----
+# ---- IP 范围解析 ----
 iprange-invalid-cidr = 无效的CIDR格式: { $input }
 iprange-invalid-ip = 无效的IP地址: { $input }
 iprange-invalid-prefix = 无效的前缀: { $input }
@@ -231,13 +231,13 @@ iprange-invalid-end-ip = 无效的结束IP: { $input }
 iprange-start-greater-than-end = 起始IP不能大于结束IP: { $start } - { $end }
 custom-matcher-not-integrated = 自定义匹配器 '{ $name }' 未集成 CustomMatcherRegistry，该规则将恒不匹配（其限制不会生效）
 
-# ---- IP / 标识符提取器（T025） ----
+# ---- IP / 标识符提取器 ----
 xff-exceeds-max-hops = X-Forwarded-For 包含 { $count } 个 IP,超过最大限制 { $max }
 xff-ignored-untrusted-peer = X-Forwarded-For 头被忽略：直接连接来自 '{ $addr }'，不在可信代理列表中（vuln-0003）
 xff-ignored-trusted-proxy-disabled = 已配置转发头提取但未启用可信代理模式；为防止 IP 伪造，忽略转发头并使用直接连接 IP（vuln-0003）
 api-key-query-param-disabled = 出于安全考虑，通过查询参数提取API Key已被禁用
 
-# ---- Governor 生命周期 / 孤岛模式（T025） ----
+# ---- Governor 生命周期 / 孤岛模式 ----
 governor-island-callback-registered = 已注册孤岛模式回调到 FallbackManager
 governor-request-banned = 请求被封禁: 用户={ $user }, 原因={ $reason }
 governor-resource-banned = 资源被封禁: 资源={ $resource }, 原因={ $reason }
@@ -266,7 +266,7 @@ governor-shutdown-started = 开始优雅关闭 Governor
 governor-shutdown-complete = Governor 优雅关闭完成
 governor-emit-rate-limit-event-failed = 发送限流事件失败: { $error }
 
-# ---- 降级策略管理器（T025） ----
+# ---- 降级策略管理器 ----
 fallback-manager-created = 创建降级策略管理器
 fallback-strategy-set = 设置降级策略: component={ $component }, strategy={ $strategy }
 fallback-component-op-failed = 组件操作失败: component={ $component }, error={ $error }
@@ -286,7 +286,7 @@ fallback-island-exit-notified = 已通知所有回调：退出孤岛模式
 fallback-first-failure-island = 存储层首次故障，触发孤岛模式
 fallback-all-recovered-island-exit = 所有存储层恢复，退出孤岛模式
 
-# ---- 熔断器（T025） ----
+# ---- 熔断器 ----
 circuit-created = 创建熔断器: failure_threshold={ $failure_threshold }, success_threshold={ $success_threshold }, timeout={ $timeout }
 circuit-open-rejecting = 熔断器打开，拒绝请求
 circuit-half-open-limit-reached = 半开状态调用次数已达上限，拒绝请求
@@ -299,15 +299,17 @@ circuit-state-changed-half-open = 熔断器状态变更: { $old_state } -> HalfO
 circuit-state-changed-closed = 熔断器状态变更: { $old_state } -> Closed
 circuit-reset = 重置熔断器
 
-# ---- L1 缓存孤岛模式（T025） ----
+# ---- L1 缓存孤岛模式 ----
 l1-cache-island-entered = L1 缓存进入孤岛模式: strategy={ $strategy }
 l1-cache-island-exited = L1 缓存退出孤岛模式
 
-# ---- Admin API（T025） ----
+# ---- Admin API ----
 admin-api-disabled = 管理API已禁用
 admin-api-started = 管理API服务器已启动: http://{ $address }
+admin-api-invalid-key = API key 无效
 admin-api-key-operator-fallback = API key 未配置 operator 映射，回退到默认 'admin-api'；建议通过 AdminApiConfig::with_api_key_operator 配置显式映射以防止 operator 身份伪造
 admin-rbac-denied = RBAC 拒绝：role={ $role } 无权访问 { $method } { $path }
+admin-rbac-insufficient-role = 当前角色无权执行此操作
 
 # ---- Admin API / Web UI 消息（活跃键） ----
 admin-config-applied = 配置已应用
@@ -317,6 +319,7 @@ admin-ban-manager-not-configured = Ban manager 未配置
 admin-quota-controller-not-configured = 配额控制器未配置
 admin-circuit-breaker-not-configured = 熔断器未配置
 admin-service-not-configured = { $what } 未配置
+admin-service-internal-error = 服务器内部错误
 admin-ui-title = Limiteron 管理快照（只读）
 admin-ui-meta = 本页仅发起 GET 请求；自动刷新 5s。数据源：/snapshot、/circuit-breaker。
 admin-ui-header-metric = 指标
@@ -395,7 +398,7 @@ openapi-ban-target-description = ip/user/mac 为字符串 value；geo 为 countr
 openapi-unban-request-operator = 已弃用：服务端忽略
 openapi-update-quota-new-limit = 0 = 重置信号
 
-# ---- 审计日志（T025） ----
+# ---- 审计日志 ----
 audit-batch-task-panic = 审计日志批处理任务异常: { $reason }
 audit-entry = 审计日志: { $json }
 audit-entry-missing-signature = 日志条目缺少签名
@@ -413,12 +416,12 @@ audit-signature-verification-failed = 签名验证失败，日志可能被篡改
 audit-tampered-entry-discarded = 审计日志签名验证失败，丢弃篡改条目: { $reason }
 audit-write-task-ended = 审计日志写入任务结束
 
-# ---- 授权（T025） ----
+# ---- 授权 ----
 authz-operator-not-authorized = 操作者 '{ $operator }' 未被授权执行此操作
 authz-operator-not-authorized-for-operation = 操作者 '{ $operator }' 未被授权执行操作 '{ $operation }'
 authz-unknown-operation = 未知的操作类型: '{ $operation }'
 
-# ---- 封禁管理器 / 文件加载（T025） ----
+# ---- 封禁管理器 / 文件加载 ----
 ban-check-error-fail-open = 封禁检查出错，按未封禁处理（fail-open）: { $error }
 ban-check-storage-error-fail-open = 封禁检查存储错误，按未封禁处理（fail-open）: target={ $target }, error={ $error }
 ban-check-timeout-fail-open = 封禁检查超时（{ $timeout }），按未封禁处理（fail-open）: target={ $target }
@@ -437,7 +440,7 @@ ban-reason-empty = 封禁原因不能为空
 ban-reason-invalid-chars = 封禁原因包含非法字符
 ban-reason-too-long = 封禁原因过长，最大长度为 { $max } 字符
 
-# ---- 缓存存储（T025） ----
+# ---- 缓存存储 ----
 cache-ban-index-cas-retries-exhausted = ban index CAS 重试耗尽（并发冲突过高）
 cache-ban-record-cas-retries-exhausted = ban record CAS 重试耗尽（并发冲突过高）
 cache-ban-times-overflow-u32 = ban_times 超出 u32 范围: { $reason }
@@ -449,13 +452,13 @@ concurrency-permits-overflow-u32 = 许可数量超出 u32 范围
 concurrency-semaphore-closed = 信号量已关闭
 concurrency-no-runtime-lease-skipped = 无 tokio 运行时，链式许可租约退化为即时释放，并发限制不生效
 
-# ---- 自定义匹配器注册表集成（T025） ----
+# ---- 自定义匹配器注册表集成 ----
 custom-matcher-eval-failed-no-match = 自定义匹配器 '{ $name }' 求值失败，按不匹配处理: { $error }
 custom-matcher-not-registered = 自定义匹配器 '{ $name }' 未在注册表中注册，该规则将恒不匹配（其限制不会生效）
 custom-matcher-pending-contract-violation = 自定义匹配器返回 Pending（违反「首次 poll 即 Ready」契约），按不匹配处理
 custom-matcher-resolved-from-registry = 自定义匹配器 '{ $name }' 已从注册表解析并生效
 
-# ---- 限流器工厂校验（T025） ----
+# ---- 限流器工厂校验 ----
 limiter-admission-control-feature-disabled = admission-control feature 未启用；请以 `admission-control` feature 重新构建以使用 AdmissionController
 limiter-capacity-must-be-positive = 令牌桶容量必须大于0
 limiter-capacity-too-large = 令牌桶容量过大，最大值为{ $max }
@@ -473,7 +476,7 @@ limiter-leak-rate-too-large = 漏桶漏出速率过大，最大值为{ $max }
 limiter-leaky-capacity-must-be-positive = 漏桶容量必须大于0
 limiter-leaky-capacity-too-large = 漏桶容量过大，最大值为{ $max }
 
-# ---- 配额告警（T025） ----
+# ---- 配额告警 ----
 quota-alert-concurrency-limit = 告警并发上限已达 { $max }，跳过本次告警: user_id={ $user_id }, resource={ $resource }, threshold={ $threshold }%
 quota-alert-triggered = 配额告警触发: user_id={ $user_id }, resource={ $resource }, quota_type={ $quota_type }, threshold={ $threshold }%, current_usage={ $current_usage }, limit={ $limit }, triggered_at={ $triggered_at }
 quota-alert-webhook-disabled = Webhook 功能未启用，请启用 'webhook' feature
@@ -481,15 +484,33 @@ quota-alert-webhook-error-status = Webhook 返回错误状态码: { $status }
 quota-alert-webhook-send-failed = 发送 Webhook 告警失败: { $reason }
 quota-init-conflict-retries-exhausted = 并发配额初始化冲突重试耗尽，请重试请求
 
-# ---- 遥测（T025） ----
+# ---- 遥测 ----
 telemetry-noop-metrics-gather = Metrics 处于空对象状态：`monitoring` feature 未启用，本次及后续 gather() 返回空串，指标数据被丢弃。请在 Cargo.toml 启用 `monitoring` feature 以收集真实指标。
 
-# ---- 校验（T025） ----
+# ---- 校验 ----
 validation-country-code-empty = 国家代码不能为空
 validation-country-code-length = 国家代码必须是 2 字母（ISO 3166-1 alpha-2），got { $length } 字符: { $code }
 validation-country-code-uppercase = 国家代码必须是大写字母: { $code }
+validation-ip-empty = IP 地址不能为空
+validation-ip-length-exceeded = IP 地址超出最大长度 (max: { $max }, actual: { $actual })
+validation-ipv6-missing-bracket = IPv6 地址格式无效: 缺少右方括号
+validation-cidr-empty = CIDR 不能为空
+validation-cidr-length-exceeded = CIDR 超出最大长度 (max: { $max }, actual: { $actual })
+validation-cidr-invalid = CIDR 格式无效: { $cidr }
+validation-user-id-empty = User ID 不能为空
+validation-user-id-length-exceeded = User ID 超出最大长度 ({ $max })
+validation-user-id-invalid-chars = User ID 包含非法字符
+validation-mac-empty = MAC 地址不能为空
+validation-mac-length-exceeded = MAC 地址超出最大长度 ({ $max })
+validation-mac-invalid-format = MAC 地址格式无效
+validation-mac-invalid-chars = MAC 地址包含非法字符
+validation-length-exceeded = { $field } 超出最大长度 ({ $max })
+validation-field-ban-reason = 封禁原因
+validation-field-api-key = API key
+validation-field-header-value = HTTP 头值
+validation-field-path = 路径
 
-# ---- 遥测告警（T025） ----
+# ---- 遥测告警 ----
 alert-sent-critical = 发送严重告警: { $level }
 alert-sent-info = 发送信息告警: { $level }
 alert-sent-warning = 发送警告告警: { $level }

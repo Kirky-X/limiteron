@@ -309,7 +309,7 @@ impl DeviceCondition {
     /// 检查设备信息是否匹配条件
     ///
     /// 各字段条件以 AND 组合：指定了多个字段时必须全部满足。
-    /// （修复 E4：旧实现 `device_types` 非空即短路返回，`browsers`/`os`
+    /// （修复：旧实现 `device_types` 非空即短路返回，`browsers`/`os`
     /// 永不参与匹配，多字段条件形同虚设）
     pub fn matches(&self, info: &DeviceInfo) -> bool {
         if self.is_empty() {
@@ -379,7 +379,7 @@ pub struct DeviceMatcher {
     custom_rules: Vec<DeviceCustomRule>,
     /// 预编译的自定义规则正则（与 `custom_rules` 一一对应）
     ///
-    /// 修复 E2：旧实现在每次缓存未命中时对所有规则重新 `Regex::new`
+    /// 修复：旧实现在每次缓存未命中时对所有规则重新 `Regex::new`
     /// （默认 4 条内置规则），正则编译是重操作且结果只在本分支使用，
     /// 构造时预编译一次即可。
     compiled_rules: Vec<regex::Regex>,
@@ -593,7 +593,7 @@ impl DeviceMatcher {
 
         log::debug!(target: "device", "parsing User-Agent: {}", user_agent);
 
-        // 检查自定义规则（使用构造时预编译的正则，E2）
+        // 检查自定义规则（使用构造时预编译的正则）
         for (rule, re) in self.custom_rules.iter().zip(&self.compiled_rules) {
             if re.is_match(user_agent) {
                 let info = DeviceInfo {
@@ -953,7 +953,7 @@ impl DeviceMatcherBuilder {
     /// - `Ok(DeviceMatcher)`: 成功创建设备匹配器
     /// - `Err(LimiteronError)`: 创建失败
     pub async fn build(self) -> Result<DeviceMatcher, LimiteronError> {
-        // 修复 E3：旧实现 `custom_rules = self.custom_rules` 用 builder 的
+        // 修复：旧实现 `custom_rules = self.custom_rules` 用 builder 的
         // （初始为空）规则列表整体覆盖 new 的内置默认规则，导致
         // builder 路径产出的匹配器丢失全部内置规则；改为在默认规则
         // 基础上追加。缓存容量直接传入构造，由 Moka 真实强制执行。

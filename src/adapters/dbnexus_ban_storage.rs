@@ -184,7 +184,7 @@ impl BanStorage for DBNexusBanStorageAdapter {
 
     /// Save a ban record
     ///
-    /// 原子 UPSERT（A9）：`ON CONFLICT (target_key) DO UPDATE` 由数据库在
+    /// 原子 UPSERT：`ON CONFLICT (target_key) DO UPDATE` 由数据库在
     /// 单条语句内完成「存在则更新、不存在则插入」，消除 SELECT→INSERT/UPDATE
     /// check-then-act 模式下并发写同一 target_key 撞 UNIQUE 约束的竞态。
     async fn save(&self, record: &BanRecord) -> Result<(), StorageError> {
@@ -194,7 +194,7 @@ impl BanStorage for DBNexusBanStorageAdapter {
         let (target_type, target_value) = Self::target_to_type_value(&record.target);
         let target_key = create_target_key(&target_type, &target_value);
 
-        // 长度防护（I3）：target_key 列为 VARCHAR(511)，超长输入由应用侧
+        // 长度防护：target_key 列为 VARCHAR(511)，超长输入由应用侧
         // 显性拒绝（ValidationError），而非依赖数据库 22001 报错
         if target_key.len() > 511 {
             return Err(StorageError::ValidationError(format!(
@@ -335,7 +335,7 @@ impl BanStorage for DBNexusBanStorageAdapter {
         let (target_type, target_value) = Self::target_to_type_value(&record.target);
         let target_key = create_target_key(&target_type, &target_value);
 
-        // 长度防护（I3）：target_key 列为 VARCHAR(511)，超长输入由应用侧
+        // 长度防护：target_key 列为 VARCHAR(511)，超长输入由应用侧
         // 显性拒绝（ValidationError），而非依赖数据库 22001 报错
         if target_key.len() > 511 {
             return Err(StorageError::ValidationError(format!(

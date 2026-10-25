@@ -12,12 +12,12 @@ use limiteron::matchers::{
 
 // IpExtractor Tests
 //
-// vuln-0003 修复后，X-Forwarded-For 等转发头仅在直接 TCP 对端（client_ip）
+// X-Forwarded-For 等转发头仅在直接 TCP 对端（client_ip）
 // 为可信代理时才被信任。下述测试均构造可信代理转发场景，以验证头提取行为。
 
 #[tokio::test]
 async fn test_ip_extractor_ipv4() {
-    // vuln-0003: 通过可信代理转发时，从 X-Forwarded-For 头提取 IPv4 地址
+    // 通过可信代理转发时，从 X-Forwarded-For 头提取 IPv4 地址
     let config = TrustedProxyConfig {
         enabled: true,
         proxies: vec!["10.0.0.1".to_string()],
@@ -43,7 +43,7 @@ async fn test_ip_extractor_missing_ip() {
 
 #[tokio::test]
 async fn test_ip_extractor_ipv6() {
-    // vuln-0003: 通过可信代理转发时，从 X-Real-IP 头提取 IPv6 地址
+    // 通过可信代理转发时，从 X-Real-IP 头提取 IPv6 地址
     let config = TrustedProxyConfig {
         enabled: true,
         proxies: vec!["10.0.0.1".to_string()],
@@ -59,7 +59,7 @@ async fn test_ip_extractor_ipv6() {
 
 #[tokio::test]
 async fn test_ip_extractor_multiple_headers() {
-    // vuln-0003: 通过可信代理转发时，按头优先级提取 IP（X-Real-IP 优先于 X-Forwarded-For）
+    // 通过可信代理转发时，按头优先级提取 IP（X-Real-IP 优先于 X-Forwarded-For）
     let config = TrustedProxyConfig {
         enabled: true,
         proxies: vec!["10.0.0.1".to_string()],

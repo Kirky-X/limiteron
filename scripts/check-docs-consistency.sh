@@ -20,8 +20,8 @@
 #   5. src/AGENTS.md 模块表与 src/ 实际结构一致（该文件不入库，仅本地存在时检查；
 #      本地 pre-commit 钩子是其主要执行点，CI 环境自动跳过并显式提示）
 #
-# 排除文档：docs/CHANGELOG.md（历史版本记录）——其中的路径与 feature
-# 反映的是当时而非当前仓库状态。
+# 排除文档：docs/CHANGELOG.md（历史版本记录）与 docs/UNRELEASED.md（未发布
+# 变更记录）——其中的路径与 feature 反映的是当时而非当前仓库状态。
 #
 # =============================================================================
 
@@ -43,9 +43,9 @@ VIOLATIONS=0
 
 # 消息以 %s 输出，文档派生内容中的反斜杠序列不被解释为转义/ANSI
 log_section() {
-    printf '\n%s\n' "$CYAN═══════════════════════════════════════════════════════════════$NC"
+    printf '\n%s\n' "${CYAN}═══════════════════════════════════════════════════════════════$NC"
     printf '%s\n' "$CYAN  $1$NC"
-    printf '%s\n' "$CYAN═══════════════════════════════════════════════════════════════$NC"
+    printf '%s\n' "${CYAN}═══════════════════════════════════════════════════════════════$NC"
 }
 
 fail() {
@@ -67,6 +67,7 @@ warn() {
 DOCS=()
 for doc in README.md README_EN.md AGENTS.md src/AGENTS.md examples/README.md docs/*.md; do
     [[ "$doc" == docs/CHANGELOG.md ]] && continue
+    [[ "$doc" == docs/UNRELEASED.md ]] && continue
     [[ -f "$doc" ]] && DOCS+=("$doc")
 done
 
@@ -242,7 +243,7 @@ check_api_symbols() {
     # `src/path` 与紧随其后的 `symbol` 构成关联引用，symbol 必须在 src/ 中出现
     while IFS=$'\t' read -r doc line path symbol; do
         if ! grep -qxF "$symbol" "$symbols_file"; then
-            fail "API 符号不存在: $doc:$line \`$symbol\`（关联路径 $path）"
+            fail "API 符号不存在: $doc:$line \`$symbol\`（关联路径 ${path}）"
             missing=1
         fi
     done < <(grep -rnoE '`src/[A-Za-z0-9_/.-]+` 的 `[A-Za-z0-9_]+`' "${DOCS[@]}" 2>/dev/null \

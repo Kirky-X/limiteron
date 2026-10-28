@@ -82,7 +82,7 @@ async fn demo_config_builder() {
         .channel_capacity(2048)
         .batch_size(50)
         .batch_timeout(Duration::from_millis(500))
-        .signing_key("my-secret-signing-key".to_string())
+        .signing_key(demo_signing_key())
         .verify_on_read(true);
 
     println!("  Config:");
@@ -174,11 +174,30 @@ async fn demo_event_types() {
     println!();
 }
 
+/// 运行时生成演示签名密钥（时间纳秒 × 进程 ID 混合）：演示运行之间互不相同，
+/// 硬编码密钥会随源码进入版本库（CodeQL hard-coded-cryptographic-value）。
+fn demo_signing_key() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0u64, |d| d.as_nanos() as u64);
+    let pid = std::process::id() as u64;
+    let mut seed = nanos ^ (pid << 32) ^ 0x9E37_79B9_7F4A_7C15;
+    (0..32)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            char::from(b'a' + (seed % 26) as u8)
+        })
+        .collect()
+}
+
 /// 演示 AuditLogEntry 签名与验证
 fn demo_signature_verification() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- 4. Signature & Verification ---\n");
 
-    let signing_key = "super-secret-key-2026";
+    // 演示密钥运行时生成：签名与验证共用同一实例，硬编码密钥会随源码泄露
+    let signing_key = demo_signing_key();
 
     let event = AuditEvent::Decision {
         timestamp: chrono::Utc::now(),

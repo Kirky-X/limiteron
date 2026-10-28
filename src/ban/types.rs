@@ -938,7 +938,10 @@ impl BanManager {
         duration: Option<StdDuration>,
         metadata: Option<serde_json::Value>,
     ) -> Result<Option<BanDetail>, LimiteronError> {
-        debug!("Updating ban: target={:?}", target);
+        debug!(
+            "Updating ban: target={}",
+            crate::logging::redact_ban_target(target)
+        );
 
         let current_record = self.storage.is_banned(target).await?;
 

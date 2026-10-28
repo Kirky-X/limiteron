@@ -1191,7 +1191,8 @@ mod tests {
         let rendered = format!("{access:?}");
         assert!(
             !rendered.contains("web-ui-key-16chars!!"),
-            "the api key must not be printed in clear text: {rendered}"
+            "the api key must not be printed in clear text: {}",
+            rendered.contains("web-ui-key-16chars!!")
         );
         assert!(
             rendered.contains("<redacted"),

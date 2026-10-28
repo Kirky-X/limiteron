@@ -627,11 +627,13 @@ mod t605_role_tests {
         let debug = format!("{:?}", config);
         assert!(
             !debug.contains("primary-key-16chars!!!"),
-            "primary api key leaked in Debug: {debug}"
+            "primary api key leaked in Debug: {}",
+            debug.contains("primary-key-16chars!!!")
         );
         assert!(
             !debug.contains("viewer-key-16chars!!"),
-            "role-mapped api key leaked in Debug: {debug}"
+            "role-mapped api key leaked in Debug: {}",
+            debug.contains("viewer-key-16chars!!")
         );
         assert!(
             debug.contains("<redacted"),

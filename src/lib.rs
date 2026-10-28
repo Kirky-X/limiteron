@@ -35,7 +35,7 @@
 //! - trait-kit AsyncKit integration (requires `kit` feature)
 //! - Internationalization: Fluent catalog + locale detection + error dual-track
 //!   (always available); ICU number/date/plural/sort formatting (requires `i18n` feature)
-//! - Log redaction via inklog's masking engine (requires `log-redaction` feature)
+//! - Log redaction via trait-kit's masking engine (requires `log-redaction` feature)
 //!
 //! # Examples
 //!
@@ -66,7 +66,7 @@
 //! - **Distributed rate limiting**: `DistributedLimiter` trait + `InMemoryDistributedLimiter` implementation (requires `distributed` feature)
 //! - **trait-kit integration**: AsyncKit `LimiteronModule` (requires `kit` feature)
 //! - **Internationalization**: Fluent message catalog (en/zh) + locale detection chain + error dual-track (always compiled); ICU4X locale-aware number/date/plural/sort formatting (requires `i18n` feature)
-//! - **inklog logging**: inklog's `LoggerManager` installs the global tracing subscriber and `log` bridge; initialize it from inklog's own crate-level init API (this crate exposes no `inklog` feature)
+//! - **inklog logging**: initialize the global tracing subscriber from inklog's own crate-level init API; per-target sink rate limiting lives in the `integrations/limiteron-inklog` adapter (this crate exposes no `inklog` feature)
 //! - **Priority queue**: quota allocation with priority scheduling — per-level reserved
 //!   bands, strict-priority borrowing from lower levels only (requires `priority-queue` feature)
 //! - **Admission control**: concurrency + rate dual-gate admission with per-reason

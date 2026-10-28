@@ -135,19 +135,19 @@ pub(crate) fn redact_url(value: Option<&str>) -> String {
 }
 
 #[cfg(feature = "log-redaction")]
-use inklog::{DataMasker, MaskRule, MaskRuleRegistry};
-#[cfg(feature = "log-redaction")]
 use std::sync::LazyLock;
+#[cfg(feature = "log-redaction")]
+use trait_kit::masking::{DataMasker, MaskRule, MaskRuleRegistry};
 
-/// 进程级脱敏引擎：inklog `DataMasker`（21 条内置规则 + limiteron
-/// 键值对补充规则），不可变且可跨线程共享
+/// 进程级脱敏引擎：trait-kit masking `DataMasker`（21 条内置规则 +
+/// limiteron 键值对补充规则），不可变且可跨线程共享
 #[cfg(feature = "log-redaction")]
 static DATA_MASKER: LazyLock<DataMasker> = LazyLock::new(build_data_masker);
 
 /// limiteron 公开契约钉死的脱敏补充规则（priority 90，先于内置值
 /// 模式规则执行）
 ///
-/// inklog 内置 `generic_secret`/`api_key` 规则对短值（分别 <16/<20
+/// 引擎内置 `generic_secret`/`api_key` 规则对短值（分别 <16/<20
 /// 字符）不命中，且 `authorization` 不在其键名集合内；`bank_card`/
 /// `credit_card` 仅匹配连续数字、不匹配分隔符形态的卡号。以下规则按
 /// 原手写正则的契约补齐：
@@ -307,8 +307,8 @@ fn split_field_tokens(name: &str) -> impl Iterator<Item = &str> {
 /// 增强版脱敏函数 - 需要 log-redaction feature
 ///
 /// 语义（design D2）：① 已知敏感字段名整段脱敏（`is_sensitive_field_name`
-/// 词边界门控，入口前置）；② 短值（≤4 字符）整段脱敏；③ 其余值经 inklog
-/// `DataMasker` 掩码——命中规则的值被掩码，非敏感值原样返回（除命中
+/// 词边界门控，入口前置）；② 短值（≤4 字符）整段脱敏；③ 其余值经
+/// trait-kit masking `DataMasker` 掩码——命中规则的值被掩码，非敏感值原样返回（除命中
 /// 规则外无副作用改写）。
 #[cfg(feature = "log-redaction")]
 #[inline]
@@ -326,7 +326,7 @@ pub fn redact_advanced(value: Option<&str>, field_name: Option<&str>) -> String 
     //
     // 词边界匹配（修复误脱敏）：将字段名按分隔符（`_`/`-`/`.`/空格）
     // 与 camelCase 边界切分为词元，仅当任一词元命中敏感关键词（或以
-    // 高危词元开头，如 `keychain` → `key`）时才整体脱敏。inklog 的
+    // 高危词元开头，如 `keychain` → `key`）时才整体脱敏。掩码引擎的
     // `is_sensitive_field` 为词边界正则，`keychain`/`tokenizer` 不判
     // 敏感，与既有契约冲突，故保留本纯函数作入口前置判断。
     if let Some(name) = field_name
@@ -357,7 +357,7 @@ pub fn contains_sensitive_info(value: &str) -> bool {
 
 /// HTTP请求/响应脱敏 - 需要 log-redaction feature
 ///
-/// 经 inklog `DataMasker` 掩码：六类键值对（password/token/authorization/
+/// 经 trait-kit masking `DataMasker` 掩码：六类键值对（password/token/authorization/
 /// api_key/secret/credential，三格式）整段替换；内置值模式（email/phone/
 /// id_card/bank_card/ip/mac/jwt/aws_key 等）原地掩码；非敏感内容原样保留。
 #[cfg(feature = "log-redaction")]
@@ -708,7 +708,7 @@ mod tests {
     mod log_redaction_tests {
         use super::*;
 
-        // 引擎无关锚（inklog DataMasker 迁移前后均应绿）
+        // 引擎无关锚（掩码引擎换源前后均应绿）
 
         #[test]
         fn test_redact_advanced_field_name_gate() {
@@ -986,7 +986,7 @@ mod tests {
             assert_eq!(config.format(|_| None), "{}");
         }
 
-        // 新引擎覆盖锚（inklog DataMasker 迁移后转绿）
+        // 新引擎覆盖锚（换源后由 trait-kit masking DataMasker 满足）
 
         #[test]
         fn test_redact_advanced_non_sensitive_value_unchanged() {
@@ -1023,8 +1023,8 @@ mod tests {
 
         #[test]
         fn test_new_engine_extra_categories_masked() {
-            // inklog 21 条内置规则新增类别（aws_key/jwt/ipv4/mac）：
-            // 旧正则引擎不覆盖，迁移后由 DataMasker 免费获得
+            // 掩码引擎 21 条内置规则新增类别（aws_key/jwt/ipv4/mac）：
+            // 旧正则引擎不覆盖，换源后由 DataMasker 免费获得
             let masked = redact_http_content("aws key AKIAIOSFODNN7EXAMPLE rotated");
             assert!(!masked.contains("AKIAIOSFODNN7EXAMPLE"));
 

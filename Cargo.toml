@@ -136,10 +136,8 @@ writeable = { version = "0.6", optional = true }
 fluent-bundle = "0.16"
 unic-langid = "0.9"
 sys-locale = "0.3"
-# trait-kit 经 crates.io registry 引入（kit feature）：CI 与发布流程只检出本仓，清单不得声明指向仓外兄弟目录的 path
-trait-kit = { version = "0.5.0-rc.10", default-features = false, features = ["async", "health", "lifecycle"], optional = true }
-# 脱敏引擎（log-redaction 实现）：inklog 的 DataMasker/MaskRule/MaskRuleRegistry 是脱敏规则与优先级的唯一定义处，不对外暴露为 feature
-inklog = { version = "0.3.0-rc.10", default-features = false, optional = true }
+# trait-kit 经 crates.io registry 引入（kit/log-redaction 共用）：CI 与发布流程只检出本仓，清单不得声明指向仓外兄弟目录的 path
+trait-kit = { version = "0.5.0-rc.11", default-features = false, features = ["async", "health", "lifecycle"], optional = true }
 # 配置加载委托 confers loader::load_file：显式开启三元解析器 feature，不开 dotenv（limiteron 无 .env 契约）
 confers = { version = "0.6.0-rc.11", default-features = false, features = ["toml", "json", "yaml"] }
 
@@ -228,8 +226,8 @@ cache-service = []
 # GCRA 限流算法
 gcra = []
 
-# 日志脱敏：经 inklog DataMasker + MaskRuleRegistry 承载（regex 依赖保留给 matchers / device-matching 等其余消费点）
-log-redaction = ["dep:inklog"]
+# 日志脱敏：经 trait-kit masking 掩码引擎承载（regex 依赖保留给 matchers / device-matching 等其余消费点）
+log-redaction = ["dep:trait-kit", "trait-kit/masking"]
 validation = []
 
 # Performance Features (性能优化)

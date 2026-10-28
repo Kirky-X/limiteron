@@ -245,7 +245,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>custom-limiter</code></td><td>自定义限流器扩展</td><td>❌</td></tr>
 <tr><td><code>cache-service</code></td><td>统一缓存服务（DI 支持）</td><td>❌</td></tr>
 <tr><td><code>gcra</code></td><td>GCRA 限流算法</td><td>❌</td></tr>
-<tr><td rowspan="2">安全</td><td><code>log-redaction</code></td><td>日志脱敏（脱敏引擎由 inklog 的 <code>DataMasker</code> / <code>MaskRuleRegistry</code> 承载；不在 <code>full</code> 预设内，须在依赖声明中显式开启）</td><td>❌</td></tr>
+<tr><td rowspan="2">安全</td><td><code>log-redaction</code></td><td>日志脱敏（脱敏引擎由 trait-kit <code>masking</code> feature 的 <code>DataMasker</code> / <code>MaskRuleRegistry</code> 承载；不在 <code>full</code> 预设内，须在依赖声明中显式开启）</td><td>❌</td></tr>
 <tr><td><code>validation</code></td><td>标识符输入校验（IP / 用户 ID / MAC）</td><td>❌</td></tr>
 <tr><td>性能</td><td><code>parallel-checker</code></td><td>并行封禁检查</td><td>❌</td></tr>
 <tr><td rowspan="3">高级匹配</td><td><code>geo-matching</code></td><td>地理位置匹配（MaxMindDB）</td><td>❌</td></tr>
@@ -590,7 +590,7 @@ Copyright (c) 2026 Kirky.X🌠
   - [dbnexus](https://github.com/Kirky-X/dbnexus) — 数据库抽象层
   - [oxcache](https://github.com/Kirky-X/oxcache) — 统一缓存服务
   - [trait-kit](https://github.com/Kirky-X/trait-kit) — trait 集成模块
-  - [inklog](https://github.com/Kirky-X/inklog) — 结构化日志与日志脱敏引擎
+  - [trait-kit](https://github.com/Kirky-X/trait-kit) — 模块标准接口与掩码引擎（trait-kit 仓的 masking 特性，本仓经 log-redaction 消费）；[inklog](https://github.com/Kirky-X/inklog) — 结构化日志（按 target 分桶 sink 限流见 `integrations/limiteron-inklog` 适配器）
   - [dashmap](https://github.com/xacrimon/dashmap) — 并发 HashMap
 - 👥 **贡献者** — 感谢所有贡献者！
 - 💬 **社区** — 特别感谢社区成员的支持

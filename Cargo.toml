@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "macros", "examples", "integrations/limiteron-sdforge", "integrations/limiteron-dbnexus"]
+members = [".", "macros", "examples", "integrations/limiteron-sdforge", "integrations/limiteron-dbnexus", "integrations/limiteron-inklog"]
 resolver = "2"
 
 [workspace.package]

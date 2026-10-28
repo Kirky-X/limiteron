@@ -1,0 +1,32 @@
+[package]
+name = "limiteron-inklog"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Adapter implementing inklog's SinkRateLimit port: per-target token buckets with ERROR passthrough and failed-write refund, on limiteron's Clock"
+# 集成 crate 与父仓 path 双钉，不单独发布 crates.io（与 README 声明一致）
+publish = false
+
+[dependencies]
+# 父仓 path+version 双钉；仅取 Clock 抽象（桶补充计时的可注入时钟面）
+limiteron = { path = "../..", version = "0.3.0-rc.8", default-features = false }
+# inklog 自有 SinkRateLimit 端口（随 inklog rc.11 进入 crates.io；发布顺序
+# trait-kit → oxcache/inklog → limiteron 保证本清单可解析）
+inklog = { version = "0.3.0-rc.11", default-features = false }
+
+[dev-dependencies]
+# LogSink 为 #[async_trait] 定义，示例实现侧需同宏（端口 crate 未 re-export）
+async-trait = "0.1"
+# MockClock 仅测试构建生效：桶补充语义经合成时间验证，不真睡
+limiteron = { path = "../..", version = "0.3.0-rc.8", default-features = false, features = ["test-clock"] }
+
+[features]
+default = []
+# 预留位：与 workspace CI 显式特性清单口径对齐（limiteron-dbnexus 同款）
+full = []
+
+[lints]
+workspace = true

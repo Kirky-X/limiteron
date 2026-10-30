@@ -109,6 +109,9 @@ pub fn redact_email(value: Option<&str>) -> String {
 /// 「是哪个端点出问题」，又不会外泄凭据。
 ///
 /// 无法解析出 scheme://host 时退回基础脱敏（不整条回显）。
+/// 调用者（webhook 校验与事件分发）各自挂在此二 feature 下，薄特性集
+/// 副本（如 integrations 成员拉起的 lib）中随调用者一并裁剪。
+#[cfg(any(feature = "webhook", feature = "event-system"))]
 pub(crate) fn redact_url(value: Option<&str>) -> String {
     let Some(value) = value else {
         return "unknown".to_string();

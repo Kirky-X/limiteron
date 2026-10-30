@@ -284,7 +284,7 @@ impl AdminApiConfig {
 
     /// 判定 key 是否为合法凭证（多 key 支持）
     ///
-    /// 主 `api_key` 须先通过强度校验（非空且长度 ≥ [`MIN_API_KEY_LEN`]，
+    /// 主 `api_key` 须先通过强度校验（非空且长度 ≥ `MIN_API_KEY_LEN`，
     /// 同 `validate()`）方视为有效凭证；`api_key_roles` 中登记的 key
     /// 同口径要求 16 字符下限（过短即拒绝），空白 key 不作凭证。
     /// 空 key 一律不合法：主 key 为空（未配置）时，空串会与其相等，

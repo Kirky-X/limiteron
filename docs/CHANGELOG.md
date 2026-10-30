@@ -35,6 +35,8 @@
 
 ## [Unreleased]
 
+## [0.3.0-rc.9] - 2026-10-31
+
 ### 变更
 
 - **移除 `inklog` feature 与 `limiteron::integrations::inklog` 模块**：limiteron 不再向
@@ -91,6 +93,8 @@
 - **Webhook 客户端构建失败即 panic**：`ClientBuilder::build()` 的失败（TLS 后端初始化失败、系统配置不可读）此前经 `expect` 变成进程 panic；配额路径还在每次告警时重建客户端（丢失连接池复用）。现工厂返回 `Result`，调用方自行处置（事件分发路径记错并停用 webhook 外发，配额路径转为配置错误），客户端按策略缓存复用
 - **Webhook 发送路径重复 DNS 预检**：预检与连接期解析是两次解析，且预检的瞬时故障（解析器抖动 / 超时）会把本可成功的投递判死。现发送路径只判定字面量面，域名面交由连接期的 SSRF 解析器权威判定（解析结果即连接目标，无漂移窗口）；DNS 预检只保留在注册路径——那里要回答「该端点此刻是否可用」，故仍区分永久拒绝与瞬时故障
 - **Webhook URL 整条入日志**：重定向目标由远端服务端给出，其 path/query 可能携带令牌（如带签名的回调 URL），此前整条回显等于把远端可控内容写进日志文件；分发器的注册 / 移除 / 发送日志同样整条打印配置的 URL。现统一经 `logging::redaction::redact_url` 只保留 scheme 与 host
+
+- **自研依赖对齐 rc.12/rc.11 波次（发布定稿）**：`trait-kit` 0.5.0-rc.11 → 0.5.0-rc.12（log-redaction 的掩码引擎随 trait-kit masking 上 crates.io）、`oxcache` 0.5.0-rc.9 → 0.5.0-rc.12、`dbnexus` 0.6.0-rc.10 → 0.6.0-rc.11；子 crate `limiteron-macros` 自钉同步 0.3.0-rc.9
 
 ## [0.3.0-rc.8] - 2026-10-19
 
@@ -684,7 +688,8 @@ let ban_manager = BanManager::new().await.unwrap();
 - 监控支持 Prometheus 指标与 OpenTelemetry 追踪
 - 并行封禁检查以提升性能
 
-[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.3...HEAD
+[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.9...HEAD
+[0.3.0-rc.9]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.8...v0.3.0-rc.9
 [0.3.0-rc.3]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.2...v0.3.0-rc.3
 [0.3.0-rc.2]: https://github.com/Kirky-X/limiteron/compare/v0.2.10...v0.3.0-rc.2
 [0.2.10]: https://github.com/Kirky-X/limiteron/compare/v0.2.9...v0.2.10

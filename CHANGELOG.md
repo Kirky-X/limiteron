@@ -5,6 +5,8 @@
 
 ## Unreleased
 
+## 0.3.0-rc.9 - 2026-10-31
+
 ### Changed
 
 - `log-redaction` 掩码引擎换源：`inklog` 依赖删除，改依赖 `trait-kit/masking`

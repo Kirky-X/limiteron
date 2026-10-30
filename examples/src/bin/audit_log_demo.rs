@@ -217,10 +217,10 @@ fn demo_signature_verification() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n  Unsigned entry:");
     println!("    has signature: {}", unsigned_entry.signature.is_some());
 
-    let verify_result = unsigned_entry.verify(signing_key);
+    let verify_result = unsigned_entry.verify(&signing_key);
     println!("    verify result: {:?}", verify_result);
 
-    let signed_entry = AuditLogEntry::with_signature(event.clone(), signing_key);
+    let signed_entry = AuditLogEntry::with_signature(event.clone(), &signing_key);
     println!("\n  Signed entry:");
     println!("    has signature: {}", signed_entry.signature.is_some());
     println!(
@@ -228,7 +228,7 @@ fn demo_signature_verification() -> Result<(), Box<dyn std::error::Error>> {
         signed_entry.signature_version
     );
 
-    let verify_result = signed_entry.verify(signing_key);
+    let verify_result = signed_entry.verify(&signing_key);
     println!("    verify with correct key: {}", verify_result?);
 
     // 用错误的密钥验证应该失败
@@ -237,9 +237,9 @@ fn demo_signature_verification() -> Result<(), Box<dyn std::error::Error>> {
 
     // 手动签名
     let mut manual_entry = AuditLogEntry::new(event);
-    manual_entry.sign(signing_key);
+    manual_entry.sign(&signing_key);
     println!("\n  Manually signed entry:");
-    println!("    verify: {}", manual_entry.verify(signing_key)?);
+    println!("    verify: {}", manual_entry.verify(&signing_key)?);
     println!();
     Ok(())
 }

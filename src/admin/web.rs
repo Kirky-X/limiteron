@@ -1196,7 +1196,8 @@ mod tests {
         );
         assert!(
             rendered.contains("<redacted"),
-            "the Debug output must mark the api key as redacted: {rendered}"
+            "the Debug output must mark the api key as redacted: {}",
+            rendered.contains("<redacted")
         );
     }
 

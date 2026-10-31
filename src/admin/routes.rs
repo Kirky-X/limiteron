@@ -182,7 +182,8 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
         Err(e) => {
             log::error!(
                 target: "admin-api",
-                "admin API config invalid, the primary api_key is rejected: {e}"
+                "admin API config invalid, the primary api_key is rejected: {}",
+                crate::i18n::LocalizedMsg::message_key(&e)
             );
             false
         }

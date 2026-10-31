@@ -637,7 +637,8 @@ mod t605_role_tests {
         );
         assert!(
             debug.contains("<redacted"),
-            "redaction marker missing in Debug: {debug}"
+            "redaction marker missing in Debug: {}",
+            debug.contains("<redacted")
         );
     }
 

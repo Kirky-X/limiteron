@@ -2751,7 +2751,7 @@ dependencies = [
 
 [[package]]
 name = "limiteron"
-version = "0.3.0-rc.9"
+version = "0.3.0-rc.10"
 dependencies = [
  "ahash",
  "async-trait",
@@ -2771,7 +2771,7 @@ dependencies = [
  "hyper-util",
  "icu",
  "ipnet",
- "limiteron 0.3.0-rc.9",
+ "limiteron 0.3.0-rc.10",
  "limiteron-macros",
  "log",
  "maxminddb",
@@ -2813,24 +2813,24 @@ dependencies = [
 
 [[package]]
 name = "limiteron-dbnexus"
-version = "0.3.0-rc.9"
+version = "0.3.0-rc.10"
 dependencies = [
  "async-trait",
  "dbnexus-limiter-port",
- "limiteron 0.3.0-rc.9",
+ "limiteron 0.3.0-rc.10",
  "tokio",
 ]
 
 [[package]]
 name = "limiteron-examples"
-version = "0.3.0-rc.9"
+version = "0.3.0-rc.10"
 dependencies = [
  "ahash",
  "axum",
  "chrono",
  "futures",
  "http",
- "limiteron 0.3.0-rc.9",
+ "limiteron 0.3.0-rc.10",
  "reqwest",
  "rustls-webpki",
  "serde_json",
@@ -2841,18 +2841,18 @@ dependencies = [
 
 [[package]]
 name = "limiteron-inklog"
-version = "0.3.0-rc.9"
+version = "0.3.0-rc.10"
 dependencies = [
  "async-trait",
  "inklog",
- "limiteron 0.3.0-rc.9",
+ "limiteron 0.3.0-rc.10",
 ]
 
 [[package]]
 name = "limiteron-macros"
-version = "0.3.0-rc.9"
+version = "0.3.0-rc.10"
 dependencies = [
- "limiteron 0.3.0-rc.9",
+ "limiteron 0.3.0-rc.10",
  "proc-macro2",
  "quote",
  "syn 3.0.9",
@@ -2862,11 +2862,11 @@ dependencies = [
 
 [[package]]
 name = "limiteron-sdforge"
-version = "0.3.0-rc.9"
+version = "0.3.0-rc.10"
 dependencies = [
  "async-trait",
  "chrono",
- "limiteron 0.3.0-rc.9",
+ "limiteron 0.3.0-rc.10",
  "sdforge",
  "tokio",
  "tracing",

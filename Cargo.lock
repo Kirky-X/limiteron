@@ -2777,7 +2777,7 @@ dependencies = [
  "maxminddb",
  "notify",
  "oxcache",
- "parking_lot 0.12.5",
+ "parking_lot 0.13.0",
  "prometheus",
  "proptest",
  "rand 0.10.3",

@@ -1,42 +1,39 @@
 // Copyright (c) 2026 Kirky.X🌠
 // SPDX-License-Identifier: MIT
+//! Locale-aware formatting delegated to `trait-kit`（统一 i18n 基线的
+//! 格式化层：ICU4X 数字/日期/复数/排序经 `trait-kit` `i18n` feature 承载，
+//! 本仓不再自持 icu 依赖）。
+
+use std::cmp::Ordering;
 
 use super::I18nError;
-use icu::collator::Collator;
-use icu::collator::options::CollatorOptions;
-use icu::datetime::DateTimeFormatter;
-use icu::datetime::fieldsets::YMD;
-use icu::datetime::input::{Date, DateTime, Time};
-use icu::decimal::DecimalFormatter;
-use icu::decimal::input::Decimal;
-use icu::decimal::options::DecimalFormatterOptions;
-use icu::locale::Locale;
-use icu::plurals::{PluralCategory, PluralRules, PluralRulesOptions};
-use std::cmp::Ordering;
-use std::str::FromStr;
-use writeable::Writeable;
 
-/// Locale-aware formatter backed by ICU4X compiled data.
+/// Locale-aware formatter delegating to [`trait_kit::i18n::I18nFormatter`].
 ///
 /// Construct with [`LimiterI18nFormatter::new`] using a BCP-47 locale tag
-/// (e.g. `"en-US"`, `"zh-CN"`). All formatters are created eagerly so
-/// that repeated formatting calls are allocation-light.
+/// (e.g. `"en-US"`, `"zh-CN"`). Public surface (method names + error type)
+/// is unchanged from the self-hosted ICU4X era — only the ICU backend moved
+/// into trait-kit.
 pub struct LimiterI18nFormatter {
-    locale: Locale,
-    decimal_formatter: DecimalFormatter,
-    plural_rules: PluralRules,
-    collator: icu::collator::CollatorBorrowed<'static>,
+    inner: trait_kit::i18n::I18nFormatter,
+    /// Catalog lookup bucket for this formatter: `"zh"` for any `zh*` tag,
+    /// `"en"` otherwise（与消息目录的兜底语义一致）。
+    lang: &'static str,
 }
 
-/// Map a [`PluralCategory`] to its capitalized CLDR name (e.g. `"One"`, `"Other"`).
-fn plural_category_name(category: PluralCategory) -> &'static str {
-    match category {
-        PluralCategory::Zero => "Zero",
-        PluralCategory::One => "One",
-        PluralCategory::Two => "Two",
-        PluralCategory::Few => "Few",
-        PluralCategory::Many => "Many",
-        PluralCategory::Other => "Other",
+/// Map a trait-kit formatting error onto the limiteron error enum
+/// （两者变体同形，逐字段搬运；limiteron 的 [`I18nError`] 是公开 API，
+/// 保持 Display/本地化双轨不破坏）。
+fn map_kit_error(e: trait_kit::i18n::I18nError) -> I18nError {
+    match e {
+        trait_kit::i18n::I18nError::InvalidLocale { input, reason } => {
+            I18nError::InvalidLocale { input, reason }
+        }
+        trait_kit::i18n::I18nError::InvalidNumber { input, reason } => {
+            I18nError::InvalidNumber { input, reason }
+        }
+        trait_kit::i18n::I18nError::DateError(message) => I18nError::DateError(message),
+        trait_kit::i18n::I18nError::FormatError(message) => I18nError::FormatError(message),
     }
 }
 
@@ -59,28 +56,13 @@ impl LimiterI18nFormatter {
     /// Returns [`I18nError::InvalidLocale`] if the tag cannot be parsed,
     /// or [`I18nError::FormatError`] if ICU4X lacks compiled data for it.
     pub fn new(locale: &str) -> Result<Self, I18nError> {
-        let parsed = Locale::from_str(locale).map_err(|e| I18nError::InvalidLocale {
-            input: locale.to_string(),
-            reason: e.to_string(),
-        })?;
-
-        let decimal_formatter =
-            DecimalFormatter::try_new(parsed.clone().into(), DecimalFormatterOptions::default())
-                .map_err(|e| I18nError::FormatError(e.to_string()))?;
-
-        let plural_rules =
-            PluralRules::try_new(parsed.clone().into(), PluralRulesOptions::default())
-                .map_err(|e| I18nError::FormatError(e.to_string()))?;
-
-        let collator = Collator::try_new(parsed.clone().into(), CollatorOptions::default())
-            .map_err(|e| I18nError::FormatError(e.to_string()))?;
-
-        Ok(Self {
-            locale: parsed,
-            decimal_formatter,
-            plural_rules,
-            collator,
-        })
+        let inner = trait_kit::i18n::I18nFormatter::new(locale).map_err(map_kit_error)?;
+        let lang = if locale.trim().to_lowercase().starts_with("zh") {
+            "zh"
+        } else {
+            "en"
+        };
+        Ok(Self { inner, lang })
     }
 
     /// Format a floating-point number with locale-sensitive grouping
@@ -90,39 +72,30 @@ impl LimiterI18nFormatter {
     /// Returns [`I18nError::InvalidNumber`] for non-finite values or
     /// if the value cannot be parsed into a fixed decimal.
     pub fn format_number(&self, value: f64) -> Result<String, I18nError> {
-        if !value.is_finite() {
-            return Err(I18nError::InvalidNumber {
-                input: value.to_string(),
-                reason: "value is not finite (NaN or Infinity)".into(),
-            });
-        }
-        let repr = format!("{value}");
-        let decimal = Decimal::from_str(&repr).map_err(|e| I18nError::InvalidNumber {
-            input: repr,
-            reason: e.to_string(),
-        })?;
-        let formatted = self.decimal_formatter.format(&decimal);
-        Ok(formatted.write_to_string().into_owned())
+        self.inner.format_number(value).map_err(map_kit_error)
     }
 
     /// Return the plural category name for `count` in the formatter's locale
     /// (e.g. `"One"` for English count=1, `"Other"` for count=2).
     ///
     /// Use this to build locale-aware rate-limit messages such as
-    /// "1 request" vs "2 requests".
+    /// "1 request" vs "2 requests". The CLDR category name equals the
+    /// enum's `Debug` rendering（`Zero/One/Two/Few/Many/Other`），trait-kit
+    /// 未重导出该枚举类型，故按 Debug 取名。
     ///
     /// # Errors
     /// This method does not currently fail, but returns `Result` for API
     /// consistency with the other formatting methods.
     pub fn format_count(&self, count: u64) -> Result<String, I18nError> {
-        Ok(plural_category_name(self.plural_rules.category_for(count)).to_string())
+        let category = self.inner.plural_category(count).map_err(map_kit_error)?;
+        Ok(format!("{category:?}"))
     }
 
     /// Build a locale-aware rate-limit message combining the current
     /// `count`, the configured `limit`, and a human-readable `window`
     /// (e.g. `"minute"`, `"hour"`). Counters are formatted with the
     /// locale's grouping/decimal separators, and the message template and
-    /// window word resolve through the Fluent catalog (`rate-limit-message`,
+    /// window word resolve through the message catalog (`rate-limit-message`,
     /// `window-*`) — the catalog only carries `en`/`zh`, so any other
     /// formatter locale falls back to the English template.
     ///
@@ -137,13 +110,12 @@ impl LimiterI18nFormatter {
     ) -> Result<String, I18nError> {
         let count_str = self.format_number(count as f64)?;
         let limit_str = self.format_number(limit as f64)?;
-        let lang = self.locale.id.language.as_str().to_string();
         let window_str = match window_ftl_key(window) {
-            Some(key) => super::catalog::translate_for(&lang, key, &[]),
+            Some(key) => super::catalog::translate_for(self.lang, key, &[]),
             None => window.to_string(),
         };
         Ok(super::catalog::translate_for(
-            &lang,
+            self.lang,
             "rate-limit-message",
             &[
                 ("count", count_str),
@@ -160,15 +132,9 @@ impl LimiterI18nFormatter {
     /// Returns [`I18nError::DateError`] if any component is out of range,
     /// or [`I18nError::FormatError`] if the formatter cannot be constructed.
     pub fn format_window(&self, year: i32, month: u8, day: u8) -> Result<String, I18nError> {
-        let date =
-            Date::try_new_iso(year, month, day).map_err(|e| I18nError::DateError(e.to_string()))?;
-        let time = Time::try_new(0, 0, 0, 0).map_err(|e| I18nError::DateError(e.to_string()))?;
-        let datetime = DateTime { date, time };
-
-        let dtf = DateTimeFormatter::try_new(self.locale.clone().into(), YMD::medium())
-            .map_err(|e| I18nError::FormatError(e.to_string()))?;
-        let formatted = dtf.format(&datetime);
-        Ok(formatted.write_to_string().into_owned())
+        self.inner
+            .format_date(year, month, day)
+            .map_err(map_kit_error)
     }
 
     /// Compare two rate-limit rule names using locale-sensitive collation
@@ -178,7 +144,7 @@ impl LimiterI18nFormatter {
     /// This method does not currently fail, but returns `Result` for API
     /// consistency with the other formatting methods.
     pub fn compare_rules(&self, a: &str, b: &str) -> Result<Ordering, I18nError> {
-        Ok(self.collator.compare(a, b))
+        self.inner.compare(a, b).map_err(map_kit_error)
     }
 }
 

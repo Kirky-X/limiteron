@@ -2718,7 +2718,6 @@ dependencies = [
  "criterion",
  "dashmap",
  "dbnexus",
- "fluent-bundle",
  "futures",
  "hex",
  "hmac",
@@ -2726,7 +2725,6 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "icu",
  "ipnet",
  "limiteron",
  "limiteron-macros",
@@ -2743,6 +2741,7 @@ dependencies = [
  "reqwest",
  "rustls-webpki",
  "scopeguard",
+ "sdforge",
  "sea-orm",
  "secrecy",
  "serde",
@@ -2765,7 +2764,6 @@ dependencies = [
  "unic-langid",
  "uuid",
  "woothee",
- "writeable",
 ]
 
 [[package]]
@@ -5259,12 +5257,19 @@ dependencies = [
  "aho-corasick",
  "fancy-regex",
  "fluent-bundle",
+ "icu_collator",
+ "icu_datetime",
+ "icu_decimal",
+ "icu_locale",
+ "icu_plurals",
  "log",
  "regex",
  "serde_json",
+ "sys-locale",
  "toml",
  "tracing",
  "unic-langid",
+ "writeable",
 ]
 
 [[package]]

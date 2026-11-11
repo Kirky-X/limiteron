@@ -7,20 +7,86 @@
 //! kept in sync by construction (same file) plus a guard test
 //! `test_locales_dir_matches_embedded`.
 //!
-//! Bundles are `fluent_bundle::concurrent::FluentBundle` (Send + Sync) cached
-//! in [`OnceLock`] statics — safe to share across threads. Lookup chain:
-//! current language → `"en"` → the key itself (never panics).
+//! Lookup is delegated to the `sdforge::i18n` host registry (janvi/CodeNexus
+//! pattern): [`ensure_registered`] parses the embedded `key = value` lines
+//! once and registers both locales; the public [`translate`]/[`t`] family
+//! then resolves through `sdforge::i18n::translate_for` (host registration →
+//! built-in en → the key itself; never panics). Substitution follows the
+//! registry's single-pass `{ $name }` template rules — the catalog is
+//! single-line plain values (no selectors/multi-line, guarded by tests), so
+//! this is behaviorally identical to the previous Fluent-bundle rendering
+//! (isolation marks were already disabled).
 
 use std::sync::OnceLock;
-
-use fluent_bundle::concurrent::FluentBundle;
-use fluent_bundle::{FluentArgs, FluentResource, FluentValue};
-use unic_langid::LanguageIdentifier;
 
 /// Embedded English FTL resource (`locales/en/messages.ftl`).
 pub(crate) const EN_FTL: &str = include_str!("../../locales/en/messages.ftl");
 /// Embedded Chinese FTL resource (`locales/zh/messages.ftl`).
 pub(crate) const ZH_FTL: &str = include_str!("../../locales/zh/messages.ftl");
+
+/// Registry bucket for a language tag: every `zh*` variant resolves to the
+/// `zh` bucket, anything else to `en` (unsupported languages terminate in
+/// English — the pre-delegation lookup semantics).
+fn registry_lang(lang: &str) -> &'static str {
+    if lang.trim().to_lowercase().starts_with("zh") {
+        "zh"
+    } else {
+        "en"
+    }
+}
+
+/// Parse a single-source FTL into `(key, value)` pairs.
+///
+/// Line-oriented extraction (janvi `catalog.rs` pattern): skip blank lines
+/// and `#` comments, split at the first `=`, trim both sides. The catalog is
+/// verified single-line-only (no continuation/selector values), so this
+/// matches a full Fluent parse for these resources.
+fn parse_entries(source: &'static str) -> Vec<(&'static str, &'static str)> {
+    source
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                return None;
+            }
+            let (raw_key, raw_value) = trimmed.split_once('=')?;
+            let key = raw_key.trim();
+            if key.is_empty() || key.contains(' ') {
+                return None;
+            }
+            Some((key, raw_value.trim()))
+        })
+        .collect()
+}
+
+/// Entries for a registry bucket (`"en"` / `"zh"`).
+fn entries_for(lang: &str) -> Vec<(&'static str, &'static str)> {
+    match lang {
+        "zh" => parse_entries(ZH_FTL),
+        _ => parse_entries(EN_FTL),
+    }
+}
+
+/// Key set for a registry bucket (key-parity guards and existence asserts).
+#[cfg(test)]
+pub(crate) fn keys_for(lang: &str) -> std::collections::BTreeSet<&'static str> {
+    entries_for(lang).into_iter().map(|(key, _)| key).collect()
+}
+
+static REGISTERED: OnceLock<()> = OnceLock::new();
+
+/// Register the embedded catalog into the `sdforge::i18n` host registry
+/// (both locales), once per process. Idempotent and safe to call from any
+/// public entry point below — first caller wins, later calls are no-ops.
+pub(crate) fn ensure_registered() {
+    REGISTERED.get_or_init(|| {
+        for lang in ["en", "zh"] {
+            for (key, value) in entries_for(lang) {
+                sdforge::i18n::register_translation(lang, key, value);
+            }
+        }
+    });
+}
 
 /// Translate `key` with the current locale, falling back to English, then to
 /// the key itself.
@@ -34,7 +100,8 @@ pub fn translate(key: &str, args: &[(&str, String)]) -> String {
 
 /// Translate `key` to English specifically, regardless of current locale.
 pub fn translate_en(key: &str, args: &[(&str, String)]) -> String {
-    format_from_bundle("en", key, args).unwrap_or_else(|| key.to_string())
+    ensure_registered();
+    sdforge::i18n::translate_for("en", key, args)
 }
 
 /// Translate `key` for an explicit language tag (used by callers that carry
@@ -42,9 +109,8 @@ pub fn translate_en(key: &str, args: &[(&str, String)]) -> String {
 ///
 /// Falls back to English for unsupported/unknown languages, then to the key.
 pub fn translate_for(lang: &str, key: &str, args: &[(&str, String)]) -> String {
-    format_from_bundle(lang, key, args)
-        .or_else(|| format_from_bundle("en", key, args))
-        .unwrap_or_else(|| key.to_string())
+    ensure_registered();
+    sdforge::i18n::translate_for(registry_lang(lang), key, args)
 }
 
 /// Shorthand for [`translate`].
@@ -57,67 +123,38 @@ pub fn t_simple(key: &str) -> String {
     translate(key, &[])
 }
 
-/// Cached concurrent Fluent bundles (thread-safe, built once on first access).
-static EN_BUNDLE: OnceLock<FluentBundle<FluentResource>> = OnceLock::new();
-static ZH_BUNDLE: OnceLock<FluentBundle<FluentResource>> = OnceLock::new();
-
-/// Format a message from the Fluent catalog for the given language.
-///
-/// Any language other than `zh` resolves to the English bundle; missing keys
-/// return `None` so callers can apply their own fallback.
-fn format_from_bundle(lang: &str, key: &str, args: &[(&str, String)]) -> Option<String> {
-    let bundle = match lang {
-        "zh" => ZH_BUNDLE.get_or_init(build_zh_bundle),
-        _ => EN_BUNDLE.get_or_init(build_en_bundle),
-    };
-
-    let msg = bundle.get_message(key)?;
-    let pattern = msg.value()?;
-
-    let mut fluent_args = FluentArgs::new();
-    for (name, value) in args {
-        fluent_args.set(*name, FluentValue::from(value.clone()));
-    }
-
-    let mut errors = vec![];
-    let result = bundle.format_pattern(pattern, Some(&fluent_args), &mut errors);
-    Some(result.to_string())
-}
-
-fn build_en_bundle() -> FluentBundle<FluentResource> {
-    let resource = FluentResource::try_new(EN_FTL.to_string()).unwrap_or_else(|e| e.0);
-    let langid: LanguageIdentifier = "en".parse().expect("'en' is a valid language identifier");
-    let mut bundle = FluentBundle::new_concurrent(vec![langid]);
-    bundle.set_use_isolating(false);
-    bundle
-        .add_resource(resource)
-        .expect("EN resources should add without conflict");
-    bundle
-}
-
-fn build_zh_bundle() -> FluentBundle<FluentResource> {
-    let resource = FluentResource::try_new(ZH_FTL.to_string()).unwrap_or_else(|e| e.0);
-    let langid: LanguageIdentifier = "zh".parse().expect("'zh' is a valid language identifier");
-    let mut bundle = FluentBundle::new_concurrent(vec![langid]);
-    bundle.set_use_isolating(false);
-    bundle
-        .add_resource(resource)
-        .expect("ZH resources should add without conflict");
-    bundle
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     /// Extract the message-key set from an FTL source (lines of the form
     /// `key = value`, ignoring comments and blank lines).
-    fn ftl_keys(ftl: &str) -> std::collections::BTreeSet<String> {
+    fn ftl_keys(ftl: &str) -> BTreeSet<String> {
         ftl.lines()
             .filter_map(|line| line.split_once(" = "))
             .filter(|(key, _)| !key.contains(' '))
             .map(|(key, _)| key.trim().to_string())
             .collect()
+    }
+
+    /// Extract the `{ $name }` placeholder set from an FTL value.
+    fn placeholders(value: &str) -> BTreeSet<String> {
+        let mut names = BTreeSet::new();
+        let mut rest = value;
+        while let Some(open) = rest.find('{') {
+            let Some(close) = rest[open..].find('}') else {
+                break;
+            };
+            let inner = rest[open + 1..open + close].trim();
+            if let Some(name) = inner.strip_prefix('$')
+                && !name.is_empty()
+            {
+                names.insert(name.to_string());
+            }
+            rest = &rest[open + close + 1..];
+        }
+        names
     }
 
     #[test]
@@ -133,6 +170,43 @@ mod tests {
         );
     }
 
+    /// 守卫：双语占位符集合一致（键位齐 + 占位符齐；无 fluent-syntax，
+    /// 以轻量解析复刻键位守卫形态）。占位符缺失的一侧会在渲染时把
+    /// `{ $name }` 原样漏出。
+    #[test]
+    fn test_placeholder_parity_en_zh() {
+        let en: std::collections::HashMap<_, _> = parse_entries(EN_FTL).into_iter().collect();
+        let mismatches: Vec<String> = parse_entries(ZH_FTL)
+            .into_iter()
+            .filter_map(|(key, zh_value)| {
+                let en_value = en.get(key)?;
+                let (en_ph, zh_ph) = (placeholders(en_value), placeholders(zh_value));
+                (en_ph != zh_ph).then(|| format!("{key}: en={en_ph:?} zh={zh_ph:?}"))
+            })
+            .collect();
+        assert!(
+            mismatches.is_empty(),
+            "placeholder sets diverge between locales: {mismatches:?}"
+        );
+    }
+
+    /// 守卫：目录为纯单行 `key = value` 形态（无多行续值/选择器）——
+    /// 注册式解析（按行取值）与 Fluent 解析行为一致的前提。
+    #[test]
+    fn test_catalog_is_single_line_plain_values() {
+        for (lang, ftl) in [("en", EN_FTL), ("zh", ZH_FTL)] {
+            assert!(
+                !ftl.lines()
+                    .any(|l| l.starts_with(' ') || l.starts_with('\t')),
+                "{lang} catalog must not contain continuation lines"
+            );
+            assert!(
+                !ftl.contains("\n\n\n"),
+                "{lang} catalog must not contain stray blank blocks"
+            );
+        }
+    }
+
     /// 守卫：locales/ 磁盘文件与编译期内嵌常量一致（include_str! 按路径内嵌，
     /// 本测试防止目录被移动/改名后静默回退到旧路径之外的内容）。
     #[test]
@@ -146,49 +220,63 @@ mod tests {
         assert_eq!(zh_disk, ZH_FTL, "disk zh catalog drifted from embedded");
     }
 
+    /// 注册后目录键集即注册表键集：两桶零缺失（全部键经 sdforge 可解析）。
+    #[test]
+    fn test_registered_buckets_cover_full_catalog() {
+        ensure_registered();
+        for lang in ["en", "zh"] {
+            for key in keys_for(lang) {
+                assert_ne!(
+                    sdforge::i18n::translate_for(lang, key, &[]),
+                    key,
+                    "{lang} key {key} must resolve after registration"
+                );
+            }
+        }
+    }
+
     #[test]
     fn test_fluent_en_simple() {
         assert_eq!(
-            format_from_bundle("en", "rate-limit-exceeded", &[]),
-            Some("Rate limit exceeded".to_string())
+            translate_for("en", "rate-limit-exceeded", &[]),
+            "Rate limit exceeded".to_string()
         );
         assert_eq!(
-            format_from_bundle("en", "error-config", &[("message", "x".to_string())]),
-            Some("Configuration error: x".to_string())
+            translate_for("en", "error-config", &[("message", "x".to_string())]),
+            "Configuration error: x".to_string()
         );
     }
 
     #[test]
     fn test_fluent_zh_simple() {
         assert_eq!(
-            format_from_bundle("zh", "rate-limit-exceeded", &[]),
-            Some("超出速率限制".to_string())
+            translate_for("zh", "rate-limit-exceeded", &[]),
+            "超出速率限制".to_string()
         );
         assert_eq!(
-            format_from_bundle(
+            translate_for(
                 "zh",
                 "error-storage-not-found",
                 &[("message", "k".to_string())]
             ),
-            Some("未找到: k".to_string())
+            "未找到: k".to_string()
         );
     }
 
     #[test]
     fn test_unknown_lang_falls_back_to_en_bundle() {
         assert_eq!(
-            format_from_bundle("ar", "rate-limit-exceeded", &[]),
-            Some("Rate limit exceeded".to_string())
+            translate_for("ar", "rate-limit-exceeded", &[]),
+            "Rate limit exceeded".to_string()
         );
         assert_eq!(
-            format_from_bundle("ja", "error-config", &[("message", "x".to_string())]),
-            Some("Configuration error: x".to_string())
+            translate_for("ja", "error-config", &[("message", "x".to_string())]),
+            "Configuration error: x".to_string()
         );
     }
 
     #[test]
     fn test_missing_key_returns_none() {
-        assert_eq!(format_from_bundle("en", "nonexistent-key", &[]), None);
         // translate 链尾回退：缺失键返回键本身，不 panic
         assert_eq!(translate("nonexistent-key", &[]), "nonexistent-key");
         assert_eq!(translate_en("nonexistent-key", &[]), "nonexistent-key");
@@ -331,8 +419,8 @@ mod tests {
         ];
         for (key, expected) in cases {
             assert_eq!(
-                format_from_bundle("en", key, &[]).as_deref(),
-                Some(*expected),
+                translate_en(key, &[]),
+                *expected,
                 "en value of {key} must stay identical to the construction-site string"
             );
         }
@@ -384,7 +472,7 @@ mod tests {
             ("config-leaky-bucket-capacity-not-zero", &[]),
             ("config-leaky-bucket-capacity-exceeds", &[("max", "1000")]),
             ("config-leaky-bucket-leak-rate-not-zero", &[]),
-            ("config-leaky-bucket-leak-rate-exceeds", &[("max", "100")]),
+            ("config-leaky-bucket-leak-rate-exceeds", &[("max", "1000")]),
             ("config-sliding-window-log-max-requests-not-zero", &[]),
             (
                 "config-sliding-window-log-max-requests-exceeds",
@@ -415,8 +503,7 @@ mod tests {
         for (key, args) in cases {
             let args: Vec<(&str, String)> =
                 args.iter().map(|(k, v)| (*k, (*v).to_string())).collect();
-            let rendered = format_from_bundle("zh", key, &args)
-                .unwrap_or_else(|| panic!("key {key} must resolve in the zh bundle"));
+            let rendered = translate_for("zh", key, &args);
             assert_ne!(rendered, *key, "key {key} fell back to its own id");
             assert!(
                 rendered
@@ -496,13 +583,13 @@ mod tests {
             let args: Vec<(&str, String)> =
                 args.iter().map(|(k, v)| (*k, (*v).to_string())).collect();
             assert_eq!(
-                format_from_bundle("en", key, &args).as_deref(),
-                Some(*expected_en),
+                translate_for("en", key, &args),
+                *expected_en,
                 "en rendering of {key} drifted"
             );
             assert_eq!(
-                format_from_bundle("zh", key, &args).as_deref(),
-                Some(*expected_zh),
+                translate_for("zh", key, &args),
+                *expected_zh,
                 "zh rendering of {key} drifted"
             );
         }

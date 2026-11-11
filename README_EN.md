@@ -384,7 +384,7 @@ Limiteron collaborates closely with its sibling crates in the workspace; each in
 
 Structured logging is provided directly by [inklog](https://github.com/Kirky-X/inklog); limiteron no longer forwards an initialization entry point — depend on inklog in the application layer and call `inklog::init_inklog_logger()` (or `inklog::init_inklog_logger_with_config(config)`) to install the global subscriber, and limiteron's own `log::`/`tracing::` calls route into inklog's sinks.
 
-Additionally, the `i18n` feature integrates [ICU4X](https://github.com/unicode-org/icu4x) for locale-aware formatting.
+Additionally, the `i18n` feature integrates [ICU4X](https://github.com/unicode-org/icu4x) for locale-aware formatting — the formatting layer and message-catalog registration delegate to the trait-kit i18n base (ICU4X is pulled in by trait-kit; this crate no longer carries its own icu dependency, and the message catalog is registered into the sdforge::i18n host registry while FTL files remain the source of truth).
 
 The workspace member [`integrations/limiteron-sdforge`](integrations/limiteron-sdforge/) provides the reverse direction — a guard layer: the limiteron side exposes rate limiting / circuit breaking / bans to sdforge applications behind a tri-state `Guard` decision surface (adapted to `ForgeRateLimiter` under that crate's own sdforge feature), opposite in direction to sdforge's existing consumer adapter and independently versioned.
 

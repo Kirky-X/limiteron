@@ -384,7 +384,7 @@ Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式
 
 结构化日志由 [inklog](https://github.com/Kirky-X/inklog) 正主直接提供，limiteron 不再转发初始化入口——应用层直接依赖 inklog 并调用 `inklog::init_inklog_logger()`（或 `inklog::init_inklog_logger_with_config(config)`）安装全局 subscriber 即可，limiteron 自身的 `log::`/`tracing::` 调用随之路由进 inklog 的 sink。
 
-另通过 `i18n` 特性集成 [ICU4X](https://github.com/unicode-org/icu4x) 提供 locale 感知格式化。
+另通过 `i18n` 特性集成 [ICU4X](https://github.com/unicode-org/icu4x) 提供 locale 感知格式化——格式化层与消息目录注册统一委托 trait-kit i18n 基座（ICU4X 由 trait-kit 拉入，本仓不自持 icu 依赖；消息目录经 sdforge::i18n 注册表宿主注册，FTL 文件保留真源）。
 
 工作区成员 [`integrations/limiteron-sdforge`](integrations/limiteron-sdforge/) 反向提供防护层：limiteron 侧把限流/熔断/封禁以 `Guard` 三态判定面暴露给 sdforge 应用（该 crate 自身的 sdforge 特性下适配为 `ForgeRateLimiter`），与 sdforge 侧既有消费适配方向相反、发布节奏独立。
 

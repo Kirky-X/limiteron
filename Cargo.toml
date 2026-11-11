@@ -129,15 +129,18 @@ http = { workspace = true, optional = true }
 hyper = { version = "1", default-features = false, features = ["http1", "client"], optional = true }
 hyper-util = { version = "0.1", default-features = false, features = ["client", "http1", "tokio"], optional = true }
 http-body-util = { version = "0.1", optional = true }
-# i18n（feature 门控）：ICU4X 2.x 提供 locale 感知的数字/日期/复数/排序格式化
-icu = { version = "2.3", default-features = false, features = ["compiled_data"], optional = true }
-writeable = { version = "0.6", optional = true }
-# i18n 基础设施（常驻依赖，不经 feature 门控）：Fluent 消息目录 + 语言检测链
-fluent-bundle = "0.16"
+# i18n（feature 门控）：locale 感知的数字/日期/复数/排序格式化经 trait-kit 的
+# i18n feature 承载（ICU4X 由 trait-kit 拉入），本仓不自持 icu/writeable 依赖
+# i18n 基础设施（常驻依赖，不经 feature 门控）：语言检测链（消息目录改为 sdforge
+# 注册表宿主注册，FTL 行解析在 catalog 内完成，不再依赖 fluent-bundle）
 unic-langid = "0.9"
 sys-locale = "0.3"
-# trait-kit 经 crates.io registry 引入（kit/log-redaction 共用）：CI 与发布流程只检出本仓，清单不得声明指向仓外兄弟目录的 path
+# trait-kit 经 crates.io registry 引入（kit/log-redaction/i18n 共用）：CI 与发布流程只检出本仓，清单不得声明指向仓外兄弟目录的 path
 trait-kit = { version = "0.5.0-rc.13", default-features = false, features = ["async", "health", "lifecycle"], optional = true }
+# sdforge（常驻，registry 引入，禁仓外 path）：i18n 注册表为无条件面，消息目录宿主
+# 注册经它承载；cli feature 再叠加其 clap+inventory 命令面。环规避：不启用 sdforge
+# 的 ratelimit/kit 等激活其 limiteron optional 依赖的 feature
+sdforge = { version = "0.5.0-rc.10", default-features = false }
 # 配置加载委托 confers loader::load_file：显式开启三元解析器 feature，不开 dotenv（limiteron 无 .env 契约）
 confers = { version = "0.6.0-rc.12", default-features = false, features = ["toml", "json", "yaml"] }
 
@@ -278,8 +281,9 @@ distributed = []
 # trait-kit AsyncKit 集成（LimiteronModule）
 kit = ["dep:trait-kit", "dep:futures", "oxcache/kit"]
 
-# ICU4X 国际化（locale 感知的数字/日期/复数/排序格式化），与 trait-kit/oxcache i18n 同构
-i18n = ["dep:icu", "dep:writeable"]
+# ICU4X 国际化（locale 感知的数字/日期/复数/排序格式化），与 trait-kit/oxcache i18n 同构：
+# 格式化层经 trait-kit i18n feature 承载，本仓不自持 icu/writeable
+i18n = ["dep:trait-kit", "trait-kit/i18n"]
 
 # confers 依赖已转必选（config 模块无条件编译），本 feature 保留为兼容名
 config-confers = []

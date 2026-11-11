@@ -573,3 +573,9 @@ telemetry-bind-port-failed = 绑定端口 { $port } 失败: { $error }
 # integrations/limiteron-dbnexus 调用点内嵌的规范串逐字一致） ----
 integration-guard-internal-error = 守卫内部错误: { $error }
 integration-token-bucket-check-failed = limiteron 令牌桶检查失败: { $error }
+
+# ---- sdforge CLI 子命令描述（由 cli::forge::register_cli_translations 注入
+# sdforge i18n 注册表，--help 渲染） ----
+cli-validate-about = 校验 limiteron 规则配置文件（YAML/TOML/JSON）
+cli-export-about = 解析规则配置文件并导出规范化 JSON
+cli-apply-about = 校验规则配置文件并产出 apply 计划（dry-run）

@@ -577,3 +577,9 @@ telemetry-bind-port-failed = Failed to bind to port { $port }: { $error }
 # call sites in integrations/limiteron-sdforge and integrations/limiteron-dbnexus) ----
 integration-guard-internal-error = guard internal error: { $error }
 integration-token-bucket-check-failed = limiteron token bucket check failed: { $error }
+
+# ---- sdforge CLI command descriptions (fed to sdforge i18n registry by
+# cli::forge::register_cli_translations; rendered in --help) ----
+cli-validate-about = Validate a limiteron rule config file (YAML/TOML/JSON)
+cli-export-about = Parse a rule config file and export canonical JSON
+cli-apply-about = Validate a rule config file and emit an apply plan (dry-run)

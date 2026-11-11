@@ -13,6 +13,13 @@ ignore = [
     # rc.10 仍基于 serde_yaml_ng），confers 侧迁移发布后随 lockfile 更新自然
     # 消除，届时回收本条。
     "RUSTSEC-2024-0449",
+    # RUSTSEC-2026-0459（libsqlite3-sys 捆绑 C SQLite CVE-2026-119375，修复版
+    # >=0.39.0）：上游链已到头——sea-orm 2.0.4（最新）→ sqlx-sqlite 0.9.0
+    # （最新）要求 libsqlite3-sys >=0.30.1,<0.38.0，硬帽挡死修复版；命中仅经
+    # opt-in 的 sqlite 存储后端。解锁前提：sqlx-sqlite 发布放宽约束的版本后
+    # `cargo update -p libsqlite3-sys` 升至 >=0.39 并回收本条与 CI/pre-push
+    # 的 --ignore 同步移除。
+    "RUSTSEC-2026-0459",
 ]
 
 [licenses]

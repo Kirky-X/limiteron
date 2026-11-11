@@ -32,7 +32,10 @@ commit-msg:
 pre-push:
   commands:
     cargo-audit:
-      run: cargo audit
+      # RUSTSEC-2026-0459（libsqlite3-sys）：上游 sqlx-sqlite 0.9.0（最新）硬帽
+      # <0.38.0 挡死修复版 >=0.39.0，详见 deny.toml [advisories].ignore 同条；
+      # 上游放宽后随升级一并移除。
+      run: cargo audit --ignore RUSTSEC-2026-0459
     coverage-90:
       name: coverage ≥90% lines
       # 与 CI coverage job 同口径（full,postgres）——此前裸 default(=[]) 统计的

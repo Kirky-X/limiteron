@@ -64,6 +64,10 @@ woothee = { version = "0.13" }
 
 [package]
 name = "limiteron"
+# 关闭 bin 自动发现：唯一产品二进制经下方 [[bin]] 显式声明（name 与 path
+# 均与旧形态对齐，但入口收敛到规范路径 src/main.rs）。src/bin/ 目录已随
+# 独立入口删除而移除，不再有隐式 bin 目标。
+autobins = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -162,8 +166,10 @@ limiteron = { path = ".", default-features = false, features = ["test-clock"] }
 [features]
 # 测试时钟 MockClock 的公开门控 feature（不入任何生产 preset；外部用例经 self dev-dep 开启）
 test-clock = []
-# 配置 CLI：`limiteron-cli` 二进制 + src/cli 可单测核心；默认不编译（决策热路径零开销）
-cli = []
+# 配置 CLI：主二进制子命令面（validate/export/apply）+ src/cli 可单测核心；
+# 默认不编译（决策热路径零开销）。cli feature 叠加 sdforge 的 clap+inventory
+# 命令面（不启用 ratelimit/kit 等激活 limiteron optional 依赖的 feature）。
+cli = ["sdforge/cli"]
 # 封禁跨实例同步：经 oxcache Pub/Sub 广播，隐含 event-system
 ban-sync = ["event-system", "oxcache/invalidation"]
 # Minimal：核心限流（无外部存储）；sync 为 tokio-free 同步原语（std + parking_lot）
@@ -319,10 +325,14 @@ name = "governor_span_tests"
 path = "tests/telemetry/governor_span_tests.rs"
 required-features = ["otlp"]
 
-# `limiteron-cli` 二进制（规则文件校验/导出/apply dry-run）；核心逻辑在 src/cli，二进制仅参数透传
+# 产品二进制入口（src/main.rs 薄壳，规范形态）：cli feature 下子命令化
+# 为 validate/export/apply——sdforge CliBuilder + inventory 注册面在
+# src/cli/forge.rs，分发回 src/cli/mod.rs 的 run 纯函数核心。
+# 二进制名保留 `limiteron-cli`（文档与用户脚本口径不变），但路径从违规的
+# `src/bin/limiteron_cli.rs` 收敛到规范路径 `src/main.rs`。
 [[bin]]
 name = "limiteron-cli"
-path = "src/bin/limiteron_cli.rs"
+path = "src/main.rs"
 required-features = ["cli"]
 
 [[bench]]

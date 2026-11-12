@@ -15,8 +15,12 @@
 //! | `help` / `--help` | 用法说明 | 0 |
 //! | `--version` | 版本 JSON | 0 |
 //!
-//! CLI 逻辑全部收在本模块（纯函数 [`run`]），二进制 `src/bin/limiteron_cli.rs`
-//! 仅做参数透传，保证可单测。默认 feature 不编译本模块（决策热路径零开销）。
+//! CLI 逻辑全部收在本模块（纯函数 [`run`]），保证可单测。默认 feature
+//! 不编译本模块（决策热路径零开销）。二进制入口收敛为根 `src/main.rs`
+//! 薄壳（`[[bin]] limiteron-cli` path=src/main.rs，`required-features =
+//! ["cli"]`）：sdforge `CliBuilder` 子命令化，经 [`forge`] 模块的
+//! inventory 注册面分发回本模块的 [`run`]——原 `src/bin/limiteron_cli.rs`
+//! 独立入口文件已删除，二进制名与功能面不变。
 //!
 //! # Example
 //!
@@ -32,6 +36,8 @@
 //! ```
 
 use crate::config::FlowControlConfig;
+
+pub mod forge;
 
 /// 退出码：成功
 pub const EXIT_OK: i32 = 0;
@@ -490,7 +496,10 @@ mod tests {
             "duplicate priority → warning, exit 1"
         );
         assert_eq!(inv.output["valid"], serde_json::json!(true));
-        assert!(inv.output["warnings"].as_array().unwrap().len() >= 1);
+        assert!(
+            !inv.output["warnings"].as_array().unwrap().is_empty(),
+            "duplicate priority must surface at least one warning"
+        );
     }
 
     #[test]

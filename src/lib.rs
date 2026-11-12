@@ -85,7 +85,9 @@ pub mod circuit;
 mod clock;
 pub mod config;
 
-// 配置 CLI 核心逻辑：`limiteron-cli` 二进制的可单测实现。
+// 配置 CLI 核心逻辑：`limiteron-cli` 二进制的可单测实现（mod.rs 纯函数
+// run() + forge.rs 的 sdforge inventory 注册面）。二进制入口为根
+// src/main.rs 薄壳（规范形态），原 src/bin/limiteron_cli.rs 已删除。
 // 默认 feature 不编译（决策热路径零开销；`cli` feature 显式开启）。
 #[cfg(feature = "cli")]
 pub mod cli;

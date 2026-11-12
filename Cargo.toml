@@ -140,13 +140,13 @@ http-body-util = { version = "0.1", optional = true }
 unic-langid = "0.9"
 sys-locale = "0.3"
 # trait-kit 经 crates.io registry 引入（kit/log-redaction/i18n 共用）：CI 与发布流程只检出本仓，清单不得声明指向仓外兄弟目录的 path
-trait-kit = { version = "0.5.0-rc.13", default-features = false, features = ["async", "health", "lifecycle"], optional = true }
+trait-kit = { version = "0.5.0-rc.14", default-features = false, features = ["async", "health", "lifecycle"], optional = true }
 # sdforge（常驻，registry 引入，禁仓外 path）：i18n 注册表为无条件面，消息目录宿主
 # 注册经它承载；cli feature 再叠加其 clap+inventory 命令面。环规避：不启用 sdforge
 # 的 ratelimit/kit 等激活其 limiteron optional 依赖的 feature
-sdforge = { version = "0.5.0-rc.10", default-features = false }
+sdforge = { version = "0.5.0-rc.11", default-features = false }
 # 配置加载委托 confers loader::load_file：显式开启三元解析器 feature，不开 dotenv（limiteron 无 .env 契约）
-confers = { version = "0.6.0-rc.12", default-features = false, features = ["toml", "json", "yaml"] }
+confers = { version = "0.6.0-rc.13", default-features = false, features = ["toml", "json", "yaml"] }
 
 [dev-dependencies]
 # test-util 仅在测试构建生效：退避等待经 tokio paused time 验证，不真睡

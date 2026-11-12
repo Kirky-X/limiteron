@@ -1,6 +1,6 @@
 # 📂 Limiteron 示例集
 
-本目录是 workspace 内的独立子 crate（包名 `limiteron-examples`，不发布到 crates.io），共包含 **21 个可运行示例**，覆盖限流、配额、熔断、封禁管理等核心场景。示例源码位于 `src/bin/` 目录，需要 **Rust 1.97.1+**（与 workspace 的 `rust-version` 保持一致）。
+本目录是 workspace 内的独立子 crate（包名 `limiteron-examples`，不发布到 crates.io），共包含 **21 个可运行示例**，覆盖限流、配额、熔断、封禁管理等核心场景。示例源码位于 `examples/src/bin/` 目录（独立 crate 自身目标，非父 crate 二进制），需要 **Rust 1.97.1+**（与 workspace 的 `rust-version` 保持一致）。
 
 ## 与父 crate 的关系
 

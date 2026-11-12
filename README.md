@@ -255,7 +255,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>openapi</code></td><td>OpenAPI 3.0.3 文档构建器 + 入库产物 <code>docs/openapi.json</code> 防漂移测试</td><td>❌</td></tr>
 <tr><td><code>admin-client</code></td><td>Admin API 薄客户端（hyper http1；临时验证面，SDK 生成器落地后接替）</td><td>❌</td></tr>
 <tr><td><code>admin-ui</code></td><td>只读管理 Web UI（内嵌单页无构建链；机械只读守卫：路由表全 GET + 只读投影类型窄化；默认绑定 127.0.0.1，<b>无认证</b>，非回环绑定须前置反向代理；可选 Host 白名单与 API key 鉴权）</td><td>❌</td></tr>
-<tr><td><code>cli</code></td><td><code>limiteron-cli</code> 二进制：规则文件校验 / 导出 / apply dry-run</td><td>❌</td></tr>
+<tr><td><code>cli</code></td><td><code>limiteron-cli</code> 二进制（<code>src/main.rs</code> 薄壳 + sdforge 子命令化）：规则文件校验 / 导出 / apply dry-run</td><td>❌</td></tr>
 <tr><td rowspan="5">可观测性</td><td><code>telemetry</code></td><td>追踪初始化（tracing-subscriber）</td><td>❌</td></tr>
 <tr><td><code>prometheus</code></td><td>Prometheus 指标（全局 + per-rule/per-limiter 维度与降级计数，可配置关闭；旧名 <code>monitoring</code> 保留为兼容别名）</td><td>❌</td></tr>
 <tr><td><code>metrics</code></td><td>Governor allow / reject / ban 三点指标（隐含 <code>prometheus</code>）</td><td>❌</td></tr>

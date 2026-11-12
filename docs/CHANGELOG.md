@@ -35,6 +35,17 @@
 
 ## [Unreleased]
 
+### 变更
+
+- **二进制入口形态收敛**：`limiteron-cli` 的入口文件从 `src/bin/limiteron_cli.rs`
+  （`[[bin]]` 自定义 path 违规形态）收敛到规范路径 `src/main.rs` 薄壳；实现逻辑
+  迁入库侧 `src/cli/forge.rs`（sdforge `CliBuilder` + inventory 注册面），分发回
+  `limiteron::cli::run` 纯函数核心。子命令由平铺参数改为 clap 子命令化
+  （`validate <file>` / `export <file>` / `apply <file> --out <file>`），JSON 输出
+  形状、退出码契约（0 成功 / 1 成功带告警 / 2 错误）与 `help` / `--version`
+  行为不变；缺位置参数从自研 JSON 错误改为 clap usage 错误（退出码同为 2）。
+  `cli` feature 现隐含 `sdforge/cli`（clap+inventory 命令面）。
+
 ## [0.3.0-rc.9] - 2026-10-31
 
 ### 变更

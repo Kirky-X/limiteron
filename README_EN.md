@@ -255,7 +255,7 @@ Limiteron enables no optional functionality by default (`default = []`); compose
 <tr><td><code>openapi</code></td><td>OpenAPI 3.0.3 document builder + committed artifact <code>docs/openapi.json</code> with drift guard test</td><td>❌</td></tr>
 <tr><td><code>admin-client</code></td><td>Thin Admin API client (hyper http1; temporary verification surface, superseded once the SDK generator lands)</td><td>❌</td></tr>
 <tr><td><code>admin-ui</code></td><td>Read-only admin Web UI (embedded single page, no build chain; mechanical read-only guards: all-GET route table + read-only projection typing; binds 127.0.0.1 by default, <b>no authentication</b> — non-loopback bindings require a reverse proxy in front; optional Host allowlist and API key auth)</td><td>❌</td></tr>
-<tr><td><code>cli</code></td><td><code>limiteron-cli</code> binary: rule file validation / export / apply dry-run</td><td>❌</td></tr>
+<tr><td><code>cli</code></td><td><code>limiteron-cli</code> binary (<code>src/main.rs</code> thin shell + sdforge subcommands): rule file validation / export / apply dry-run</td><td>❌</td></tr>
 <tr><td rowspan="5">Observability</td><td><code>telemetry</code></td><td>Tracing initialization (tracing-subscriber)</td><td>❌</td></tr>
 <tr><td><code>prometheus</code></td><td>Prometheus metrics (global + per-rule/per-limiter dimensions and degraded counter, configurable off; legacy name <code>monitoring</code> kept as a compat alias)</td><td>❌</td></tr>
 <tr><td><code>metrics</code></td><td>Governor allow / reject / ban three-point metrics (implies <code>prometheus</code>)</td><td>❌</td></tr>

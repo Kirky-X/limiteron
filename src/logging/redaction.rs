@@ -457,6 +457,9 @@ mod tests {
     }
 
     /// URL 脱敏：path / query / fragment 不得外泄
+    // 与 redact_url 同门控（webhook/event-system）：薄特性集（如裸 cli）
+    // 下函数不编译，测试悬空引用会挡住整个 lib test 编译。
+    #[cfg(any(feature = "webhook", feature = "event-system"))]
     #[test]
     fn test_redact_url_drops_path_and_query() {
         assert_eq!(
@@ -478,6 +481,8 @@ mod tests {
         );
     }
 
+    // 同 redact_url 门控（见 test_redact_url_drops_path_and_query 注释）。
+    #[cfg(any(feature = "webhook", feature = "event-system"))]
     #[test]
     fn test_redact_url_fallbacks() {
         assert_eq!(redact_url(None), "unknown");

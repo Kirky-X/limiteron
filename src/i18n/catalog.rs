@@ -8,7 +8,7 @@
 //! `test_locales_dir_matches_embedded`.
 //!
 //! Lookup is delegated to the `sdforge::i18n` host registry (janvi/CodeNexus
-//! pattern): [`ensure_registered`] parses the embedded `key = value` lines
+//! pattern): `ensure_registered` parses the embedded `key = value` lines
 //! once and registers both locales; the public [`translate`]/[`t`] family
 //! then resolves through `sdforge::i18n::translate_for` (host registration →
 //! built-in en → the key itself; never panics). Substitution follows the

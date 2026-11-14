@@ -5,9 +5,15 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-11-14
+
+0.3 线正式版：多租户贯穿 Governor、CIDR 网段封禁、Admin RBAC、OTLP 追踪导出、MySQL 存储、HTB 分层令牌桶、bulkhead 隔离、AIMD 自适应限流、limiteron-cli 等随 rc.2-rc.10 波次交付的能力随本版定稿。
+
 ### Changed
 
-- 全家族接口归一：trait-kit 0.5.0-rc.14（i18n PluralCategory 重导出）、sdforge 0.5.0-rc.11、confers 0.6.0-rc.13（按仓实际涉及项）；公共 API 无破坏，编译与测试门禁全绿。
+- 全家族依赖随上游转正对齐 minor 精度：`trait-kit` 0.5、`confers` 0.6、`oxcache` 0.5、`dbnexus` 0.6（trait-kit 0.5.0 i18n PluralCategory 重导出等接口归一随版带入）；`sdforge` 维持 0.5.0-rc.11（声明环断环约定保持现钉版）。公共 API 无破坏，编译与测试门禁全绿。
+- 消息目录改 sdforge::i18n 宿主注册、ICU 格式化委托 trait-kit——自持 fluent-bundle/icu/writeable 依赖删除。
+- 二进制入口收敛 `src/main.rs`：独立 src/bin 入口删除，CLI 子命令化经 sdforge CliBuilder（JSON 输出形状、退出码契约与 `help`/`--version` 行为不变）。
 
 ## 0.3.0-rc.10 - 2026-11-01
 

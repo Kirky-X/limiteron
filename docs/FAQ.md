@@ -117,7 +117,7 @@
 
 ```toml
 [dependencies]
-limiteron = { version = "0.3.0-rc.7", features = ["macros"] }
+limiteron = { version = "0.3", features = ["macros"] }
 ```
 
 或使用 cargo:

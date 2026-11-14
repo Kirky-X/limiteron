@@ -11,6 +11,11 @@
 <summary>📑 目录</summary>
 
 - [Unreleased](#unreleased)
+- [0.3.0](#030---2026-11-14)
+- [0.3.0-rc.10](#030-rc10---2026-11-01)
+- [0.3.0-rc.9](#030-rc9---2026-10-31)
+- [0.3.0-rc.8](#030-rc8---2026-10-19)
+- [0.3.0-rc.7](#030-rc7---2026-10-10)
 - [0.3.0-rc.6](#030-rc6---2026-10-06)
 - [0.3.0-rc.5](#030-rc5---2026-09-21)
 - [0.3.0-rc.4](#030-rc4---2026-09-14)
@@ -35,8 +40,23 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-14
+
+0.3 线正式版定稿：自 rc.10 以来的变更如下，0.3 线完整能力清单见各 rc 小节。
+
 ### 变更
 
+- **依赖随上游转正对齐 minor 精度**：`confers` 0.6.0-rc.13 → `0.6`、`trait-kit`
+  0.5.0-rc.14 → `0.5`、`oxcache` 0.5.0-rc.12 → `0.5`、`dbnexus` 0.6.0-rc.11 →
+  `0.6`（integrations 的 `dbnexus-limiter-port` 随族落 0.6.0、`inklog` 落 0.3.0）；
+  `sdforge` 维持 `0.5.0-rc.11` 不动（limiteron↔sdforge 声明环断环约定：本仓不启用
+  激活其 limiteron optional 依赖的 feature，声明保持现钉版，sdforge 发布轮自行
+  处理）。子 crate `limiteron-macros` 自钉同步 0.3.0。
+- **全家族接口归一**：trait-kit 0.5.0（i18n `PluralCategory` 重导出）、confers 0.6.0
+  面兼容复验；公共 API 无破坏，编译与测试门禁全绿。
+- **消息目录改 sdforge::i18n 宿主注册**：ICU 格式化委托 trait-kit i18n 基座
+  （ICU4X 由 trait-kit 拉入），自持 fluent-bundle/icu/writeable 依赖删除；
+  `i18n` feature 对外契约不变，FTL 文件保留真源。
 - **二进制入口形态收敛**：`limiteron-cli` 的入口文件从 `src/bin/limiteron_cli.rs`
   （`[[bin]]` 自定义 path 违规形态）收敛到规范路径 `src/main.rs` 薄壳；实现逻辑
   迁入库侧 `src/cli/forge.rs`（sdforge `CliBuilder` + inventory 注册面），分发回
@@ -45,6 +65,13 @@
   形状、退出码契约（0 成功 / 1 成功带告警 / 2 错误）与 `help` / `--version`
   行为不变；缺位置参数从自研 JSON 错误改为 clap usage 错误（退出码同为 2）。
   `cli` feature 现隐含 `sdforge/cli`（clap+inventory 命令面）。
+
+## [0.3.0-rc.10] - 2026-11-01
+
+### 修复
+
+- `cleartext-logging` 误报面收敛：脱敏测试断言消息不再回显渲染输出，
+  admin 配置日志改走 i18n 消息键（不再内插原始配置值）。
 
 ## [0.3.0-rc.9] - 2026-10-31
 

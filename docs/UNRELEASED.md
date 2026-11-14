@@ -56,9 +56,8 @@
   （inklog/src/lib.rs:367）。注意 inklog 正主入口是进程级单例语义：重复调用
   返回 `Err(InklogError::ConfigError)`。
 
-- 依赖声明：应用层直接声明 inklog 依赖（与 limiteron 内部脱敏引擎同一版本
-  下界 `0.3.0-rc.10`，`default-features = false`），并删除 limiteron 的
-  `features = ["inklog"]`。
+- 依赖声明：应用层直接声明 inklog 依赖（当前稳定版 `0.3.0`，
+  `default-features = false`），并删除 limiteron 的 `features = ["inklog"]`。
 
 - sink 写入限流：`LimiteronSinkRateLimit`（按 target 分桶 + ERROR 直通 + 写失败
   归还预算）已随模块删除。需要该限流端口的实现方，直接实现 inklog 的

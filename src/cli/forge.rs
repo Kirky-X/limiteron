@@ -256,6 +256,9 @@ mod tests {
         assert_eq!(names.len(), 3, "validate/export/apply must be registered");
     }
 
+    // 宿主注册是 i18n-host feature 的契约（cli 单开时查找走自持面，
+    // 不注册进 sdforge 全局注册表）。
+    #[cfg(feature = "i18n-host")]
     #[test]
     fn cli_about_keys_registered_into_sdforge_registry() {
         // 先经 limiteron 自身的 translate 链触发 catalog 的

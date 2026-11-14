@@ -3,7 +3,7 @@ members = [".", "macros", "examples", "integrations/limiteron-sdforge", "integra
 resolver = "2"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 rust-version = "1.97.1"
 authors = ["Kirky-X <Kirky-X@outlook.com>"]
@@ -141,10 +141,12 @@ unic-langid = "0.9"
 sys-locale = "0.3"
 # trait-kit 经 crates.io registry 引入（kit/log-redaction/i18n 共用）：CI 与发布流程只检出本仓，清单不得声明指向仓外兄弟目录的 path
 trait-kit = { version = "0.5", default-features = false, features = ["async", "health", "lifecycle"], optional = true }
-# sdforge（常驻，registry 引入，禁仓外 path）：i18n 注册表为无条件面，消息目录宿主
-# 注册经它承载；cli feature 再叠加其 clap+inventory 命令面。环规避：不启用 sdforge
-# 的 ratelimit/kit 等激活其 limiteron optional 依赖的 feature
-sdforge = { version = "0.5.0-rc.11", default-features = false }
+# sdforge（0.3.1 起 optional，registry 引入，禁仓外 path）：i18n 宿主注册
+# （i18n-host feature）与 cli 命令面（cli feature）按需编译；默认构建零
+# sdforge 解析面——registry 环依赖（limiteron ↔ sdforge）就此解耦，
+# sdforge 0.5.0 的 publish 解析不再撞本仓 rc.11 钉（2026-11-14 死锁解法）。
+# 环规避：不启用 sdforge 的 ratelimit/kit 等激活其 limiteron optional 依赖的 feature
+sdforge = { version = "0.5.0-rc.11", default-features = false, optional = true }
 # 配置加载委托 confers loader::load_file：显式开启三元解析器 feature，不开 dotenv（limiteron 无 .env 契约）
 confers = { version = "0.6", default-features = false, features = ["toml", "json", "yaml"] }
 
@@ -169,7 +171,10 @@ test-clock = []
 # 配置 CLI：主二进制子命令面（validate/export/apply）+ src/cli 可单测核心；
 # 默认不编译（决策热路径零开销）。cli feature 叠加 sdforge 的 clap+inventory
 # 命令面（不启用 ratelimit/kit 等激活 limiteron optional 依赖的 feature）。
-cli = ["sdforge/cli"]
+cli = ["dep:sdforge", "sdforge/cli"]
+# i18n 宿主注册面：把内嵌目录注册进 sdforge::i18n 全局注册表（sdforge 宿主
+# 装配场景 opt-in）；关闭时查找走本仓自持模板面（逐字等价，见 catalog.rs）。
+i18n-host = ["dep:sdforge"]
 # 封禁跨实例同步：经 oxcache Pub/Sub 广播，隐含 event-system
 ban-sync = ["event-system", "oxcache/invalidation"]
 # Minimal：核心限流（无外部存储）；sync 为 tokio-free 同步原语（std + parking_lot）

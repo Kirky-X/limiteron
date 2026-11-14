@@ -8,14 +8,19 @@
 //! `test_locales_dir_matches_embedded`.
 //!
 //! Lookup is delegated to the `sdforge::i18n` host registry (janvi/CodeNexus
-//! pattern): `ensure_registered` parses the embedded `key = value` lines
-//! once and registers both locales; the public [`translate`]/[`t`] family
-//! then resolves through `sdforge::i18n::translate_for` (host registration →
-//! built-in en → the key itself; never panics). Substitution follows the
-//! registry's single-pass `{ $name }` template rules — the catalog is
-//! single-line plain values (no selectors/multi-line, guarded by tests), so
-//! this is behaviorally identical to the previous Fluent-bundle rendering
-//! (isolation marks were already disabled).
+//! pattern) when the `i18n-host` feature is on: `ensure_registered` parses
+//! the embedded `key = value` lines once and registers both locales; the
+//! public [`translate`]/[`t`] family then resolves through
+//! `sdforge::i18n::translate_for` (host registration → built-in en → the key
+//! itself; never panics). Substitution follows the registry's single-pass
+//! `{ $name }` template rules — the catalog is single-line plain values (no
+//! selectors/multi-line, guarded by tests), so this is behaviorally
+//! identical to the previous Fluent-bundle rendering (isolation marks were
+//! already disabled).
+//!
+//! 0.3.1 起 sdforge 为 optional 依赖（registry 环依赖解耦，见 CHANGELOG）：
+//! `i18n-host` 关闭时（含默认构建）查找走本仓自持模板面（同键值、同单遍
+//! 替换规则，逐字等价），宿主注册成为 opt-in 增强。
 
 use std::sync::OnceLock;
 
@@ -68,16 +73,21 @@ fn entries_for(lang: &str) -> Vec<(&'static str, &'static str)> {
 }
 
 /// Key set for a registry bucket (key-parity guards and existence asserts).
-#[cfg(test)]
+#[cfg(all(test, feature = "i18n-host"))]
 pub(crate) fn keys_for(lang: &str) -> std::collections::BTreeSet<&'static str> {
     entries_for(lang).into_iter().map(|(key, _)| key).collect()
 }
 
+#[cfg(feature = "i18n-host")]
 static REGISTERED: OnceLock<()> = OnceLock::new();
 
 /// Register the embedded catalog into the `sdforge::i18n` host registry
 /// (both locales), once per process. Idempotent and safe to call from any
 /// public entry point below — first caller wins, later calls are no-ops.
+///
+/// Only compiled under the `i18n-host` feature（sdforge 是 optional 依赖：
+/// 默认构建零 sdforge 解析面，宿主注册是 opt-in 增强，见模块文档）。
+#[cfg(feature = "i18n-host")]
 pub(crate) fn ensure_registered() {
     REGISTERED.get_or_init(|| {
         for lang in ["en", "zh"] {
@@ -86,6 +96,57 @@ pub(crate) fn ensure_registered() {
             }
         }
     });
+}
+
+/// Self-hosted template maps（`i18n-host` 关闭时的查找真源）：键值与内嵌
+/// FTL 逐字一致，渲染走与宿主注册表相同的单遍 `{ $name }` 替换规则。
+#[cfg(not(feature = "i18n-host"))]
+static EN_MAP: OnceLock<std::collections::BTreeMap<&'static str, &'static str>> = OnceLock::new();
+#[cfg(not(feature = "i18n-host"))]
+static ZH_MAP: OnceLock<std::collections::BTreeMap<&'static str, &'static str>> = OnceLock::new();
+
+#[cfg(not(feature = "i18n-host"))]
+fn self_map(lang: &str) -> &'static std::collections::BTreeMap<&'static str, &'static str> {
+    match lang {
+        "zh" => ZH_MAP.get_or_init(|| entries_for("zh").into_iter().collect()),
+        _ => EN_MAP.get_or_init(|| entries_for("en").into_iter().collect()),
+    }
+}
+
+/// Single-pass literal substitution over a `{$name}` template（与
+/// `sdforge::i18n` 注册面同一规则）：命中参数替换、缺失参数占位符原样
+/// 保留、同名参数以最后一次为准、无闭合大括号按字面文本收尾。
+#[cfg(not(feature = "i18n-host"))]
+fn substitute(template: &str, args: &[(&str, String)]) -> String {
+    if args.is_empty() || !template.contains('{') {
+        return template.to_string();
+    }
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        let Some(close_rel) = rest[open..].find('}') else {
+            break;
+        };
+        let inner = rest[open + 1..open + close_rel].trim();
+        match inner.strip_prefix('$').map(str::trim) {
+            Some(name) if !name.is_empty() => {
+                out.push_str(&rest[..open]);
+                match args.iter().find(|(key, _)| *key == name) {
+                    Some((_, value)) => out.push_str(value),
+                    // Unknown placeholder: keep the original `{ $name }` text.
+                    None => out.push_str(&rest[open..open + close_rel + 1]),
+                }
+                rest = &rest[open + close_rel + 1..];
+            }
+            _ => {
+                // Not a `{ $name }` placeholder: emit the opening brace as-is.
+                out.push_str(&rest[..open + 1]);
+                rest = &rest[open + 1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Translate `key` with the current locale, falling back to English, then to
@@ -100,8 +161,7 @@ pub fn translate(key: &str, args: &[(&str, String)]) -> String {
 
 /// Translate `key` to English specifically, regardless of current locale.
 pub fn translate_en(key: &str, args: &[(&str, String)]) -> String {
-    ensure_registered();
-    sdforge::i18n::translate_for("en", key, args)
+    render_for_impl("en", key, args)
 }
 
 /// Translate `key` for an explicit language tag (used by callers that carry
@@ -109,8 +169,29 @@ pub fn translate_en(key: &str, args: &[(&str, String)]) -> String {
 ///
 /// Falls back to English for unsupported/unknown languages, then to the key.
 pub fn translate_for(lang: &str, key: &str, args: &[(&str, String)]) -> String {
-    ensure_registered();
-    sdforge::i18n::translate_for(registry_lang(lang), key, args)
+    render_for_impl(lang, key, args)
+}
+
+/// 统一取值面：`i18n-host` 开启时经宿主注册表（历史字节路径），关闭时走
+/// 自持模板查找（同值同替换规则，逐字等价）。
+fn render_for_impl(lang: &str, key: &str, args: &[(&str, String)]) -> String {
+    #[cfg(feature = "i18n-host")]
+    {
+        ensure_registered();
+        sdforge::i18n::translate_for(registry_lang(lang), key, args)
+    }
+    #[cfg(not(feature = "i18n-host"))]
+    {
+        // 自持查找：本语言桶 → en 桶 → 键本身，与宿主注册链同序。
+        let bucket = registry_lang(lang);
+        if let Some(template) = self_map(bucket).get(key) {
+            return substitute(template, args);
+        }
+        if let Some(template) = self_map("en").get(key) {
+            return substitute(template, args);
+        }
+        key.to_string()
+    }
 }
 
 /// Shorthand for [`translate`].
@@ -221,6 +302,7 @@ mod tests {
     }
 
     /// 注册后目录键集即注册表键集：两桶零缺失（全部键经 sdforge 可解析）。
+    #[cfg(feature = "i18n-host")]
     #[test]
     fn test_registered_buckets_cover_full_catalog() {
         ensure_registered();

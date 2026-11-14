@@ -2602,7 +2602,7 @@ dependencies = [
 
 [[package]]
 name = "limiteron"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ahash",
  "async-trait",
@@ -2662,7 +2662,7 @@ dependencies = [
 
 [[package]]
 name = "limiteron-dbnexus"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "dbnexus-limiter-port",
@@ -2672,7 +2672,7 @@ dependencies = [
 
 [[package]]
 name = "limiteron-examples"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ahash",
  "axum",
@@ -2690,7 +2690,7 @@ dependencies = [
 
 [[package]]
 name = "limiteron-inklog"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "inklog",
@@ -2699,7 +2699,7 @@ dependencies = [
 
 [[package]]
 name = "limiteron-macros"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "limiteron",
  "proc-macro2",
@@ -2711,7 +2711,7 @@ dependencies = [
 
 [[package]]
 name = "limiteron-sdforge"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "chrono",

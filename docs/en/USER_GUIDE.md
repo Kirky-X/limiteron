@@ -868,7 +868,7 @@ Limiteron enables no optional capabilities by default (`default = []`) — compo
 
 | Preset | Description | Enabled features |
 |------|------|------------|
-| `minimal` | core rate limiting, no external storage dependencies | none |
+| `minimal` | core rate limiting, no external storage dependencies | `sync` (tokio-free sync primitives) |
 | `standard` | core capabilities (bans / quotas / circuit breaking) | `ban-manager`, `quota-control`, `circuit-breaker` |
 | `full` | all features except storage backends (excludes `cli`) | 36 features, see Cargo.toml |
 
@@ -903,7 +903,7 @@ Limiteron enables no optional capabilities by default (`default = []`) — compo
 <tr><td><code>mysql</code></td><td>MySQL storage (dbnexus server driver)</td><td>❌</td></tr>
 <tr><td><code>cache-redis</code></td><td>Redis cache backend (via oxcache; formerly <code>cache-storage</code>, kept as a compatibility alias)</td><td>❌</td></tr>
 <tr><td><code>lua-script</code></td><td>Redis Lua script execution (via oxcache <code>eval_lua</code>): seven scripts — sliding window / sliding window log (cost-weighted) / fixed window / token bucket / token bucket with burst overdraft / quota consumption and reset</td><td>❌</td></tr>
-<tr><td rowspan="11">Core capabilities</td><td><code>ban-manager</code></td><td>Ban management (target bans, priorities, file loading)</td><td>❌</td></tr>
+<tr><td rowspan="12">Core capabilities</td><td><code>ban-manager</code></td><td>Ban management (target bans, priorities, file loading)</td><td>❌</td></tr>
 <tr><td><code>bulkhead</code></td><td>Bulkhead isolation: per-resource-group pools + independent concurrency budgets and isolation metrics</td><td>❌</td></tr>
 <tr><td><code>quota-control</code></td><td>Quota control</td><td>❌</td></tr>
 <tr><td><code>manager</code></td><td>Limiter manager (<code>LimiterManager</code> caches per key; the runtime counterpart of the <code>#[flow_control]</code> macro, can be enabled standalone)</td><td>❌</td></tr>
@@ -914,6 +914,7 @@ Limiteron enables no optional capabilities by default (`default = []`) — compo
 <tr><td><code>custom-limiter</code></td><td>Custom limiter extension</td><td>❌</td></tr>
 <tr><td><code>cache-service</code></td><td>Unified cache service (DI support)</td><td>❌</td></tr>
 <tr><td><code>gcra</code></td><td>GCRA rate-limiting algorithm</td><td>❌</td></tr>
+<tr><td><code>sync</code></td><td>Synchronous rate-limiting primitives: <code>SyncCircuitBreaker</code> / <code>SyncFixedWindowLimiter</code> (std + parking_lot, tokio-free; makes up the <code>minimal</code> preset)</td><td>❌</td></tr>
 <tr><td rowspan="2">Security</td><td><code>log-redaction</code></td><td>Log redaction (the masking engine is carried by the <code>DataMasker</code> / <code>MaskRuleRegistry</code> of trait-kit's <code>masking</code> feature; not in the <code>full</code> preset — enable it explicitly in dependency declarations)</td><td>❌</td></tr>
 <tr><td><code>validation</code></td><td>Identifier input validation (IP / user ID / MAC)</td><td>❌</td></tr>
 <tr><td>Performance</td><td><code>parallel-checker</code></td><td>Parallel ban checks</td><td>❌</td></tr>
@@ -935,6 +936,7 @@ Limiteron enables no optional capabilities by default (`default = []`) — compo
 <tr><td><code>webhook</code></td><td>Webhook egress (HMAC-SHA256 signature headers + timestamp anti-replay)</td><td>❌</td></tr>
 <tr><td rowspan="2">Events</td><td><code>event-system</code></td><td>Event system (EventEmitter / Dispatcher / Outbox)</td><td>❌</td></tr>
 <tr><td><code>ban-sync</code></td><td>Cross-instance ban synchronization (oxcache Pub/Sub broadcast)</td><td>❌</td></tr>
+<tr><td>Plugins</td><td><code>plugins</code></td><td>Plugin system: decision lifecycle hooks (<code>on_admit</code> / <code>on_reject</code> / <code>on_degrade</code>) + compile-time registration (dynamic .so explicitly not supported, not part of any preset)</td><td>❌</td></tr>
 <tr><td>Multi-tenancy</td><td><code>multi-tenant</code></td><td>tenant+key composite decision keys and per-tenant isolation</td><td>❌</td></tr>
 <tr><td>Middleware</td><td><code>tower-middleware</code></td><td>Tower Layer / Service integration (the Governor decision path + the <code>KeyedRateLimitLayer</code> static-limiter-driven fast path; rejection responses can be customized via <code>RejectResponder</code>)</td><td>❌</td></tr>
 <tr><td>Distributed</td><td><code>distributed</code></td><td>The <code>DistributedLimiter</code> trait + in-memory implementation (the Redis implementation additionally needs <code>lua-script</code>)</td><td>❌</td></tr>
@@ -942,10 +944,11 @@ Limiteron enables no optional capabilities by default (`default = []`) — compo
 <tr><td><code>adaptive-threshold</code></td><td>Adaptive threshold rate limiting (sliding-window error-rate/latency driven dynamic quotas, statistical heuristics; thresholds and cooldown fully explicit)</td><td>❌</td></tr>
 <tr><td><code>priority-queue</code></td><td>Priority-queue scheduling (<code>PriorityQueueLimiter</code>: schedules quota by priority)</td><td>❌</td></tr>
 <tr><td><code>admission-control</code></td><td>Admission control (<code>AdmissionController</code>: concurrency + rate dual-gate admission)</td><td>❌</td></tr>
-<tr><td rowspan="4">Ecosystem integrations</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> integration (health/lifecycle ports)</td><td>❌</td></tr>
+<tr><td rowspan="5">Ecosystem integrations</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> integration (health/lifecycle ports)</td><td>❌</td></tr>
 <tr><td><code>i18n</code></td><td>ICU4X internationalized formatting</td><td>❌</td></tr>
 <tr><td><code>config-confers</code></td><td>confers config source loading</td><td>❌</td></tr>
 <tr><td><code>config-confers-reload</code></td><td>confers hot reload (implies <code>config-confers</code>)</td><td>❌</td></tr>
+<tr><td><code>i18n-host</code></td><td>i18n host registration: merges the embedded message catalog into the <code>sdforge::i18n</code> global registry (opt-in for sdforge-hosted assemblies; when disabled, lookups use this repo's self-contained template surface, verbatim-equivalent)</td><td>❌</td></tr>
 <tr><td>Development/testing</td><td><code>test-clock</code></td><td><code>MockClock</code> test clock (for external test consumers)</td><td>❌</td></tr>
 </table>
 

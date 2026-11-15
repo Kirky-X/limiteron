@@ -752,9 +752,16 @@ let ban_manager = BanManager::new().await.unwrap();
 - 监控支持 Prometheus 指标与 OpenTelemetry 追踪
 - 并行封禁检查以提升性能
 
-[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.9...HEAD
+[Unreleased]: https://github.com/Kirky-X/limiteron/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/Kirky-X/limiteron/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.10...v0.3.0
+[0.3.0-rc.10]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.9...v0.3.0-rc.10
 [0.3.0-rc.9]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.8...v0.3.0-rc.9
-[0.3.0-rc.3]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.2...v0.3.0-rc.3
+[0.3.0-rc.8]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.7...v0.3.0-rc.8
+[0.3.0-rc.7]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.6...v0.3.0-rc.7
+[0.3.0-rc.6]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.5...v0.3.0-rc.6
+[0.3.0-rc.5]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.4...v0.3.0-rc.5
+[0.3.0-rc.4]: https://github.com/Kirky-X/limiteron/compare/v0.3.0-rc.2...v0.3.0-rc.4
 [0.3.0-rc.2]: https://github.com/Kirky-X/limiteron/compare/v0.2.10...v0.3.0-rc.2
 [0.2.10]: https://github.com/Kirky-X/limiteron/compare/v0.2.9...v0.2.10
 [0.2.9]: https://github.com/Kirky-X/limiteron/compare/v0.2.8...v0.2.9

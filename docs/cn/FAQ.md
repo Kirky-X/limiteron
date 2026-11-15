@@ -71,10 +71,10 @@
 
 <br>
 
-**可以。** 当前 0.3.0-rc.x 发布线已在真实项目中验证核心能力：
+**可以。** 当前 0.3.x 发布线已在真实项目中验证核心能力：
 
 - ✅ 核心限流与存储抽象稳定，默认构建零外部存储依赖
-- ✅ 3298 个测试的分层测试体系与 llvm-cov ≥90% 行覆盖门禁（见[测试指南](TESTING.md)）
+- ✅ 3833 个测试的分层测试体系与 llvm-cov ≥90% 行覆盖门禁（见[测试指南](TESTING.md)）
 - ✅ CI 覆盖 fmt / clippy / 三平台构建 / cargo-deny / cargo-audit / CodeQL
 - ✅ 性能数据可经仓库自带 criterion 基准复现（`cargo bench --features full`）
 
@@ -286,7 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 <br>
 
-**令牌桶、漏桶、滑动窗口（已弃用导出）与分片滑动窗口、滑动窗口日志、固定窗口、并发控制、GCRA（`gcra` 特性）、HTB 分层令牌桶、AIMD 自适应并发（`adaptive-limiting` 特性）**。各算法的类型与适用场景对照见[用户指南](USER_GUIDE.md#1️-限流器)，构造签名与特性要求见[算法详情](API_REFERENCE.md#-限流器)。
+**令牌桶、漏桶、滑动窗口（已弃用导出）与分片滑动窗口、滑动窗口日志、固定窗口、并发控制、GCRA（`gcra` 特性）、HTB 分层令牌桶、AIMD 自适应并发（`adaptive-limiting` 特性）**。各算法的类型与适用场景对照见[用户指南](USER_GUIDE.md#1️⃣-限流器)，构造签名与特性要求见[算法详情](API_REFERENCE.md#-限流器)。
 
 </details>
 
@@ -703,7 +703,7 @@ bug 的清晰描述
 ### 环境
 - OS: Ubuntu 22.04
 - Rust version: 1.97.1
-- limiteron version: 0.3.0-rc.7
+- limiteron version: 0.3.1
 
 ### 其他上下文
 任何其他相关信息

@@ -865,7 +865,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 
 | 预设 | 说明 | 启用的特性 |
 |------|------|------------|
-| `minimal` | 核心限流，无外部存储依赖 | 无 |
+| `minimal` | 核心限流，无外部存储依赖 | `sync`（tokio-free 同步原语） |
 | `standard` | 核心功能（封禁 / 配额 / 熔断） | `ban-manager`、`quota-control`、`circuit-breaker` |
 | `full` | 除存储后端外的全部功能（不含 `cli`） | 36 项特性，见 Cargo.toml |
 
@@ -900,7 +900,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>mysql</code></td><td>MySQL 存储（dbnexus 服务端驱动）</td><td>❌</td></tr>
 <tr><td><code>cache-redis</code></td><td>Redis 缓存后端（经 oxcache；原 <code>cache-storage</code>，保留为兼容别名）</td><td>❌</td></tr>
 <tr><td><code>lua-script</code></td><td>Redis Lua 脚本执行（经 oxcache <code>eval_lua</code>）：滑动窗口 / 滑动窗口日志（cost 加权）/ 固定窗口 / 令牌桶 / 带突发透支令牌桶 / 配额消费与重置七脚本</td><td>❌</td></tr>
-<tr><td rowspan="11">核心功能</td><td><code>ban-manager</code></td><td>封禁管理（目标封禁、优先级、文件加载）</td><td>❌</td></tr>
+<tr><td rowspan="12">核心功能</td><td><code>ban-manager</code></td><td>封禁管理（目标封禁、优先级、文件加载）</td><td>❌</td></tr>
 <tr><td><code>bulkhead</code></td><td>舱壁隔离：按资源组分池 + 独立并发预算与隔离指标</td><td>❌</td></tr>
 <tr><td><code>quota-control</code></td><td>配额控制</td><td>❌</td></tr>
 <tr><td><code>manager</code></td><td>限流器管理器（<code>LimiterManager</code> 按 key 缓存；<code>#[flow_control]</code> 宏运行时配套，可独立启用）</td><td>❌</td></tr>
@@ -911,6 +911,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>custom-limiter</code></td><td>自定义限流器扩展</td><td>❌</td></tr>
 <tr><td><code>cache-service</code></td><td>统一缓存服务（DI 支持）</td><td>❌</td></tr>
 <tr><td><code>gcra</code></td><td>GCRA 限流算法</td><td>❌</td></tr>
+<tr><td><code>sync</code></td><td>同步限流原语：<code>SyncCircuitBreaker</code> / <code>SyncFixedWindowLimiter</code>（std + parking_lot，tokio-free；<code>minimal</code> 预设即由它构成）</td><td>❌</td></tr>
 <tr><td rowspan="2">安全</td><td><code>log-redaction</code></td><td>日志脱敏（脱敏引擎由 trait-kit <code>masking</code> feature 的 <code>DataMasker</code> / <code>MaskRuleRegistry</code> 承载；不在 <code>full</code> 预设内，须在依赖声明中显式开启）</td><td>❌</td></tr>
 <tr><td><code>validation</code></td><td>标识符输入校验（IP / 用户 ID / MAC）</td><td>❌</td></tr>
 <tr><td>性能</td><td><code>parallel-checker</code></td><td>并行封禁检查</td><td>❌</td></tr>
@@ -932,6 +933,7 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>webhook</code></td><td>Webhook 外发（HMAC-SHA256 签名头 + 时间戳防重放）</td><td>❌</td></tr>
 <tr><td rowspan="2">事件</td><td><code>event-system</code></td><td>事件系统（EventEmitter / Dispatcher / Outbox）</td><td>❌</td></tr>
 <tr><td><code>ban-sync</code></td><td>封禁跨实例同步（oxcache Pub/Sub 广播）</td><td>❌</td></tr>
+<tr><td>插件</td><td><code>plugins</code></td><td>插件系统：决策生命周期钩子（<code>on_admit</code> / <code>on_reject</code> / <code>on_degrade</code>）+ 编译期注册制（动态 .so 明确不做，不入任何 preset）</td><td>❌</td></tr>
 <tr><td>多租户</td><td><code>multi-tenant</code></td><td>tenant+key 复合决策键与按租户隔离</td><td>❌</td></tr>
 <tr><td>中间件</td><td><code>tower-middleware</code></td><td>Tower Layer / Service 集成（Governor 决策路径 + <code>KeyedRateLimitLayer</code> 静态限流器直驱快速路径，拒绝响应可经 <code>RejectResponder</code> 定制）</td><td>❌</td></tr>
 <tr><td>分布式</td><td><code>distributed</code></td><td><code>DistributedLimiter</code> trait + 内存实现（Redis 实现需另启用 <code>lua-script</code>）</td><td>❌</td></tr>
@@ -939,10 +941,11 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 <tr><td><code>adaptive-threshold</code></td><td>自适应阈值限流（滑动窗口错误率/延迟驱动动态配额，统计启发式；阈值与冷却期全显式配置）</td><td>❌</td></tr>
 <tr><td><code>priority-queue</code></td><td>优先级队列调度（<code>PriorityQueueLimiter</code>：按优先级调度配额）</td><td>❌</td></tr>
 <tr><td><code>admission-control</code></td><td>准入控制（<code>AdmissionController</code>：并发 + 速率双门准入）</td><td>❌</td></tr>
-<tr><td rowspan="4">生态集成</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> 集成（健康/生命周期端口）</td><td>❌</td></tr>
+<tr><td rowspan="5">生态集成</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> 集成（健康/生命周期端口）</td><td>❌</td></tr>
 <tr><td><code>i18n</code></td><td>ICU4X 国际化格式化</td><td>❌</td></tr>
 <tr><td><code>config-confers</code></td><td>confers 配置源加载</td><td>❌</td></tr>
 <tr><td><code>config-confers-reload</code></td><td>confers 热重载（隐含 <code>config-confers</code>）</td><td>❌</td></tr>
+<tr><td><code>i18n-host</code></td><td>i18n 宿主注册面：把内嵌消息目录汇入 <code>sdforge::i18n</code> 全局注册表（sdforge 宿主装配场景 opt-in；关闭时查找走本仓自持模板面，逐字等价）</td><td>❌</td></tr>
 <tr><td>开发/测试</td><td><code>test-clock</code></td><td><code>MockClock</code> 测试时钟（外部测试消费者专用）</td><td>❌</td></tr>
 </table>
 

@@ -71,10 +71,10 @@ It is designed for developers who need to protect API services against abuse and
 
 <br>
 
-**Yes.** The current 0.3.0-rc.x release line has validated its core capabilities in real projects:
+**Yes.** The current 0.3.x release line has validated its core capabilities in real projects:
 
 - ✅ Core rate limiting and the storage abstraction are stable; the default build has zero external storage dependencies
-- ✅ A layered test system of 3298 tests with the llvm-cov ≥90% line-coverage gate (see the [Testing Guide](TESTING.md))
+- ✅ A layered test system of 3833 tests with the llvm-cov ≥90% line-coverage gate (see the [Testing Guide](TESTING.md))
 - ✅ CI covers fmt / clippy / three-platform builds / cargo-deny / cargo-audit / CodeQL
 - ✅ Performance numbers are reproducible via the repo's criterion benchmarks (`cargo bench --features full`)
 
@@ -286,7 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 <br>
 
-**Token bucket, leaky bucket, sliding window (deprecated re-export) and sharded sliding window, sliding window log, fixed window, concurrency control, GCRA (the `gcra` feature), HTB hierarchical token bucket, AIMD adaptive concurrency (the `adaptive-limiting` feature)**. For a comparison of types and applicable scenarios per algorithm see the [User Guide](USER_GUIDE.md#1️-rate-limiters); for constructor signatures and feature requirements see [Algorithm details](API_REFERENCE.md#-rate-limiters).
+**Token bucket, leaky bucket, sliding window (deprecated re-export) and sharded sliding window, sliding window log, fixed window, concurrency control, GCRA (the `gcra` feature), HTB hierarchical token bucket, AIMD adaptive concurrency (the `adaptive-limiting` feature)**. For a comparison of types and applicable scenarios per algorithm see the [User Guide](USER_GUIDE.md#1️⃣-rate-limiters); for constructor signatures and feature requirements see [Algorithm details](API_REFERENCE.md#-rate-limiters).
 
 </details>
 
@@ -704,7 +704,7 @@ what actually happened
 ### Environment
 - OS: Ubuntu 22.04
 - Rust version: 1.97.1
-- limiteron version: 0.3.0-rc.7
+- limiteron version: 0.3.1
 
 ### Additional context
 any other relevant information

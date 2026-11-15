@@ -239,12 +239,12 @@ cargo test --features full -- --test-threads=1
 
 ## 🧪 Test Statistics
 
-**Test scale** (counted by grepping the `#[test]` / `#[tokio::test]` attributes (`grep -rEc '#\[(tokio::)?test\b' --include='*.rs'`), as of v0.3.0-rc.7):
+**Test scale** (counted by grepping the `#[test]` / `#[tokio::test]` attributes (`grep -rEc '#\[(tokio::)?test\b' --include='*.rs'`), as of v0.3.1):
 
 | Item | Count |
 |--------|------|
-| In-library test functions (`src/`) | 2,489 (#[test] 1,551 + #[tokio::test] 938) |
-| External test functions (`tests/`) | 607 (#[test] 158 + #[tokio::test] 449) |
+| In-library test functions (`src/`) | 2,610 (#[test] 1,594 + #[tokio::test] 1,016) |
+| External test functions (`tests/`) | 609 (#[test] 160 + #[tokio::test] 449) |
 | Macro crate tests (`macros/`) | 47 (#[test]) |
-| Integration adapter crate tests (`integrations/`) | 21 (#[test] 5 + #[tokio::test] 16) |
+| Integration adapter crate tests (`integrations/`) | 27 (#[test] 11 + #[tokio::test] 16) |
 | Property test groups (proptest) | 4 |

@@ -862,7 +862,7 @@ async fn handler() -> Result<(), limiteron::error::LimiteronError> {
 
 ## 🧩 Feature Flags
 
-Limiteron enables no optional capabilities by default (`default = []`) — compose them on demand. The items below map one-to-one to the `[features]` section of [Cargo.toml](../Cargo.toml):
+Limiteron enables no optional capabilities by default (`default = []`) — compose them on demand. The items below map one-to-one to the `[features]` section of [Cargo.toml](../../Cargo.toml):
 
 **Feature presets**
 

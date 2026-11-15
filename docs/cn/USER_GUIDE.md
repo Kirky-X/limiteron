@@ -859,7 +859,7 @@ async fn handler() -> Result<(), limiteron::error::LimiteronError> {
 | [🔒 安全文档](SECURITY.md) | 安全设计与漏洞报告流程 |
 ## 🧩 特性标志
 
-Limiteron 默认不启用任何可选功能（`default = []`），按需组合。以下内容逐项对应 [Cargo.toml](../Cargo.toml) 的 `[features]` 段：
+Limiteron 默认不启用任何可选功能（`default = []`），按需组合。以下内容逐项对应 [Cargo.toml](../../Cargo.toml) 的 `[features]` 段：
 
 **特性预设**
 

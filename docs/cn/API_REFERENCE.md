@@ -963,7 +963,7 @@ let storage = factory.create_storage().await?;
 
 > 管理端点自带按路径、按客户端分桶的限流自保护（分桶内存上限 `RATE_BUCKET_MAX_ENTRIES=10000`）。
 
-**OpenAPI 产物（`openapi` 特性）**：完整契约见入库产物 [`docs/openapi.json`](openapi.json)（OpenAPI 3.0.3，12 条路由与 schema）。产物由内存构建器单一事实来源生成，`tests/openapi_drift.rs` 防漂移守卫保证二者逐字节一致——契约变更时红灯，`UPDATE_OPENAPI=1 cargo test --features openapi --test openapi_drift` 重写后须人工复核 diff。协议无关操作面见 `AdminService` trait（`src/admin/service.rs`）：axum handlers 与薄客户端共享同一契约，错误类别到状态码的映射唯一（NotConfigured→503 / Invalid→400 / NotFound→404 / Forbidden→403 / Internal→500）。
+**OpenAPI 产物（`openapi` 特性）**：完整契约见入库产物 [`docs/openapi.json`](../openapi.json)（OpenAPI 3.0.3，12 条路由与 schema）。产物由内存构建器单一事实来源生成，`tests/openapi_drift.rs` 防漂移守卫保证二者逐字节一致——契约变更时红灯，`UPDATE_OPENAPI=1 cargo test --features openapi --test openapi_drift` 重写后须人工复核 diff。协议无关操作面见 `AdminService` trait（`src/admin/service.rs`）：axum handlers 与薄客户端共享同一契约，错误类别到状态码的映射唯一（NotConfigured→503 / Invalid→400 / NotFound→404 / Forbidden→403 / Internal→500）。
 
 > **错误响应不外泄内部信息**：`Internal` 类错误的响应体为固定文案 `internal server error`，原始错误文本（可能含存储驱动的表名/列名/约束名/SQL 片段）只落服务端日志。`POST /api/v1/check/batch` 的逐条 `error` 字段同理只给稳定类别（`validation` / `storage` / `config` / `authorization` / `throttled` / `ban` / `circuit_breaker` / `internal`），原始错误只落日志。
 

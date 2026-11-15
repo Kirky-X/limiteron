@@ -102,7 +102,12 @@
   `inklog::init_inklog_logger()`（或 `init_inklog_logger_with_config(config)`）。
   `log-redaction` 特性保留，脱敏引擎仍由 inklog 的 `DataMasker` 承载，该依赖是
   `log-redaction` 的实现细节，不对外暴露为独立 feature。完整迁移指引见
-  [UNRELEASED.md](UNRELEASED.md)。
+  [UNRELEASED.md](cn/UNRELEASED.md)。
+- `log-redaction` 掩码引擎换源：`inklog` 依赖删除，改依赖 `trait-kit/masking`
+  （`DataMasker` / `MaskRule` / `MaskRuleRegistry` 单一来源下沉 trait-kit）；
+  limiteron 对 inklog 的依赖归零，双向可选边成环风险清零。`trait-kit` 地板
+  抬至 `0.5.0-rc.11`。守卫测试口径修正：跨仓自研依赖不变式约束「已声明者
+  须经 registry 引入」，未声明项跳过（约束来源而非声明义务）。
 
 ### 新增
 
@@ -110,6 +115,10 @@
 - **只读 Web UI 访问控制面（`admin-ui`）**：新增 `WebUiAccess`（`HostCheck` 严格/宽松 + `allowed_hosts` + 可选 `api_key`）与 `WebUiServer::with_access(...)` / `create_router_with_access(...)`。严格模式下仅放行 IP 字面量、`localhost` 与显式配置的 host（其余 DNS 名 421，DNS rebinding 的收敛面）；配置 `api_key` 后要求 `Authorization: Bearer <key>`（缺失/不符 401）。**默认行为不变**（宽松 Host、无鉴权），既有部署无需改动。
 - **BanManager 强制授权提供者**：`BanManagerBuilder::with_required_authorization(true)`——未注入 `authorization_provider` 时 `build()` 直接失败（fail closed），杜绝"以为有细粒度授权、实际手动封禁无授权"的部署状态。默认关闭，既有构建行为不变。该开关只在 `BanManagerBuilder::build()` 内生效——`BanManager::new` / `with_dependencies` / `with_dependencies_and_auth` 不经该构建器，无法开启 fail closed。
 - **`EventDispatcher::try_add_webhook_url` 与 `WebhookUrlError`（`event-system`）**：webhook URL 注册此前只记告警、丢弃失败原因（`add_webhook_url` 返回 `()`），调用方无法区分「永久拒绝」与「DNS 解析瞬时失败」，一次解析抖动即把合法端点变成不可恢复的丢失。新增 `try_add_webhook_url` 返回分类结果（`WebhookUrlError::Rejected` 永久拒绝 / `DnsTransient` 瞬时故障可重试），失败时不登记 URL；`add_webhook_url` 签名不变，作为只记告警的薄封装保留。
+- 新增 `integrations/limiteron-inklog` 适配器 crate（不发布 crates.io，照
+  `limiteron-dbnexus` 先例）：实现 inklog 自有 `SinkRateLimit` 端口的按 target
+  分桶令牌预算——`ERROR` 级直通、sink 写失败归还预算、桶数上限防无界增长；
+  补充语义与 `TokenBucketLimiter::new(rate, rate)` 等价（纳秒时间积分携带）。
 
 ### 变更
 

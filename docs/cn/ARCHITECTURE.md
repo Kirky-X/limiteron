@@ -2,7 +2,7 @@
 
 本文档描述 Limiteron 的整体架构、模块划分与扩展机制，帮助读者理解框架的内部实现。模块事实以 `src/` 源码为准；API 细节见 [API 参考](API_REFERENCE.md)。
 
-[🏠 首页](../README.md) • [📋 更新日志](CHANGELOG.md) • [🧪 测试指南](TESTING.md) • [🔒 安全文档](SECURITY.md)
+[🏠 首页](../../README_CN.md) • [📋 更新日志](../CHANGELOG.md) • [🧪 测试指南](TESTING.md) • [🔒 安全文档](SECURITY.md)
 
 ---
 
@@ -139,7 +139,7 @@ sequenceDiagram
 
 ## 🧩 特性依赖总览
 
-特性体系按类别组织（完整清单见 [Cargo.toml](../Cargo.toml) 的 `[features]` 段与 [README 特性标志](../README.md#-特性标志)）：
+特性体系按类别组织（完整清单见 [Cargo.toml](../../Cargo.toml) 的 `[features]` 段与 [特性标志](USER_GUIDE.md#-特性标志)）：
 
 ```mermaid
 flowchart BT

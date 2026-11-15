@@ -293,16 +293,16 @@ Limiteron 默认不启用任何可选功能（`default = []`），按需组合�
 
 | 文档 | 说明 |
 |------|------|
-| [📖 用户指南](docs/USER_GUIDE.md) | 从安装、核心概念到进阶用法与故障排除的完整教程 |
-| [📘 API 参考](docs/API_REFERENCE.md) | 全部公开 API 的详细说明 |
-| [🏗️ 架构文档](docs/ARCHITECTURE.md) | 设计理念、模块划分与扩展机制 |
-| [❓ FAQ](docs/FAQ.md) | 常见问题解答与故障排除 |
-| [🧪 测试指南](docs/TESTING.md) | 测试分类、运行命令与覆盖率说明 |
-| [📈 基准测试规程](docs/BENCHMARKS.md) | `cargo bench` 口径、基线刷新时机与 criterion 对比用法 |
-| [🧬 测试场景固化](docs/TEST_SCENARIOS.md) | 测试金字塔基线与 E2E 场景定义 |
-| [🔒 安全文档](docs/SECURITY.md) | 安全设计、版本支持策略与漏洞报告流程 |
+| [📖 用户指南](docs/cn/USER_GUIDE.md) | 从安装、核心概念到进阶用法与故障排除的完整教程 |
+| [📘 API 参考](docs/cn/API_REFERENCE.md) | 全部公开 API 的详细说明 |
+| [🏗️ 架构文档](docs/cn/ARCHITECTURE.md) | 设计理念、模块划分与扩展机制 |
+| [❓ FAQ](docs/cn/FAQ.md) | 常见问题解答与故障排除 |
+| [🧪 测试指南](docs/cn/TESTING.md) | 测试分类、运行命令与覆盖率说明 |
+| [📈 基准测试规程](docs/cn/BENCHMARKS.md) | `cargo bench` 口径、基线刷新时机与 criterion 对比用法 |
+| [🧬 测试场景固化](docs/cn/TEST_SCENARIOS.md) | 测试金字塔基线与 E2E 场景定义 |
+| [🔒 安全文档](docs/cn/SECURITY.md) | 安全设计、版本支持策略与漏洞报告流程 |
 | [📋 更新日志](docs/CHANGELOG.md) | 每个版本的变更记录 |
-| [🤝 贡献指南](docs/CONTRIBUTING.md) | 如何参与项目开发 |
+| [🤝 贡献指南](docs/cn/CONTRIBUTING.md) | 如何参与项目开发 |
 | [📦 docs.rs 在线文档](https://docs.rs/limiteron) | 自动生成的最新 API 文档 |
 | [📦 crates.io](https://crates.io/crates/limiteron) | 发布页面 |
 
@@ -359,7 +359,7 @@ cargo run -p limiteron-examples --features "ban-manager,admin-api" --bin ban_htt
 
 Limiteron 采用分层架构：接入层（Tower 中间件、Admin API）将流量交给 **Governor** 主控制器，经 matchers 提取标识符并匹配规则后，沿规则各自的 decision_chain 决策链级联执行 limiters 限流算法；封禁、配额、熔断、降级作为领域组件参与决策；状态经 storage 抽象落地（默认内存，生产可切换 dbnexus 的 PostgreSQL / SQLite / MySQL 持久化）。
 
-整体架构图、核心决策时序、模块职责表、存储后端清单与扩展机制见[架构文档](docs/ARCHITECTURE.md)。
+整体架构图、核心决策时序、模块职责表、存储后端清单与扩展机制见[架构文档](docs/cn/ARCHITECTURE.md)。
 
 ---
 
@@ -367,7 +367,7 @@ Limiteron 采用分层架构：接入层（Tower 中间件、Admin API）将流�
 
 一次 `Governor::check(context)` 的完整决策路径（提炼自 `src/governor.rs`）：标识符提取与规则匹配（只计算一次）→ L1 负缓存查询（fail-closed，仅缓存拒绝/封禁决策）→ 按优先级级联执行各规则决策链（任一规则拒绝即拒绝，全部允许才放行）→ 发射限流事件并返回 `Allowed` / `Rejected` / `Banned`。
 
-完整决策时序图与逐条关键语义（含 `parallel-checker` 下封禁检查先于缓存读取的语义）见[架构文档](docs/ARCHITECTURE.md#-核心决策流程)。
+完整决策时序图与逐条关键语义（含 `parallel-checker` 下封禁检查先于缓存读取的语义）见[架构文档](docs/cn/ARCHITECTURE.md#-核心决策流程)。
 
 ---
 
@@ -394,7 +394,7 @@ Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式
 
 ## 🧪 测试
 
-测试策略矩阵（单元 / 集成与端到端 / 属性 / 文档 / 基准五层）与运行命令（与 [CI](.github/workflows/ci.yml) 一致，含覆盖率门禁）见[测试指南](docs/TESTING.md)，分层基线与 E2E 场景定义见[测试场景固化](docs/TEST_SCENARIOS.md)。
+测试策略矩阵（单元 / 集成与端到端 / 属性 / 文档 / 基准五层）与运行命令（与 [CI](.github/workflows/ci.yml) 一致，含覆盖率门禁）见[测试指南](docs/cn/TESTING.md)，分层基线与 E2E 场景定义见[测试场景固化](docs/cn/TEST_SCENARIOS.md)。
 
 **测试规模**（按 `#[test]` / `#[tokio::test]` 属性 grep 统计（`grep -rEc '#\[(tokio::)?test\b' --include='*.rs'`），截至 v0.3.0-rc.7）：
 
@@ -410,7 +410,7 @@ Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式
 
 ## 📊 性能
 
-> **说明**：下表为 2026-01-19（v0.1.0 时期）的实测数据，**口径早于 criterion 基准接入**——`harness = false` 缺失导致基线直到 2026-09-30 才首次真实产出（见[基准规程](docs/BENCHMARKS.md)）。下表数字保留作为历史对照，当前可复现基线请以 [docs/BENCHMARKS.md](docs/BENCHMARKS.md) 的命令与同机复测结果为准。
+> **说明**：下表为 2026-01-19（v0.1.0 时期）的实测数据，**口径早于 criterion 基准接入**——`harness = false` 缺失导致基线直到 2026-09-30 才首次真实产出（见[基准规程](docs/cn/BENCHMARKS.md)）。下表数字保留作为历史对照，当前可复现基线请以 [docs/BENCHMARKS.md](docs/cn/BENCHMARKS.md) 的命令与同机复测结果为准。
 
 <table>
 <tr>
@@ -478,9 +478,9 @@ cargo bench --features full
 
 ## 🔒 安全
 
-**漏洞报告**：请勿通过公开 issue 报告安全漏洞，请使用 GitHub [Security Advisories](https://github.com/Kirky-X/limiteron/security/policy) 私密披露通道（"Report a vulnerability"）。维护者承诺 48 小时内确认、7 天内给出初步评估，采用协调披露。完整流程见 [SECURITY.md](docs/SECURITY.md)。
+**漏洞报告**：请勿通过公开 issue 报告安全漏洞，请使用 GitHub [Security Advisories](https://github.com/Kirky-X/limiteron/security/policy) 私密披露通道（"Report a vulnerability"）。维护者承诺 48 小时内确认、7 天内给出初步评估，采用协调披露。完整流程见 [SECURITY.md](docs/cn/SECURITY.md)。
 
-**安全设计要点**（均可在源码与[安全文档](docs/SECURITY.md)中对应）：
+**安全设计要点**（均可在源码与[安全文档](docs/cn/SECURITY.md)中对应）：
 
 - **输入防线** — 租户 / 环境标识符消毒（转义 `:` 防命名空间前缀注入，`src/tenant/config.rs`）；IP / 用户 ID / MAC 格式校验（`src/validation.rs`）；租户 ID 取自请求头时须由可信网关覆写，或用 `HeaderTenantResolver::with_allowed_tenants` 限定租户白名单（`src/tenant/resolver.rs`）
 - **算法边界** — 令牌桶时间差与补充使用饱和运算封顶；配额窗口内置时钟回退防护
@@ -521,7 +521,7 @@ cargo bench --features full
 
 ## 🤝 参与贡献
 
-欢迎任何形式的贡献！开发环境、TDD 工作流、代码规范与 PR 流程详见[贡献指南](docs/CONTRIBUTING.md)。
+欢迎任何形式的贡献！开发环境、TDD 工作流、代码规范与 PR 流程详见[贡献指南](docs/cn/CONTRIBUTING.md)。
 
 <table>
 <tr>
@@ -557,7 +557,7 @@ cargo bench --features full
 
 <br>
 
-Rust 1.97.1（[rust-toolchain.toml](rust-toolchain.toml) 统一锁定）；lefthook / pre-commit 钩子覆盖 fmt、clippy、供应链检查、私钥扫描与覆盖率门禁。环境搭建、钩子明细与提交规范全文见[贡献指南](docs/CONTRIBUTING.md)。
+Rust 1.97.1（[rust-toolchain.toml](rust-toolchain.toml) 统一锁定）；lefthook / pre-commit 钩子覆盖 fmt、clippy、供应链检查、私钥扫描与覆盖率门禁。环境搭建、钩子明细与提交规范全文见[贡献指南](docs/cn/CONTRIBUTING.md)。
 
 </details>
 

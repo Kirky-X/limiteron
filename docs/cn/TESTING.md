@@ -130,7 +130,7 @@ CI 口径（`--workspace --no-default-features --features full`）全量运行�
 
 ### 覆盖率门禁
 
-CI 与 pre-push 钩子均启用 **cargo-llvm-cov 行覆盖率 ≥ 90%** 门禁（以 [CI 配置](../.github/workflows/ci.yml) 为准）：
+CI 与 pre-push 钩子均启用 **cargo-llvm-cov 行覆盖率 ≥ 90%** 门禁（以 [CI 配置](../../.github/workflows/ci.yml) 为准）：
 
 ```bash
 # 与 CI 完全一致的口径
@@ -193,7 +193,7 @@ cargo test --features full -- quota
 
 ## 🤖 CI 集成
 
-CI 质量门禁定义在 [ci.yml](../.github/workflows/ci.yml)，包含以下任务：
+CI 质量门禁定义在 [ci.yml](../../.github/workflows/ci.yml)，包含以下任务：
 
 | 任务 | 命令口径 |
 |------|---------|

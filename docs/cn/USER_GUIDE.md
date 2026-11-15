@@ -1,8 +1,8 @@
 # 📖 Limiteron 用户指南
 
-本指南是 Limiteron（Rust 统一流量控制框架）的完整使用教程，覆盖从安装、核心概念到进阶用法、最佳实践与故障排查的全部内容。快速概览请见 [README](../README.md)，API 细节请见 [API 参考](API_REFERENCE.md)。
+本指南是 Limiteron（Rust 统一流量控制框架）的完整使用教程，覆盖从安装、核心概念到进阶用法、最佳实践与故障排查的全部内容。快速概览请见 [README](../../README_CN.md)，API 细节请见 [API 参考](API_REFERENCE.md)。
 
-[🏠 首页](../README.md) • [💻 示例](../examples/) • [❓ 常见问题](FAQ.md)
+[🏠 首页](../../README_CN.md) • [💻 示例](../../examples/) • [❓ 常见问题](FAQ.md)
 
 ---
 
@@ -58,7 +58,7 @@
 
 | 类别 | 项目 |
 |------|------|
-| 必需 | Rust 1.97.1+（[rust-toolchain.toml](../rust-toolchain.toml) 统一锁定）、Cargo、Git |
+| 必需 | Rust 1.97.1+（[rust-toolchain.toml](../../rust-toolchain.toml) 统一锁定）、Cargo、Git |
 | 可选 | 支持 Rust 的 IDE、Docker（容器化部署）、PostgreSQL / MySQL / SQLite（经 dbnexus 持久化存储）、Redis（经 oxcache 缓存集成） |
 
 <details>
@@ -84,7 +84,7 @@ git --version
 cargo add limiteron --features macros
 ```
 
-或在 `Cargo.toml` 中手动添加（版本与 [Cargo.toml](../Cargo.toml) 当前发布线一致）：
+或在 `Cargo.toml` 中手动添加（版本与 [Cargo.toml](../../Cargo.toml) 当前发布线一致）：
 
 ```toml
 [dependencies]
@@ -114,7 +114,7 @@ limiteron = { path = "/path/to/limiteron" }
 
 ### 第一步
 
-用一个最小示例验证安装（对应仓库示例 [`simple_rate_limit.rs`](../examples/src/bin/simple_rate_limit.rs)）：
+用一个最小示例验证安装（对应仓库示例 [`simple_rate_limit.rs`](../../examples/src/bin/simple_rate_limit.rs)）：
 
 ```rust
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
@@ -488,7 +488,7 @@ let governor = Governor::builder()
 
 ### 性能基准
 
-吞吐量与延迟基准数字（TokenBucket 12M+ ops/s / P99 < 1µs、FixedWindow 20M+ ops/s 等，2026-01-19 实测）见 [README 性能](../README.md#-性能)。测试环境：Linux WSL2，Release 优化模式。
+吞吐量与延迟基准数字（TokenBucket 12M+ ops/s / P99 < 1µs、FixedWindow 20M+ ops/s 等，2026-01-19 实测）见 [README 性能](../../README_CN.md#-性能)。测试环境：Linux WSL2，Release 优化模式。
 
 #### 并发测试
 
@@ -518,7 +518,7 @@ let governor = Governor::builder()
 
 </details>
 
-复现方式：`cargo bench --features full`（基准设施见 [README](../README.md#-性能)）。
+复现方式：`cargo bench --features full`（基准设施见 [README](../../README_CN.md#-性能)）。
 
 ### 错误处理
 
@@ -851,7 +851,7 @@ async fn handler() -> Result<(), limiteron::error::LimiteronError> {
 
 | 资源 | 说明 |
 |------|------|
-| [💻 示例](../examples/) | 21 个可运行示例，覆盖全部核心能力 |
+| [💻 示例](../../examples/) | 21 个可运行示例，覆盖全部核心能力 |
 | [📚 API 参考](API_REFERENCE.md) | 全部公开 API 的签名与语义 |
 | [❓ 常见问题](FAQ.md) | 按主题汇总的问答 |
 | [🏗️ 架构文档](ARCHITECTURE.md) | 设计理念、模块划分与扩展机制 |
@@ -859,4 +859,4 @@ async fn handler() -> Result<(), limiteron::error::LimiteronError> {
 
 ---
 
-[🏠 返回首页](../README.md) • [📖 API 参考](API_REFERENCE.md) • [❓ 常见问题](FAQ.md)
+[🏠 返回首页](../../README_CN.md) • [📖 API 参考](API_REFERENCE.md) • [❓ 常见问题](FAQ.md)

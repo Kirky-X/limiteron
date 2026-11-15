@@ -1,6 +1,6 @@
 # 🔒 Limiteron 安全文档
 
-本文档描述 Limiteron 的版本支持策略、漏洞报告流程、安全设计与使用安全最佳实践。安全设计与机制均来自项目实际实现（详见 [架构文档](ARCHITECTURE.md) 与源码），各版本的安全修复记录见 [更新日志](CHANGELOG.md) 的"安全"分类。
+本文档描述 Limiteron 的版本支持策略、漏洞报告流程、安全设计与使用安全最佳实践。安全设计与机制均来自项目实际实现（详见 [架构文档](ARCHITECTURE.md) 与源码），各版本的安全修复记录见 [更新日志](../CHANGELOG.md) 的"安全"分类。
 
 ## 📋 目录
 
@@ -22,7 +22,7 @@
 
 - **当前线**：接收缺陷修复与安全修复，修复随该线的最新发布版本提供。
 - **旧 minor 线**：在下一个 minor 线的首个版本发布时即进入 EOL，不再提供任何修复，安全补丁也不回移。
-- **不设 LTS**：1.0 之前不承诺跨 minor 的 API 兼容性，minor 位升级可能包含破坏性变更，升级前请阅读 [CHANGELOG](CHANGELOG.md)。
+- **不设 LTS**：1.0 之前不承诺跨 minor 的 API 兼容性，minor 位升级可能包含破坏性变更，升级前请阅读 [CHANGELOG](../CHANGELOG.md)。
 - **crates.io 可见性 ≠ 受支持**：旧版本保持可下载（除非因严重缺陷执行 yank），但不属于受支持范围。
 
 | 版本线 | 状态 | 说明 |
@@ -39,7 +39,7 @@
 1. **报告渠道**：请优先使用 GitHub 私密漏洞报告通道 **GitHub Security Advisories**（仓库页 → Security → Report a vulnerability）私下披露；该功能不可用时的第二备选为发送邮件至 Kirky-X@outlook.com，一般问题亦可在 [Issues](https://github.com/Kirky-X/limiteron/issues) 中报告，但请**不要**包含可直接利用的细节、PoC 载荷或影响线上环境的信息。
 2. **报告内容**：请尽量包含受影响的版本（`Cargo.toml` 中的 version）、涉及的 feature 组合、复现步骤、影响评估（如可导致限流被绕过、拒绝服务等）。
 3. **响应与修复**：维护者确认后会评估严重性并安排修复，修复会先在私有分支进行，随下一个版本发布。
-4. **披露约定**：采用协调披露。修复发布后，会在 [CHANGELOG](CHANGELOG.md) 对应版本的"安全"分类中记录（可参考 0.2.8 的 vuln-0001 ~ vuln-0004 系列修复记录），并在讨论中致谢报告者（如报告者同意）。
+4. **披露约定**：采用协调披露。修复发布后，会在 [CHANGELOG](../CHANGELOG.md) 对应版本的"安全"分类中记录（可参考 0.2.8 的 vuln-0001 ~ vuln-0004 系列修复记录），并在讨论中致谢报告者（如报告者同意）。
 5. **非安全类问题**：一般性使用问题请走 [Issues](https://github.com/Kirky-X/limiteron/issues) 或 [Discussions](https://github.com/Kirky-X/limiteron/discussions)，不必走安全流程。
 
 ### ⏱️ 响应承诺
@@ -126,4 +126,4 @@
 5. **校验外部输入**：为 webhook 回调目标启用 URL 校验（内网地址会被拒绝）；使用 YAML 封禁文件时仅加载受控来源的文件（2MB 上限 + 热重载 debounce 已内置，但文件权限应收敛为只读）。
 6. **启用脱敏与审计**：面向外部的服务建议显式启用 `log-redaction` 与 `audit-log`（`log-redaction` 不在 `full` 预设内，须在依赖声明中单独开启），避免标识符与敏感数据进入日志。
 7. **保持依赖更新**：跟踪 RustSec 公告（CI 已启用 cargo-deny），升级到携带安全修复的最新版本；升级 `kit` 等集成特性时注意 CHANGELOG 中的破坏性变更说明。
-8. **升级前查看更新日志**：安全修复统一记录在 [CHANGELOG](CHANGELOG.md) 各版本的"安全"分类下，升级时优先关注。
+8. **升级前查看更新日志**：安全修复统一记录在 [CHANGELOG](../CHANGELOG.md) 各版本的"安全"分类下，升级时优先关注。

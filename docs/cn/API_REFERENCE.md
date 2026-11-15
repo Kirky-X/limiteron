@@ -2,7 +2,7 @@
 
 本文档完整描述 Limiteron 的公开 API，包括限流器、封禁管理、配额控制、熔断器、Governor、匹配器、存储后端、Admin REST API、配置加载与错误类型。所有签名与 `src/` 源码一致（对应 `0.3.x` 发布线）。使用方法与场景示例请见 [用户指南](USER_GUIDE.md)。
 
-[🏠 首页](../README.md) • [📖 用户指南](USER_GUIDE.md) • [❓ 常见问题](FAQ.md)
+[🏠 首页](../../README_CN.md) • [📖 用户指南](USER_GUIDE.md) • [❓ 常见问题](FAQ.md)
 
 ---
 
@@ -684,7 +684,7 @@ pub fn builder() -> GovernorBuilder
 | `with_l1_cache_config(config: L1CacheConfig)` | 自定义 L1 负缓存（TTL 与容量） |
 | `build().await` | 构建 Governor |
 
-> **注记**：`Metrics` 的 Prometheus 导出由 `start_prometheus_server` 提供（`prometheus` 特性）；特性未启用时调用返回错误，错误消息文本已随特性更名由 `monitoring feature is disabled` 变为 `prometheus feature is disabled`（变更披露见 [CHANGELOG](CHANGELOG.md) Unreleased 段）。
+> **注记**：`Metrics` 的 Prometheus 导出由 `start_prometheus_server` 提供（`prometheus` 特性）；特性未启用时调用返回错误，错误消息文本已随特性更名由 `monitoring feature is disabled` 变为 `prometheus feature is disabled`（变更披露见 [CHANGELOG](../CHANGELOG.md) Unreleased 段）。
 
 **示例：**
 
@@ -1429,8 +1429,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-更多可运行示例见 [examples/](../examples/)（21 个示例覆盖全部核心能力）。
+更多可运行示例见 [examples/](../../examples/)（21 个示例覆盖全部核心能力）。
 
 ---
 
-[🏠 返回首页](../README.md) • [📖 用户指南](USER_GUIDE.md) • [❓ 常见问题](FAQ.md)
+[🏠 返回首页](../../README_CN.md) • [📖 用户指南](USER_GUIDE.md) • [❓ 常见问题](FAQ.md)

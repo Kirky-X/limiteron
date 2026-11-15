@@ -20,7 +20,7 @@
 
 ## 🛠️ 开发环境
 
-- **Rust 1.97.1+**（edition 2024，[rust-toolchain.toml](../rust-toolchain.toml) 统一锁定）
+- **Rust 1.97.1+**（edition 2024，[rust-toolchain.toml](../../rust-toolchain.toml) 统一锁定）
 - `cargo`、`rustfmt`、`clippy`
 - Git 钩子工具（二选一，功能等价）：
   - [lefthook](https://github.com/evilmartians/lefthook)：安装 `lefthook install`
@@ -49,7 +49,7 @@ cargo test --workspace --no-default-features --features full
 
 ## 🪝 提交前检查
 
-提交前会自动运行以下检查（见 [.pre-commit-config.yaml](../.pre-commit-config.yaml) 与 [lefthook.yml](../lefthook.yml)）：
+提交前会自动运行以下检查（见 [.pre-commit-config.yaml](../../.pre-commit-config.yaml) 与 [lefthook.yml](../../lefthook.yml)）：
 
 | 类别 | 检查 |
 |------|------|
@@ -66,7 +66,7 @@ cargo test --workspace --no-default-features --features full
 
 - 遵循现有代码库的命名与架构惯例，惯例优先于新颖
 - 依赖必须通过 feature 门控（`optional = true`）
-- 100 字符最大行宽（[rustfmt.toml](../rustfmt.toml)），4 空格缩进
+- 100 字符最大行宽（[rustfmt.toml](../../rustfmt.toml)），4 空格缩进
 - 禁止通配符导入（`warn-on-all-wildcard-imports`）
 - 使用 `ahash` + `DashMap`，禁止 `std::collections::HashMap`/`HashSet`
 - 使用 `parking_lot` 替代 `std::sync` 原语

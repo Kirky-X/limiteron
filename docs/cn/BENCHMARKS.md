@@ -16,8 +16,8 @@ cargo bench --features full --bench latency -- "custom_matcher_latency"   # 单�
 
 - 基线明细（环境、口径、参考数值、削减闭环记录）现行记录在本地 `reviews/perf-baseline.md`。
   注意 `reviews/` 被 `.gitignore` 排除（不入库），**仓库内不发布数值基线**：对外可复现的是本文件的
-  命令与口径，具体数字需同机自行跑出（criterion 报告落在 `target/criterion/`）；README 性能章的表格
-  属 v0.1.0 时期历史对照，不作当前基线。
+  命令与口径，具体数字需同机自行跑出（criterion 报告落在 `target/criterion/`）；文末[历史数据对照](#历史数据对照)
+  属 v0.1.0 时期数据，不作当前基线。
 - 刷新时机：算法实现变更、热路径代码变更、或依赖大版本升级后；同机同口径复测，
   结果追加同表并注明提交。
 - criterion 内建对比：非首跑时自动输出与前次的 `change: [+x% ...]`（p 值显著性）；
@@ -31,3 +31,59 @@ cargo bench --features full --bench latency -- "custom_matcher_latency"   # 单�
 - latency：限流器延迟分布、自定义匹配器（HeaderMatcher Exact/Prefix hit/miss ×
   1/10/100 值、MethodMatcher、RegexPathMatcher 锚定/非锚定×短/长路径）、决策链全流程。
 - memory：按实例数与按条目数的内存占用、泄漏检测。
+
+## 历史数据对照
+
+> **说明**：下表为 2026-01-19（v0.1.0 时期）的实测数据，**口径早于 criterion 基准接入**——`harness = false` 缺失导致基线直到 2026-09-30 才首次真实产出。下表数字保留作为历史对照，当前可复现基线请以本文件[运行](#运行)命令与同机复测结果为准。
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**吞吐量**
+
+| 限流器 | 实测 | 目标 | 达成 |
+|--------|------|------|------|
+| TokenBucket | **12M+ ops/s** | 500K ops/s | ✅ 24x |
+| FixedWindow | **20M+ ops/s** | 300K ops/s | ✅ 66x |
+| ConcurrencyLimiter | **12M+ ops/s** | 200K ops/s | ✅ 60x |
+
+</td>
+<td width="50%" valign="top">
+
+**延迟**
+
+| 分位 | TokenBucket | FixedWindow |
+|------|-------------|-------------|
+| P50 | < 100ns | < 100ns |
+| P95 | < 200ns | < 150ns |
+| P99 | < 1µs | < 500ns |
+
+</td>
+</tr>
+</table>
+
+<details>
+<summary><b>📈 详细基准数据</b></summary>
+
+<br>
+
+历史实测数据（口径早于基准设施口径统一，仅供量级参考；现行口径为 fresh 实例放行路径，见 `benches/throughput.rs` 口径说明）：
+
+```text
+TokenBucket: 12,088,759 ops/s
+FixedWindow: 19,920,188 ops/s
+ConcurrencyLimiter: 11,891,237 ops/s
+并发测试：数据一致性 100%，限流正确性 1000/1000
+```
+
+</details>
+
+**基准设施**：仓库自带四组 criterion 基准（均需 `full` 特性），用于复现与回归检测：
+
+| 基准 | 文件 | 内容 |
+|------|------|------|
+| 吞吐量 | `benches/throughput.rs` | 单线程/并发吞吐量与扩展曲线 |
+| 延迟 | `benches/latency.rs` | P50/P90/P99/P99.9 延迟测量与操作对比 |
+| 内存 | `benches/memory.rs` | 键规模内存占用、数据结构对比、泄漏检测 |
+| 回归 | `benches/regression.rs` | 历史基准存储与自动对比告警 |

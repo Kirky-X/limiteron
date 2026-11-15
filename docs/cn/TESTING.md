@@ -11,6 +11,7 @@
 - [🎨 按 Feature 运行测试](#-按-feature-运行测试)
 - [🧱 测试布局](#-测试布局)
 - [📊 测试规模基线](#-测试规模基线)
+- [🧪 测试规模统计](#-测试规模统计)
 - [📈 测试覆盖率](#-测试覆盖率)
 - [✅ 测试最佳实践](#-测试最佳实践)
 - [🤖 CI 集成](#-ci-集成)
@@ -235,3 +236,15 @@ cargo test --features full -- --test-threads=1
 - [API 参考文档](API_REFERENCE.md)
 - [用户指南](USER_GUIDE.md)
 - [常见问题](FAQ.md)
+
+## 🧪 测试规模统计
+
+**测试规模**（按 `#[test]` / `#[tokio::test]` 属性 grep 统计（`grep -rEc '#\[(tokio::)?test\b' --include='*.rs'`），截至 v0.3.0-rc.7）：
+
+| 统计项 | 数量 |
+|--------|------|
+| 库内测试函数（`src/`） | 2,489（#[test] 1,551 + #[tokio::test] 938） |
+| 外部测试函数（`tests/`） | 607（#[test] 158 + #[tokio::test] 449） |
+| 宏 crate 测试（`macros/`） | 47（#[test]） |
+| 集成适配 crate 测试（`integrations/`） | 21（#[test] 5 + #[tokio::test] 16） |
+| 属性测试组（proptest） | 4 |

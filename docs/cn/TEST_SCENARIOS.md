@@ -1,6 +1,6 @@
 # 🧪 Limiteron 测试场景
 
-本文档固化 Limiteron 的测试金字塔基线、测试目标落点、E2E 场景定义（11 域，291 测试）、组合矩阵与静态门槛。验证口径全部为 `cargo test`（CI 口径 `--workspace --no-default-features --features full`）。运行命令见 [测试指南](TESTING.md)。
+本文档固化 Limiteron 的测试金字塔基线、测试目标落点、E2E 场景定义（11 域，312 测试）、组合矩阵与静态门槛。验证口径全部为 `cargo test`（CI 口径 `--workspace --no-default-features --features full`）。运行命令见 [测试指南](TESTING.md)。
 
 ## 📋 目录
 
@@ -21,13 +21,13 @@
 
 | 层级 | 承载 | 数量基线 |
 | --- | --- | --- |
-| L1 lib 单元测试 | `src/**` 内 `#[cfg(test)]` | 1964 passed / 6 ignored（governor/limiters/ban/quota/circuit/fallback/matchers 等模块自测） |
-| L2 集成测试 | `tests/**` 顶层目标 + 子目录模块 | integration_tests 302+14i / e2e_tests 239 / common_tests 213 / unified_tests 211 / security_tests 57 / e2e_advanced 52 / property_tests_runner 24 / chaos_tests 16 / unit_tests 13 / admin_security_tests 6 / on_exceed_modes_test 1 |
-| L3 E2E 场景 | `tests/e2e/`（目录承载：e2e_tests + e2e_advanced 双目标） | 291 passed（239+52） |
-| L4 宏与文档 | limiteron_macros（过程宏自测）+ Doc-tests | 43 passed / 157 passed + 22 ignored |
-| L5 examples | `examples/` 工作区成员（--workspace 收录） | 空测试目标 24 个（编译级验证） |
+| L1 lib 单元测试 | `src/**` 内 `#[cfg(test)]` | 2424 passed / 7 ignored（governor/limiters/ban/quota/circuit/fallback/matchers 等模块自测） |
+| L2 集成测试 | `tests/**` 顶层目标 + 子目录模块 | integration_tests 302+14i / e2e_tests 239 / common_tests 213 / unified_tests 211 / security_tests 53 / e2e_advanced 73 / property_tests_runner 24 / chaos_tests 16 / unit_tests 13 / admin_security_tests 6 / on_exceed_modes_test 3 |
+| L3 E2E 场景 | `tests/e2e/`（目录承载：e2e_tests + e2e_advanced 双目标） | 312 passed（239+73） |
+| L4 宏与文档 | limiteron_macros（过程宏自测）+ Doc-tests | 47 passed / 175 passed + 33 ignored |
+| L5 examples | `examples/` 工作区成员（--workspace 收录） | 空测试目标 23 个（编译级验证） |
 
-CI 口径全量结果：**38 目标 / 3298 passed / 0 failed / 42 ignored**（ignored 为 manual/容器依赖门控 + 文档测试 doctest 门控）。
+CI 口径全量结果：**46 个测试结果块 / 3833 passed / 0 failed / 54 ignored**（ignored 为 manual/容器依赖门控 + 文档测试 doctest 门控）。
 
 ## 🎯 测试目标落点
 
@@ -53,7 +53,7 @@ CI 口径全量结果：**38 目标 / 3298 passed / 0 failed / 42 ignored**（ig
 | quota_control | 配额分配→消耗→耗尽拒绝→重置周期 |
 | circuit_breaker | 失败累计→熔断开启→半开探测→恢复全状态机 |
 
-### tests/e2e/e2e_advanced.rs（e2e_advanced 目标，52 测试 ×7 mod 域）
+### tests/e2e/e2e_advanced.rs（e2e_advanced 目标，73 测试 ×7 mod 域）
 
 | 域 | 场景要点 |
 | --- | --- |
@@ -69,10 +69,10 @@ CI 口径全量结果：**38 目标 / 3298 passed / 0 failed / 42 ignored**（ig
 
 | 组合 | 覆盖 | 结果 |
 | --- | --- | --- |
-| full（CI 口径） | 全 38 目标 | 3298 passed / 0 failed |
+| full（CI 口径） | 全 46 结果块 | 3833 passed / 0 failed |
 | no-default-features | 最小面编译 + 测试 | CI check/build job 覆盖，本地 fmt/clippy 同口径验证 |
 | standard（sqlite preset） | 核心限流+ban+quota+熔断 | feature 组合编译验证 |
-| gcra 单独门控 | e2e_advanced gcra 域 | full 下激活（52 含 gcra 用例） |
+| gcra 单独门控 | e2e_advanced gcra 域 | full 下激活（73 含 gcra 用例） |
 
 ## 🚧 静态门槛
 

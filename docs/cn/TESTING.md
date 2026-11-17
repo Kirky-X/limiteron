@@ -11,6 +11,7 @@
 - [🎨 按 Feature 运行测试](#-按-feature-运行测试)
 - [🧱 测试布局](#-测试布局)
 - [📊 测试规模基线](#-测试规模基线)
+- [🧪 测试规模统计](#-测试规模统计)
 - [📈 测试覆盖率](#-测试覆盖率)
 - [✅ 测试最佳实践](#-测试最佳实践)
 - [🤖 CI 集成](#-ci-集成)
@@ -130,7 +131,7 @@ CI 口径（`--workspace --no-default-features --features full`）全量运行�
 
 ### 覆盖率门禁
 
-CI 与 pre-push 钩子均启用 **cargo-llvm-cov 行覆盖率 ≥ 90%** 门禁（以 [CI 配置](../.github/workflows/ci.yml) 为准）：
+CI 与 pre-push 钩子均启用 **cargo-llvm-cov 行覆盖率 ≥ 90%** 门禁（以 [CI 配置](../../.github/workflows/ci.yml) 为准）：
 
 ```bash
 # 与 CI 完全一致的口径
@@ -193,7 +194,7 @@ cargo test --features full -- quota
 
 ## 🤖 CI 集成
 
-CI 质量门禁定义在 [ci.yml](../.github/workflows/ci.yml)，包含以下任务：
+CI 质量门禁定义在 [ci.yml](../../.github/workflows/ci.yml)，包含以下任务：
 
 | 任务 | 命令口径 |
 |------|---------|
@@ -235,3 +236,15 @@ cargo test --features full -- --test-threads=1
 - [API 参考文档](API_REFERENCE.md)
 - [用户指南](USER_GUIDE.md)
 - [常见问题](FAQ.md)
+
+## 🧪 测试规模统计
+
+**测试规模**（按 `#[test]` / `#[tokio::test]` 属性 grep 统计（`grep -rEc '#\[(tokio::)?test\b' --include='*.rs'`），截至 v0.3.1）：
+
+| 统计项 | 数量 |
+|--------|------|
+| 库内测试函数（`src/`） | 2,610（#[test] 1,594 + #[tokio::test] 1,016） |
+| 外部测试函数（`tests/`） | 609（#[test] 160 + #[tokio::test] 449） |
+| 宏 crate 测试（`macros/`） | 47（#[test]） |
+| 集成适配 crate 测试（`integrations/`） | 27（#[test] 11 + #[tokio::test] 16） |
+| 属性测试组（proptest） | 4 |

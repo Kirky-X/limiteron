@@ -2,7 +2,7 @@
 
 本文档按主题汇总 Limiteron 的常见问题与解答，覆盖通用问题、安装设置、使用功能、性能、安全与故障排除。系统性教程请见 [用户指南](USER_GUIDE.md)，API 细节请见 [API 参考](API_REFERENCE.md)。
 
-[🏠 首页](../README.md) • [📖 用户指南](USER_GUIDE.md) • [📘 API 参考](API_REFERENCE.md)
+[🏠 首页](../../README_CN.md) • [📖 用户指南](USER_GUIDE.md) • [📘 API 参考](API_REFERENCE.md)
 
 ---
 
@@ -71,14 +71,14 @@
 
 <br>
 
-**可以。** 当前 0.3.0-rc.x 发布线已在真实项目中验证核心能力：
+**可以。** 当前 0.3.x 发布线已在真实项目中验证核心能力：
 
 - ✅ 核心限流与存储抽象稳定，默认构建零外部存储依赖
-- ✅ 3298 个测试的分层测试体系与 llvm-cov ≥90% 行覆盖门禁（见[测试指南](TESTING.md)）
+- ✅ 3833 个测试的分层测试体系与 llvm-cov ≥90% 行覆盖门禁（见[测试指南](TESTING.md)）
 - ✅ CI 覆盖 fmt / clippy / 三平台构建 / cargo-deny / cargo-audit / CodeQL
 - ✅ 性能数据可经仓库自带 criterion 基准复现（`cargo bench --features full`）
 
-> **注意:** 升级版本前请查看[更新日志](CHANGELOG.md)，破坏性变更均有标注。
+> **注意:** 升级版本前请查看[更新日志](../CHANGELOG.md)，破坏性变更均有标注。
 
 </details>
 
@@ -158,7 +158,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 | 组件 | 要求 | 推荐 |
 |------|------|------|
-| Rust 版本 | 1.97.1+（[rust-toolchain.toml](../rust-toolchain.toml) 锁定） | 最新稳定版 |
+| Rust 版本 | 1.97.1+（[rust-toolchain.toml](../../rust-toolchain.toml) 锁定） | 最新稳定版 |
 | 内存 | 512 MB | 2 GB+ |
 | 磁盘空间 | 50 MB | 100 MB |
 | CPU | 1 核心 | 4+ 核心 |
@@ -277,7 +277,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 **下一步:**
 - 📖 [用户指南](USER_GUIDE.md)
-- 💻 [更多示例](../examples/)
+- 💻 [更多示例](../../examples/)
 
 </details>
 
@@ -286,7 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 <br>
 
-**令牌桶、漏桶、滑动窗口（已弃用导出）与分片滑动窗口、滑动窗口日志、固定窗口、并发控制、GCRA（`gcra` 特性）、HTB 分层令牌桶、AIMD 自适应并发（`adaptive-limiting` 特性）**。各算法的类型与适用场景对照见[用户指南](USER_GUIDE.md#1️-限流器)，构造签名与特性要求见[算法详情](API_REFERENCE.md#-限流器)。
+**令牌桶、漏桶、滑动窗口（已弃用导出）与分片滑动窗口、滑动窗口日志、固定窗口、并发控制、GCRA（`gcra` 特性）、HTB 分层令牌桶、AIMD 自适应并发（`adaptive-limiting` 特性）**。各算法的类型与适用场景对照见[用户指南](USER_GUIDE.md#1️⃣-限流器)，构造签名与特性要求见[算法详情](API_REFERENCE.md#-限流器)。
 
 </details>
 
@@ -430,7 +430,7 @@ async fn api_handler() -> Result<String, limiteron::error::LimiteronError> {
 
 <br>
 
-**令牌桶检查 12M+ ops/s（P99 < 1µs）、固定窗口检查 20M+ ops/s、并发检查 12M+ ops/s**（2026-01-19 实测；完整吞吐/延迟分位表见 [README 性能](../README.md#-性能)）。可用 `cargo bench --features full` 自行复现。
+**令牌桶检查 12M+ ops/s（P99 < 1µs）、固定窗口检查 20M+ ops/s、并发检查 12M+ ops/s**（2026-01-19 实测；完整吞吐/延迟分位表见 [README 性能](../../README_CN.md#-性能)）。可用 `cargo bench --features full` 自行复现。
 
 </details>
 
@@ -627,7 +627,7 @@ for i in 0..100 {
 
 <br>
 
-**常见原因**：未在 release 模式运行、未启用 L1 负缓存、限流器实例未跨请求共享。对应优化命令与代码见[性能优化技巧](#-性能)；完整吞吐/延迟数据见 [README 性能](../README.md#-性能)。
+**常见原因**：未在 release 模式运行、未启用 L1 负缓存、限流器实例未跨请求共享。对应优化命令与代码见[性能优化技巧](#-性能)；完整吞吐/延迟数据见 [README 性能](../../README_CN.md#-性能)。
 
 </details>
 
@@ -703,7 +703,7 @@ bug 的清晰描述
 ### 环境
 - OS: Ubuntu 22.04
 - Rust version: 1.97.1
-- limiteron version: 0.3.0-rc.7
+- limiteron version: 0.3.1
 
 ### 其他上下文
 任何其他相关信息
@@ -735,7 +735,7 @@ bug 的清晰描述
 
 <br>
 
-**本项目基于 MIT 许可证发布**，可自由用于商业项目。完整条款见 [LICENSE](../LICENSE)；MIT 许可自 v0.2.3 起沿用（此前为 Apache-2.0），变更记录见[更新日志](CHANGELOG.md)。
+**本项目基于 MIT 许可证发布**，可自由用于商业项目。完整条款见 [LICENSE](../../LICENSE)；MIT 许可自 v0.2.3 起沿用（此前为 Apache-2.0），变更记录见[更新日志](../CHANGELOG.md)。
 
 </details>
 
@@ -744,7 +744,7 @@ bug 的清晰描述
 
 <br>
 
-**可以。** 项目采用 MIT 许可，允许商业使用与销售，仅需保留版权与许可声明，条款详见 [LICENSE](../LICENSE)。
+**可以。** 项目采用 MIT 许可，允许商业使用与销售，仅需保留版权与许可声明，条款详见 [LICENSE](../../LICENSE)。
 
 </details>
 
@@ -760,4 +760,4 @@ bug 的清晰描述
 
 ---
 
-[📖 用户指南](USER_GUIDE.md) • [📘 API 参考](API_REFERENCE.md) • [🏠 返回首页](../README.md)
+[📖 用户指南](USER_GUIDE.md) • [📘 API 参考](API_REFERENCE.md) • [🏠 返回首页](../../README_CN.md)

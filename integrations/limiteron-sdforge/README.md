@@ -9,7 +9,7 @@ limiteron 侧提供的 sdforge 防护桥接 crate：把 limiteron 的限流 / �
 | 所属仓库 | [limiteron](https://github.com/Kirky-X/limiteron)（目录 `limiteron/integrations/limiteron-sdforge`） |
 | 依赖方向 | 本 crate → `limiteron`（`path = "../.."`）；`sdforge` feature 开启时另依赖 `sdforge` |
 | 是否发布 | 否：`publish = false`，与父仓 path 双钉，应用经 git 依赖消费 |
-| 版本与支持 | 版本经 `version.workspace = true` 随 limiteron 仓库统一；仅维护当前 minor 版本线，见 [安全文档 · 支持的版本](../../docs/SECURITY.md#-支持的版本与维护策略) |
+| 版本与支持 | 版本经 `version.workspace = true` 随 limiteron 仓库统一；仅维护当前 minor 版本线，见 [安全文档 · 支持的版本](../../docs/cn/SECURITY.md#-支持的版本与维护策略) |
 
 ## 结构
 

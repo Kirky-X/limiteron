@@ -1,14 +1,16 @@
+English | [中文](README_CN.md)
+
 <div align="center">
 
 <img src="docs/assets/limiteron.png" alt="Limiteron Logo" width="240">
 
 [![Rust 2024](https://img.shields.io/badge/Rust-2024-edded?logo=rust&style=for-the-badge)](https://www.rust-lang.org/) [![Rustc 1.97.1+](https://img.shields.io/badge/Rustc-1.97.1+-orange.svg?style=for-the-badge)](https://www.rust-lang.org/) [![crates.io](https://img.shields.io/crates/v/limiteron?style=for-the-badge)](https://crates.io/crates/limiteron) [![docs.rs](https://img.shields.io/docsrs/limiteron?style=for-the-badge)](https://docs.rs/limiteron) [![downloads](https://img.shields.io/crates/d/limiteron?style=for-the-badge)](https://crates.io/crates/limiteron) [![CI](https://img.shields.io/github/actions/workflow/status/Kirky-X/limiteron/ci.yml?branch=main&label=CI&style=for-the-badge)](https://github.com/Kirky-X/limiteron/actions/workflows/ci.yml) [![coverage](https://img.shields.io/codecov/c/github/Kirky-X/limiteron?style=for-the-badge)](https://codecov.io/gh/Kirky-X/limiteron) [![license](https://img.shields.io/crates/l/limiteron?style=for-the-badge)](LICENSE)
 
-**中文** | [English](README_EN.md)
+[中文](README_CN.md) | **English**
 
-**Rust 统一流量控制框架**
+**Unified Flow Control Framework for Rust**
 
-[✨ 功能特性](#-功能特性) • [🚀 快速开始](#-快速开始) • [📚 文档](#-文档) • [💻 示例](#-示例) • [🤝 参与贡献](#-参与贡献)
+[✨ Features](#-features) • [🚀 Quick Start](#-quick-start) • [📚 Documentation](#-documentation) • [💻 Examples](#-examples) • [🤝 Contributing](#-contributing)
 
 </div>
 
@@ -16,95 +18,79 @@
 
 <div align="center" style="padding: 32px; margin: 24px 0">
 
-### 🚦 统一流量控制
+### 🚦 Unified Traffic Control
 
-一个 Governor 入口，多维限流与纵深管控协同决策：
+One Governor entrypoint where multi-algorithm limiting and layered control decide together:
 
 <table style="width:100%; border-collapse: collapse">
-<tr><td align="center" width="25%" style="padding: 12px">🚦<br><b>多维限流</b><br><span style="color:#64748B">令牌桶、滑动/固定窗口、漏桶、滑动窗口日志、并发控制、GCRA、HTB 分层令牌桶</span></td><td align="center" width="25%" style="padding: 12px">🛡️<br><b>纵深管控</b><br><span style="color:#64748B">封禁、配额、熔断、降级沿一条决策链协同执行</span></td><td align="center" width="25%" style="padding: 12px">🔌<br><b>可插拔底座</b><br><span style="color:#64748B">内存存储开箱即用，经 dbnexus 与 oxcache 接入持久化与分布式缓存</span></td><td align="center" width="25%" style="padding: 12px">📈<br><b>生产可观测</b><br><span style="color:#64748B">Prometheus 指标、OTLP 追踪导出、HMAC 链式审计日志</span></td></tr>
+<tr><td align="center" width="25%" style="padding: 12px">🚦<br><b>Multi-Algorithm Limiting</b><br><span style="color:#64748B">token bucket, sliding/fixed window, leaky bucket, sliding window log, concurrency, GCRA, HTB</span></td><td align="center" width="25%" style="padding: 12px">🛡️<br><b>Layered Control</b><br><span style="color:#64748B">bans, quotas, circuit breaking, fallback on one decision chain</span></td><td align="center" width="25%" style="padding: 12px">🔌<br><b>Pluggable Foundation</b><br><span style="color:#64748B">in-memory out of the box; persistence via dbnexus, cache via oxcache</span></td><td align="center" width="25%" style="padding: 12px">📈<br><b>Production Observability</b><br><span style="color:#64748B">Prometheus metrics, OTLP tracing export, HMAC audit chain</span></td></tr>
 </table>
 
 </div>
 
 ---
 
-## 📋 目录
+## 📋 Table of Contents
 
 <details open>
-<summary>📑 目录</summary>
+<summary>📑 Table of Contents</summary>
 
-- [✨ 功能特性](#-功能特性)
-- [🚀 快速开始](#-快速开始)
-- [🎨 特性标志](#-特性标志)
-- [📚 文档](#-文档)
-- [💻 示例](#-示例)
-- [🏗️ 架构](#️-架构)
-- [🧪 测试](#-测试)
-- [📊 性能](#-性能)
-- [🔒 安全](#-安全)
-- [🗺️ 开发路线图](#️-开发路线图)
-- [🤝 参与贡献](#-参与贡献)
-- [📋 更新日志](#-更新日志)
-- [📄 许可证](#-许可证)
-- [🙏 致谢](#-致谢)
-- [📞 联系与支持](#-联系与支持)
-- [⭐ Star 历史](#-star-历史)
+- [✨ Features](#-features)
+- [🚀 Quick Start](#-quick-start)
+- [🎨 Feature Flags](#-feature-flags)
+- [📚 Documentation](#-documentation)
+- [💻 Examples](#-examples)
+- [🏗️ Architecture](#️-architecture)
+- [🧪 Testing](#-testing)
+- [📊 Performance](#-performance)
+- [🔒 Security](#-security)
+- [🗺️ Roadmap](#️-roadmap)
+- [🤝 Contributing](#-contributing)
+- [📋 Changelog](#-changelog)
+- [📄 License](#-license)
+- [🙏 Acknowledgments](#-acknowledgments)
+- [📞 Contact & Support](#-contact--support)
+- [⭐ Star History](#-star-history)
 
 </details>
 
 ---
 
-## ✨ 功能特性
+## ✨ Features
 
 <table style="width:100%; border-collapse: collapse">
 <tr>
-<td width="50%" style="vertical-align:top; padding: 12px">🎯 <b>限流算法矩阵</b><br><span style="color:#64748B">令牌桶（Token Bucket）、滑动窗口、分片滑动窗口、滑动窗口日志（精确滑动窗口）、固定窗口、漏桶（Leaky Bucket 水位记账，判定与令牌桶对偶）、并发控制、GCRA、HTB 分层令牌桶（<code>src/limiters/</code>）</span></td>
-<td width="50%" style="vertical-align:top; padding: 12px">🚫 <b>封禁管理</b><br><span style="color:#64748B">IP / 用户 / MAC / Geo 目标封禁、CIDR 网段封禁、优先级体系、YAML 批量加载与热重载、跨实例同步（<code>ban-sync</code>）</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🎯 <b>Rate-limiting algorithm matrix</b><br><span style="color:#64748B">Token bucket, sliding window, sharded sliding window, sliding window log (exact sliding window), fixed window, leaky bucket (water-level meter, dual of token bucket), concurrency control, GCRA, HTB hierarchical token bucket (<code>src/limiters/</code>)</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🚫 <b>Ban management</b><br><span style="color:#64748B">IP / User / MAC / Geo target bans, CIDR range bans, priority system, YAML bulk loading with hot reload, cross-instance sync (<code>ban-sync</code>)</span></td>
 </tr>
 <tr>
-<td width="50%" style="vertical-align:top; padding: 12px">⚖️ <b>配额控制</b><br><span style="color:#64748B">周期性配额分配、配额预警、配额透支（<code>src/quota/</code>）</span></td>
-<td width="50%" style="vertical-align:top; padding: 12px">🧯 <b>熔断与降级</b><br><span style="color:#64748B">自动故障转移、状态恢复、降级策略（<code>src/circuit/</code>、<code>src/fallback.rs</code>）</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">⚖️ <b>Quota control</b><br><span style="color:#64748B">Periodic quota allocation, quota alerts, quota overdraw (<code>src/quota/</code>)</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🧯 <b>Circuit breaking &amp; fallback</b><br><span style="color:#64748B">Automatic failover, state recovery, fallback strategies (<code>src/circuit/</code>, <code>src/fallback.rs</code>)</span></td>
 </tr>
 <tr>
-<td width="50%" style="vertical-align:top; padding: 12px">🚀 <b>高性能</b><br><span style="color:#64748B">令牌桶吞吐 12M+ ops/s、P99 延迟 &lt; 1µs（见[性能](#-性能)）</span></td>
-<td width="50%" style="vertical-align:top; padding: 12px">🧩 <b>声明式接入</b><br><span style="color:#64748B"><code>#[flow_control]</code> 过程宏、Tower 中间件、Admin REST API、<code>limiteron-cli</code></span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🚀 <b>High performance</b><br><span style="color:#64748B">Token bucket at 12M+ ops/s, P99 latency &lt; 1µs (see [Performance](#-performance))</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🧩 <b>Declarative integration</b><br><span style="color:#64748B"><code>#[flow_control]</code> procedural macro, Tower middleware, Admin REST API, <code>limiteron-cli</code></span></td>
 </tr>
 <tr>
-<td width="50%" style="vertical-align:top; padding: 12px">🏢 <b>多租户</b><br><span style="color:#64748B">tenant+key 复合决策键，缓存/封禁/配额按租户隔离</span></td>
-<td width="50%" style="vertical-align:top; padding: 12px">📈 <b>可观测性</b><br><span style="color:#64748B">Prometheus 指标、OTLP 追踪导出、HMAC-SHA256 链式审计日志、K8s 探针端点</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🏢 <b>Multi-tenancy</b><br><span style="color:#64748B">tenant+key compound decision keys; cache, bans, and quotas isolated per tenant</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">📈 <b>Observability</b><br><span style="color:#64748B">Prometheus metrics, OTLP tracing export, HMAC-SHA256 hash-chained audit log, K8s probe endpoints</span></td>
 </tr>
 <tr>
-<td width="50%" style="vertical-align:top; padding: 12px">🔐 <b>安全内建</b><br><span style="color:#64748B">标识符 key 消毒、日志脱敏、Webhook 签名防重放、Admin RBAC</span></td>
-<td width="50%" style="vertical-align:top; padding: 12px">🧠 <b>决策链级联</b><br><span style="color:#64748B">DecisionChain 按优先级级联执行多条规则，支持短路（<code>src/decision_chain/</code>）</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🔐 <b>Built-in security</b><br><span style="color:#64748B">Identifier key sanitization, log redaction, signed and replay-protected webhooks, Admin RBAC</span></td>
+<td width="50%" style="vertical-align:top; padding: 12px">🧠 <b>Decision-chain cascade</b><br><span style="color:#64748B">DecisionChain cascades rules by priority with short-circuit support (<code>src/decision_chain/</code>)</span></td>
 </tr>
 </table>
 
-<details>
-<summary><b>📦 完整能力清单</b></summary>
-
-<br>
-
-- 决策链（DecisionChain）：按优先级级联执行多条规则，支持短路（`src/decision_chain/`）
-- 标识符匹配：IP、用户 ID、设备 ID、API Key、地理位置（MaxMindDB）、设备信息（woothee）、自定义匹配器（`src/matchers/`）
-- L1 负缓存：仅缓存拒绝/封禁决策，命中不绕过限流与封禁语义（`src/l1_cache.rs`）
-- 分布式限流：`DistributedLimiter` trait + 内存实现 + Redis Lua 实现（`distributed` + `lua-script`）
-- 批量 API：批量决策检查、批量令牌预取（`BatchTokenPrefetcher`）
-- 热更新：`POST /api/v1/config` 原子换配置、配置文件监听（`config-watcher`）、confers 集成热重载
-- 事件系统：`EventEmitter` / `EventDispatcher`、Transactional Outbox、Webhook 外发签名
-- 探针端点：`/healthz`、`/readyz`、`/metrics`（bypass 认证；`/metrics` 另受独立速率限制约束，`/healthz` `/readyz` 完全不限流以免 K8s 探针失败触发 Pod 重启）
-- 国际化：ICU4X locale 感知格式化（`i18n`）
-- 限流预检：`Limiter::peek(cost)` / `remaining()` 非消费查询与 IETF `RateLimit-*` 头数据
-
-</details>
+For the full capability list and API details see the [API Reference](docs/en/API_REFERENCE.md).
 
 ---
 
-## 🚀 快速开始
+## 🚀 Quick Start
 
-### 📦 安装
+### 📦 Installation
 
 <details>
-<summary>📄 代码 · bash</summary>
+<summary>📄 Code · bash</summary>
 
 ```bash
 cargo add limiteron
@@ -112,10 +98,10 @@ cargo add limiteron
 
 </details>
 
-环境要求：Rust 1.97.1+（见 [rust-toolchain.toml](rust-toolchain.toml)）。默认特性为空（`default = []`），核心限流零外部存储依赖；需要持久化时启用存储特性：
+Requirements: Rust 1.97.1+ (see [rust-toolchain.toml](rust-toolchain.toml)). The default feature set is empty (`default = []`) so core rate limiting has zero external storage dependencies; enable a storage feature when persistence is needed:
 
 <details>
-<summary>📄 代码 · toml</summary>
+<summary>📄 Code · toml</summary>
 
 ```toml
 [dependencies]
@@ -124,26 +110,26 @@ limiteron = { version = "0.3", features = ["macros"] }
 
 </details>
 
-### 💡 最小可运行示例
+### 💡 Minimal Runnable Example
 
-以下示例来自 [`examples/src/bin/simple_rate_limit.rs`](examples/src/bin/simple_rate_limit.rs)，演示最基本的令牌桶限流：
+The following example comes from [`examples/src/bin/simple_rate_limit.rs`](examples/src/bin/simple_rate_limit.rs) and demonstrates the most basic token bucket usage:
 
 <details>
-<summary>📄 代码 · rust</summary>
+<summary>📄 Code · rust</summary>
 
 ```rust
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 容量 10，每秒补充 1 个令牌
+    // Capacity 10, refill 1 token per second
     let limiter = TokenBucketLimiter::new(10, 1);
 
     for i in 0..15 {
         match limiter.allow(1).await {
-            Ok(true) => println!("请求 {} 允许", i),
-            Ok(false) => println!("请求 {} 被限流", i),
-            Err(e) => println!("请求 {} 错误: {:?}", i, e),
+            Ok(true) => println!("Request {} allowed", i),
+            Ok(false) => println!("Request {} rate limited", i),
+            Err(e) => println!("Request {} error: {:?}", i, e),
         }
     }
     Ok(())
@@ -152,10 +138,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 </details>
 
-运行方式：
+Run it:
 
 <details>
-<summary>📄 代码 · bash</summary>
+<summary>📄 Code · bash</summary>
 
 ```bash
 cargo run -p limiteron-examples --bin simple_rate_limit
@@ -163,389 +149,153 @@ cargo run -p limiteron-examples --bin simple_rate_limit
 
 </details>
 
-**声明式宏**（`macros` 特性，摘自现有示例风格）：
-
-<details>
-<summary>📄 代码 · rust</summary>
-
-```rust
-use limiteron::flow_control;
-
-#[flow_control(rate = "100/s", quota = "10000/m", concurrency = 50)]
-async fn api_handler(user_id: &str) -> Result<String, limiteron::error::LimiteronError> {
-    Ok(format!("处理用户 {} 的请求", user_id))
-}
-```
-
-</details>
-
-### 🧭 核心概念
-
-- **Governor**：主控制器（`src/governor.rs`），输入 `RequestContext`，输出 `Decision`
-- **FlowControlConfig**：`version` / `global` / `rules` 三层配置，支持文件加载与环境变量覆盖（`ConfigLoader::load_from_file_with_env`）
-- **Decision**：三态结果 `Allowed` / `Rejected` / `Banned`（`src/error/mod.rs`）
-- **DecisionChain**：按优先级级联执行的责任链，节点即 `Limiter`（`src/decision_chain/`）
-- **存储抽象**：`Storage` / `BanStorage` / `QuotaStorage`（`src/storage/`），内存实现开箱即用，dbnexus 适配器提供 PostgreSQL / SQLite / MySQL（SQLite 为嵌入式方言：`create_schema` 按 连接后端自动选择建表 DDL）
-- **插件系统**：`Plugin` trait（`on_admit` / `on_reject` / `on_degrade` 决策生命周期钩子）+ `PluginRegistry` 编译期注册制（`src/plugins/`）；分发顺序即注册顺序，插件 panic 隔离计数不反向影响限流裁决；动态 .so 明确不做（ABI 无稳定性 + 供应链攻击面，见模块文档安全边界）；内置 `LoggingPlugin` / `CounterPlugin` 示例
-- **自适应阈值限流**：`AdaptiveThresholdLimiter`（`src/limiters/adaptive_threshold.rs`）——滑动观测窗口错误率/p95 延迟驱动动态配额（统计启发式非 ML），阈值/步长/冷却期全显式配置
+For declarative-macro integration see [User Guide · Common Patterns](docs/en/USER_GUIDE.md#-common-patterns); for core concepts and the full API see the [API Reference](docs/en/API_REFERENCE.md).
 
 ---
 
-## 🎨 特性标志
+## 🎨 Feature Flags
 
-Limiteron 默认不启用任何可选功能（`default = []`），按需组合。以下内容逐项对应 [Cargo.toml](Cargo.toml) 的 `[features]` 段：
+Limiteron enables no optional functionality by default (`default = []`); compose features as needed. For feature presets (minimal / standard / full), the complete feature list, and the file-backed SQLite deployment note see [User Guide · Feature Flags](docs/en/USER_GUIDE.md#-feature-flags); for feature dependencies see the [Architecture document](docs/en/ARCHITECTURE.md#-feature-dependency-overview).
 
-**特性预设**
-
-| 预设 | 说明 | 启用的特性 |
-|------|------|------------|
-| `minimal` | 核心限流，无外部存储依赖 | 无 |
-| `standard` | 核心功能（封禁 / 配额 / 熔断） | `ban-manager`、`quota-control`、`circuit-breaker` |
-| `full` | 除存储后端外的全部功能（不含 `cli`） | 36 项特性，见 Cargo.toml |
-
-> 注：preset 均不含存储后端，持久化需自行叠加 `sqlite` / `postgres` / `mysql`（dbnexus 驱动互斥，一次构建只能叠加一个）。
->
-> ⚠️ **文件型 SQLite 部署提示**：WAL 等连接级 PRAGMA **不能**经连接 URL 携带——sqlx 0.9 的连接串查询参数白名单只认 `mode`/`cache`/`immutable`/`vfs`，白名单外参数（如 `journal_mode=WAL`）会被驱动直接拒绝建连。正确做法是用 `StorageFactoryConfig::with_sqlite_pragmas`（需启用 `sqlite` 特性）传 dbnexus 的 `SqlitePragmas`，PRAGMA 在建池时逐连接应用：
->
-> ```rust
-> use dbnexus::SqlitePragmas;
-> use limiteron::adapters::{StorageFactory, StorageFactoryConfig};
->
-> let config = StorageFactoryConfig::sqlite("data/limiteron.db?mode=rwc").with_sqlite_pragmas(
->     SqlitePragmas {
->         journal_mode: Some("WAL".to_string()),
->         busy_timeout_ms: Some(5_000),
->         ..Default::default()
->     },
-> );
-> ```
->
-> 未配置时 busy_timeout 由 sqlx 内建默认 5s 兜底，但 journal_mode 仍为 SQLite 默认的 delete 模式，并发写场景可能遭遇 `database is locked`。
-
-<details>
-<summary><b>📋 全部特性（按类别）</b></summary>
-
-<br>
-
-<table>
-<tr><th>类别</th><th>特性</th><th>说明</th><th>默认</th></tr>
-<tr><td rowspan="5">存储后端</td><td><code>postgres</code></td><td>PostgreSQL 存储（dbnexus 服务端驱动 + sea-orm）</td><td>❌</td></tr>
-<tr><td><code>sqlite</code></td><td>SQLite 存储（dbnexus 嵌入式驱动，本地默认后端；<code>StorageFactory::create_schema</code> 自动建表，内存库 <code>sqlite::memory:</code> 单测覆盖并与 Redis 形后端行为对拍）</td><td>❌</td></tr>
-<tr><td><code>mysql</code></td><td>MySQL 存储（dbnexus 服务端驱动）</td><td>❌</td></tr>
-<tr><td><code>cache-redis</code></td><td>Redis 缓存后端（经 oxcache；原 <code>cache-storage</code>，保留为兼容别名）</td><td>❌</td></tr>
-<tr><td><code>lua-script</code></td><td>Redis Lua 脚本执行（经 oxcache <code>eval_lua</code>）：滑动窗口 / 滑动窗口日志（cost 加权）/ 固定窗口 / 令牌桶 / 带突发透支令牌桶 / 配额消费与重置七脚本</td><td>❌</td></tr>
-<tr><td rowspan="11">核心功能</td><td><code>ban-manager</code></td><td>封禁管理（目标封禁、优先级、文件加载）</td><td>❌</td></tr>
-<tr><td><code>bulkhead</code></td><td>舱壁隔离：按资源组分池 + 独立并发预算与隔离指标</td><td>❌</td></tr>
-<tr><td><code>quota-control</code></td><td>配额控制</td><td>❌</td></tr>
-<tr><td><code>manager</code></td><td>限流器管理器（<code>LimiterManager</code> 按 key 缓存；<code>#[flow_control]</code> 宏运行时配套，可独立启用）</td><td>❌</td></tr>
-<tr><td><code>capacity-dial</code></td><td>六档容量调光（<code>DialLevel</code> L0-L5 / <code>DialThresholds</code> / <code>CapacityDial</code>，原子内部可变性；不入任何 preset）</td><td>❌</td></tr>
-<tr><td><code>circuit-breaker</code></td><td>熔断器</td><td>❌</td></tr>
-<tr><td><code>retry</code></td><td>带退避重试原语（<code>RetryPolicy</code>：指数退避 + 抖动 + 重试预算，与熔断互补——熔断保护下游、重试消化瞬时抖动；<code>execute_with</code> 决策回调可按上游指示延迟重试）</td><td>❌</td></tr>
-<tr><td><code>fallback</code></td><td>降级策略（FallbackManager）</td><td>❌</td></tr>
-<tr><td><code>custom-limiter</code></td><td>自定义限流器扩展</td><td>❌</td></tr>
-<tr><td><code>cache-service</code></td><td>统一缓存服务（DI 支持）</td><td>❌</td></tr>
-<tr><td><code>gcra</code></td><td>GCRA 限流算法</td><td>❌</td></tr>
-<tr><td rowspan="2">安全</td><td><code>log-redaction</code></td><td>日志脱敏（脱敏引擎由 trait-kit <code>masking</code> feature 的 <code>DataMasker</code> / <code>MaskRuleRegistry</code> 承载；不在 <code>full</code> 预设内，须在依赖声明中显式开启）</td><td>❌</td></tr>
-<tr><td><code>validation</code></td><td>标识符输入校验（IP / 用户 ID / MAC）</td><td>❌</td></tr>
-<tr><td>性能</td><td><code>parallel-checker</code></td><td>并行封禁检查</td><td>❌</td></tr>
-<tr><td rowspan="3">高级匹配</td><td><code>geo-matching</code></td><td>地理位置匹配（MaxMindDB）</td><td>❌</td></tr>
-<tr><td><code>device-matching</code></td><td>设备信息匹配（woothee User-Agent 解析）</td><td>❌</td></tr>
-<tr><td><code>regex-matching</code></td><td>路径正则匹配器（RegexPathMatcher）</td><td>❌</td></tr>
-<tr><td rowspan="5">控制面</td><td><code>admin-api</code></td><td>管理 REST API（axum，含 RBAC 与限流自保护；协议无关操作面见 <code>AdminService</code> trait）</td><td>❌</td></tr>
-<tr><td><code>openapi</code></td><td>OpenAPI 3.0.3 文档构建器 + 入库产物 <code>docs/openapi.json</code> 防漂移测试</td><td>❌</td></tr>
-<tr><td><code>admin-client</code></td><td>Admin API 薄客户端（hyper http1；临时验证面，SDK 生成器落地后接替）</td><td>❌</td></tr>
-<tr><td><code>admin-ui</code></td><td>只读管理 Web UI（内嵌单页无构建链；机械只读守卫：路由表全 GET + 只读投影类型窄化；默认绑定 127.0.0.1，<b>无认证</b>，非回环绑定须前置反向代理；可选 Host 白名单与 API key 鉴权）</td><td>❌</td></tr>
-<tr><td><code>cli</code></td><td><code>limiteron-cli</code> 二进制（<code>src/main.rs</code> 薄壳 + sdforge 子命令化）：规则文件校验 / 导出 / apply dry-run</td><td>❌</td></tr>
-<tr><td rowspan="5">可观测性</td><td><code>telemetry</code></td><td>追踪初始化（tracing-subscriber）</td><td>❌</td></tr>
-<tr><td><code>prometheus</code></td><td>Prometheus 指标（全局 + per-rule/per-limiter 维度与降级计数，可配置关闭；旧名 <code>monitoring</code> 保留为兼容别名）</td><td>❌</td></tr>
-<tr><td><code>metrics</code></td><td>Governor allow / reject / ban 三点指标（隐含 <code>prometheus</code>）</td><td>❌</td></tr>
-<tr><td><code>audit-log</code></td><td>审计日志（HMAC-SHA256 链式签名与篡改检测）</td><td>❌</td></tr>
-<tr><td><code>otlp</code></td><td>OTLP/HTTP 追踪导出</td><td>❌</td></tr>
-<tr><td rowspan="3">工具</td><td><code>macros</code></td><td><code>#[flow_control]</code> 声明式宏（limiteron-macros；展开代码依赖 <code>manager</code>，隐含启用）</td><td>❌</td></tr>
-<tr><td><code>config-watcher</code></td><td>配置文件监听与热重载</td><td>❌</td></tr>
-<tr><td><code>webhook</code></td><td>Webhook 外发（HMAC-SHA256 签名头 + 时间戳防重放）</td><td>❌</td></tr>
-<tr><td rowspan="2">事件</td><td><code>event-system</code></td><td>事件系统（EventEmitter / Dispatcher / Outbox）</td><td>❌</td></tr>
-<tr><td><code>ban-sync</code></td><td>封禁跨实例同步（oxcache Pub/Sub 广播）</td><td>❌</td></tr>
-<tr><td>多租户</td><td><code>multi-tenant</code></td><td>tenant+key 复合决策键与按租户隔离</td><td>❌</td></tr>
-<tr><td>中间件</td><td><code>tower-middleware</code></td><td>Tower Layer / Service 集成（Governor 决策路径 + <code>KeyedRateLimitLayer</code> 静态限流器直驱快速路径，拒绝响应可经 <code>RejectResponder</code> 定制）</td><td>❌</td></tr>
-<tr><td>分布式</td><td><code>distributed</code></td><td><code>DistributedLimiter</code> trait + 内存实现（Redis 实现需另启用 <code>lua-script</code>）</td><td>❌</td></tr>
-<tr><td rowspan="4">限流算法</td><td><code>adaptive-limiting</code></td><td>AIMD 自适应并发限流器（延迟/错误率反馈调窗）</td><td>❌</td></tr>
-<tr><td><code>adaptive-threshold</code></td><td>自适应阈值限流（滑动窗口错误率/延迟驱动动态配额，统计启发式；阈值与冷却期全显式配置）</td><td>❌</td></tr>
-<tr><td><code>priority-queue</code></td><td>优先级队列调度（<code>PriorityQueueLimiter</code>：按优先级调度配额）</td><td>❌</td></tr>
-<tr><td><code>admission-control</code></td><td>准入控制（<code>AdmissionController</code>：并发 + 速率双门准入）</td><td>❌</td></tr>
-<tr><td rowspan="4">生态集成</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> 集成（健康/生命周期端口）</td><td>❌</td></tr>
-<tr><td><code>i18n</code></td><td>ICU4X 国际化格式化</td><td>❌</td></tr>
-<tr><td><code>config-confers</code></td><td>confers 配置源加载</td><td>❌</td></tr>
-<tr><td><code>config-confers-reload</code></td><td>confers 热重载（隐含 <code>config-confers</code>）</td><td>❌</td></tr>
-<tr><td>开发/测试</td><td><code>test-clock</code></td><td><code>MockClock</code> 测试时钟（外部测试消费者专用）</td><td>❌</td></tr>
-</table>
-
-</details>
-
-> ⚠️ **存储驱动互斥**：`postgres` / `sqlite` / `mysql` 均走 dbnexus，嵌入式与服务端驱动不可共存于同一构建，请勿使用 `--all-features`，应使用显式特性组合。
->
 ---
 
-## 📚 文档
+## 📚 Documentation
 
 <details>
-<summary>📋 表格</summary>
+<summary>📋 Table</summary>
 
-| 文档 | 说明 |
-|------|------|
-| [📖 用户指南](docs/USER_GUIDE.md) | 从安装、核心概念到进阶用法与故障排除的完整教程 |
-| [📘 API 参考](docs/API_REFERENCE.md) | 全部公开 API 的详细说明 |
-| [🏗️ 架构文档](docs/ARCHITECTURE.md) | 设计理念、模块划分与扩展机制 |
-| [❓ FAQ](docs/FAQ.md) | 常见问题解答与故障排除 |
-| [🧪 测试指南](docs/TESTING.md) | 测试分类、运行命令与覆盖率说明 |
-| [📈 基准测试规程](docs/BENCHMARKS.md) | `cargo bench` 口径、基线刷新时机与 criterion 对比用法 |
-| [🧬 测试场景固化](docs/TEST_SCENARIOS.md) | 测试金字塔基线与 E2E 场景定义 |
-| [🔒 安全文档](docs/SECURITY.md) | 安全设计、版本支持策略与漏洞报告流程 |
-| [📋 更新日志](docs/CHANGELOG.md) | 每个版本的变更记录 |
-| [🤝 贡献指南](docs/CONTRIBUTING.md) | 如何参与项目开发 |
-| [📦 docs.rs 在线文档](https://docs.rs/limiteron) | 自动生成的最新 API 文档 |
-| [📦 crates.io](https://crates.io/crates/limiteron) | 发布页面 |
+| Documentation | Description |
+|---------------|-------------|
+| [📖 User Guide](docs/en/USER_GUIDE.md) | Complete tutorial from installation and core concepts to advanced usage and troubleshooting |
+| [📘 API Reference](docs/en/API_REFERENCE.md) | Detailed description of all public APIs |
+| [🏗️ Architecture](docs/en/ARCHITECTURE.md) | Design philosophy, module breakdown, and extension mechanisms |
+| [❓ FAQ](docs/en/FAQ.md) | Frequently asked questions and troubleshooting |
+| [🧪 Testing Guide](docs/en/TESTING.md) | Test categories, commands, and coverage notes |
+| [📈 Benchmark Procedure](docs/en/BENCHMARKS.md) | `cargo bench` methodology, baseline refresh timing, and criterion comparison usage |
+| [🧬 Test Scenarios](docs/en/TEST_SCENARIOS.md) | Test pyramid baseline and E2E scenario definitions |
+| [🔒 Security](docs/en/SECURITY.md) | Security design, version support policy, and vulnerability reporting process |
+| [📋 Changelog](docs/CHANGELOG.md) | Changes in every release |
+| [🤝 Contributing](docs/en/CONTRIBUTING.md) | How to participate in development |
+| [📦 docs.rs](https://docs.rs/limiteron) | Latest API documentation generated by docs.rs |
+| [📦 crates.io](https://crates.io/crates/limiteron) | Release page |
 
 </details>
 
 ---
 
-## 💻 示例
+## 💻 Examples
 
-[`examples/`](examples/) 是 workspace 内的独立子 crate（`limiteron-examples`），含 21 个可运行示例。运行需要 feature 的示例时先启用对应特性：
-
-<details>
-<summary>📄 代码 · bash</summary>
-
-```bash
-cargo run -p limiteron-examples --bin simple_rate_limit
-cargo run -p limiteron-examples --features "ban-manager,admin-api" --bin ban_http_api
-```
-
-</details>
-
-<details>
-<summary>📋 表格</summary>
-
-| 示例 | 说明 |
-|------|------|
-| `simple_rate_limit` | 最基本的令牌桶限流使用方式 |
-| `rate_limiters` | 七种限流算法：令牌桶、分片滑动窗口、固定窗口、并发限制器、漏桶、滑动窗口日志、GCRA |
-| `macro_usage` | `flow_control` 宏的使用方式与当前版本的限制 |
-| `governor_demo` | Governor 三种构造模式、请求检查、决策解析与统计信息 |
-| `matchers_demo` | 标识符提取器、请求上下文与规则匹配器的完整使用流程 |
-| `decision_chain` | 责任链决策：组合多个限流器、按优先级执行、支持短路 |
-| `custom_matchers` | 自定义匹配器 trait 实现、注册表与内置 Header（前缀/相等）/ Method / TimeWindow / RegexPath（`regex-matching` 特性）匹配器 |
-| `authorization_demo` | 授权提供者 trait 实现与内置 `SimpleAuthorizationProvider` |
-| `graceful_shutdown` | 监听 Ctrl+C 并调用 `Governor::shutdown()` 幂等优雅关闭 |
-| `circuit_breaker` | 熔断器：故障检测、熔断打开、半开恢复探测与超时恢复 |
-| `quota_control` | 配额消费跟踪、限额执行与用量百分比计算 |
-| `ban_manager` | IP / 用户 ID / MAC 目标的封禁创建、查询、更新与移除 |
-| `ban_file_loader` | 从 YAML 加载封禁规则并支持文件变更热重载 |
-| `ban_http_api` | 启动 AdminServer 并通过 HTTP 调用封禁管理端点 |
-| `validation_demo` | 统一验证模块：IP、用户 ID、MAC、API Key、封禁目标校验 |
-| `storage_factory` | 通过 `StorageFactory` 从 DSN 创建 Postgres / MySQL / SQLite 后端 |
-| `fallback_demo` | 降级策略管理器：策略配置、故障注入、降级执行与孤岛模式 |
-| `audit_log_demo` | 审计日志：事件记录、配置、统计与签名验证 |
-| `tower_middleware` | 将 Governor 流量控制集成到 Tower Service 处理链 |
-| `telemetry_demo` | Prometheus 指标采集与 OpenTelemetry 分布式追踪 |
-| `device_geo_matching` | User-Agent 解析、设备识别、IP 地理查询与地理条件匹配 |
-
-</details>
+[`examples/`](examples/) is a standalone sub-crate in the workspace (`limiteron-examples`) containing 21 runnable examples; for the complete example list and run commands see [examples/README.md](examples/README.md).
 
 ---
 
-## 🏗️ 架构
+## 🏗️ Architecture
 
-Limiteron 采用分层架构：接入层（Tower 中间件、Admin API）将流量交给 **Governor** 主控制器，经 matchers 提取标识符并匹配规则后，沿规则各自的 decision_chain 决策链级联执行 limiters 限流算法；封禁、配额、熔断、降级作为领域组件参与决策；状态经 storage 抽象落地（默认内存，生产可切换 dbnexus 的 PostgreSQL / SQLite / MySQL 持久化）。
+Limiteron uses a layered architecture: the access layer (Tower middleware, Admin API) hands traffic to the **Governor** main controller, which extracts identifiers and matches rules through **matchers**, then cascades along each rule's **decision_chain** of limiter algorithm instances; bans, quotas, circuit breaking, and fallback participate in decisions as domain components; state lands through the **storage** abstraction (in-memory by default, switchable in production to dbnexus persistence for PostgreSQL / SQLite / MySQL).
 
-整体架构图、核心决策时序、模块职责表、存储后端清单与扩展机制见[架构文档](docs/ARCHITECTURE.md)。
-
----
-
-### 🎯 核心决策流程
-
-一次 `Governor::check(context)` 的完整决策路径（提炼自 `src/governor.rs`）：标识符提取与规则匹配（只计算一次）→ L1 负缓存查询（fail-closed，仅缓存拒绝/封禁决策）→ 按优先级级联执行各规则决策链（任一规则拒绝即拒绝，全部允许才放行）→ 发射限流事件并返回 `Allowed` / `Rejected` / `Banned`。
-
-完整决策时序图与逐条关键语义（含 `parallel-checker` 下封禁检查先于缓存读取的语义）见[架构文档](docs/ARCHITECTURE.md#-核心决策流程)。
+The full architecture diagram, core decision sequence, module responsibility table, storage backend list, and extension mechanisms live in the [Architecture document](docs/en/ARCHITECTURE.md).
 
 ---
 
-### 🔗 生态与集成
+### 🎯 Core Decision Flow
 
-Limiteron 与同工作区的兄弟 crate 深度协作，均通过 feature 显式启用、默认不引入：
+The complete decision path of a single `Governor::check(context)` call (distilled from `src/governor.rs`): identifier extraction and rule matching (computed once) → L1 negative-cache lookup (fail-closed, deny/ban decisions only) → priority-ordered cascade across each rule's decision chain (any rule rejecting rejects the request; only unanimous approval passes) → rate-limit event emission and an `Allowed` / `Rejected` / `Banned` outcome.
 
-| 集成 | 特性 | 说明 |
-|------|------|------|
-| [dbnexus](https://github.com/Kirky-X/dbnexus) | `postgres` / `sqlite` / `mysql` | 数据库抽象层，提供持久化存储适配器与指标传递 |
-| [oxcache](https://github.com/Kirky-X/oxcache) | `cache-service` / `cache-redis` / `lua-script` / `ban-sync` | 统一缓存服务、Redis 缓存后端、Lua 执行、Pub/Sub 封禁广播 |
-| [trait-kit](https://github.com/Kirky-X/trait-kit) | `kit` | `LimiteronModule` 模块化接入 + 健康/生命周期端口 |
-| [confers](https://github.com/Kirky-X/confers) | `config-confers` / `config-confers-reload` | 配置源加载与热重载（验证失败自动回滚） |
-
-结构化日志由 [inklog](https://github.com/Kirky-X/inklog) 正主直接提供，limiteron 不再转发初始化入口——应用层直接依赖 inklog 并调用 `inklog::init_inklog_logger()`（或 `inklog::init_inklog_logger_with_config(config)`）安装全局 subscriber 即可，limiteron 自身的 `log::`/`tracing::` 调用随之路由进 inklog 的 sink。
-
-另通过 `i18n` 特性集成 [ICU4X](https://github.com/unicode-org/icu4x) 提供 locale 感知格式化——格式化层与消息目录注册统一委托 trait-kit i18n 基座（ICU4X 由 trait-kit 拉入，本仓不自持 icu 依赖；消息目录经 sdforge::i18n 注册表宿主注册，FTL 文件保留真源）。
-
-工作区成员 [`integrations/limiteron-sdforge`](integrations/limiteron-sdforge/) 反向提供防护层：limiteron 侧把限流/熔断/封禁以 `Guard` 三态判定面暴露给 sdforge 应用（该 crate 自身的 sdforge 特性下适配为 `ForgeRateLimiter`），与 sdforge 侧既有消费适配方向相反、发布节奏独立。
-
-工作区成员 [`integrations/limiteron-dbnexus`](integrations/limiteron-dbnexus/) 为 dbnexus 提供限流端口适配：实现 dbnexus 0.6.0-rc.6 抽出的 `dbnexus-limiter-port` 端口（`Limiter::check(key)`），内部经 `LimiterManager` per-key 令牌桶判定（deny 携带 `Retry-After`，后端故障显性上报，fail-open/closed 由消费方决定）——dbnexus 应用在组合根经 `RateLimitBackend::External` 注入；与 sdforge 桥接同款不发布 crates.io、发布节奏随 limiteron 主仓。
+The full decision sequence diagram and the itemized key semantics (including the `parallel-checker` ordering where the ban check runs before the cache read) live in the [Architecture document](docs/en/ARCHITECTURE.md#-core-decision-flow).
 
 ---
 
-## 🧪 测试
+### 🔗 Ecosystem & Integrations
 
-测试策略矩阵（单元 / 集成与端到端 / 属性 / 文档 / 基准五层）与运行命令（与 [CI](.github/workflows/ci.yml) 一致，含覆盖率门禁）见[测试指南](docs/TESTING.md)，分层基线与 E2E 场景定义见[测试场景固化](docs/TEST_SCENARIOS.md)。
+Limiteron collaborates closely with its sibling crates in the workspace; each integration is feature-gated and excluded by default:
 
-**测试规模**（按 `#[test]` / `#[tokio::test]` 属性 grep 统计（`grep -rEc '#\[(tokio::)?test\b' --include='*.rs'`），截至 v0.3.0-rc.7）：
+| Integration | Features | Description |
+|-------------|----------|-------------|
+| [dbnexus](https://github.com/Kirky-X/dbnexus) | `postgres` / `sqlite` / `mysql` | Database abstraction layer providing persistent storage adapters and metrics propagation |
+| [oxcache](https://github.com/Kirky-X/oxcache) | `cache-service` / `cache-redis` / `lua-script` / `ban-sync` | Unified cache service, Redis cache backend, Lua execution, Pub/Sub ban broadcast |
+| [trait-kit](https://github.com/Kirky-X/trait-kit) | `kit` | `LimiteronModule` modular integration + health/lifecycle ports |
+| [confers](https://github.com/Kirky-X/confers) | `config-confers` / `config-confers-reload` | Configuration source loading and hot reload (automatic rollback on validation failure) |
 
-| 统计项 | 数量 |
-|--------|------|
-| 库内测试函数（`src/`） | 2,489（#[test] 1,551 + #[tokio::test] 938） |
-| 外部测试函数（`tests/`） | 607（#[test] 158 + #[tokio::test] 449） |
-| 宏 crate 测试（`macros/`） | 47（#[test]） |
-| 集成适配 crate 测试（`integrations/`） | 21（#[test] 5 + #[tokio::test] 16） |
-| 属性测试组（proptest） | 4 |
+For integration design notes on inklog, ICU4X, the sdforge guard layer, and the dbnexus rate-limit port adapter, see the [Architecture document · Ecosystem and Integrations](docs/en/ARCHITECTURE.md#-ecosystem-and-integrations).
 
 ---
 
-## 📊 性能
+## 🧪 Testing
 
-> **说明**：下表为 2026-01-19（v0.1.0 时期）的实测数据，**口径早于 criterion 基准接入**——`harness = false` 缺失导致基线直到 2026-09-30 才首次真实产出（见[基准规程](docs/BENCHMARKS.md)）。下表数字保留作为历史对照，当前可复现基线请以 [docs/BENCHMARKS.md](docs/BENCHMARKS.md) 的命令与同机复测结果为准。
+The testing strategy matrix (unit / integration & E2E / property / doc / benchmark layers) and run commands (identical to [CI](.github/workflows/ci.yml), including the coverage gate) live in the [Testing Guide](docs/en/TESTING.md); the layer baselines and E2E scenario definitions live in [Test Scenarios](docs/en/TEST_SCENARIOS.md).
+
+For test-scale statistics (grep count via the `#[test]` / `#[tokio::test]` attributes) see [Testing Guide · Test Statistics](docs/en/TESTING.md#-test-statistics).
+
+---
+
+## 📊 Performance
+
+Historical measurements (v0.1.0-era methodology, order-of-magnitude reference only) and the benchmark-infrastructure details are archived in the [Benchmark Procedure · Historical Comparison](docs/en/BENCHMARKS.md#historical-comparison); for the current reproducible baseline, follow the [Running](docs/en/BENCHMARKS.md#running) commands in that file together with same-machine re-measurements.
+
+---
+
+## 🔒 Security
+
+**Reporting a vulnerability**: please do not report security vulnerabilities through public issues. Use the GitHub [Security Advisories](https://github.com/Kirky-X/limiteron/security/policy) private disclosure channel ("Report a vulnerability"). Kirky.X commits to acknowledging reports within 48 hours and providing an initial assessment within 7 days, following coordinated disclosure. See [SECURITY.md](docs/en/SECURITY.md) for the full process.
+
+For the security design highlights (input defenses, algorithm boundaries, Admin self-protection, read-only Web UI warnings, data protection, transport defenses, and supply chain), see the [Security document](docs/en/SECURITY.md).
+
+---
+
+## 🗺️ Roadmap
 
 <table>
 <tr>
-<td width="50%" valign="top">
-
-**吞吐量**
-
-| 限流器 | 实测 | 目标 | 达成 |
-|--------|------|------|------|
-| TokenBucket | **12M+ ops/s** | 500K ops/s | ✅ 24x |
-| FixedWindow | **20M+ ops/s** | 300K ops/s | ✅ 66x |
-| ConcurrencyLimiter | **12M+ ops/s** | 200K ops/s | ✅ 60x |
-
-</td>
-<td width="50%" valign="top">
-
-**延迟**
-
-| 分位 | TokenBucket | FixedWindow |
-|------|-------------|-------------|
-| P50 | < 100ns | < 100ns |
-| P95 | < 200ns | < 150ns |
-| P99 | < 1µs | < 500ns |
-
-</td>
-</tr>
-</table>
-
-<details>
-<summary><b>📈 详细基准数据</b></summary>
-
-<br>
-
-历史实测数据（口径早于基准设施口径统一，仅供量级参考；现行口径为 fresh 实例放行路径，见 `benches/throughput.rs` 口径说明）：
-
-```text
-TokenBucket: 12,088,759 ops/s
-FixedWindow: 19,920,188 ops/s
-ConcurrencyLimiter: 11,891,237 ops/s
-并发测试：数据一致性 100%，限流正确性 1000/1000
-```
-
-</details>
-
-**基准设施**：仓库自带四组 criterion 基准（均需 `full` 特性），用于复现与回归检测：
-
-| 基准 | 文件 | 内容 |
-|------|------|------|
-| 吞吐量 | `benches/throughput.rs` | 单线程/并发吞吐量与扩展曲线 |
-| 延迟 | `benches/latency.rs` | P50/P90/P99/P99.9 延迟测量与操作对比 |
-| 内存 | `benches/memory.rs` | 键规模内存占用、数据结构对比、泄漏检测 |
-| 回归 | `benches/regression.rs` | 历史基准存储与自动对比告警 |
-
-<details>
-<summary>📄 代码 · bash</summary>
-
-```bash
-cargo bench --features full
-# 注意：[[bench]] 已设置 harness = false（criterion 0.8 要求），缺失时 bench 落入 libtest 空跑
-```
-
-</details>
-
----
-
-## 🔒 安全
-
-**漏洞报告**：请勿通过公开 issue 报告安全漏洞，请使用 GitHub [Security Advisories](https://github.com/Kirky-X/limiteron/security/policy) 私密披露通道（"Report a vulnerability"）。维护者承诺 48 小时内确认、7 天内给出初步评估，采用协调披露。完整流程见 [SECURITY.md](docs/SECURITY.md)。
-
-**安全设计要点**（均可在源码与[安全文档](docs/SECURITY.md)中对应）：
-
-- **输入防线** — 租户 / 环境标识符消毒（转义 `:` 防命名空间前缀注入，`src/tenant/config.rs`）；IP / 用户 ID / MAC 格式校验（`src/validation.rs`）；租户 ID 取自请求头时须由可信网关覆写，或用 `HeaderTenantResolver::with_allowed_tenants` 限定租户白名单（`src/tenant/resolver.rs`）
-- **算法边界** — 令牌桶时间差与补充使用饱和运算封顶；配额窗口内置时钟回退防护
-- **Admin 自保护** — 管理端点自身限流 + 分桶内存上限 + 多 key 令牌认证与 admin/viewer 角色矩阵（RBAC）
-- **只读 Web UI 无认证警示** — `admin-ui` 内嵌单页仅发起 GET 且经机械守卫（路由表全 GET + 只读投影类型窄化，`src/admin/web.rs`）；默认绑定 `127.0.0.1` 且**无认证**——改为非回环地址会将管理快照暴露给同网段，必须前置带认证的反向代理（服务启动时对非回环绑定发出 warn 日志）。可选访问控制：`WebUiAccess::strict()` 启用 Host 白名单（收敛 DNS rebinding 面），`WebUiAccess::with_api_key(...)` 要求 Bearer 凭证（key 长度 ≥ 16，鉴权失败按客户端 IP 限流）；启用后浏览器在页面内输入 key（存 `sessionStorage`，不落 URL），数据端点自动带 `Authorization: Bearer <key>`
-- **数据保护** — secrecy 保护敏感数据、日志脱敏（`log-redaction`）、审计事件 HMAC-SHA256 链式签名与篡改检测
-- **传输防线** — 可信代理 X-Forwarded-For 提取；Webhook 外发签名 + 时间戳防重放 + URL 校验（SSRF）
-- **供应链** — rustls-webpki 最低版本锁（CVE-2025-48369）；[cargo-deny](deny.toml) 校验漏洞/许可证/重复依赖；CI Security 任务与 pre-push 钩子运行 `cargo deny check` 与 `cargo audit`
-
----
-
-## 🗺️ 开发路线图
-
-<table>
-<tr>
-<td width="12%" align="center"><b>✅ 已完成</b></td>
-<td>核心限流算法、封禁管理、配额控制、熔断器、<code>#[flow_control]</code> 宏、单元与集成测试体系、PostgreSQL / SQLite 存储（经 dbnexus）、Governor 优雅关闭与健康检查、ConfigLoader 环境变量覆盖（v0.2.0）；Tower 中间件完善、事件系统增强、RedisStorage 移除并统一经 oxcache 缓存（v0.2.1）</td>
+<td width="12%" align="center"><b>✅ Completed</b></td>
+<td>Core rate limiting algorithms, ban management, quota control, circuit breaker, the <code>#[flow_control]</code> macro, unit and integration test suites, PostgreSQL / SQLite storage via dbnexus, Governor graceful shutdown and health check, ConfigLoader environment variable overrides (v0.2.0); Tower middleware refinement, event system enhancements, RedisStorage removal with caching unified through oxcache (v0.2.1)</td>
 </tr>
 <tr>
-<td width="12%" align="center"><b>✅ 已交付（随 0.3.0-rc.4 发布）</b></td>
-<td>多租户贯穿 Governor、CIDR 网段封禁、Admin RBAC、OTLP 追踪导出、MySQL 存储、分布式限流器、<code>limiteron-cli</code> 等新能力（详见<a href="docs/CHANGELOG.md">更新日志</a>）</td>
+<td width="12%" align="center"><b>✅ Shipped (released with 0.3.0-rc.4)</b></td>
+<td>Multi-tenancy through Governor, CIDR range bans, Admin RBAC, OTLP tracing export, MySQL storage, distributed limiting, <code>limiteron-cli</code>, and more (see the <a href="docs/CHANGELOG.md">changelog</a>)</td>
 </tr>
 <tr>
-<td width="12%" align="center"><b>✅ 已交付</b></td>
-<td>性能优化与监控追踪增强——criterion 四组基准修复并统一 fresh 实例放行口径（<code>90fb0cb</code>）、HeaderMatcher ASCII 零分配快路径削减热点（12 项基准 -10.0%~-33.4%，<code>4cc7c6f</code>）、per-rule/per-limiter 维度指标与 <code>governor_check</code> span（<code>5422c6d</code>）；OTLP 追踪导出已随 0.3.0-rc.4 交付</td>
+<td width="12%" align="center"><b>✅ Delivered</b></td>
+<td>Performance optimization and monitoring/tracing improvements — four criterion benchmark suites repaired with unified fresh-instance pass-path methodology (<code>90fb0cb</code>), HeaderMatcher zero-allocation ASCII fast-path hotspot reduction (-10.0%~-33.4% across 12 benchmarks, <code>4cc7c6f</code>), per-rule/per-limiter dimensional metrics and <code>governor_check</code> span (<code>5422c6d</code>); OTLP trace export shipped with 0.3.0-rc.4</td>
 </tr>
 <tr>
-<td width="12%" align="center"><b>📋 计划中</b></td>
-<td>更多存储后端</td>
+<td width="12%" align="center"><b>📋 Planned</b></td>
+<td>Additional storage backends</td>
 </tr>
 <tr>
-<td width="12%" align="center"><b>💡 未来想法</b></td>
-<td>「机器学习驱动的限流」已经裁决具体化为统计启发式（`adaptive-limiting` AIMD 并发窗口与 `adaptive-threshold` 滑动窗口动态配额，均为确定性阈值逻辑，非神经网络——见 `src/limiters/adaptive_threshold.rs` 模块文档）；「社区插件系统」已落地为编译期注册制（`plugins`，动态 .so 明确不做，见 `src/plugins/`）</td>
+<td width="12%" align="center"><b>💡 Future Ideas</b></td>
+<td>"ML-driven rate limiting" was adjudicated and materialized as statistical heuristics (`adaptive-limiting` AIMD concurrency window and `adaptive-threshold` sliding-window dynamic quota, both deterministic threshold logic, not neural networks — see `src/limiters/adaptive_threshold.rs`); the "community plugin system" has landed as compile-time registration (`plugins`, dynamic .so explicitly not supported, see `src/plugins/`)</td>
 </tr>
 </table>
 
 ---
 
-## 🤝 参与贡献
+## 🤝 Contributing
 
-欢迎任何形式的贡献！开发环境、TDD 工作流、代码规范与 PR 流程详见[贡献指南](docs/CONTRIBUTING.md)。
+Contributions of any kind are welcome! See [CONTRIBUTING.md](docs/en/CONTRIBUTING.md) for the development environment, TDD workflow, coding conventions, and the PR process.
 
 <table>
 <tr>
 <td width="33%" align="center">
 
-### 🐛 报告问题
+### 🐛 Report Issues
 
-发现了 Bug？<br>
-[创建 Issue](https://github.com/Kirky-X/limiteron/issues)
-
-</td>
-<td width="33%" align="center">
-
-### 💡 功能建议
-
-有好想法？<br>
-[发起讨论](https://github.com/Kirky-X/limiteron/discussions)
+Found a bug?<br>
+[Create Issue](https://github.com/Kirky-X/limiteron/issues)
 
 </td>
 <td width="33%" align="center">
 
-### 🔧 提交代码
+### 💡 Feature Requests
 
-想参与开发？<br>
+Have a suggestion?<br>
+[Start Discussion](https://github.com/Kirky-X/limiteron/discussions)
+
+</td>
+<td width="33%" align="center">
+
+### 🔧 Submit Code
+
+Want to contribute?<br>
 [Fork & PR](https://github.com/Kirky-X/limiteron/pulls)
 
 </td>
@@ -553,65 +303,59 @@ cargo bench --features full
 </table>
 
 <details>
-<summary><b>🔧 开发环境基线</b></summary>
+<summary><b>🔧 Development Environment Baseline</b></summary>
 
 <br>
 
-Rust 1.97.1（[rust-toolchain.toml](rust-toolchain.toml) 统一锁定）；lefthook / pre-commit 钩子覆盖 fmt、clippy、供应链检查、私钥扫描与覆盖率门禁。环境搭建、钩子明细与提交规范全文见[贡献指南](docs/CONTRIBUTING.md)。
+Rust 1.97.1 (pinned in [rust-toolchain.toml](rust-toolchain.toml)); lefthook / pre-commit hooks cover fmt, clippy, supply-chain checks, secret scanning, and the coverage gate. See [CONTRIBUTING.md](docs/en/CONTRIBUTING.md) for environment setup, hook details, and commit conventions.
 
 </details>
 
 ---
 
-## 📋 更新日志
+## 📋 Changelog
 
-完整变更记录见 [CHANGELOG.md](docs/CHANGELOG.md)。近期版本要点：
-
-- **0.3.0-rc.7**（2026-09-28）— ManualCircuitBreaker 手动熔断、capacity-dial 六档容量调光、tower-middleware 拒绝响应工厂与 keyed 快速路径、RetryPolicy 重试前回调、QuotaLimiter 超限窗口查询、manager feature 拆分与非 panic 路径；【安全】CodeQL 明文日志四项收敛（governor 日志脱敏/长度指纹/入口字段降记）；limiters/quota/distributed/governor/resilience 算法与韧性修复；文档一致性门禁
-- **0.3.0-rc.5**（2026-09-21）— 维护性发布：新增 `retry` 组件（`RetryPolicy` 指数退避）与 i18n 整改，无破坏面
-- **0.3.0-rc.4**（2026-09-14，含原 rc.3 批次）— 多租户贯穿 Governor、CIDR 网段封禁、Admin RBAC、OTLP 追踪导出、MySQL 存储、HTB 分层令牌桶、舱壁隔离、AIMD 自适应限流、`limiteron-cli`、Webhook 签名、事件 Outbox、封禁跨实例同步（0.3.0-rc.3 版本号跳过未发布，内容随本版发布）
-- **0.3.0-rc.2**（2026-09-03）— 文档同步至 0.3 线、workspace 依赖路径本地化、`Cargo.lock` 纳入版本控制
-- **0.2.10**（2026-07-22）— 新增 76 个边界与异常场景测试、sea-orm 升级至 2.0 稳定版、清理未使用依赖
+See [CHANGELOG.md](docs/CHANGELOG.md) for the full history.
 
 ---
 
-## 📄 许可证
+## 📄 License
 
-本项目基于 [MIT](LICENSE) 许可证发布。
+This project is licensed under the [MIT](LICENSE) License.
 
 Copyright (c) 2026 Kirky.X🌠
 
 ---
 
-## 🙏 致谢
+## 🙏 Acknowledgments
 
-- 🌟 **依赖项目** — 本项目构建在这些优秀的项目之上：
-  - [tokio](https://tokio.rs/) — 异步运行时
-  - [dbnexus](https://github.com/Kirky-X/dbnexus) — 数据库抽象层
-  - [oxcache](https://github.com/Kirky-X/oxcache) — 统一缓存服务
-  - [trait-kit](https://github.com/Kirky-X/trait-kit) — trait 集成模块
-  - [trait-kit](https://github.com/Kirky-X/trait-kit) — 模块标准接口与掩码引擎（trait-kit 仓的 masking 特性，本仓经 log-redaction 消费）；[inklog](https://github.com/Kirky-X/inklog) — 结构化日志（按 target 分桶 sink 限流见 `integrations/limiteron-inklog` 适配器）
-  - [dashmap](https://github.com/xacrimon/dashmap) — 并发 HashMap
-- 👥 **贡献者** — 感谢所有贡献者！
-- 💬 **社区** — 特别感谢社区成员的支持
-
----
-
-## 📞 联系与支持
-
-- 🐛 [Issues](https://github.com/Kirky-X/limiteron/issues) — 报告 Bug 与问题
-- 💬 [Discussions](https://github.com/Kirky-X/limiteron/discussions) — 提问与交流想法
-- 📦 [GitHub 仓库](https://github.com/Kirky-X/limiteron) — 查看源代码
-- 🤝 维护者：Kirky.X
+- 🌟 **Dependencies** — Built on these excellent projects:
+  - [tokio](https://tokio.rs/) — Async runtime
+  - [dbnexus](https://github.com/Kirky-X/dbnexus) — Database abstraction layer
+  - [oxcache](https://github.com/Kirky-X/oxcache) — Unified cache service
+  - [trait-kit](https://github.com/Kirky-X/trait-kit) — Module standard interfaces and the masking engine (the masking feature of the trait-kit repo, consumed here via log-redaction)
+  - [inklog](https://github.com/Kirky-X/inklog) — Structured logging (per-target bucketed sink rate limiting via the `integrations/limiteron-inklog` adapter)
+  - [dashmap](https://github.com/xacrimon/dashmap) — Concurrent HashMap
+- 👥 **Contributors** — Thanks to all contributors!
+- 💬 **Community** — Special thanks to community members
 
 ---
 
-## ⭐ Star 历史
+## 📞 Contact & Support
+
+- 🐛 [Issues](https://github.com/Kirky-X/limiteron/issues) — Report bugs and errors
+- 💬 [Discussions](https://github.com/Kirky-X/limiteron/discussions) — Ask questions and share ideas
+- 📦 [GitHub Repository](https://github.com/Kirky-X/limiteron) — View the source code
+- 🤝 Maintainer: Kirky.X
+
+---
+
+## ⭐ Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Kirky-X/limiteron&type=Date)](https://star-history.com/#Kirky-X/limiteron&Date)
 
-### 💝 支持本项目
+### 💝 Support This Project
 
-如果您觉得这个项目有用，请考虑给它一个 ⭐️！
+If you find this project useful, please consider giving it a ⭐️!
 
 **Built with ❤️ by Kirky.X**

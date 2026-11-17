@@ -1,8 +1,8 @@
 # 📖 Limiteron 用户指南
 
-本指南是 Limiteron（Rust 统一流量控制框架）的完整使用教程，覆盖从安装、核心概念到进阶用法、最佳实践与故障排查的全部内容。快速概览请见 [README](../README.md)，API 细节请见 [API 参考](API_REFERENCE.md)。
+本指南是 Limiteron（Rust 统一流量控制框架）的完整使用教程，覆盖从安装、核心概念到进阶用法、最佳实践与故障排查的全部内容。快速概览请见 [README](../../README_CN.md)，API 细节请见 [API 参考](API_REFERENCE.md)。
 
-[🏠 首页](../README.md) • [💻 示例](../examples/) • [❓ 常见问题](FAQ.md)
+[🏠 首页](../../README_CN.md) • [💻 示例](../../examples/) • [❓ 常见问题](FAQ.md)
 
 ---
 
@@ -30,6 +30,7 @@
 - [🔁 常见模式](#-常见模式)
 - [🔧 故障排除](#-故障排除)
 - [🗺️ 下一步](#️-下一步)
+- [🧩 特性标志](#-特性标志)
 
 </details>
 
@@ -58,7 +59,7 @@
 
 | 类别 | 项目 |
 |------|------|
-| 必需 | Rust 1.97.1+（[rust-toolchain.toml](../rust-toolchain.toml) 统一锁定）、Cargo、Git |
+| 必需 | Rust 1.97.1+（[rust-toolchain.toml](../../rust-toolchain.toml) 统一锁定）、Cargo、Git |
 | 可选 | 支持 Rust 的 IDE、Docker（容器化部署）、PostgreSQL / MySQL / SQLite（经 dbnexus 持久化存储）、Redis（经 oxcache 缓存集成） |
 
 <details>
@@ -84,7 +85,7 @@ git --version
 cargo add limiteron --features macros
 ```
 
-或在 `Cargo.toml` 中手动添加（版本与 [Cargo.toml](../Cargo.toml) 当前发布线一致）：
+或在 `Cargo.toml` 中手动添加（版本与 [Cargo.toml](../../Cargo.toml) 当前发布线一致）：
 
 ```toml
 [dependencies]
@@ -114,7 +115,7 @@ limiteron = { path = "/path/to/limiteron" }
 
 ### 第一步
 
-用一个最小示例验证安装（对应仓库示例 [`simple_rate_limit.rs`](../examples/src/bin/simple_rate_limit.rs)）：
+用一个最小示例验证安装（对应仓库示例 [`simple_rate_limit.rs`](../../examples/src/bin/simple_rate_limit.rs)）：
 
 ```rust
 use limiteron::limiters::{Limiter, TokenBucketLimiter};
@@ -488,7 +489,7 @@ let governor = Governor::builder()
 
 ### 性能基准
 
-吞吐量与延迟基准数字（TokenBucket 12M+ ops/s / P99 < 1µs、FixedWindow 20M+ ops/s 等，2026-01-19 实测）见 [README 性能](../README.md#-性能)。测试环境：Linux WSL2，Release 优化模式。
+吞吐量与延迟基准数字（TokenBucket 12M+ ops/s / P99 < 1µs、FixedWindow 20M+ ops/s 等，2026-01-19 实测）见 [README 性能](../../README_CN.md#-性能)。测试环境：Linux WSL2，Release 优化模式。
 
 #### 并发测试
 
@@ -518,7 +519,7 @@ let governor = Governor::builder()
 
 </details>
 
-复现方式：`cargo bench --features full`（基准设施见 [README](../README.md#-性能)）。
+复现方式：`cargo bench --features full`（基准设施见 [README](../../README_CN.md#-性能)）。
 
 ### 错误处理
 
@@ -851,12 +852,107 @@ async fn handler() -> Result<(), limiteron::error::LimiteronError> {
 
 | 资源 | 说明 |
 |------|------|
-| [💻 示例](../examples/) | 21 个可运行示例，覆盖全部核心能力 |
+| [💻 示例](../../examples/) | 21 个可运行示例，覆盖全部核心能力 |
 | [📚 API 参考](API_REFERENCE.md) | 全部公开 API 的签名与语义 |
 | [❓ 常见问题](FAQ.md) | 按主题汇总的问答 |
 | [🏗️ 架构文档](ARCHITECTURE.md) | 设计理念、模块划分与扩展机制 |
 | [🔒 安全文档](SECURITY.md) | 安全设计与漏洞报告流程 |
+## 🧩 特性标志
+
+Limiteron 默认不启用任何可选功能（`default = []`），按需组合。以下内容逐项对应 [Cargo.toml](../../Cargo.toml) 的 `[features]` 段：
+
+**特性预设**
+
+| 预设 | 说明 | 启用的特性 |
+|------|------|------------|
+| `minimal` | 核心限流，无外部存储依赖 | `sync`（tokio-free 同步原语） |
+| `standard` | 核心功能（封禁 / 配额 / 熔断） | `ban-manager`、`quota-control`、`circuit-breaker` |
+| `full` | 除存储后端外的全部功能（不含 `cli`） | 36 项特性，见 Cargo.toml |
+
+> 注：preset 均不含存储后端，持久化需自行叠加 `sqlite` / `postgres` / `mysql`（dbnexus 驱动互斥，一次构建只能叠加一个）。
+>
+> ⚠️ **文件型 SQLite 部署提示**：WAL 等连接级 PRAGMA **不能**经连接 URL 携带——sqlx 0.9 的连接串查询参数白名单只认 `mode`/`cache`/`immutable`/`vfs`，白名单外参数（如 `journal_mode=WAL`）会被驱动直接拒绝建连。正确做法是用 `StorageFactoryConfig::with_sqlite_pragmas`（需启用 `sqlite` 特性）传 dbnexus 的 `SqlitePragmas`，PRAGMA 在建池时逐连接应用：
+>
+> ```rust
+> use dbnexus::SqlitePragmas;
+> use limiteron::adapters::{StorageFactory, StorageFactoryConfig};
+>
+> let config = StorageFactoryConfig::sqlite("data/limiteron.db?mode=rwc").with_sqlite_pragmas(
+>     SqlitePragmas {
+>         journal_mode: Some("WAL".to_string()),
+>         busy_timeout_ms: Some(5_000),
+>         ..Default::default()
+>     },
+> );
+> ```
+>
+> 未配置时 busy_timeout 由 sqlx 内建默认 5s 兜底，但 journal_mode 仍为 SQLite 默认的 delete 模式，并发写场景可能遭遇 `database is locked`。
+
+<details>
+<summary><b>📋 全部特性（按类别）</b></summary>
+
+<br>
+
+<table>
+<tr><th>类别</th><th>特性</th><th>说明</th><th>默认</th></tr>
+<tr><td rowspan="5">存储后端</td><td><code>postgres</code></td><td>PostgreSQL 存储（dbnexus 服务端驱动 + sea-orm）</td><td>❌</td></tr>
+<tr><td><code>sqlite</code></td><td>SQLite 存储（dbnexus 嵌入式驱动，本地默认后端；<code>StorageFactory::create_schema</code> 自动建表，内存库 <code>sqlite::memory:</code> 单测覆盖并与 Redis 形后端行为对拍）</td><td>❌</td></tr>
+<tr><td><code>mysql</code></td><td>MySQL 存储（dbnexus 服务端驱动）</td><td>❌</td></tr>
+<tr><td><code>cache-redis</code></td><td>Redis 缓存后端（经 oxcache；原 <code>cache-storage</code>，保留为兼容别名）</td><td>❌</td></tr>
+<tr><td><code>lua-script</code></td><td>Redis Lua 脚本执行（经 oxcache <code>eval_lua</code>）：滑动窗口 / 滑动窗口日志（cost 加权）/ 固定窗口 / 令牌桶 / 带突发透支令牌桶 / 配额消费与重置七脚本</td><td>❌</td></tr>
+<tr><td rowspan="12">核心功能</td><td><code>ban-manager</code></td><td>封禁管理（目标封禁、优先级、文件加载）</td><td>❌</td></tr>
+<tr><td><code>bulkhead</code></td><td>舱壁隔离：按资源组分池 + 独立并发预算与隔离指标</td><td>❌</td></tr>
+<tr><td><code>quota-control</code></td><td>配额控制</td><td>❌</td></tr>
+<tr><td><code>manager</code></td><td>限流器管理器（<code>LimiterManager</code> 按 key 缓存；<code>#[flow_control]</code> 宏运行时配套，可独立启用）</td><td>❌</td></tr>
+<tr><td><code>capacity-dial</code></td><td>六档容量调光（<code>DialLevel</code> L0-L5 / <code>DialThresholds</code> / <code>CapacityDial</code>，原子内部可变性；不入任何 preset）</td><td>❌</td></tr>
+<tr><td><code>circuit-breaker</code></td><td>熔断器</td><td>❌</td></tr>
+<tr><td><code>retry</code></td><td>带退避重试原语（<code>RetryPolicy</code>：指数退避 + 抖动 + 重试预算，与熔断互补——熔断保护下游、重试消化瞬时抖动；<code>execute_with</code> 决策回调可按上游指示延迟重试）</td><td>❌</td></tr>
+<tr><td><code>fallback</code></td><td>降级策略（FallbackManager）</td><td>❌</td></tr>
+<tr><td><code>custom-limiter</code></td><td>自定义限流器扩展</td><td>❌</td></tr>
+<tr><td><code>cache-service</code></td><td>统一缓存服务（DI 支持）</td><td>❌</td></tr>
+<tr><td><code>gcra</code></td><td>GCRA 限流算法</td><td>❌</td></tr>
+<tr><td><code>sync</code></td><td>同步限流原语：<code>SyncCircuitBreaker</code> / <code>SyncFixedWindowLimiter</code>（std + parking_lot，tokio-free；<code>minimal</code> 预设即由它构成）</td><td>❌</td></tr>
+<tr><td rowspan="2">安全</td><td><code>log-redaction</code></td><td>日志脱敏（脱敏引擎由 trait-kit <code>masking</code> feature 的 <code>DataMasker</code> / <code>MaskRuleRegistry</code> 承载；不在 <code>full</code> 预设内，须在依赖声明中显式开启）</td><td>❌</td></tr>
+<tr><td><code>validation</code></td><td>标识符输入校验（IP / 用户 ID / MAC）</td><td>❌</td></tr>
+<tr><td>性能</td><td><code>parallel-checker</code></td><td>并行封禁检查</td><td>❌</td></tr>
+<tr><td rowspan="3">高级匹配</td><td><code>geo-matching</code></td><td>地理位置匹配（MaxMindDB）</td><td>❌</td></tr>
+<tr><td><code>device-matching</code></td><td>设备信息匹配（woothee User-Agent 解析）</td><td>❌</td></tr>
+<tr><td><code>regex-matching</code></td><td>路径正则匹配器（RegexPathMatcher）</td><td>❌</td></tr>
+<tr><td rowspan="5">控制面</td><td><code>admin-api</code></td><td>管理 REST API（axum，含 RBAC 与限流自保护；协议无关操作面见 <code>AdminService</code> trait）</td><td>❌</td></tr>
+<tr><td><code>openapi</code></td><td>OpenAPI 3.0.3 文档构建器 + 入库产物 <code>docs/openapi.json</code> 防漂移测试</td><td>❌</td></tr>
+<tr><td><code>admin-client</code></td><td>Admin API 薄客户端（hyper http1；临时验证面，SDK 生成器落地后接替）</td><td>❌</td></tr>
+<tr><td><code>admin-ui</code></td><td>只读管理 Web UI（内嵌单页无构建链；机械只读守卫：路由表全 GET + 只读投影类型窄化；默认绑定 127.0.0.1，<b>无认证</b>，非回环绑定须前置反向代理；可选 Host 白名单与 API key 鉴权）</td><td>❌</td></tr>
+<tr><td><code>cli</code></td><td><code>limiteron-cli</code> 二进制（<code>src/main.rs</code> 薄壳 + sdforge 子命令化）：规则文件校验 / 导出 / apply dry-run</td><td>❌</td></tr>
+<tr><td rowspan="5">可观测性</td><td><code>telemetry</code></td><td>追踪初始化（tracing-subscriber）</td><td>❌</td></tr>
+<tr><td><code>prometheus</code></td><td>Prometheus 指标（全局 + per-rule/per-limiter 维度与降级计数，可配置关闭；旧名 <code>monitoring</code> 保留为兼容别名）</td><td>❌</td></tr>
+<tr><td><code>metrics</code></td><td>Governor allow / reject / ban 三点指标（隐含 <code>prometheus</code>）</td><td>❌</td></tr>
+<tr><td><code>audit-log</code></td><td>审计日志（HMAC-SHA256 链式签名与篡改检测）</td><td>❌</td></tr>
+<tr><td><code>otlp</code></td><td>OTLP/HTTP 追踪导出</td><td>❌</td></tr>
+<tr><td rowspan="3">工具</td><td><code>macros</code></td><td><code>#[flow_control]</code> 声明式宏（limiteron-macros；展开代码依赖 <code>manager</code>，隐含启用）</td><td>❌</td></tr>
+<tr><td><code>config-watcher</code></td><td>配置文件监听与热重载</td><td>❌</td></tr>
+<tr><td><code>webhook</code></td><td>Webhook 外发（HMAC-SHA256 签名头 + 时间戳防重放）</td><td>❌</td></tr>
+<tr><td rowspan="2">事件</td><td><code>event-system</code></td><td>事件系统（EventEmitter / Dispatcher / Outbox）</td><td>❌</td></tr>
+<tr><td><code>ban-sync</code></td><td>封禁跨实例同步（oxcache Pub/Sub 广播）</td><td>❌</td></tr>
+<tr><td>插件</td><td><code>plugins</code></td><td>插件系统：决策生命周期钩子（<code>on_admit</code> / <code>on_reject</code> / <code>on_degrade</code>）+ 编译期注册制（动态 .so 明确不做，不入任何 preset）</td><td>❌</td></tr>
+<tr><td>多租户</td><td><code>multi-tenant</code></td><td>tenant+key 复合决策键与按租户隔离</td><td>❌</td></tr>
+<tr><td>中间件</td><td><code>tower-middleware</code></td><td>Tower Layer / Service 集成（Governor 决策路径 + <code>KeyedRateLimitLayer</code> 静态限流器直驱快速路径，拒绝响应可经 <code>RejectResponder</code> 定制）</td><td>❌</td></tr>
+<tr><td>分布式</td><td><code>distributed</code></td><td><code>DistributedLimiter</code> trait + 内存实现（Redis 实现需另启用 <code>lua-script</code>）</td><td>❌</td></tr>
+<tr><td rowspan="4">限流算法</td><td><code>adaptive-limiting</code></td><td>AIMD 自适应并发限流器（延迟/错误率反馈调窗）</td><td>❌</td></tr>
+<tr><td><code>adaptive-threshold</code></td><td>自适应阈值限流（滑动窗口错误率/延迟驱动动态配额，统计启发式；阈值与冷却期全显式配置）</td><td>❌</td></tr>
+<tr><td><code>priority-queue</code></td><td>优先级队列调度（<code>PriorityQueueLimiter</code>：按优先级调度配额）</td><td>❌</td></tr>
+<tr><td><code>admission-control</code></td><td>准入控制（<code>AdmissionController</code>：并发 + 速率双门准入）</td><td>❌</td></tr>
+<tr><td rowspan="5">生态集成</td><td><code>kit</code></td><td>trait-kit <code>LimiteronModule</code> 集成（健康/生命周期端口）</td><td>❌</td></tr>
+<tr><td><code>i18n</code></td><td>ICU4X 国际化格式化</td><td>❌</td></tr>
+<tr><td><code>config-confers</code></td><td>confers 配置源加载</td><td>❌</td></tr>
+<tr><td><code>config-confers-reload</code></td><td>confers 热重载（隐含 <code>config-confers</code>）</td><td>❌</td></tr>
+<tr><td><code>i18n-host</code></td><td>i18n 宿主注册面：把内嵌消息目录汇入 <code>sdforge::i18n</code> 全局注册表（sdforge 宿主装配场景 opt-in；关闭时查找走本仓自持模板面，逐字等价）</td><td>❌</td></tr>
+<tr><td>开发/测试</td><td><code>test-clock</code></td><td><code>MockClock</code> 测试时钟（外部测试消费者专用）</td><td>❌</td></tr>
+</table>
+
+</details>
+
+> ⚠️ **存储驱动互斥**：`postgres` / `sqlite` / `mysql` 均走 dbnexus，嵌入式与服务端驱动不可共存于同一构建，请勿使用 `--all-features`，应使用显式特性组合。
 
 ---
 
-[🏠 返回首页](../README.md) • [📖 API 参考](API_REFERENCE.md) • [❓ 常见问题](FAQ.md)
+[🏠 返回首页](../../README_CN.md) • [📖 API 参考](API_REFERENCE.md) • [❓ 常见问题](FAQ.md)

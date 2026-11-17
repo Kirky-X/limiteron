@@ -2,7 +2,7 @@
 
 本文档描述 Limiteron 的整体架构、模块划分与扩展机制，帮助读者理解框架的内部实现。模块事实以 `src/` 源码为准；API 细节见 [API 参考](API_REFERENCE.md)。
 
-[🏠 首页](../README.md) • [📋 更新日志](CHANGELOG.md) • [🧪 测试指南](TESTING.md) • [🔒 安全文档](SECURITY.md)
+[🏠 首页](../../README_CN.md) • [📋 更新日志](../CHANGELOG.md) • [🧪 测试指南](TESTING.md) • [🔒 安全文档](SECURITY.md)
 
 ---
 
@@ -17,6 +17,7 @@
 - [💾 存储与缓存](#-存储与缓存)
 - [🧩 特性依赖总览](#-特性依赖总览)
 - [🔌 扩展机制](#-扩展机制)
+- [🔗 生态与集成](#-生态与集成)
 
 </details>
 
@@ -139,7 +140,7 @@ sequenceDiagram
 
 ## 🧩 特性依赖总览
 
-特性体系按类别组织（完整清单见 [Cargo.toml](../Cargo.toml) 的 `[features]` 段与 [README 特性标志](../README.md#-特性标志)）：
+特性体系按类别组织（完整清单见 [Cargo.toml](../../Cargo.toml) 的 `[features]` 段与 [特性标志](USER_GUIDE.md#-特性标志)）：
 
 ```mermaid
 flowchart BT
@@ -180,3 +181,13 @@ flowchart BT
 | 声明式接入 | `#[flow_control]` 宏 | `rate` / `quota` / `concurrency` / `on_exceed` / `key_prefix` 等参数，编译期生成限流包装 |
 | 配置热更新 | `POST /api/v1/config` | 原子换配置：同步重建规则匹配器与决策链、失效 L1 缓存并记录历史；`config-watcher` 提供文件监听热重载 |
 | 分布式 | `DistributedLimiter` trait | 内存实现开箱即用；Redis 实现经 Lua 脚本跨实例协调（`distributed` + `lua-script`） |
+
+## 🔗 生态与集成
+
+结构化日志由 [inklog](https://github.com/Kirky-X/inklog) 正主直接提供，limiteron 不再转发初始化入口——应用层直接依赖 inklog 并调用 `inklog::init_inklog_logger()`（或 `inklog::init_inklog_logger_with_config(config)`）安装全局 subscriber 即可，limiteron 自身的 `log::`/`tracing::` 调用随之路由进 inklog 的 sink。
+
+另通过 `i18n` 特性集成 [ICU4X](https://github.com/unicode-org/icu4x) 提供 locale 感知格式化——格式化层与消息目录注册统一委托 trait-kit i18n 基座（ICU4X 由 trait-kit 拉入，本仓不自持 icu 依赖；消息目录经 sdforge::i18n 注册表宿主注册，FTL 文件保留真源）。
+
+工作区成员 [`integrations/limiteron-sdforge`](../../integrations/limiteron-sdforge/) 反向提供防护层：limiteron 侧把限流/熔断/封禁以 `Guard` 三态判定面暴露给 sdforge 应用（该 crate 自身的 sdforge 特性下适配为 `ForgeRateLimiter`），与 sdforge 侧既有消费适配方向相反、发布节奏独立。
+
+工作区成员 [`integrations/limiteron-dbnexus`](../../integrations/limiteron-dbnexus/) 为 dbnexus 提供限流端口适配：实现 dbnexus 0.6.0-rc.6 抽出的 `dbnexus-limiter-port` 端口（`Limiter::check(key)`），内部经 `LimiterManager` per-key 令牌桶判定（deny 携带 `Retry-After`，后端故障显性上报，fail-open/closed 由消费方决定）——dbnexus 应用在组合根经 `RateLimitBackend::External` 注入；与 sdforge 桥接同款不发布 crates.io、发布节奏随 limiteron 主仓。

@@ -9,7 +9,7 @@
 | 所属仓库 | [limiteron](https://github.com/Kirky-X/limiteron) |
 | 依赖方向 | 本 crate → `limiteron`（示例以 `path = ".."` 依赖父 crate） |
 | 是否发布 | 否：`publish = false`，仅用于演示与回归验证 |
-| 版本与支持 | 版本经 `version.workspace = true` 随仓库统一；仅维护当前 minor 版本线，见 [安全文档 · 支持的版本](../docs/SECURITY.md#-支持的版本与维护策略) |
+| 版本与支持 | 版本经 `version.workspace = true` 随仓库统一；仅维护当前 minor 版本线，见 [安全文档 · 支持的版本](../docs/cn/SECURITY.md#-支持的版本与维护策略) |
 
 ## 🚀 运行方式
 
@@ -78,6 +78,6 @@ cargo run --bin simple_rate_limit
 ## 📚 更多文档
 
 - [主 README](../README.md)
-- [用户指南](../docs/USER_GUIDE.md)
-- [API 参考](../docs/API_REFERENCE.md)
-- [测试指南](../docs/TESTING.md)
+- [用户指南](../docs/cn/USER_GUIDE.md)
+- [API 参考](../docs/cn/API_REFERENCE.md)
+- [测试指南](../docs/cn/TESTING.md)

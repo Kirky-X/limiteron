@@ -1,8 +1,10 @@
 # 未发布变更
 
-本文件记录 limiteron 的破坏性变更与迁移指引。完整版本历史见 [docs/CHANGELOG.md](CHANGELOG.md)。
+本文件记录 limiteron 的破坏性变更与迁移指引。完整版本历史见 [docs/CHANGELOG.md](../CHANGELOG.md)。
 
 ## Unreleased
+
+## 0.3.0-rc.9
 
 ### Breaking Changes
 
@@ -19,14 +21,14 @@
   `features = ["inklog"]` 会因未知 feature 报错，需删除该条目。需要结构化日志
   的应用改为直接依赖 inklog 并调用其正主 API。
 
-- **`log-redaction` 特性保留**：日志脱敏能力不变，脱敏引擎仍由 inklog 的
-  `DataMasker` / `MaskRule` / `MaskRuleRegistry` 承载（规则与优先级的唯一定义处
-  仍在 inklog 侧，limiteron 不自建第二套实现）。该依赖是 `log-redaction` 的实现
+- **`log-redaction` 特性保留**：日志脱敏能力不变，脱敏引擎仍由 trait-kit 的
+  `DataMasker` / `MaskRuleRegistry` 承载（规则与优先级的唯一定义处
+  仍在 trait-kit 侧，limiteron 不自建第二套实现）。该依赖是 `log-redaction` 的实现
   细节，不对外暴露为独立 feature。
 
 ### Changed
 
-- `full` 预设不再包含 `log-redaction`：掩码能力是对 inklog 掩码引擎的可选借用，不应让 `full` 传递拉入 inklog。需要时显式启用 `log-redaction`。
+- `full` 预设不再包含 `log-redaction`：掩码能力是对 trait-kit 掩码引擎的可选借用，不应让 `full` 传递拉入 trait-kit。需要时显式启用 `log-redaction`。
 - 跨仓自研依赖（oxcache / dbnexus / trait-kit / inklog / confers）一律经 crates.io registry 引入：CI 与发布流程只检出本仓，清单内指向仓外兄弟目录的 `path` 依赖会让清单解析直接失败（`failed to load source for dependency`）。本地联调未发布版本时，用工作区外的路径覆盖（`<工作区根>/.cargo/config.toml` 的 `paths` 项）指向兄弟仓工作树，该覆盖文件不入本仓。
 - `POST /api/v1/check/batch` 逐条 `error` 字段由原始错误文本改为稳定类别（`validation` / `storage` / `config` / `authorization` / `throttled` / `ban` / `circuit_breaker` / `internal`）：原始错误文本只落服务端日志，不进响应体。**破坏性变更**——按错误文本解析的下游须改按类别判定。
 

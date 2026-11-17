@@ -13,8 +13,7 @@ publish = false
 [dependencies]
 # 父仓 path+version 双钉；仅取 Clock 抽象（桶补充计时的可注入时钟面）
 limiteron = { path = "../..", version = "0.3.0-rc.8", default-features = false }
-# inklog 自有 SinkRateLimit 端口（随 inklog rc.11 进入 crates.io；发布顺序
-# trait-kit → oxcache/inklog → limiteron 保证本清单可解析）
+# inklog 自有 SinkRateLimit 端口（随 inklog rc.11 进入 crates.io；发布顺序 trait-kit → oxcache/inklog → limiteron 保证本清单可解析）
 inklog = { version = "0.3.0-rc.11", default-features = false }
 
 [dev-dependencies]

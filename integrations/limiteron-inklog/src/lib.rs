@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! inklog sink 限流适配器：按 target 分桶的令牌预算（limiteron Clock 内核）。
 //!
-//! 实现 inklog 自有 [`SinkRateLimit`] 端口（R-rate-limit-ownership-002 的
+//! 实现 inklog 自有 [`SinkRateLimit`] 端口（
 //! 「增强实现住消费侧」）：
 //!
 //! - 按 `record.target` 分桶，各桶独立预算（容量 `capacity`，每秒补充

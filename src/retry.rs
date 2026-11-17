@@ -166,7 +166,7 @@ impl RetryPolicy {
     /// 设置重试预算（重试占比上限，0.0–1.0）。
     ///
     /// 每个 [`RetryPolicy`] 实例独立记账：`total` 为已发起的调用总数
-    ///（含首调），`retries` 为实际发生的重试数；预算耗尽后后续错误
+    /// （含首调），`retries` 为实际发生的重试数；预算耗尽后后续错误
     /// 立即返回，不再重试。
     #[must_use]
     pub fn with_budget_ratio(mut self, ratio: f64) -> Self {

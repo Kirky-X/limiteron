@@ -910,9 +910,7 @@ pub async fn start_prometheus_server(_metrics: Arc<Metrics>, _port: u16) -> Resu
     Err(crate::i18n::t("prometheus-feature-disabled", &[]))
 }
 
-// ============================================================================
 // 单元测试
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

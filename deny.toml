@@ -20,6 +20,9 @@ ignore = [
     # `cargo update -p libsqlite3-sys` 升至 >=0.39 并回收本条与 CI/pre-push
     # 的 --ignore 同步移除。
     "RUSTSEC-2026-0459",
+    # RUSTSEC-2026-0543（2026-11-17 入库）：chrono 全版本 unmaintained（upstream chronotope/chrono#1768），
+    # patched=[] 无升级路径；依赖替换（jiff/time）归依赖治理 change。家族级豁免（confers 2026-11-17 同日先行）。
+    "RUSTSEC-2026-0543",
 ]
 
 [licenses]

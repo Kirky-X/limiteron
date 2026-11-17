@@ -658,9 +658,7 @@ impl std::fmt::Debug for LimiterManager {
 /// ```
 pub static GLOBAL_LIMITER_MANAGER: LazyLock<LimiterManager> = LazyLock::new(LimiterManager::new);
 
-// ============================================================================
 // 单元测试
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
@@ -912,9 +910,7 @@ mod tests {
         GLOBAL_LIMITER_MANAGER.clear_for_test();
     }
 
-    // ========================================================================
     // get_rate_limiter 同 key 不同参数 panic
-    // ========================================================================
 
     #[test]
     #[should_panic(expected = "rate limiter key '")]
@@ -926,9 +922,7 @@ mod tests {
         let _ = manager.get_rate_limiter("mismatch_rate", 200, 1);
     }
 
-    // ========================================================================
     // get_quota_limiter / get_concurrency_limiter 同 key 不同参数 panic
-    // ========================================================================
 
     #[cfg(feature = "quota-control")]
     #[test]
@@ -951,9 +945,7 @@ mod tests {
         let _ = manager.get_concurrency_limiter("mismatch_conc", 20);
     }
 
-    // ========================================================================
     // try_get_quota_limiter:参数不一致以 Result 上报而非 panic
-    // ========================================================================
 
     #[cfg(feature = "quota-control")]
     #[test]
@@ -1015,9 +1007,7 @@ mod tests {
         assert_eq!(manager.quota_limiter_count(), 1);
     }
 
-    // ========================================================================
     // LRU 淘汰 + 访问时间更新
-    // ========================================================================
 
     #[test]
     fn test_lru_eviction_when_capacity_exceeded() {
@@ -1122,9 +1112,7 @@ mod tests {
         assert_eq!(manager.rate_access_times.len(), 1);
     }
 
-    // ========================================================================
     // audit-macro-followup 修复9 并发场景 LRU 一致性测试
-    // ========================================================================
 
     #[test]
     fn test_concurrent_get_rate_limiter_consistency() {
@@ -1218,9 +1206,7 @@ mod tests {
         assert_eq!(manager.concurrency_access_times.len(), 1);
     }
 
-    // ========================================================================
     // audit-macro-followup 修复10 quota / concurrency cleanup 测试
-    // ========================================================================
 
     #[cfg(feature = "quota-control")]
     #[test]
@@ -1309,9 +1295,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // audit-macro-followup 修复2 redact_key 单元测试
-    // ========================================================================
 
     #[test]
     fn test_redact_key_short() {

@@ -309,7 +309,7 @@ fn split_field_tokens(name: &str) -> impl Iterator<Item = &str> {
 
 /// 增强版脱敏函数 - 需要 log-redaction feature
 ///
-/// 语义（design D2）：① 已知敏感字段名整段脱敏（`is_sensitive_field_name`
+/// 语义：① 已知敏感字段名整段脱敏（`is_sensitive_field_name`
 /// 词边界门控，入口前置）；② 短值（≤4 字符）整段脱敏；③ 其余值经
 /// trait-kit masking `DataMasker` 掩码——命中规则的值被掩码，非敏感值原样返回（除命中
 /// 规则外无副作用改写）。
@@ -351,7 +351,7 @@ pub fn redact_advanced(value: Option<&str>, field_name: Option<&str>) -> String 
 ///
 /// 经 `DataMasker::detect` 检测面判定：任一规则（21 条内置 + limiteron
 /// 六类键值对补充）命中即返回 true。与 `redact_advanced` 判定一致——
-/// 能掩码的必能检出（R-log-redaction-002）。
+/// 能掩码的必能检出。
 #[cfg(feature = "log-redaction")]
 #[inline]
 pub fn contains_sensitive_info(value: &str) -> bool {

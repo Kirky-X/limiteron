@@ -185,7 +185,7 @@ impl AdaptiveConcurrencyLimiter {
     /// 窗口评估：达到窗口样本数时按 AIMD 升降（并重置窗口）
     ///
     /// 降级冷却：发生乘性减后，此后 `cooldown_windows` 个窗口内禁止加性增
-    ///（抑制错误率在阈值附近时的抖动）；冷却递减独立于升降判定。
+    /// （抑制错误率在阈值附近时的抖动）；冷却递减独立于升降判定。
     fn maybe_adjust(&self, window: &mut WindowSignals) {
         if window.samples < self.config.window_size {
             return;

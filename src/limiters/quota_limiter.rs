@@ -105,7 +105,7 @@ impl QuotaLimiter {
     /// Creates a storage-backed QuotaLimiter.
     ///
     /// 注入 `QuotaStorage` 后，配额裁决委托后端的原子 consume
-    ///（跨实例一致、账本持久化）；`resource` 作为账本维度。
+    /// （跨实例一致、账本持久化）；`resource` 作为账本维度。
     /// 默认 `new()` 构造的纯内存模式保持单实例语义不变。
     ///
     /// # Panic
@@ -583,7 +583,6 @@ mod tests {
     }
 
     // audit-macro-followup 修复20 window_size=0 panic 测试
-    // ========================================================================
 
     #[test]
     #[should_panic(expected = "QuotaConfig.window_size must be greater than 0")]
@@ -706,7 +705,6 @@ mod tests {
     }
 
     // check_retry_after：超限以窗口剩余秒数上报（Retry-After 语义）
-    // ========================================================================
 
     #[tokio::test]
     async fn test_check_retry_after_ok_when_quota_available() {

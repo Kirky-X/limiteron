@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! dbnexus 查询限流端口（QueryThrottle）语义文档化 + limiteron 实现。
 //!
-//! # 端口语义（design D3 跨项目端口边：dbnexus 定义 → limiteron 实现）
+//! # 端口语义（跨项目端口边：dbnexus 定义 → limiteron 实现）
 //!
 //! `QueryThrottle` 是 dbnexus 侧的查询限流端口：DB 池在执行查询前向
 //! limiteron 申请查询预算，防止慢查询风暴拖垮共享存储。端口契约：

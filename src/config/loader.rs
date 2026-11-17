@@ -15,14 +15,14 @@ impl ConfigLoader {
     ///
     /// 支持 YAML、TOML、JSON 格式，根据文件扩展名自动检测。解析委托
     /// confers `loader::load_file`：路径穿越防护、大小上限、TOCTOU
-    /// 安全打开与特殊文件拒绝随 confers 免费获得（design D3）。
+    /// 安全打开与特殊文件拒绝随 confers 免费获得。
     /// 扩展名白名单严格限于 yaml|yml|toml|json——不用 confers 内容
     /// 嗅探兜底，防止 .txt 等任意内容被误判为合法配置。
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<FlowControlConfig, LimiteronError> {
         let path = path.as_ref();
 
         // ① 严格扩展名白名单预检：维持 "Unsupported config file format"
-        // 公开契约（不经 confers 内容嗅探，见 design D3 Alternatives）
+        // 公开契约（不经 confers 内容嗅探，见 Alternatives）
         let ext = path
             .extension()
             .and_then(|e| e.to_str())

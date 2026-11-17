@@ -700,7 +700,7 @@ impl Limiter for RedisTokenBucketLimiter {
 }
 
 /// Redis 滑动窗口适配器：以 `Limiter` 接口桥接 `allow_sliding_window`
-///（单请求语义，每次计 1）。
+/// （单请求语义，每次计 1）。
 #[cfg(all(feature = "distributed", feature = "lua-script"))]
 pub struct RedisSlidingWindowLimiter {
     inner: Arc<RedisDistributedLimiter>,

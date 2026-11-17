@@ -73,7 +73,8 @@ impl CacheService for MemoryCache {
     }
 
     async fn set(&self, key: &str, value: &str, ttl: Option<u64>) -> Result<(), StorageError> {
-        // None → builder 默认 TTL（design D4）
+        // None → builder 默认 TTL
+
         self.inner
             .set_with_ttl(
                 &key.to_string(),
@@ -168,7 +169,7 @@ mod tests {
         );
     }
 
-    /// Default 300s 默认 TTL 的全时长锚（R-memory-cache-002）：
+    /// Default 300s 默认 TTL 的全时长锚：
     /// 墙钟 300s 无法进常规单测，按需运行 `cargo test -- --ignored`。
     #[tokio::test]
     #[ignore = "wall-clock 301s; run explicitly for the full-duration default TTL anchor"]

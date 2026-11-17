@@ -79,7 +79,7 @@ pub struct MetricsSnapshot {
     ///
     /// 环排序精确值已随 `LatencySamples` 删除：延迟样本经 oxcache
     /// 标准命名直方图（`oxcache_operation_duration_seconds`）承载，
-    /// 分位数由累积桶插值估计，精度受桶边界限制（design D1）。
+    /// 分位数由累积桶插值估计，精度受桶边界限制。
     pub p95_latency_ms: u64,
     /// P99 延迟（毫秒）——直方图桶近似值（降级原因同 `p95_latency_ms`）
     pub p99_latency_ms: u64,
@@ -195,7 +195,7 @@ fn read_memory_usage() -> f64 {
 /// 请求计数与延迟经 oxcache [`UnifiedMetricsRecorder`] 承载（service 归因
 /// `limiteron`）：成功请求为 op 命中计数、失败请求为 op 未命中计数，延迟
 /// 样本写入 oxcache 标准命名延迟直方图（`oxcache_operation_duration_seconds`）。
-/// p95/p99 由直方图累积桶插值近似（非环排序精确值，design D1）。
+/// p95/p99 由直方图累积桶插值近似（非环排序精确值）。
 #[derive(Debug)]
 pub struct PerformanceMetrics {
     /// 请求计数与延迟直方图的承载 recorder（全局 unified metrics +
@@ -340,7 +340,7 @@ impl Default for PerformanceMetrics {
 /// `rank = p/100 × count`：定位首个累积计数 ≥ rank 的桶，在
 /// [前一边界, 本边界] 区间线性插值；rank 超出全部桶时以样本最大值
 /// 为近似上界。分位数为桶近似值——精确环排序已随 `LatencySamples`
-/// 删除（design D1、R-telemetry-monitoring-002）。
+/// 删除。
 fn histogram_quantile_ms(hist: &HistogramData, p: f64) -> u64 {
     if hist.count == 0 {
         return 0;

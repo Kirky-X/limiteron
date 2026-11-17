@@ -442,14 +442,12 @@ mod tests {
         assert!(constant_time_eq("Bearer abc123", "Bearer abc123"));
     }
 
-    // ========================================================================
     // rate_buckets Mutex 中毒恢复
     //
     // 验证策略：
     // 1. 构造 Mutex 并通过持锁时 panic 使其中毒
     // 2. 调用 lock_rate_buckets 验证不 panic 而是恢复（返回可用 guard）
     // 3. 验证恢复后的 guard 可正常读写
-    // ========================================================================
 
     #[test]
     fn test_medium_002_lock_recovers_from_poisoned_mutex() {
@@ -573,9 +571,7 @@ mod tests {
         assert!(!json["success"].as_bool().unwrap());
     }
 
-    // ========================================================================
     // POST /api/v1/ban - create_ban 端点测试
-    // ========================================================================
 
     #[cfg(feature = "ban-manager")]
     #[tokio::test]
@@ -781,7 +777,6 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
-    // ========================================================================
     // operator 身份必须由 API key mapping 决定，
     // body 中的 operator 字段必须被忽略。
     //
@@ -791,7 +786,6 @@ mod tests {
     // 使用 mapping/默认 operator 则返回 201/200。
     // 注意：存储层（BanRecord）不持久化 BanSource，故无法通过读回 source 验证，
     // 必须通过授权链路的行为差异（201 vs 403）来验证。
-    // ========================================================================
 
     #[cfg(feature = "ban-manager")]
     #[tokio::test]
@@ -1031,12 +1025,10 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // Admin API 速率限制
     //
     // 验证策略：配置小限制值，发送超过限制的请求，断言第 N+1 次返回 429。
     // 速率限制在鉴权之前执行，防止暴力破解和 DDoS。
-    // ========================================================================
 
     #[tokio::test]
     async fn test_vuln_0002_rate_limit_returns_429_after_max() {
@@ -1165,7 +1157,6 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // 测试：per-client rate limit buckets
     //
     // 验证策略：
@@ -1173,7 +1164,6 @@ mod tests {
     // 2. 相同 client_ip 的请求共享计数器（per-client 而非 per-request）
     // 3. 无 ConnectInfo 时回退到 "unknown" 共享桶（向后兼容测试场景）
     // 4. per-client 隔离在 group 维度仍然成立
-    // ========================================================================
 
     #[tokio::test]
     async fn test_high_001_per_client_isolation_different_ips() {
@@ -1355,13 +1345,11 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // 跨组限流窗口不互清
     //
     // 回归场景：default 组窗口 600s、ban 组窗口 1s。default 组配额耗尽后，
     // ban 组请求（窗口 1s）不得把 default 组的 entry 当过期 entry 清掉——
     // 否则长窗口组的计数被短窗口组提前清零，限流被绕过。
-    // ========================================================================
 
     #[tokio::test]
     async fn test_rate_limit_group_windows_do_not_clear_each_other() {
@@ -1420,9 +1408,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // /metrics 独立限流（免认证但受限流，超限 429）
-    // ========================================================================
 
     #[tokio::test]
     async fn test_metrics_endpoint_has_its_own_rate_limit() {
@@ -1472,9 +1458,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // 主 api_key 强度校验（直接调用 create_router 时同样生效）
-    // ========================================================================
 
     #[tokio::test]
     async fn test_create_router_rejects_short_primary_api_key() {
@@ -1512,9 +1496,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
     }
 
-    // ========================================================================
     // 角色映射 key 的强度（与公开辅助函数 is_valid_api_key 同口径）
-    // ========================================================================
 
     #[tokio::test]
     async fn test_create_router_rejects_short_role_key() {
@@ -1580,9 +1562,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // 部分 rate_limits 配置的回退额度（不得弱于文档值）
-    // ========================================================================
 
     #[tokio::test]
     async fn test_partial_rate_limits_fall_back_to_documented_ban_quota() {
@@ -1715,9 +1695,7 @@ mod tests {
         );
     }
 
-    // ========================================================================
     // Admin RBAC（admin/viewer 角色矩阵，越权 403）
-    // ========================================================================
 
     #[tokio::test]
     async fn test_t605_viewer_key_can_read_status() {
@@ -1858,9 +1836,7 @@ mod tests {
         assert!(!role_allows(AdminRole::Viewer, &Method::DELETE));
     }
 
-    // ========================================================================
     // Governor 自省 API（JSON）
-    // ========================================================================
 
     #[tokio::test]
     async fn test_t608_introspect_returns_json_snapshot() {

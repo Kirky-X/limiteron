@@ -178,7 +178,7 @@ sync = []
 standard = ["ban-manager", "quota-control", "circuit-breaker"]
 
 # Full：除存储后端外的全部功能（后端按需叠加 sqlite/postgres/mysql）
-full = ["cache-redis", "ban-manager", "quota-control", "circuit-breaker", "fallback", "custom-limiter", "gcra", "parallel-checker", "geo-matching", "device-matching", "regex-matching", "telemetry", "prometheus", "audit-log", "macros", "config-watcher", "webhook", "cache-service", "tower-middleware", "event-system", "lua-script", "multi-tenant", "admin-api", "sync", "bulkhead", "validation", "i18n", "config-confers", "config-confers-reload", "kit", "adaptive-limiting", "priority-queue", "admission-control", "distributed", "ban-sync", "retry", "decision-trace", "failure-policy"]
+full = ["cache-redis", "ban-manager", "quota-control", "circuit-breaker", "fallback", "custom-limiter", "gcra", "parallel-checker", "geo-matching", "device-matching", "regex-matching", "telemetry", "prometheus", "audit-log", "macros", "config-watcher", "webhook", "cache-service", "tower-middleware", "event-system", "lua-script", "multi-tenant", "admin-api", "sync", "bulkhead", "validation", "i18n", "config-confers", "config-confers-reload", "kit", "adaptive-limiting", "priority-queue", "admission-control", "distributed", "ban-sync", "retry", "decision-trace", "failure-policy", "tenant-fairness"]
 
 default = []
 
@@ -186,6 +186,8 @@ default = []
 decision-trace = []
 # 规则级故障策略：链执行 Err 时按规则声明 PropagateError/FailClosed/FailOpenWithAlert
 failure-policy = []
+# 租户并发公平性：按租户分池的并发预算内嵌决策链（需与 multi-tenant 同时启用）
+tenant-fairness = []
 
 # adaptive-limiting 自 rc4 起为真实实现（AIMD 自适应并发限流器）
 adaptive-limiting = []

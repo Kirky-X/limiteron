@@ -906,7 +906,7 @@ Sample output (JSON):
 - `source_file_hash`: semantic hash of the config loaded from file at startup. `null` means the config was injected without a source file (e.g. container env), so no drift baseline exists — `drift` is always `false` in that case.
 - `drift`: `true` when the runtime config was hot-reloaded (`POST /api/v1/config`) and now differs from the startup source. A `warn!` (`config-drift-detected`) is emitted on mismatch.
 
-For multi-instance deployments, an external orchestrator polls this endpoint on each instance and compares `runtime_hash` values — no Pub/Sub broadcast is used. When `drift == true`, either restart the instance from the updated source file or re-apply the intended config through the Admin API so runtime and source converge.
+For multi-instance deployments, an external orchestrator polls this endpoint on each instance and compares `runtime_hash` values — no Pub/Sub broadcast is used. The `doctor --security` command does not require this endpoint: in deployments where the Admin API is unreachable it stays a purely static/feature-surface audit and degrades gracefully (no runtime hash check is attempted). When `drift == true`, either restart the instance from the updated source file or re-apply the intended config through the Admin API so runtime and source converge.
 
 </details>
 

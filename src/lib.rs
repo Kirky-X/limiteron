@@ -207,6 +207,8 @@ pub use config::{
 #[cfg(feature = "decision-trace")]
 pub use decision_chain::trace::{CascadeEntry, CascadeOutcome, DecisionTrace, NodeOutcome};
 pub use decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
+#[cfg(feature = "tenant-fairness")]
+pub use governor::TenantFairnessConfig;
 // AtomicChainStats 改为 pub(crate)，不再公开导出
 pub use error::{
     BanInfo, CircuitBreakerStats, CircuitState, ConsumeResult, Decision, LimiteronError,

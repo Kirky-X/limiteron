@@ -207,6 +207,10 @@ pub struct Governor {
     #[cfg(feature = "event-system")]
     event_emitter: Option<Arc<crate::events::EventEmitter>>,
 
+    /// 租户并发池（tenant-fairness + multi-tenant 双 feature 门控）
+    #[cfg(all(feature = "tenant-fairness", feature = "multi-tenant"))]
+    tenant_bulkheads: Option<crate::bulkhead::BulkheadRegistry>,
+
     /// 指标收集器（可选，feature-gated）
     #[cfg(feature = "prometheus")]
     metrics: Option<Arc<Metrics>>,
@@ -302,6 +306,41 @@ impl ExportedRejections {
 ///     Ok(())
 /// }
 /// ```
+/// 租户并发公平性配置（feature `tenant-fairness`）
+///
+/// 按租户分池的并发预算；需与 `multi-tenant` feature 同时启用才生效。
+/// 未显式覆盖的租户使用 [`Self::default_max_concurrent`]。
+///
+/// # 示例
+///
+/// ```rust
+/// use limiteron::governor::TenantFairnessConfig;
+///
+/// let config = TenantFairnessConfig {
+///     default_max_concurrent: 16,
+///     per_tenant_max_concurrent: Default::default(),
+/// };
+/// assert_eq!(config.default_max_concurrent, 16);
+/// ```
+#[cfg(feature = "tenant-fairness")]
+#[derive(Debug, Clone)]
+pub struct TenantFairnessConfig {
+    /// 默认租户池并发预算（未显式覆盖的租户）
+    pub default_max_concurrent: usize,
+    /// 租户覆盖表：tenant_id → 并发预算
+    pub per_tenant_max_concurrent: ahash::AHashMap<String, usize>,
+}
+
+#[cfg(feature = "tenant-fairness")]
+impl Default for TenantFairnessConfig {
+    fn default() -> Self {
+        Self {
+            default_max_concurrent: 32,
+            per_tenant_max_concurrent: ahash::AHashMap::new(),
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 #[allow(clippy::type_complexity)]
 pub struct GovernorBuilder {
@@ -341,6 +380,9 @@ pub struct GovernorBuilder {
     /// 租户解析器（可选）
     #[cfg(feature = "multi-tenant")]
     tenant_resolver: Option<Arc<dyn crate::tenant::TenantResolver>>,
+    /// 租户并发公平性配置（可选）
+    #[cfg(feature = "tenant-fairness")]
+    tenant_fairness: Option<TenantFairnessConfig>,
     /// 关闭时状态快照落盘目录（可选，默认不落盘）
     shutdown_snapshot_dir: Option<std::path::PathBuf>,
     /// 可控时钟（可选，缺省 `SystemClock`；见 `with_clock`）
@@ -379,6 +421,8 @@ impl GovernorBuilder {
             custom_matcher_registry: None,
             #[cfg(feature = "multi-tenant")]
             tenant_resolver: None,
+            #[cfg(feature = "tenant-fairness")]
+            tenant_fairness: None,
             shutdown_snapshot_dir: None,
             clock: None,
         }
@@ -403,6 +447,13 @@ impl GovernorBuilder {
     /// 快照以 JSON 写入 `<dir>/governor-shutdown-snapshot.json`（原子替换写），
     /// 循仓库 `data/` 目录惯例由调用方显式指定路径；库默认不落盘，
     /// 避免未经允许的文件系统副作用（只读文件系统等场景）。
+    /// 配置租户并发公平性（需同时启用 `multi-tenant` feature 才生效）
+    #[cfg(feature = "tenant-fairness")]
+    pub fn with_tenant_fairness(mut self, config: TenantFairnessConfig) -> Self {
+        self.tenant_fairness = Some(config);
+        self
+    }
+
     pub fn with_shutdown_snapshot_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
         self.shutdown_snapshot_dir = Some(dir.into());
         self
@@ -652,6 +703,23 @@ impl GovernorBuilder {
         let l1_cache_enabled = self.l1_cache_enabled;
         #[cfg(feature = "decision-trace")]
         let trace_enabled = self.trace_enabled;
+        #[cfg(all(feature = "tenant-fairness", feature = "multi-tenant"))]
+        let tenant_bulkheads = self.tenant_fairness.map(|cfg| {
+            let mut registry = crate::bulkhead::BulkheadRegistry::new().with_default_config(
+                crate::bulkhead::BulkheadConfig {
+                    max_concurrent: cfg.default_max_concurrent,
+                },
+            );
+            for (tenant, max) in cfg.per_tenant_max_concurrent {
+                registry = registry.with_pool_config(
+                    tenant,
+                    crate::bulkhead::BulkheadConfig {
+                        max_concurrent: max,
+                    },
+                );
+            }
+            registry
+        });
 
         // 集成降级管理器 (feature-gated)
         #[cfg(feature = "fallback")]
@@ -712,6 +780,8 @@ impl GovernorBuilder {
             fallback_manager,
             #[cfg(feature = "event-system")]
             event_emitter: self.event_emitter,
+            #[cfg(all(feature = "tenant-fairness", feature = "multi-tenant"))]
+            tenant_bulkheads,
             #[cfg(feature = "prometheus")]
             metrics: self.metrics,
             #[cfg(feature = "prometheus")]
@@ -870,6 +940,8 @@ impl Governor {
             fallback_manager: None,
             #[cfg(feature = "event-system")]
             event_emitter: None,
+            #[cfg(all(feature = "tenant-fairness", feature = "multi-tenant"))]
+            tenant_bulkheads: None,
             #[cfg(feature = "prometheus")]
             metrics: None,
             #[cfg(feature = "prometheus")]
@@ -2444,6 +2516,15 @@ impl Governor {
     pub fn is_decision_trace_enabled(&self) -> bool {
         self.trace_enabled
             .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// 租户并发池统计快照（tenant-fairness + multi-tenant 双 feature 门控）
+    #[cfg(all(feature = "tenant-fairness", feature = "multi-tenant"))]
+    pub fn tenant_bulkhead_stats(&self) -> Vec<(String, crate::bulkhead::BulkheadStats)> {
+        self.tenant_bulkheads
+            .as_ref()
+            .map(|r| r.all_stats())
+            .unwrap_or_default()
     }
 
     /// 清空 缓存
@@ -4813,6 +4894,38 @@ mod governor_construction_tests {
                 result
             );
         }
+    }
+
+    #[cfg(all(feature = "tenant-fairness", feature = "multi-tenant"))]
+    #[tokio::test]
+    async fn test_tenant_fairness_config_per_tenant_override_readable() {
+        let mut overrides = ahash::AHashMap::new();
+        overrides.insert("tenant-a".to_string(), 4usize);
+        let config = TenantFairnessConfig {
+            default_max_concurrent: 16,
+            per_tenant_max_concurrent: overrides,
+        };
+        assert_eq!(config.default_max_concurrent, 16);
+        assert_eq!(
+            config.per_tenant_max_concurrent.get("tenant-a").copied(),
+            Some(4)
+        );
+
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_tenant_fairness(config)
+            .build()
+            .await
+            .expect("build should succeed");
+        // 配置构造后可读取：预建的 tenant-a 池出现在统计快照中
+        assert!(
+            governor
+                .tenant_bulkhead_stats()
+                .iter()
+                .any(|(name, _)| name == "tenant-a")
+        );
     }
 
     #[tokio::test]

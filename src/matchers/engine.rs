@@ -508,6 +508,7 @@ impl RuleMatcher {
     ///         priority: 100,
     ///         condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
     ///         enabled: true,
+    ///         failure_policy: Default::default(),
     ///     },
     /// ]);
     /// ```

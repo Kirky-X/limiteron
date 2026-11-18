@@ -314,7 +314,7 @@ impl ExportedRejections {
 /// # 示例
 ///
 /// ```rust
-/// use limiteron::governor::TenantFairnessConfig;
+/// use limiteron::TenantFairnessConfig;
 ///
 /// let config = TenantFairnessConfig {
 ///     default_max_concurrent: 16,

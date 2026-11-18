@@ -167,6 +167,38 @@ rules:
     }
 
     #[test]
+    fn test_load_yaml_cost_field() {
+        let without = r#"
+version: "0.1.0"
+global: { storage: memory, cache: memory, metrics: none }
+rules:
+  - id: "r"
+    name: "R"
+    priority: 100
+    matchers: [{ type: User, user_ids: ["u1"] }]
+    limiters: [{ type: TokenBucket, capacity: 10, refill_rate: 1 }]
+    action: { on_exceed: reject }
+"#;
+        let mut f1 = NamedTempFile::new().unwrap();
+        f1.write_all(without.as_bytes()).unwrap();
+        let p1 = f1.path().with_extension("yaml");
+        std::fs::copy(f1.path(), &p1).unwrap();
+        let cfg = ConfigLoader::load_from_file(&p1).unwrap();
+        assert_eq!(cfg.rules[0].cost, None);
+
+        let with = without.replace(
+            "    action: { on_exceed: reject }",
+            "    action: { on_exceed: reject }\n    cost: 5",
+        );
+        let mut f2 = NamedTempFile::new().unwrap();
+        f2.write_all(with.as_bytes()).unwrap();
+        let p2 = f2.path().with_extension("yaml");
+        std::fs::copy(f2.path(), &p2).unwrap();
+        let cfg = ConfigLoader::load_from_file(&p2).unwrap();
+        assert_eq!(cfg.rules[0].cost, Some(5));
+    }
+
+    #[test]
     fn test_load_yaml() {
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(valid_yaml().as_bytes()).unwrap();

@@ -96,6 +96,17 @@ impl AdminServer {
         self
     }
 
+    /// 按安全 profile 执行启动期配置校验
+    ///
+    /// Strict：fail-closed 聚合校验（绑定地址 + 凭证强度）；
+    /// Compatible：既有主 key 强度校验，行为逐位不变。
+    fn validate_for_profile(&self) -> Result<(), ConfigError> {
+        match self.config.security_profile {
+            crate::admin::config::AdminSecurityProfile::Strict => self.config.validate_strict(),
+            crate::admin::config::AdminSecurityProfile::Compatible => self.config.validate(),
+        }
+    }
+
     /// 启动服务器
     pub async fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
         if !self.config.enabled {
@@ -107,8 +118,9 @@ impl AdminServer {
             return Ok(());
         }
 
-        // 启动前强制校验配置（api_key 非空、长度 ≥16），防止以空 key 暴露管理 API
-        self.config.validate()?;
+        // 启动前按 profile 强制校验：Strict 额外校验绑定地址与凭证存在，
+        // 防止非回环绑定 + 空凭证的部署静默暴露管理面。
+        self.validate_for_profile()?;
 
         let router = routes::create_router(self.state.clone(), &self.config);
 
@@ -139,7 +151,7 @@ impl AdminServer {
     /// 构建的路由会让 "Bearer " 之类的畸形凭证通过鉴权，因此校验失败时
     /// 返回 Err 而非产出可被外部 runner 挂载的 Router。
     pub fn into_router(self) -> Result<Router, ConfigError> {
-        self.config.validate()?;
+        self.validate_for_profile()?;
         Ok(routes::create_router(self.state.clone(), &self.config))
     }
 }
@@ -149,6 +161,39 @@ mod tests {
     use super::*;
     use crate::admin::AdminApiConfig;
     use crate::admin::handlers::tests::make_governor;
+
+    #[tokio::test]
+    async fn test_strict_profile_startup_validation() {
+        use crate::admin::config::AdminSecurityProfile;
+
+        // Strict + 非回环 + 无 key → into_router Err
+        let governor = Arc::new(make_governor().await);
+        let strict_bad = AdminApiConfig {
+            host: "0.0.0.0".to_string(),
+            api_key: String::new(),
+            security_profile: AdminSecurityProfile::Strict,
+            ..Default::default()
+        };
+        let server = AdminServer::new(governor.clone(), strict_bad);
+        assert!(
+            server.into_router().is_err(),
+            "Strict profile must reject non-loopback binding without key"
+        );
+
+        // Compatible + 同配置 → into_router Ok
+        let compatible = AdminApiConfig {
+            host: "0.0.0.0".to_string(),
+            api_key: String::new(),
+            security_profile: AdminSecurityProfile::Compatible,
+            ..Default::default()
+        };
+        // Compatible 且 disabled（默认），validate 对空 key 不报错（enabled=false）
+        let server = AdminServer::new(governor, compatible);
+        assert!(
+            server.into_router().is_ok(),
+            "Compatible profile must keep legacy behavior"
+        );
+    }
 
     #[tokio::test]
     async fn test_admin_server_new() {

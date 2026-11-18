@@ -30,6 +30,9 @@ pub struct Rule {
 impl Rule {
     /// 校验规则
     pub fn validate(&self) -> Result<(), String> {
+        if self.cost == Some(0) {
+            return Err(t("config-rule-cost-invalid", &[]));
+        }
         // rule_id 仅约束非空唯一，无字符集白名单：其作为 Prometheus 标签
         // 值与 JSON 缓存键使用，转义由 prometheus/serde_json 兜底，无注入
         // 面；若引入字符集约束属运维加固项，需评估存量配置兼容性
@@ -208,6 +211,19 @@ on_exceed = "reject"
     #[test]
     fn test_rule_valid() {
         assert!(valid_rule().validate().is_ok());
+    }
+
+    #[test]
+    fn test_rule_cost_validation() {
+        let mut rule = super::tests::valid_rule();
+        rule.cost = Some(0);
+        let err = rule.validate().unwrap_err();
+        assert!(!err.is_empty());
+
+        rule.cost = Some(1);
+        assert!(rule.validate().is_ok());
+        rule.cost = None;
+        assert!(rule.validate().is_ok());
     }
 
     #[test]

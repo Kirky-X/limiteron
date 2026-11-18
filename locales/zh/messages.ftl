@@ -579,3 +579,6 @@ integration-token-bucket-check-failed = limiteron 令牌桶检查失败: { $erro
 cli-validate-about = 校验 limiteron 规则配置文件（YAML/TOML/JSON）
 cli-export-about = 解析规则配置文件并导出规范化 JSON
 cli-apply-about = 校验规则配置文件并产出 apply 计划（dry-run）
+
+# ---- 决策归因 trace（文档性日志标记；feature decision-trace） ----
+trace-attached = 决策归因 trace 已挂载到拒绝元数据

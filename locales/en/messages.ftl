@@ -583,3 +583,6 @@ integration-token-bucket-check-failed = limiteron token bucket check failed: { $
 cli-validate-about = Validate a limiteron rule config file (YAML/TOML/JSON)
 cli-export-about = Parse a rule config file and export canonical JSON
 cli-apply-about = Validate a rule config file and emit an apply plan (dry-run)
+
+# ---- Decision trace (documentation-level log marker; feature decision-trace) ----
+trace-attached = Decision trace attached to rejection metadata

@@ -150,6 +150,15 @@ pub fn openapi_document() -> serde_json::Value {
                     }
                 }
             })),
+            "/api/v1/config/hash": operation("Runtime config semantic hash and source drift status (for multi-instance comparison)", "config", serde_json::json!({
+                "get": {
+                    "security": bearer,
+                    "responses": {
+                        "200": { "description": "Config hash JSON (runtime_hash, source_file_hash, drift)",
+                                 "content": { "application/json": { "schema": { "type": "object" } } } }
+                    }
+                }
+            })),
             "/api/v1/config": operation("Rule hot reload (atomic config swap; previous config retained on failure)", "config", serde_json::json!({
                 "post": {
                     "security": bearer,
@@ -486,6 +495,7 @@ mod tests {
             "/api/v1/status",
             "/api/v1/status/circuit-breaker",
             "/api/v1/introspect",
+            "/api/v1/config/hash",
             "/api/v1/config",
             "/api/v1/check/batch",
             "/api/v1/tokens/prefetch",

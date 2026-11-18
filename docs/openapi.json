@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Limiteron Admin API",
-    "version": "0.3.0-rc.8",
+    "version": "0.3.1",
     "description": "Limiteron admin control plane: rate limit status, ban management, quota adjustment, circuit breaker status and rule hot reload. All endpoints except probes/metrics require a Bearer API key."
   },
   "paths": {
@@ -176,6 +176,31 @@
         "summary": "Runtime introspection snapshot (rules, decision chains, bans and circuit breakers aggregated)",
         "tags": [
           "status"
+        ]
+      }
+    },
+    "/api/v1/config/hash": {
+      "get": {
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Config hash JSON (runtime_hash, source_file_hash, drift)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Runtime config semantic hash and source drift status (for multi-instance comparison)",
+        "tags": [
+          "config"
         ]
       }
     },

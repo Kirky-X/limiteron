@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 //! HTTP处理器
 
-#[cfg(feature = "ban-manager")]
 use axum::Extension;
 use axum::{
     Json,
@@ -167,6 +166,20 @@ pub async fn get_status(State(state): State<LimiteronState>) -> Json<ApiResponse
 /// 只读端点：viewer 角色即可访问。
 pub async fn introspect(State(state): State<LimiteronState>) -> Json<serde_json::Value> {
     Json(state.service().introspect().await)
+}
+
+/// GET /api/v1/config/hash —— 运行时配置语义哈希 + 源漂移状态
+///
+/// 供多实例外部编排拉取比对；`source_file_hash` 为 None 表示容器注入配置
+/// 无源文件可比。`drift` 在查询时实时比对。
+pub async fn config_hash(State(state): State<LimiteronState>) -> Json<serde_json::Value> {
+    let runtime = state.governor.config_hash().await;
+    let drift = state.governor.check_drift().await;
+    Json(serde_json::json!({
+        "runtime_hash": runtime,
+        "source_file_hash": drift.source_hash,
+        "drift": drift.is_drifted(),
+    }))
 }
 
 // 规则热更新 / 批量 API
@@ -1238,7 +1251,26 @@ pub(crate) mod tests {
 
     // 规则热更新 / 批量检查 / 批量令牌预取
 
-    /// 构造一条合法规则的最小配置（结构同共享夹具 make_valid_config，版本/规则不同以模拟热更新）
+    fn create_small_capacity_config_for_admin_test() -> crate::config::FlowControlConfig {
+        crate::config::FlowControlConfig {
+            version: "9.9.9".to_string(),
+            global: crate::config::types::GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "different".to_string(),
+                name: "Different".to_string(),
+                priority: 100,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 1,
+                    refill_rate: 1,
+                }],
+                action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
+            }],
+        }
+    }
     fn t613_valid_config() -> crate::config::FlowControlConfig {
         use crate::config::{Action, ActionConfig, LimiterConfig, Matcher, Rule};
         crate::config::FlowControlConfig {
@@ -1262,6 +1294,40 @@ pub(crate) mod tests {
                 failure_policy: crate::FailurePolicy::default(),
             }],
         }
+    }
+
+    #[tokio::test]
+    async fn test_config_hash_endpoint_matches_governor() {
+        let source_hash = t613_valid_config().compute_hash();
+        let state = make_state_with(
+            Arc::new(
+                Governor::builder()
+                    .with_config(t613_valid_config())
+                    .with_storage(Arc::new(crate::storage::MemoryStorage::new()))
+                    .with_ban_storage(Arc::new(crate::storage::MemoryBanStorage::new()))
+                    .with_source_config_hash(Some(source_hash.clone()))
+                    .build()
+                    .await
+                    .expect("build should succeed"),
+            ),
+            TestDeps::default(),
+        );
+        let expected = state.governor.config_hash().await;
+
+        let resp = config_hash(State(state.clone())).await;
+        assert_eq!(resp.0["runtime_hash"], serde_json::json!(expected));
+        assert_eq!(resp.0["source_file_hash"], serde_json::json!(source_hash));
+        assert_eq!(resp.0["drift"], serde_json::json!(false));
+
+        // 换装不同配置后 → drift true
+        state
+            .governor
+            .apply_config(create_small_capacity_config_for_admin_test())
+            .await
+            .expect("apply should succeed");
+        let resp = config_hash(State(state)).await;
+        assert_eq!(resp.0["drift"], serde_json::json!(true));
+        assert_ne!(resp.0["runtime_hash"], serde_json::json!(source_hash));
     }
 
     #[tokio::test]

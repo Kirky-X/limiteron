@@ -161,6 +161,8 @@ pub fn create_router(state: LimiteronState, config: &AdminApiConfig) -> Router {
         )
         // Governor 运行时自省
         .route("/api/v1/introspect", get(handlers::introspect))
+        // 运行时配置哈希 + 源漂移状态
+        .route("/api/v1/config/hash", get(handlers::config_hash))
         // 规则热更新（原子换配置）
         .route("/api/v1/config", post(handlers::apply_config))
         // 批量检查（N key 一次决策）

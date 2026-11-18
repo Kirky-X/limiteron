@@ -2,4 +2,6 @@
 // SPDX-License-Identifier: MIT
 //! MCP（Model Context Protocol）只读工具面
 //!
-//! 受 RBAC 约束的 stdio JSON-RPC 工具集。当前为骨架，工具与事件循环由后续实现填充。
+//! 受 RBAC 约束的 stdio JSON-RPC 工具集。
+
+pub mod protocol;

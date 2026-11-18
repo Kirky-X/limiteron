@@ -182,9 +182,14 @@ pub(crate) const BATCH_MAX_ITEMS: usize = 1000;
 /// 写操作：仅 admin 角色可调用。
 pub async fn apply_config(
     State(state): State<LimiteronState>,
+    Extension(operator): Extension<Option<crate::admin::routes::OperatorIdentity>>,
     Json(config): Json<crate::config::FlowControlConfig>,
 ) -> (StatusCode, Json<ApiResponse<serde_json::Value>>) {
-    match state.service().apply_config(config).await {
+    match state
+        .service()
+        .apply_config_with_operator(config, operator.as_ref().map(|o| o.0.as_str()))
+        .await
+    {
         Ok(data) => (
             StatusCode::OK,
             Json(ApiResponse {
@@ -1263,7 +1268,12 @@ pub(crate) mod tests {
     async fn test_t613_apply_config_swaps_rules() {
         let state = make_state().await;
         // 换入新配置（新规则 ID）
-        let resp = apply_config(State(state.clone()), Json(t613_valid_config())).await;
+        let resp = apply_config(
+            State(state.clone()),
+            Extension(None),
+            Json(t613_valid_config()),
+        )
+        .await;
         assert_eq!(resp.0, StatusCode::OK, "{:?}", resp.1.0.message);
         assert!(resp.1.0.success);
         let data = resp.1.0.data.unwrap();
@@ -1285,13 +1295,42 @@ pub(crate) mod tests {
         );
     }
 
+    #[cfg(feature = "audit-log")]
+    #[tokio::test]
+    async fn test_apply_config_operator_extension_reaches_audit() {
+        use crate::admin::routes::OperatorIdentity;
+        use crate::logging::audit::{AuditLogConfig, AuditLogger};
+
+        let logger = Arc::new(AuditLogger::new(AuditLogConfig::new().batch_size(1)).await);
+        let governor = Governor::builder()
+            .with_config(t613_valid_config())
+            .with_storage(Arc::new(crate::storage::MemoryStorage::new()))
+            .with_ban_storage(Arc::new(crate::storage::MemoryBanStorage::new()))
+            .with_audit_logger(logger.clone())
+            .build()
+            .await
+            .expect("build should succeed");
+        let state = make_state_with(Arc::new(governor), TestDeps::default());
+
+        // 已认证 operator 经 Extension 传入 → handler 透传 → 审计落账
+        let resp = apply_config(
+            State(state),
+            Extension(Some(OperatorIdentity("alice".to_string()))),
+            Json(t613_valid_config()),
+        )
+        .await;
+        assert_eq!(resp.0, StatusCode::OK);
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert_eq!(logger.stats().config_change_events(), 1);
+    }
+
     #[tokio::test]
     async fn test_t613_apply_config_rejects_invalid_and_rolls_back() {
         let state = make_state().await;
         // 非法配置：rules 为空 → validate 报错 → 400 且旧配置保留
         let mut bad = t613_valid_config();
         bad.rules.clear();
-        let resp = apply_config(State(state.clone()), Json(bad)).await;
+        let resp = apply_config(State(state.clone()), Extension(None), Json(bad)).await;
         assert_eq!(resp.0, StatusCode::BAD_REQUEST);
         assert!(!resp.1.0.success);
 

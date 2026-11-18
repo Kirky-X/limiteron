@@ -98,6 +98,16 @@ pub trait AdminService: Send + Sync {
         config: FlowControlConfig,
     ) -> Result<serde_json::Value, AdminServiceError>;
 
+    /// 热更新并携带已认证 operator 身份（写入审计链）
+    async fn apply_config_with_operator(
+        &self,
+        config: FlowControlConfig,
+        operator: Option<&str>,
+    ) -> Result<serde_json::Value, AdminServiceError> {
+        let _ = operator; // 默认委托：保持未覆写实现的兼容
+        self.apply_config(config).await
+    }
+
     /// POST /api/v1/check/batch —— 批量检查（空批/超上限返回
     /// [`AdminServiceError::Invalid`]）
     async fn check_batch(
@@ -303,7 +313,19 @@ impl AdminService for GovernorAdminService {
         &self,
         config: FlowControlConfig,
     ) -> Result<serde_json::Value, AdminServiceError> {
-        match self.governor.apply_config(config).await {
+        self.apply_config_with_operator(config, None).await
+    }
+
+    async fn apply_config_with_operator(
+        &self,
+        config: FlowControlConfig,
+        operator: Option<&str>,
+    ) -> Result<serde_json::Value, AdminServiceError> {
+        match self
+            .governor
+            .apply_config_with_operator(config, operator)
+            .await
+        {
             Ok(report) => {
                 Ok(serde_json::to_value(&report).unwrap_or_else(|_| serde_json::json!({})))
             }
@@ -311,6 +333,7 @@ impl AdminService for GovernorAdminService {
         }
     }
 
+    /// POST /api/v1/check/batch
     async fn check_batch(
         &self,
         body: BatchCheckBody,

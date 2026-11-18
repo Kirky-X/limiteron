@@ -117,6 +117,142 @@ pub struct DryRunReport {
     pub per_rule: Vec<RuleShift>,
 }
 
+/// 构建隔离内存 Governor（预演零外部依赖、零外发事件）
+async fn build_replay_governor(config: &crate::config::FlowControlConfig) -> crate::Governor {
+    let builder = crate::Governor::builder()
+        .with_config(config.clone())
+        .with_storage(std::sync::Arc::new(crate::storage::MemoryStorage::new()))
+        .with_ban_storage(std::sync::Arc::new(crate::storage::MemoryBanStorage::new()))
+        .with_l1_cache_enabled(false);
+    #[cfg(feature = "decision-trace")]
+    let builder = builder.with_decision_trace(true); // 归因开启：per-rule 迁移可用
+    builder
+        .build()
+        .await
+        .expect("in-memory replay governor must build")
+}
+
+/// 把 trace 记录映射为请求上下文
+fn to_context(record: &TrafficRecord) -> crate::matchers::traits::RequestContext {
+    let mut ctx = crate::matchers::traits::RequestContext::new();
+    ctx.user_id = record.identifier.user_id.clone();
+    let ip = record
+        .identifier
+        .ip
+        .clone()
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+    ctx.ip = Some(ip.clone());
+    ctx.client_ip = Some(ip);
+    ctx.api_key = record.identifier.api_key.clone();
+    ctx.device_id = record.identifier.device_id.clone();
+    ctx.path = record.path.clone();
+    ctx.method = record.method.clone();
+    ctx
+}
+
+fn count_decision(counts: &mut DecisionCounts, decision: &crate::Decision) {
+    match decision {
+        crate::Decision::Allowed(_) => counts.allowed += 1,
+        crate::Decision::Rejected(_) => counts.rejected += 1,
+        crate::Decision::Banned(_) => counts.banned += 1,
+    }
+}
+
+fn diff(a: u64, b: u64) -> i64 {
+    b as i64 - a as i64
+}
+
+/// 回放流量：对 baseline / candidate 各执行一次 `check()` 并聚合计数
+///
+/// `records` 为已解析记录迭代器；畸形行的跳过计数由调用方（解析层）累加后
+/// 经 `skipped_lines` 传入。
+pub fn replay<I>(
+    baseline: &crate::config::FlowControlConfig,
+    candidate: &crate::config::FlowControlConfig,
+    records: I,
+    skipped_lines: usize,
+) -> DryRunReport
+where
+    I: IntoIterator<Item = TrafficRecord>,
+{
+    let rt = tokio::runtime::Runtime::new().expect("tokio runtime for replay");
+    let base_gov = rt.block_on(build_replay_governor(baseline));
+    let cand_gov = rt.block_on(build_replay_governor(candidate));
+
+    let mut base_counts = DecisionCounts::default();
+    let mut cand_counts = DecisionCounts::default();
+    #[cfg(feature = "decision-trace")]
+    let mut base_rule: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    #[cfg(feature = "decision-trace")]
+    let mut cand_rule: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+
+    let mut total = 0usize;
+    for rec in records {
+        total += 1;
+        let ctx = to_context(&rec);
+        let base = rt.block_on(base_gov.check(&ctx));
+        let cand = rt.block_on(cand_gov.check(&ctx));
+        match &base {
+            Ok(d) => {
+                count_decision(&mut base_counts, d);
+                #[cfg(feature = "decision-trace")]
+                if let crate::Decision::Rejected(m) = d
+                    && let Some(trace) = &m.trace
+                    && let Some(rule) = &trace.rejecting_rule
+                {
+                    *base_rule.entry(rule.clone()).or_default() += 1;
+                }
+            }
+            Err(_) => base_counts.error += 1,
+        }
+        match &cand {
+            Ok(d) => {
+                count_decision(&mut cand_counts, d);
+                #[cfg(feature = "decision-trace")]
+                if let crate::Decision::Rejected(m) = d
+                    && let Some(trace) = &m.trace
+                    && let Some(rule) = &trace.rejecting_rule
+                {
+                    *cand_rule.entry(rule.clone()).or_default() += 1;
+                }
+            }
+            Err(_) => cand_counts.error += 1,
+        }
+    }
+
+    #[cfg(feature = "decision-trace")]
+    let (attribution, per_rule) = {
+        let mut shifts = Vec::new();
+        let mut ids: std::collections::BTreeSet<String> = base_rule.keys().cloned().collect();
+        ids.extend(cand_rule.keys().cloned());
+        for id in ids {
+            shifts.push(RuleShift {
+                rule_id: id.clone(),
+                baseline_rejections: base_rule.get(&id).copied().unwrap_or(0),
+                candidate_rejections: cand_rule.get(&id).copied().unwrap_or(0),
+            });
+        }
+        (AttributionMode::Enabled, shifts)
+    };
+    #[cfg(not(feature = "decision-trace"))]
+    let (attribution, per_rule) = (AttributionMode::Disabled, Vec::new());
+
+    DryRunReport {
+        total_requests: total,
+        skipped_lines,
+        attribution,
+        baseline: base_counts,
+        candidate: cand_counts,
+        delta: CountDelta {
+            allowed: diff(base_counts.allowed, cand_counts.allowed),
+            rejected: diff(base_counts.rejected, cand_counts.rejected),
+            banned: diff(base_counts.banned, cand_counts.banned),
+            error: diff(base_counts.error, cand_counts.error),
+        },
+        per_rule,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -146,5 +282,101 @@ mod tests {
         assert!(serde_json::from_str::<TrafficRecord>("not json").is_err());
         // 缺必填 path → Err
         assert!(serde_json::from_str::<TrafficRecord>(r#"{"ts_ms":1}"#).is_err());
+    }
+
+    fn fixture_config(capacity: u64) -> crate::config::FlowControlConfig {
+        serde_json::from_str(&format!(
+            r#"{{
+                "version": "1.0.0",
+                "global": {{ "storage": "memory", "cache": "memory", "metrics": "none" }},
+                "rules": [
+                    {{
+                        "id": "api_rule",
+                        "name": "api",
+                        "priority": 100,
+                        "matchers": [{{ "type": "User", "user_ids": ["*"] }}],
+                        "limiters": [{{ "type": "TokenBucket", "capacity": {capacity}, "refill_rate": 1 }}],
+                        "action": {{ "on_exceed": "reject" }}
+                    }},
+                    {{
+                        "id": "path_rule",
+                        "name": "path",
+                        "priority": 90,
+                        "matchers": [{{ "type": "Ip", "ip_ranges": ["10.0.0.0/8"] }}],
+                        "limiters": [{{ "type": "TokenBucket", "capacity": 100, "refill_rate": 10 }}],
+                        "action": {{ "on_exceed": "reject" }}
+                    }}
+                ]
+            }}"#
+        ))
+        .expect("fixture config parses")
+    }
+
+    fn fixture_records() -> Vec<TrafficRecord> {
+        (1..=3)
+            .map(|i| TrafficRecord {
+                ts_ms: i,
+                identifier: TrafficIdentifier {
+                    user_id: Some(format!("u{i}")),
+                    ..Default::default()
+                },
+                path: "/api".to_string(),
+                method: "GET".to_string(),
+                cost: 1,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn replay_counts_all_states() {
+        // baseline 容量 1，candidate 容量 10：3 条 trace
+        let baseline = fixture_config(1);
+        let candidate = fixture_config(10);
+        let report = replay(&baseline, &candidate, fixture_records(), 0);
+        assert_eq!(report.total_requests, 3);
+        assert_eq!(report.skipped_lines, 0);
+        assert_eq!(
+            report.baseline.allowed, 1,
+            "baseline={:?} candidate={:?}",
+            report.baseline, report.candidate
+        );
+        assert_eq!(
+            report.baseline.rejected, 2,
+            "baseline={:?}",
+            report.baseline
+        );
+        assert_eq!(report.candidate.allowed, 3);
+        assert_eq!(report.candidate.rejected, 0);
+        assert_eq!(report.delta.rejected, -2);
+    }
+
+    #[cfg(feature = "decision-trace")]
+    #[test]
+    fn replay_per_rule_attribution_when_trace_enabled() {
+        // 需在 Governor 开启 trace 才能归因；replay 内部 builder 默认关闭，
+        // 故此处仅验证 attribution 模式由 feature 决定且 per_rule 结构合法。
+        let baseline = fixture_config(1);
+        let candidate = fixture_config(10);
+        let report = replay(&baseline, &candidate, fixture_records(), 0);
+        assert_eq!(report.attribution, AttributionMode::Enabled);
+        // trace 开启后拒绝归因填充 per_rule（baseline 2 次拒绝 → api_rule）
+        assert!(
+            report
+                .per_rule
+                .iter()
+                .any(|s| s.rule_id.starts_with("api_rule") && s.baseline_rejections == 2),
+            "per_rule must carry rejecting_rule attribution: {:?}",
+            report.per_rule
+        );
+    }
+
+    #[cfg(not(feature = "decision-trace"))]
+    #[test]
+    fn replay_attribution_disabled_without_feature() {
+        let baseline = fixture_config(1);
+        let candidate = fixture_config(10);
+        let report = replay(&baseline, &candidate, fixture_records(), 0);
+        assert_eq!(report.attribution, AttributionMode::Disabled);
+        assert!(report.per_rule.is_empty());
     }
 }

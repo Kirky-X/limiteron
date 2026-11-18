@@ -890,6 +890,33 @@ Sample output (JSON):
 </details>
 
 <details>
+<summary><b>❓ How do I weight limits by request cost (e.g. heavy queries)?</b></summary>
+
+**Solution**: Set the rule-level `cost` field. It is the number of quota "currency" units each request consumes through that rule's limiters. Default is `1` (every request counts equally); `cost: 0` is rejected at validation time.
+
+Capacity planning note: with `cost: N`, a limiter's `capacity` is measured in **cost units**, not request count — a `capacity: 100` bucket admits 10 requests when `cost: 10`, not 100.
+
+Because rules already select traffic by path/matcher, "weight by endpoint" means defining one rule per endpoint class with its own cost:
+
+```yaml
+rules:
+  - id: health-probe
+    matchers: [{ type: Path, paths: ["/health"] }]
+    limiters: [{ type: TokenBucket, capacity: 100, refill_rate: 10 }]
+    action: { on_exceed: reject }
+    cost: 1            # lightweight probe
+  - id: heavy-query
+    matchers: [{ type: Path, paths: ["/api/report"] }]
+    limiters: [{ type: TokenBucket, capacity: 100, refill_rate: 10 }]
+    action: { on_exceed: reject }
+    cost: 10           # one heavy query consumes 10 units
+```
+
+The same `cost` is used by the execution layer (`allow(cost)`, quota `consume(user, resource, cost)`) and by non-consuming `peek(cost)` feasibility checks and batch token prefetch — a configured cost of 10 is interpreted consistently across all of them.
+
+</details>
+
+<details>
 <summary><b>❓ How do I detect configuration drift between instances?</b></summary>
 
 **Solution**: The Admin API exposes `GET /api/v1/config/hash` (requires `admin-api`):

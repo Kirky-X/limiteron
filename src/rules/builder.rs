@@ -610,6 +610,13 @@ mod tests {
                             window_size: "60s".to_string(),
                             max_requests: 50,
                         },
+                        LimiterConfig::Quota {
+                            quota_type: crate::config::QuotaType::Token,
+                            limit: 100,
+                            window: "60s".to_string(),
+                            alert_threshold: None,
+                            overdraft: None,
+                        },
                     ],
                     action: ActionConfig::default(),
                     failure_policy: crate::FailurePolicy::default(),
@@ -637,7 +644,7 @@ mod tests {
                 .expect("chains build");
 
         let weighted = chains.get("weighted").unwrap();
-        assert_eq!(weighted.nodes().len(), 2);
+        assert_eq!(weighted.nodes().len(), 3);
         assert!(weighted.nodes().iter().all(|n| n.cost == 5));
         let default_cost = chains.get("default_cost").unwrap();
         assert!(default_cost.nodes().iter().all(|n| n.cost == 1));

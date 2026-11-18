@@ -601,3 +601,64 @@ async fn test_rule_matching_priority() {
         }
     }
 }
+
+/// cost-aware：TokenBucket 规则 cost=5，每次 check 消耗 5 令牌
+#[tokio::test]
+async fn test_rule_cost_consumes_five_tokens_per_check() {
+    // 构造 cost=5 的 TokenBucket 规则
+    let config = FlowControlConfig {
+        version: "1.0".to_string(),
+        global: limiteron::config::GlobalConfig {
+            storage: StorageType::Memory,
+            cache: CacheBackend::Memory,
+            metrics: MetricsBackend::Prometheus,
+            trusted_proxies: Default::default(),
+        },
+        rules: vec![Rule {
+            id: "cost_rule".to_string(),
+            name: "Cost Rule".to_string(),
+            priority: 100,
+            matchers: vec![Matcher::User {
+                user_ids: vec!["*".to_string()],
+            }],
+            limiters: vec![LimiterConfig::TokenBucket {
+                capacity: 10,
+                refill_rate: 1,
+            }],
+            action: ActionConfig {
+                on_exceed: Action::Reject,
+                ban: None,
+            },
+            failure_policy: limiteron::FailurePolicy::default(),
+            cost: Some(5),
+        }],
+    };
+    let governor = Arc::new(
+        limiteron::Governor::builder()
+            .with_config(config)
+            .with_storage(Arc::new(limiteron::storage::MemoryStorage::new()) as Arc<dyn Storage>)
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()) as Arc<dyn BanStorage>)
+            .build()
+            .await
+            .expect("build"),
+    );
+    governor.disable_l1_cache();
+
+    let ctx = RequestContextBuilder::new()
+        .user_id("cost_user")
+        .ip("10.0.0.50")
+        .build();
+    // 两次 check 各消耗 5 → 桶空；第三次拒绝
+    assert!(matches!(
+        governor.check(&ctx).await,
+        Ok(Decision::Allowed(_))
+    ));
+    assert!(matches!(
+        governor.check(&ctx).await,
+        Ok(Decision::Allowed(_))
+    ));
+    assert!(
+        matches!(governor.check(&ctx).await, Ok(Decision::Rejected(_))),
+        "third check must be rejected after 2×cost=5 tokens consumed"
+    );
+}

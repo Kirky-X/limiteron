@@ -1204,7 +1204,65 @@ impl Governor {
     }
 
     /// 内部检查分发（不含 metrics/tracer 包装，由 check() 统一处理）
+    /// 内部检查入口（含租户并发池包裹）
     async fn check_inner(
+        &self,
+        context: &RequestContext,
+        #[cfg(feature = "telemetry")] check_span: Option<&crate::telemetry::Span>,
+    ) -> Result<Decision, LimiteronError> {
+        #[cfg(all(feature = "tenant-fairness", feature = "multi-tenant"))]
+        if let Some(ref registry) = self.tenant_bulkheads {
+            let pool = self
+                .resolve_tenant(context)
+                .filter(|ns| !ns.is_default())
+                .map(|ns| ns.tenant_id().to_string())
+                .unwrap_or_else(|| "default".to_string());
+            #[cfg(feature = "telemetry")]
+            let fut = self.check_inner_logic(context, check_span);
+            #[cfg(not(feature = "telemetry"))]
+            let fut = self.check_inner_logic(context);
+
+            return match registry.execute(&pool, fut).await {
+                Ok(result) => result,
+                Err(crate::bulkhead::BulkheadError::Full(name)) => {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    self.stats.increment_rejected();
+                    Ok(Decision::Rejected(crate::error::RejectionMetadata::new(
+                        t("governor-tenant-pool-full", &[("tenant", name)]),
+                        1,
+                        0,
+                        now + 1,
+                    )))
+                }
+                #[cfg(feature = "circuit-breaker")]
+                Err(_) => {
+                    // 池熔断打开时快速失败（与 Full 同口径；瞬态拥塞不写负缓存）
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    self.stats.increment_rejected();
+                    Ok(Decision::Rejected(crate::error::RejectionMetadata::new(
+                        t("governor-tenant-pool-full", &[("tenant", pool)]),
+                        1,
+                        0,
+                        now + 1,
+                    )))
+                }
+            };
+        }
+
+        #[cfg(feature = "telemetry")]
+        let result = self.check_inner_logic(context, check_span).await;
+        #[cfg(not(feature = "telemetry"))]
+        let result = self.check_inner_logic(context).await;
+        result
+    }
+
+    async fn check_inner_logic(
         &self,
         context: &RequestContext,
         #[cfg(feature = "telemetry")] check_span: Option<&crate::telemetry::Span>,
@@ -4926,6 +4984,98 @@ mod governor_construction_tests {
                 .iter()
                 .any(|(name, _)| name == "tenant-a")
         );
+    }
+
+    #[cfg(all(feature = "tenant-fairness", feature = "multi-tenant"))]
+    #[tokio::test]
+    async fn test_tenant_pool_full_rejects_concurrent_request() {
+        use crate::limiters::Limiter;
+        use crate::tenant::resolver::HeaderTenantResolver;
+        use async_trait::async_trait;
+
+        struct SlowLimiter;
+        #[async_trait]
+        impl Limiter for SlowLimiter {
+            async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                Ok(true)
+            }
+        }
+
+        let resolver: Arc<dyn crate::tenant::TenantResolver> = Arc::new(
+            HeaderTenantResolver::new("X-Tenant-ID", "prod").with_allowed_tenants(["tenant-a"]),
+        );
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_l1_cache_enabled(false)
+            .with_tenant_resolver(resolver)
+            .with_tenant_fairness(TenantFairnessConfig {
+                default_max_concurrent: 8,
+                per_tenant_max_concurrent: {
+                    let mut m = ahash::AHashMap::new();
+                    m.insert("tenant-a".to_string(), 1usize);
+                    m
+                },
+            })
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // 注入慢链，保证第一个请求占用池的整个窗口
+        let slow_chain = crate::decision_chain::DecisionChain::with_dependencies(vec![
+            crate::decision_chain::DecisionNode::with_dependencies(
+                "slow".to_string(),
+                "Slow Node".to_string(),
+                Arc::new(SlowLimiter),
+                100,
+            ),
+        ]);
+        governor
+            .rule_chains
+            .write()
+            .await
+            .insert("test_rule".to_string(), slow_chain);
+        let governor = Arc::new(governor);
+
+        let ctx = RequestContext::new()
+            .with_client_ip("10.0.0.55")
+            .with_header("X-Tenant-ID", "tenant-a");
+        assert_eq!(
+            governor
+                .resolve_tenant(&ctx)
+                .map(|ns| ns.tenant_id().to_string()),
+            Some("tenant-a".to_string()),
+            "tenant must resolve"
+        );
+        assert!(
+            governor
+                .tenant_bulkhead_stats()
+                .iter()
+                .any(|(n, _)| n == "tenant-a"),
+            "tenant-a pool must be prebuilt, stats={:?}",
+            governor.tenant_bulkhead_stats()
+        );
+
+        let g1 = governor.clone();
+        let c1 = ctx.clone();
+        let first = tokio::spawn(async move { g1.check(&c1).await });
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        // 第二个请求在第一个占用池时应被快速失败
+        let second = governor.check(&ctx).await;
+        match second {
+            Ok(Decision::Rejected(meta)) => {
+                assert!(!meta.reason.is_empty(), "reason: {}", meta.reason);
+            }
+            other => panic!("expected pool-full Rejected, got {:?}", other),
+        }
+
+        let _ = first.await.expect("first task join");
+        // 第一个完成后池槽位归还，第三个请求放行
+        let third = governor.check(&ctx).await;
+        assert!(matches!(third, Ok(Decision::Allowed(_))), "got {:?}", third);
     }
 
     #[tokio::test]

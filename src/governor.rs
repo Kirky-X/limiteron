@@ -4952,6 +4952,62 @@ mod governor_construction_tests {
                 result
             );
         }
+
+        /// 收敛 T018：FailClosed 合成拒绝进入 L1 负缓存（同标识符第二次不重跑链）
+        #[tokio::test]
+        async fn test_fail_closed_rejection_enters_l1_negative_cache() {
+            struct CountingErrLimiter {
+                calls: Arc<std::sync::atomic::AtomicUsize>,
+            }
+            #[async_trait]
+            impl Limiter for CountingErrLimiter {
+                async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
+                    self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Err(LimiteronError::LimitError("boom".to_string()))
+                }
+            }
+
+            let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let governor = Governor::builder()
+                .with_config(policy_config(crate::FailurePolicy::FailClosed))
+                .with_storage(Arc::new(MemoryStorage::new()))
+                .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+                // L1 缓存保持默认开启
+                .build()
+                .await
+                .expect("build should succeed");
+            let err_chain = crate::decision_chain::DecisionChain::with_dependencies(vec![
+                crate::decision_chain::DecisionNode::with_dependencies(
+                    "err-node".to_string(),
+                    "Err Node".to_string(),
+                    Arc::new(CountingErrLimiter {
+                        calls: calls.clone(),
+                    }),
+                    100,
+                ),
+            ]);
+            governor
+                .rule_chains
+                .write()
+                .await
+                .insert("err_rule".to_string(), err_chain);
+
+            // 第一次：链执行 Err → FailClosed 合成 Rejected → 写入负缓存
+            assert!(matches!(
+                governor.check(&ctx()).await,
+                Ok(Decision::Rejected(_))
+            ));
+            // 第二次：同标识符命中负缓存，仍为 Rejected，且链未再执行
+            assert!(matches!(
+                governor.check(&ctx()).await,
+                Ok(Decision::Rejected(_))
+            ));
+            assert_eq!(
+                calls.load(std::sync::atomic::Ordering::SeqCst),
+                1,
+                "FailClosed rejection must be cached; chain should run only once"
+            );
+        }
     }
 
     #[cfg(all(feature = "tenant-fairness", feature = "multi-tenant"))]

@@ -201,7 +201,7 @@ pub use sync::{CircuitCallError, RateLimitRejection, SyncCircuitBreaker, SyncFix
 pub use cache::{Cache, CacheKey, CacheService, MemoryCache};
 pub use config::ConfigLoader;
 pub use config::{
-    ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, ConfigMatcher,
+    ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, ConfigMatcher, FailurePolicy,
     FlowControlConfig, LimiterConfig, Rule as ConfigRule,
 };
 #[cfg(feature = "decision-trace")]

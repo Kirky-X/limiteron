@@ -4553,7 +4553,10 @@ mod governor_construction_tests {
                 break;
             }
         }
+        #[cfg(feature = "decision-trace")]
         let meta = rejected.expect("expected a rejection after exhausting capacity");
+        #[cfg(not(feature = "decision-trace"))]
+        let _meta = rejected.expect("expected a rejection after exhausting capacity");
         #[cfg(feature = "decision-trace")]
         assert!(meta.trace.is_none(), "trace must be None when disabled");
     }

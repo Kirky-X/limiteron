@@ -15,9 +15,9 @@ pub(crate) mod types;
 // Re-export all config types from types module
 pub use types::{
     Action, ActionConfig, BanConfig, BanScope, CacheBackend, ChangeSource, ConfigBuilder,
-    ConfigChangeRecord, ConfigHistory, FlowControlConfig, GlobalConfig, LimiterConfig,
-    LimiterTypeName, Matcher, MetricsBackend, OverdraftConfig, QuotaType, Rule, RuleBuilder,
-    StorageType, TrustedProxyConfig,
+    ConfigChangeRecord, ConfigHistory, FailurePolicy, FlowControlConfig, GlobalConfig,
+    LimiterConfig, LimiterTypeName, Matcher, MetricsBackend, OverdraftConfig, QuotaType, Rule,
+    RuleBuilder, StorageType, TrustedProxyConfig,
 };
 // Backward compatibility alias
 #[allow(unused_imports)]

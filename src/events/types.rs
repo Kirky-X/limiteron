@@ -68,6 +68,16 @@ pub enum EventType {
         /// 使用率百分比（0-100）
         usage_percent: f64,
     },
+
+    /// 降级模式事件
+    ///
+    /// 规则级故障策略选择放行（`FailOpenWithAlert`）时的显性信号。
+    DegradedMode {
+        /// 故障规则 ID
+        rule_id: String,
+        /// 脱敏后的存储错误摘要
+        error: String,
+    },
 }
 
 impl EventType {
@@ -79,6 +89,7 @@ impl EventType {
             EventType::BanExpired { .. } => "ban_expired",
             EventType::CircuitStateChanged { .. } => "circuit_state_changed",
             EventType::QuotaAlert { .. } => "quota_alert",
+            EventType::DegradedMode { .. } => "degraded_mode",
         }
     }
 
@@ -109,6 +120,7 @@ impl EventType {
                     3
                 }
             }
+            EventType::DegradedMode { .. } => 5,
         }
     }
 }

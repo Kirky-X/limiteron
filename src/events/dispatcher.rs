@@ -416,6 +416,64 @@ mod tests {
         }
     }
 
+    /// 捕获 DegradedMode 事件字段的处理器（验证事件透传不丢失 rule_id/error）
+    struct DegradedCaptureHandler {
+        seen: Arc<parking_lot::Mutex<Vec<(String, String)>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl EventHandler for DegradedCaptureHandler {
+        async fn handle(
+            &self,
+            event: &Event,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            if let EventType::DegradedMode { rule_id, error } = &event.event_type {
+                self.seen.lock().push((rule_id.clone(), error.clone()));
+            }
+            Ok(())
+        }
+
+        fn name(&self) -> &str {
+            "DegradedCaptureHandler"
+        }
+    }
+
+    #[tokio::test]
+    async fn test_degraded_mode_event_passthrough() {
+        let emitter = EventEmitter::with_default_config();
+        let dispatcher = EventDispatcher::new(emitter.clone());
+
+        let seen = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        dispatcher
+            .register_handler(Arc::new(DegradedCaptureHandler { seen: seen.clone() }))
+            .await;
+        dispatcher.start().await;
+
+        let event = Event::new(EventType::DegradedMode {
+            rule_id: "rule-42".to_string(),
+            error: "storage-unavailable".to_string(),
+        });
+        emitter.emit(event).await.unwrap();
+
+        let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(2);
+        while tokio::time::Instant::now() < deadline {
+            if !seen.lock().is_empty() {
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+        }
+        dispatcher.stop().await;
+
+        let captured = seen.lock().clone();
+        assert_eq!(
+            captured.len(),
+            1,
+            "handler should see one DegradedMode event"
+        );
+        assert_eq!(captured[0].0, "rule-42");
+        assert_eq!(captured[0].1, "storage-unavailable");
+    }
+
     #[tokio::test]
     async fn test_dispatcher_register_handler() {
         let emitter = EventEmitter::with_default_config();

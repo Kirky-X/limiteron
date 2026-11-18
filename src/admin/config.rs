@@ -21,6 +21,20 @@ pub(crate) fn role_key_is_acceptable(key: &str) -> bool {
     !key.trim().is_empty() && key.len() >= MIN_API_KEY_LEN
 }
 
+/// Admin 安全 profile
+///
+/// - `Compatible`：维持现状（默认，绑定回环 + 可选凭证），存量部署零破坏。
+/// - `Strict`：fail-closed 聚合，启动期强制校验绑定地址与凭证。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdminSecurityProfile {
+    /// 兼容模式（默认）：行为与现状逐位一致
+    #[default]
+    Compatible,
+    /// 严格模式：启动期 fail-closed 校验 + Web UI 强制聚合
+    Strict,
+}
+
 /// Admin API configuration validation error
 ///
 /// 双轨：Display 英文规范串 + [`crate::i18n::LocalizedMsg`]（键
@@ -121,6 +135,9 @@ pub struct AdminApiConfig {
     /// （见 `default_rate_limit_for`），不会因缺项而放宽限流。
     #[serde(default = "default_rate_limits")]
     pub rate_limits: HashMap<String, (u64, u64)>,
+    /// 安全 profile（默认 Compatible，Strict 为 fail-closed 聚合）
+    #[serde(default)]
+    pub security_profile: AdminSecurityProfile,
 }
 
 // 手动实现 Debug 并脱敏 api_key：派生的 Debug 会以明文打印
@@ -194,6 +211,7 @@ impl Default for AdminApiConfig {
             api_key_operators: HashMap::new(),
             api_key_roles: HashMap::new(),
             rate_limits: default_rate_limits(),
+            security_profile: AdminSecurityProfile::default(),
         }
     }
 }
@@ -208,6 +226,7 @@ impl AdminApiConfig {
             api_key_operators: HashMap::new(),
             api_key_roles: HashMap::new(),
             rate_limits: default_rate_limits(),
+            security_profile: AdminSecurityProfile::default(),
         }
     }
 
@@ -341,6 +360,25 @@ impl AdminApiConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_security_profile_serde() {
+        // 缺省字段 → Compatible
+        let cfg: AdminApiConfig =
+            serde_json::from_str(r#"{"api_key":"a-very-long-secure-key-32chars"}"#).unwrap();
+        assert_eq!(cfg.security_profile, AdminSecurityProfile::Compatible);
+        assert_eq!(
+            AdminSecurityProfile::default(),
+            AdminSecurityProfile::Compatible
+        );
+
+        // strict → Strict（snake_case 在本枚举两个值均小写，同形）
+        let cfg: AdminApiConfig = serde_json::from_str(
+            r#"{"api_key":"a-very-long-secure-key-32chars","security_profile":"strict"}"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.security_profile, AdminSecurityProfile::Strict);
+    }
 
     #[test]
     fn test_default_values() {

@@ -264,6 +264,7 @@ mod tests {
                     on_exceed: Action::Reject,
                     ban: None,
                 },
+                failure_policy: limiteron::FailurePolicy::default(),
             }],
         }
     }

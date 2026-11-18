@@ -148,6 +148,7 @@ fn demo_rule_matcher() -> Result<(), Box<dyn std::error::Error>> {
         priority: 100,
         condition: Box::new(MatchCondition::User(vec!["user-001".to_string()])),
         enabled: true,
+        failure_policy: limiteron::FailurePolicy::default(),
     };
 
     // 构建规则：匹配 IP CIDR 范围（10.0.0.0/24）
@@ -158,6 +159,7 @@ fn demo_rule_matcher() -> Result<(), Box<dyn std::error::Error>> {
         priority: 50,
         condition: Box::new(MatchCondition::Ip(vec![ip_range])),
         enabled: true,
+        failure_policy: limiteron::FailurePolicy::default(),
     };
 
     // 构建规则：自定义闭包匹配（路径前缀匹配）
@@ -169,6 +171,7 @@ fn demo_rule_matcher() -> Result<(), Box<dyn std::error::Error>> {
             ctx.path.starts_with("/admin")
         }))),
         enabled: true,
+        failure_policy: limiteron::FailurePolicy::default(),
     };
 
     let matcher = RuleMatcherBuilder::new()
@@ -220,6 +223,7 @@ fn demo_matcher_stats() {
         priority: 100,
         condition: Box::new(MatchCondition::User(vec!["*".to_string()])),
         enabled: true,
+        failure_policy: limiteron::FailurePolicy::default(),
     };
     let matcher = RuleMatcher::new(vec![rule]);
 

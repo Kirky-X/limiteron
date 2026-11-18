@@ -35,6 +35,7 @@ fn create_simple_config() -> FlowControlConfig {
                 on_exceed: Action::Degrade,
                 ban: None,
             },
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     }
 }

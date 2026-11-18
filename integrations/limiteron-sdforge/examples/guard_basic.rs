@@ -44,6 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     scope: BanScope::User,
                 }),
             },
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
     let governor = Arc::new(

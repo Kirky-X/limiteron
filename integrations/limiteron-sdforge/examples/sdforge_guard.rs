@@ -40,6 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 on_exceed: Action::Reject,
                 ban: None,
             },
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
     let governor = Arc::new(

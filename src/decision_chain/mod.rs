@@ -12,6 +12,7 @@
 //! - 决策聚合：聚合所有限流器的决策结果
 //! - 可扩展：易于添加新的限流器类型
 
+pub mod trace;
 pub mod types;
 
 pub use types::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};

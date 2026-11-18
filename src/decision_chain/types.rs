@@ -325,14 +325,34 @@ impl DecisionChain {
     }
 
     /// 检查决策链（向后兼容）
+    ///
+    /// 语义与 [`Self::check_with_trace`] 完全一致，仅丢弃节点判定快照。
     pub async fn check(&self) -> Result<Decision, LimiteronError> {
+        self.check_with_trace().await.map(|(decision, _)| decision)
+    }
+
+    /// 检查决策链并逐节点收集判定快照
+    ///
+    /// 判定、短路、非短路与错误语义与 [`Self::check`] 逐行等价；
+    /// 额外在每次节点判定后 push 一个 [`NodeOutcome`](crate::decision_chain::trace::NodeOutcome)。
+    pub async fn check_with_trace(
+        &self,
+    ) -> Result<(Decision, Vec<crate::decision_chain::trace::NodeOutcome>), LimiteronError> {
+        use crate::decision_chain::trace::NodeOutcome;
+
         let enabled_nodes: Vec<&DecisionNode> = self.nodes.iter().filter(|n| n.enabled).collect();
 
         let mut last_rejection: Option<RejectionMetadata> = None;
+        let mut outcomes: Vec<NodeOutcome> = Vec::with_capacity(enabled_nodes.len());
 
         for node in enabled_nodes {
             match node.limiter.allow(node.cost).await {
                 Ok(false) => {
+                    outcomes.push(NodeOutcome {
+                        node_id: node.id.clone(),
+                        node_name: node.name.clone(),
+                        allowed: false,
+                    });
                     // 节点拒绝 - 节点级指标立即更新；请求级统计（total/rejected）在
                     // 末尾统一结算，避免多节点非短路拒绝时对同一请求重复计数
                     self.stats.increment_node_rejection(&node.id);
@@ -356,17 +376,20 @@ impl DecisionChain {
                         // 短路：立即返回拒绝，不执行后续节点
                         self.stats.increment_total();
                         self.stats.increment_rejected();
-                        return Ok(Decision::Rejected(RejectionMetadata {
-                            // 拒绝原因经 FTL 目录（键 decision-rejected-by，
-                            // 节点名插值保留，en 回退）
-                            reason: crate::i18n::t(
-                                "decision-rejected-by",
-                                &[("node", node.name.clone())],
-                            ),
-                            retry_after,
-                            limit,
-                            reset_at,
-                        }));
+                        return Ok((
+                            Decision::Rejected(RejectionMetadata {
+                                // 拒绝原因经 FTL 目录（键 decision-rejected-by，
+                                // 节点名插值保留，en 回退）
+                                reason: crate::i18n::t(
+                                    "decision-rejected-by",
+                                    &[("node", node.name.clone())],
+                                ),
+                                retry_after,
+                                limit,
+                                reset_at,
+                            }),
+                            outcomes,
+                        ));
                     }
                     // 非短路：记录拒绝但继续执行后续节点
                     last_rejection = Some(RejectionMetadata {
@@ -381,11 +404,22 @@ impl DecisionChain {
                 }
                 Err(e) => {
                     // 节点错误 - 使用原子操作更新统计
+                    outcomes.push(NodeOutcome {
+                        node_id: node.id.clone(),
+                        node_name: node.name.clone(),
+                        allowed: false,
+                    });
                     self.stats.increment_total();
                     self.stats.increment_error();
                     return Err(e);
                 }
-                _ => {} // 允许，继续下一个节点
+                Ok(true) => {
+                    outcomes.push(NodeOutcome {
+                        node_id: node.id.clone(),
+                        node_name: node.name.clone(),
+                        allowed: true,
+                    });
+                }
             }
         }
 
@@ -394,13 +428,13 @@ impl DecisionChain {
         if let Some(rejection) = last_rejection {
             self.stats.increment_total();
             self.stats.increment_rejected();
-            return Ok(Decision::Rejected(rejection));
+            return Ok((Decision::Rejected(rejection), outcomes));
         }
 
         // 所有节点都允许
         self.stats.increment_total();
         self.stats.increment_allowed();
-        Ok(Decision::allowed_default())
+        Ok((Decision::allowed_default(), outcomes))
     }
 
     /// 获取统计信息
@@ -634,6 +668,74 @@ mod tests {
     }
 
     // DecisionNode 测试
+
+    #[tokio::test]
+    async fn test_check_with_trace_matches_check_and_records_outcomes() {
+        use crate::decision_chain::trace::NodeOutcome;
+
+        let build_chain = || {
+            DecisionChain::with_dependencies(vec![
+                DecisionNode::with_dependencies(
+                    "n1".to_string(),
+                    "allow-node".to_string(),
+                    Arc::new(MockLimiter::new(true)),
+                    3,
+                ),
+                DecisionNode::with_dependencies(
+                    "n2".to_string(),
+                    "reject-node".to_string(),
+                    Arc::new(MockLimiter::new(false)),
+                    2,
+                )
+                .with_short_circuit(false),
+                DecisionNode::with_dependencies(
+                    "n3".to_string(),
+                    "short-circuit-node".to_string(),
+                    Arc::new(MockLimiter::new(false)),
+                    1,
+                )
+                .with_short_circuit(true),
+            ])
+        };
+
+        let plain = build_chain().check().await.unwrap();
+        let (traced, outcomes) = build_chain().check_with_trace().await.unwrap();
+
+        assert_eq!(
+            std::mem::discriminant(&plain),
+            std::mem::discriminant(&traced)
+        );
+        match (&plain, &traced) {
+            (Decision::Rejected(a), Decision::Rejected(b)) => {
+                assert_eq!(a.reason, b.reason);
+                assert_eq!(a.limit, b.limit);
+                assert_eq!(a.retry_after, b.retry_after);
+                assert!(a.reset_at.abs_diff(b.reset_at) <= 2);
+            }
+            other => panic!("expected Rejected, got {:?}", other),
+        }
+
+        assert_eq!(
+            outcomes,
+            vec![
+                NodeOutcome {
+                    node_id: "n1".to_string(),
+                    node_name: "allow-node".to_string(),
+                    allowed: true,
+                },
+                NodeOutcome {
+                    node_id: "n2".to_string(),
+                    node_name: "reject-node".to_string(),
+                    allowed: false,
+                },
+                NodeOutcome {
+                    node_id: "n3".to_string(),
+                    node_name: "short-circuit-node".to_string(),
+                    allowed: false,
+                },
+            ]
+        );
+    }
 
     #[test]
     fn test_decision_node_creation() {

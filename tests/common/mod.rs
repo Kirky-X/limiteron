@@ -41,6 +41,7 @@ pub async fn create_governor() -> Arc<Governor> {
                 on_exceed: Action::Reject,
                 ban: None,
             },
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
     let storage: Arc<dyn Storage> = Arc::new(limiteron::storage::MemoryStorage::new());

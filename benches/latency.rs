@@ -307,6 +307,7 @@ fn create_test_rules(count: usize) -> Vec<Rule> {
                 priority: (100 - i as u16 % 100),
                 condition,
                 enabled: true,
+                failure_policy: limiteron::FailurePolicy::default(),
             }
         })
         .collect()

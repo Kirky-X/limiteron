@@ -58,6 +58,7 @@ fn test_config() -> limiteron::config::FlowControlConfig {
                 on_exceed: Action::Reject,
                 ban: None,
             },
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     }
 }

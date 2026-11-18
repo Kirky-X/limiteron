@@ -43,6 +43,7 @@ async fn create_governor_with_low_limit() -> Arc<Governor> {
                 on_exceed: Action::Reject,
                 ban: None,
             },
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
 

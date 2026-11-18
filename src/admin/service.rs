@@ -577,6 +577,7 @@ mod tests {
                         on_exceed: Action::Reject,
                         ban: None,
                     },
+                    failure_policy: crate::FailurePolicy::default(),
                 },
                 Rule {
                     id: "dup".to_string(),
@@ -588,6 +589,7 @@ mod tests {
                         on_exceed: Action::Reject,
                         ban: None,
                     },
+                    failure_policy: crate::FailurePolicy::default(),
                 },
             ],
         };

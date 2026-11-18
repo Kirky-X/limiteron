@@ -126,6 +126,7 @@ fn test_config_validation_logic_exists() {
                 refill_rate: 10,
             }],
             action: ActionConfig::default(),
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
 

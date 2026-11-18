@@ -544,6 +544,7 @@ fn assemble_rule(
         priority: rule_config.priority,
         condition: final_condition,
         enabled: true,
+        failure_policy: rule_config.failure_policy,
     })
 }
 
@@ -651,6 +652,7 @@ mod tests {
                         on_exceed: Action::Reject,
                         ban: None,
                     },
+                    failure_policy: crate::FailurePolicy::default(),
                 },
                 Rule {
                     id: "rule-unregistered".to_string(),
@@ -665,6 +667,7 @@ mod tests {
                         on_exceed: Action::Reject,
                         ban: None,
                     },
+                    failure_policy: crate::FailurePolicy::default(),
                 },
             ],
         };
@@ -725,6 +728,7 @@ mod tests {
                     on_exceed: Action::Reject,
                     ban: None,
                 },
+                failure_policy: crate::FailurePolicy::default(),
             }],
         };
         let rules3 = RuleBuilder::build_rules_with_registry(&config2, &registry)
@@ -861,6 +865,7 @@ mod tests {
                 }],
                 limiters: vec![quota_config.clone()],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -956,6 +961,7 @@ mod tests {
                     refill_rate: 10,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -980,6 +986,7 @@ mod tests {
                         refill_rate: 10,
                     }],
                     action: ActionConfig::default(),
+                    failure_policy: crate::FailurePolicy::default(),
                 },
                 Rule {
                     id: "rule2".to_string(),
@@ -993,6 +1000,7 @@ mod tests {
                         max_requests: 100,
                     }],
                     action: ActionConfig::default(),
+                    failure_policy: crate::FailurePolicy::default(),
                 },
             ],
             ..Default::default()
@@ -1030,6 +1038,7 @@ mod tests {
                     refill_rate: 10,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1039,6 +1048,31 @@ mod tests {
         assert_eq!(rules[0].name, "User Rule");
         assert_eq!(rules[0].priority, 10);
         assert!(rules[0].enabled);
+    }
+
+    #[test]
+    fn test_build_rules_propagates_failure_policy() {
+        let config = FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::GlobalConfig::default(),
+            rules: vec![Rule {
+                id: "fail-closed-rule".to_string(),
+                name: "Fail Closed".to_string(),
+                priority: 100,
+                matchers: vec![Matcher::User {
+                    user_ids: vec!["*".to_string()],
+                }],
+                limiters: vec![LimiterConfig::TokenBucket {
+                    capacity: 100,
+                    refill_rate: 10,
+                }],
+                action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::FailClosed,
+            }],
+        };
+        let rules = RuleBuilder::build_rules(&config).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].failure_policy, crate::FailurePolicy::FailClosed);
     }
 
     #[test]
@@ -1056,6 +1090,7 @@ mod tests {
                     refill_rate: 10,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1079,6 +1114,7 @@ mod tests {
                     refill_rate: 10,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1100,6 +1136,7 @@ mod tests {
                     refill_rate: 20,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1123,6 +1160,7 @@ mod tests {
                     refill_rate: 30,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1146,6 +1184,7 @@ mod tests {
                     refill_rate: 40,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1170,6 +1209,7 @@ mod tests {
                     refill_rate: 50,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1198,6 +1238,7 @@ mod tests {
                     refill_rate: 60,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1219,6 +1260,7 @@ mod tests {
                     refill_rate: 10,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1242,6 +1284,7 @@ mod tests {
                         refill_rate: 10,
                     }],
                     action: ActionConfig::default(),
+                    failure_policy: crate::FailurePolicy::default(),
                 },
                 Rule {
                     id: "rule-b".into(),
@@ -1255,6 +1298,7 @@ mod tests {
                         max_requests: 100,
                     }],
                     action: ActionConfig::default(),
+                    failure_policy: crate::FailurePolicy::default(),
                 },
             ],
             ..Default::default()
@@ -1284,6 +1328,7 @@ mod tests {
                     max_requests: 100,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1306,6 +1351,7 @@ mod tests {
                 }],
                 limiters: vec![LimiterConfig::Concurrency { max_concurrent: 50 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1334,6 +1380,7 @@ mod tests {
                     overdraft: None,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1363,6 +1410,7 @@ mod tests {
                     config: serde_json::json!({"key": "value"}),
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1394,6 +1442,7 @@ mod tests {
                     },
                 ],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1419,6 +1468,7 @@ mod tests {
                     max_requests: 100,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1462,6 +1512,7 @@ mod tests {
                     },
                 ],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1491,6 +1542,7 @@ mod tests {
                     max_requests: 200,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };
@@ -1516,6 +1568,7 @@ mod tests {
                     refill_rate: 1,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
             ..Default::default()
         };

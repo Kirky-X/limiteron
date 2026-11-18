@@ -370,6 +370,7 @@ impl RuleBuilder {
             matchers: self.matchers,
             limiters: self.limiters,
             action: self.action,
+            failure_policy: crate::FailurePolicy::default(),
         })
     }
 }
@@ -420,6 +421,7 @@ mod tests {
                     on_exceed: Action::Reject,
                     ban: None,
                 },
+                failure_policy: crate::FailurePolicy::default(),
             }],
         };
 
@@ -443,6 +445,7 @@ mod tests {
                 on_exceed: Action::Reject,
                 ban: None,
             },
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let config = FlowControlConfig {
@@ -568,6 +571,7 @@ on_exceed = "reject"
                     refill_rate: 100,
                 }],
                 action: ActionConfig::default(),
+                failure_policy: crate::FailurePolicy::default(),
             }],
         };
         let result = config.validate();
@@ -652,6 +656,7 @@ on_exceed = "reject"
                 refill_rate: 100,
             }],
             action: ActionConfig::default(),
+            failure_policy: crate::FailurePolicy::default(),
         };
         let result = rule.validate();
         assert!(result.is_err());
@@ -672,6 +677,7 @@ on_exceed = "reject"
                 refill_rate: 100,
             }],
             action: ActionConfig::default(),
+            failure_policy: crate::FailurePolicy::default(),
         };
         let result = rule.validate();
         assert!(result.is_err());
@@ -690,6 +696,7 @@ on_exceed = "reject"
                 refill_rate: 100,
             }],
             action: ActionConfig::default(),
+            failure_policy: crate::FailurePolicy::default(),
         };
         let result = rule.validate();
         assert!(result.is_err());
@@ -711,6 +718,7 @@ on_exceed = "reject"
             }],
             limiters: vec![],
             action: ActionConfig::default(),
+            failure_policy: crate::FailurePolicy::default(),
         };
         let result = rule.validate();
         assert!(result.is_err());
@@ -1395,6 +1403,7 @@ on_exceed = "reject"
                 on_exceed: Action::Reject,
                 ban: None,
             },
+            failure_policy: crate::FailurePolicy::default(),
         }
     }
 

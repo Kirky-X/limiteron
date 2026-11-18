@@ -408,6 +408,7 @@ fn test_malicious_config_rejection() {
             matchers: vec![],
             limiters: vec![],
             action: ActionConfig::default(),
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
 
@@ -434,6 +435,7 @@ fn test_malicious_config_rejection() {
             matchers: vec![],
             limiters: vec![],
             action: ActionConfig::default(),
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
 
@@ -511,6 +513,7 @@ fn test_limiter_config_validation() {
                 refill_rate: 10,
             }],
             action: ActionConfig::default(),
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
 
@@ -531,6 +534,7 @@ fn test_limiter_config_validation() {
                 refill_rate: 10,
             }],
             action: ActionConfig::default(),
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
 
@@ -561,6 +565,7 @@ fn test_matcher_config_validation() {
                 refill_rate: 10,
             }],
             action: ActionConfig::default(),
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
 
@@ -586,6 +591,7 @@ fn test_matcher_config_validation() {
                 refill_rate: 10,
             }],
             action: ActionConfig::default(),
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
 
@@ -655,6 +661,7 @@ fn test_priority_validation() {
                 refill_rate: 10,
             }],
             action: ActionConfig::default(),
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
 

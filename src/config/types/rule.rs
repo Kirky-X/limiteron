@@ -17,6 +17,9 @@ pub struct Rule {
     pub matchers: Vec<Matcher>,
     pub limiters: Vec<LimiterConfig>,
     pub action: ActionConfig,
+    /// 规则级故障策略（缺省 `PropagateError`，等价现状）
+    #[serde(default)]
+    pub failure_policy: crate::FailurePolicy,
 }
 
 impl Rule {
@@ -155,6 +158,7 @@ mod tests {
                 refill_rate: 10,
             }],
             action: ActionConfig::default(),
+            failure_policy: crate::FailurePolicy::default(),
         }
     }
 

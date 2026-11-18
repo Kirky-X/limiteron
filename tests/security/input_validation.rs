@@ -326,6 +326,7 @@ fn test_config_validation_rejects_malicious_input() {
                 on_exceed: "reject".to_string(),
                 ban: None,
             },
+        failure_policy: limiteron::FailurePolicy::default(),
         };
 
         // 验证应该通过或安全处理

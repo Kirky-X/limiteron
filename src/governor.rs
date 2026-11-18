@@ -793,6 +793,7 @@ impl Governor {
                     on_exceed: Action::Reject,
                     ban: None,
                 },
+                failure_policy: crate::FailurePolicy::default(),
             }],
         };
 
@@ -2980,6 +2981,7 @@ mod governor_construction_tests {
                     on_exceed: Action::Reject,
                     ban: None,
                 },
+                failure_policy: crate::FailurePolicy::default(),
             }],
         }
     }
@@ -4246,6 +4248,7 @@ mod governor_construction_tests {
                     on_exceed: Action::Reject,
                     ban: None,
                 },
+                failure_policy: crate::FailurePolicy::default(),
             }],
         }
     }
@@ -4353,6 +4356,7 @@ mod governor_construction_tests {
                     on_exceed: Action::Reject,
                     ban: None,
                 },
+                failure_policy: crate::FailurePolicy::default(),
             }],
         }
     }
@@ -4585,6 +4589,7 @@ mod governor_construction_tests {
                         on_exceed: Action::Reject,
                         ban: None,
                     },
+                    failure_policy: crate::FailurePolicy::default(),
                 },
                 Rule {
                     id: "second_rule".to_string(),
@@ -4601,6 +4606,7 @@ mod governor_construction_tests {
                         on_exceed: Action::Reject,
                         ban: None,
                     },
+                    failure_policy: crate::FailurePolicy::default(),
                 },
             ],
         };
@@ -5107,6 +5113,7 @@ mod governor_construction_tests {
             priority: 1,
             condition: Box::new(crate::MatchCondition::User(vec![])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
         let rules = vec![rule("rule_1")];
 
@@ -5148,6 +5155,7 @@ mod governor_construction_tests {
             priority: 1,
             condition: Box::new(crate::MatchCondition::User(vec![])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
         let rules = vec![rule("rule_a"), rule("rule_b")];
 
@@ -5320,6 +5328,7 @@ mod governor_feature_gated_tests {
                     on_exceed: crate::config::types::Action::Reject,
                     ban: None,
                 },
+                failure_policy: crate::FailurePolicy::default(),
             }],
         }
     }
@@ -5461,6 +5470,7 @@ mod governor_feature_gated_tests {
                     on_exceed: crate::config::types::Action::Reject,
                     ban: None,
                 },
+                failure_policy: crate::FailurePolicy::default(),
             }],
         };
 
@@ -5556,6 +5566,7 @@ mod governor_feature_gated_tests {
                         on_exceed: crate::config::types::Action::Reject,
                         ban: None,
                     },
+                    failure_policy: crate::FailurePolicy::default(),
                 }],
             })
             .with_storage(Arc::new(MemoryStorage::new()))
@@ -5660,6 +5671,7 @@ mod governor_feature_gated_tests {
                             on_exceed: crate::config::types::Action::Reject,
                             ban: None,
                         },
+                        failure_policy: crate::FailurePolicy::default(),
                     }],
                 })
                 .with_storage(Arc::new(MemoryStorage::new()))
@@ -5765,6 +5777,7 @@ mod governor_feature_gated_tests {
                         on_exceed: crate::config::types::Action::Reject,
                         ban: None,
                     },
+                    failure_policy: crate::FailurePolicy::default(),
                 }],
             })
             .with_storage(Arc::new(MemoryStorage::new()))
@@ -5969,6 +5982,7 @@ mod governor_feature_gated_tests {
                     on_exceed: crate::config::types::Action::Reject,
                     ban: None,
                 },
+                failure_policy: crate::FailurePolicy::default(),
             }],
         };
 
@@ -6288,6 +6302,7 @@ mod governor_feature_gated_tests {
                     on_exceed: crate::config::types::Action::Reject,
                     ban: None,
                 },
+                failure_policy: crate::FailurePolicy::default(),
             }],
         }
     }
@@ -6310,6 +6325,7 @@ mod governor_feature_gated_tests {
                     on_exceed: crate::config::types::Action::Reject,
                     ban: None,
                 },
+                failure_policy: crate::FailurePolicy::default(),
             }],
         }
     }
@@ -6917,6 +6933,7 @@ fn create_valid_test_config_for_tenant() -> crate::config::FlowControlConfig {
                 on_exceed: Action::Reject,
                 ban: None,
             },
+            failure_policy: crate::FailurePolicy::default(),
         }],
     }
 }

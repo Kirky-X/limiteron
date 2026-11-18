@@ -565,6 +565,7 @@ pub(crate) mod tests {
                     on_exceed: Action::Reject,
                     ban: None,
                 },
+                failure_policy: crate::FailurePolicy::default(),
             }],
         }
     }
@@ -1253,6 +1254,7 @@ pub(crate) mod tests {
                     on_exceed: Action::Reject,
                     ban: None,
                 },
+                failure_policy: crate::FailurePolicy::default(),
             }],
         }
     }

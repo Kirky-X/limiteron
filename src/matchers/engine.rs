@@ -400,6 +400,8 @@ pub struct Rule {
     pub condition: Box<dyn ConditionEvaluator>,
     /// 是否启用
     pub enabled: bool,
+    /// 规则级故障策略（由配置规则透传）
+    pub failure_policy: crate::FailurePolicy,
 }
 
 impl std::fmt::Debug for Rule {
@@ -409,6 +411,7 @@ impl std::fmt::Debug for Rule {
             .field("name", &self.name)
             .field("priority", &self.priority)
             .field("enabled", &self.enabled)
+            .field("failure_policy", &self.failure_policy)
             .field("condition", &"<condition>")
             .finish()
     }
@@ -424,6 +427,7 @@ impl Clone for Rule {
             priority: self.priority,
             condition: Box::new(MatchCondition::User(vec![])) as Box<dyn ConditionEvaluator>,
             enabled: self.enabled,
+            failure_policy: self.failure_policy,
         }
     }
 }
@@ -687,6 +691,7 @@ impl RuleMatcher {
                 priority: 100,
                 condition,
                 enabled: true,
+                failure_policy: crate::FailurePolicy::default(),
             });
         }
 
@@ -989,6 +994,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["u1".into()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         }]);
         let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
         let result = matcher.matches(&ctx);
@@ -1004,6 +1010,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["u1".into()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         }]);
         let ctx = make_ctx(vec![("X-User-Id", "u2")], None);
         assert!(matcher.matches(&ctx).is_none());
@@ -1017,6 +1024,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["*".into()])),
             enabled: false,
+            failure_policy: crate::FailurePolicy::default(),
         }]);
         let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
         assert!(matcher.matches(&ctx).is_none());
@@ -1031,6 +1039,7 @@ mod tests {
                 priority: 50,
                 condition: Box::new(MatchCondition::User(vec!["u1".into()])),
                 enabled: true,
+                failure_policy: crate::FailurePolicy::default(),
             },
             Rule {
                 id: "high".into(),
@@ -1038,6 +1047,7 @@ mod tests {
                 priority: 100,
                 condition: Box::new(MatchCondition::User(vec!["*".into()])),
                 enabled: true,
+                failure_policy: crate::FailurePolicy::default(),
             },
         ]);
         let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
@@ -1054,6 +1064,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["*".into()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         });
         assert_eq!(matcher.rule_count(), 1);
     }
@@ -1066,6 +1077,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["*".into()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         }]);
         let removed = matcher.remove_rule("r1");
         assert!(removed.is_some());
@@ -1087,6 +1099,7 @@ mod tests {
                 priority: 100,
                 condition: Box::new(MatchCondition::User(vec!["*".into()])),
                 enabled: true,
+                failure_policy: crate::FailurePolicy::default(),
             },
             Rule {
                 id: "r2".into(),
@@ -1094,6 +1107,7 @@ mod tests {
                 priority: 50,
                 condition: Box::new(MatchCondition::Geo(vec!["*".into()])),
                 enabled: true,
+                failure_policy: crate::FailurePolicy::default(),
             },
         ]);
         let ctx = make_ctx(vec![("X-User-Id", "u1"), ("X-Country", "US")], None);
@@ -1109,6 +1123,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["*".into()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         }]);
         let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
         matcher.matches(&ctx);
@@ -1125,6 +1140,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["*".into()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         }]);
         let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
         matcher.matches(&ctx);
@@ -1142,6 +1158,7 @@ mod tests {
                 priority: 100,
                 condition: Box::new(MatchCondition::User(vec!["*".into()])),
                 enabled: true,
+                failure_policy: crate::FailurePolicy::default(),
             },
             Rule {
                 id: "r2".into(),
@@ -1149,6 +1166,7 @@ mod tests {
                 priority: 50,
                 condition: Box::new(MatchCondition::User(vec!["*".into()])),
                 enabled: true,
+                failure_policy: crate::FailurePolicy::default(),
             },
         ]);
         assert_eq!(matcher.rule_count(), 2);
@@ -1163,6 +1181,7 @@ mod tests {
                 priority: 100,
                 condition: Box::new(MatchCondition::User(vec!["*".into()])),
                 enabled: true,
+                failure_policy: crate::FailurePolicy::default(),
             })
             .build();
         assert_eq!(matcher.rule_count(), 1);
@@ -1178,6 +1197,7 @@ mod tests {
                     priority: 100,
                     condition: Box::new(MatchCondition::User(vec!["*".into()])),
                     enabled: true,
+                    failure_policy: crate::FailurePolicy::default(),
                 },
                 Rule {
                     id: "r2".into(),
@@ -1185,6 +1205,7 @@ mod tests {
                     priority: 50,
                     condition: Box::new(MatchCondition::User(vec!["*".into()])),
                     enabled: true,
+                    failure_policy: crate::FailurePolicy::default(),
                 },
             ])
             .build();
@@ -1210,6 +1231,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["u1".into()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         }]);
         let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
         let result = matcher.matches(&ctx);
@@ -1364,6 +1386,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["*".into()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
         let _ = format!("{:?}", rule);
     }
@@ -1389,6 +1412,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["u1".into()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
         let cloned = rule.clone();
         assert_eq!(cloned.id, "test-rule");
@@ -1443,6 +1467,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["*".into()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         }]);
         let ctx = make_ctx(vec![("X-User-Id", "u1")], None);
         matcher.matches(&ctx);

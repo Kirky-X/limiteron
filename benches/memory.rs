@@ -458,6 +458,7 @@ fn bench_rule_matcher_memory_usage(c: &mut Criterion) {
                     priority: (100 - i as u16 % 100),
                     condition,
                     enabled: true,
+                    failure_policy: limiteron::FailurePolicy::default(),
                 }
             })
             .collect();

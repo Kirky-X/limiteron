@@ -37,6 +37,7 @@ fn test_basic_config() {
                 on_exceed: Action::Reject,
                 ban: None,
             },
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
 
@@ -72,6 +73,7 @@ fn test_multi_rule_config() {
                     on_exceed: Action::Reject,
                     ban: None,
                 },
+                failure_policy: limiteron::FailurePolicy::default(),
             },
             Rule {
                 id: "api_v2".to_string(),
@@ -88,6 +90,7 @@ fn test_multi_rule_config() {
                     on_exceed: Action::Reject,
                     ban: None,
                 },
+                failure_policy: limiteron::FailurePolicy::default(),
             },
         ],
     };
@@ -216,6 +219,7 @@ fn test_rule_priority() {
                 on_exceed: Action::Reject,
                 ban: None,
             },
+            failure_policy: limiteron::FailurePolicy::default(),
         },
         Rule {
             id: "high_priority".to_string(),
@@ -232,6 +236,7 @@ fn test_rule_priority() {
                 on_exceed: Action::Reject,
                 ban: None,
             },
+            failure_policy: limiteron::FailurePolicy::default(),
         },
     ];
 
@@ -304,6 +309,7 @@ fn test_config_serialization() {
                 on_exceed: Action::Reject,
                 ban: None,
             },
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
 
@@ -385,6 +391,7 @@ fn test_complex_matcher_combination() {
             on_exceed: Action::Reject,
             ban: None,
         },
+        failure_policy: limiteron::FailurePolicy::default(),
     };
 
     assert_eq!(rule.matchers.len(), 3);
@@ -418,6 +425,7 @@ fn test_multiple_limiters() {
             on_exceed: Action::Reject,
             ban: None,
         },
+        failure_policy: limiteron::FailurePolicy::default(),
     };
 
     assert_eq!(rule.limiters.len(), 3);

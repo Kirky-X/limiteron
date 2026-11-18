@@ -304,6 +304,7 @@ mod tests {
                 "user2".to_string(),
             ])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -323,6 +324,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["*".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -339,6 +341,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::Ip(vec!["192.168.1.0/24".parse().unwrap()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -358,6 +361,7 @@ mod tests {
             priority: 50,
             condition: Box::new(MatchCondition::User(vec!["*".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let rule2 = Rule {
@@ -366,6 +370,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule1, rule2]);
@@ -385,6 +390,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: false,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -401,6 +407,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -424,6 +431,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let mut matcher = RuleMatcher::new(vec![]);
@@ -1460,6 +1468,7 @@ mod tests {
                 "CN".to_string(),
             ])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -1484,6 +1493,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::Geo(vec!["*".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -1504,6 +1514,7 @@ mod tests {
                 "tablet".to_string(),
             ])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -1528,6 +1539,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::Device(vec!["*".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -1547,6 +1559,7 @@ mod tests {
                 "v2".to_string(),
             ])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -1571,6 +1584,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::ApiVersion(vec!["*".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -1587,6 +1601,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::Ip(vec!["192.168.1.100".parse().unwrap()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -1611,6 +1626,7 @@ mod tests {
                 "192.168.0.0/16".parse().unwrap(),
             ])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -1638,6 +1654,7 @@ mod tests {
                 "172.16.0.1-172.16.0.100".parse().unwrap(),
             ])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -1659,6 +1676,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::Ip(vec!["192.168.1.0/24".parse().unwrap()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -1676,6 +1694,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::Ip(vec!["192.168.1.0/24".parse().unwrap()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -1693,6 +1712,7 @@ mod tests {
             priority: 10,
             condition: Box::new(MatchCondition::User(vec!["*".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let rule2 = Rule {
@@ -1701,6 +1721,7 @@ mod tests {
             priority: 50,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let rule3 = Rule {
@@ -1709,6 +1730,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule1, rule2, rule3]);
@@ -1728,6 +1750,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let rule2 = Rule {
@@ -1736,6 +1759,7 @@ mod tests {
             priority: 50,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let rule3 = Rule {
@@ -1744,6 +1768,7 @@ mod tests {
             priority: 25,
             condition: Box::new(MatchCondition::User(vec!["*".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule1, rule2, rule3]);
@@ -1763,6 +1788,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let rule2 = Rule {
@@ -1771,6 +1797,7 @@ mod tests {
             priority: 50,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: false, // 禁用
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule1, rule2]);
@@ -1791,6 +1818,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let rule2 = Rule {
@@ -1799,6 +1827,7 @@ mod tests {
             priority: 50,
             condition: Box::new(MatchCondition::User(vec!["user2".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule1, rule2]);
@@ -1815,6 +1844,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::with_dependencies(vec![rule]);
@@ -1831,6 +1861,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let matcher = RuleMatcher::new(vec![rule]);
@@ -2373,6 +2404,7 @@ mod tests {
             priority: 100,
             condition: Box::new(MatchCondition::User(vec!["user1".to_string()])),
             enabled: true,
+            failure_policy: crate::FailurePolicy::default(),
         };
 
         let debug_str = format!("{:?}", rule);

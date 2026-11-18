@@ -28,6 +28,7 @@ fn make_valid_rule(id: &str, name: &str) -> Rule {
             on_exceed: Action::Reject,
             ban: None,
         },
+        failure_policy: limiteron::FailurePolicy::default(),
     }
 }
 
@@ -723,6 +724,7 @@ async fn test_deep_clone_nested_structures() {
                 on_exceed: Action::Degrade,
                 ban: None,
             },
+            failure_policy: limiteron::FailurePolicy::default(),
         }],
     };
 
@@ -796,6 +798,7 @@ async fn test_serialization_roundtrip_json() {
                     on_exceed: Action::Allow,
                     ban: None,
                 },
+                failure_policy: limiteron::FailurePolicy::default(),
             },
         ],
     };
@@ -1009,6 +1012,7 @@ async fn test_rule_validation_various_invalid_cases() {
             refill_rate: 10,
         }],
         action: ActionConfig::default(),
+        failure_policy: limiteron::FailurePolicy::default(),
     };
     assert!(rule.validate().is_err());
 
@@ -1025,6 +1029,7 @@ async fn test_rule_validation_various_invalid_cases() {
             refill_rate: 10,
         }],
         action: ActionConfig::default(),
+        failure_policy: limiteron::FailurePolicy::default(),
     };
     assert!(rule.validate().is_err());
 
@@ -1039,6 +1044,7 @@ async fn test_rule_validation_various_invalid_cases() {
             refill_rate: 10,
         }],
         action: ActionConfig::default(),
+        failure_policy: limiteron::FailurePolicy::default(),
     };
     assert!(rule.validate().is_err());
 
@@ -1052,6 +1058,7 @@ async fn test_rule_validation_various_invalid_cases() {
         }],
         limiters: vec![],
         action: ActionConfig::default(),
+        failure_policy: limiteron::FailurePolicy::default(),
     };
     assert!(rule.validate().is_err());
 }

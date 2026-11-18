@@ -1187,6 +1187,7 @@ mod cross_module {
                     on_exceed: Action::Reject,
                     ban: None,
                 },
+                failure_policy: limiteron::FailurePolicy::default(),
             }],
         };
 
@@ -1304,6 +1305,7 @@ mod t602_tenant_governor {
                     on_exceed: Action::Reject,
                     ban: None,
                 },
+                failure_policy: limiteron::FailurePolicy::default(),
             }],
         }
     }

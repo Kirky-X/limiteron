@@ -35,6 +35,8 @@ const EXPORT_ABOUT: &str = "Parse a rule config file and export canonical JSON";
 const APPLY_ABOUT: &str = "Validate a rule config file and emit an apply plan (dry-run)";
 const DOCTOR_ABOUT: &str = "Audit the security posture of this binary and config";
 const DRYRUN_ABOUT: &str = "Replay a traffic trace against baseline and candidate configs";
+#[cfg(feature = "mcp")]
+const MCP_SERVE_ABOUT: &str = "Serve read-only MCP tools over stdio";
 
 /// 构造带全量注册子命令的主 CLI `clap::Command`（薄壳入口专用）。
 pub fn build_cli() -> sdforge::clap::Command {
@@ -98,6 +100,24 @@ fn handle_apply_cmd(args: HandlerArgs, state: HandlerState) -> HandlerFuture {
 
 /// doctor 的 `--security` 为唯一模式且缺省等价启用：handler 直接注入该 flag，
 /// 仅把可选的 `--config <file>` 透传给 [`crate::cli::run`]。
+#[cfg(feature = "mcp")]
+fn handle_mcp_serve_cmd(args: HandlerArgs, _state: HandlerState) -> HandlerFuture {
+    Box::pin(async move {
+        let mut argv: Vec<String> = vec!["mcp-serve".to_string()];
+        if let Some(file) = args.get("config") {
+            argv.push("--config".to_string());
+            argv.push(file.clone());
+        }
+        let invocation = crate::cli::run(argv);
+        serde_json::to_value(&invocation.output).map_err(|e| {
+            ApiError::internal_error(
+                crate::i18n::t("cli-error-serialize-output", &[("reason", e.to_string())]),
+                "limiteron.cli.serialize_output",
+            )
+        })
+    })
+}
+
 fn handle_dry_run_cmd(args: HandlerArgs, _state: HandlerState) -> HandlerFuture {
     Box::pin(async move {
         let mut argv: Vec<String> = vec!["dry-run".to_string()];
@@ -193,6 +213,18 @@ inventory::submit! {
         ])
 }
 inventory::submit! { CliHandlerRegistration { name: "dry-run", handler: handle_dry_run_cmd } }
+
+// mcp-serve --config <file>（cli + mcp 双 feature 门控）
+#[cfg(feature = "mcp")]
+inventory::submit! {
+    CliCommandRegistration::new("mcp-serve", "1", MCP_SERVE_ABOUT, "handle_mcp_serve_cmd")
+        .with_i18n_key(Some("cli-mcp-serve-about"))
+        .with_args(&[
+            CliArgInfo::new("config", "Config file for MCP server", CliArgType::Body, true, None),
+        ])
+}
+#[cfg(feature = "mcp")]
+inventory::submit! { CliHandlerRegistration { name: "mcp-serve", handler: handle_mcp_serve_cmd } }
 
 /// 薄壳入口：i18n 初始化 → clap 解析 → dispatch → JSON 输出 → 退出码。
 ///
@@ -366,6 +398,8 @@ mod tests {
         assert!(names.contains(&"apply"), "apply listed: {names:?}");
         assert!(names.contains(&"doctor"), "doctor listed: {names:?}");
         assert!(names.contains(&"dry-run"), "dry-run listed: {names:?}");
+        #[cfg(feature = "mcp")]
+        assert!(names.contains(&"mcp-serve"), "mcp-serve listed: {names:?}");
         // 主命令版本必须自报 limiteron 版本（覆盖 sdforge 注入的 sdforge 版本）。
         assert_eq!(cmd.get_version().unwrap(), env!("CARGO_PKG_VERSION"));
     }
@@ -576,6 +610,28 @@ mod tests {
         assert_eq!(value["command"], serde_json::json!("dry-run"));
         assert_eq!(value["total_requests"], serde_json::json!(1));
         assert!(value["candidate"].is_object());
+    }
+
+    #[cfg(feature = "mcp")]
+    #[tokio::test]
+    async fn dispatch_end_to_end_mcp_serve_subcommand() {
+        crate::i18n::init();
+        let cfg = r#"{"version":"1.0.0","global":{"storage":"memory","cache":"memory","metrics":"none"},"rules":[{"id":"api","name":"api","priority":100,"matchers":[{"type":"User","user_ids":["*"]}],"limiters":[{"type":"TokenBucket","capacity":5,"refill_rate":1}],"action":{"on_exceed":"reject"}}]}"#;
+        let (_dir, path) = write_temp_config(cfg, "json");
+        let cmd = build_cli();
+        let matches = cmd
+            .try_get_matches_from([
+                "limiteron-cli",
+                "mcp-serve",
+                "--config",
+                path.to_str().unwrap(),
+            ])
+            .expect("mcp-serve argv must parse");
+        let (name, value) = sdforge::cli::dispatch::dispatch(&matches, None)
+            .await
+            .expect("dispatch must succeed for mcp-serve");
+        assert_eq!(name, "mcp-serve");
+        assert_eq!(value["ready"], serde_json::json!(true));
     }
 
     #[test]

@@ -83,6 +83,7 @@ impl CliInvocation {
                 "apply": "apply <config-file> [--out <output-file>]",
                 "doctor": "doctor [--security] [--config <file>]",
                 "dry-run": "dry-run --baseline <file> --candidate <file> --traffic <file> [--format json]",
+                "mcp-serve": "mcp-serve --config <file> (requires cli+mcp features)",
             }),
         );
         Self::new(EXIT_OK, "help", fields)
@@ -128,6 +129,7 @@ where
         "apply" => cmd_apply(&args[1..]),
         "doctor" => cmd_doctor(&args[1..]),
         "dry-run" => cmd_dry_run(&args[1..]),
+        "mcp-serve" => cmd_mcp_serve(&args[1..]),
         other => usage_error(other, &crate::i18n::t_simple("cli-error-unknown-command")),
     }
 }
@@ -625,6 +627,75 @@ per_rule: {:?}",
     CliInvocation::new(EXIT_OK, "dry-run", fields)
 }
 
+/// `mcp-serve --config <file>` 启动 MCP stdio 服务（cli + mcp 双 feature）
+///
+/// 本函数做参数/配置校验并构建运行上下文；实际 stdio 事件循环由
+/// `mcp::McpServer::serve_stdio` 在 tokio runtime 中执行（异步、长驻）。
+fn cmd_mcp_serve(rest: &[String]) -> CliInvocation {
+    #[cfg(not(feature = "mcp"))]
+    {
+        let _ = rest;
+        let mut fields = serde_json::Map::new();
+        fields.insert("ok".to_string(), serde_json::json!(false));
+        fields.insert(
+            "errors".to_string(),
+            serde_json::json!([crate::i18n::t_simple("mcp-feature-missing")]),
+        );
+        return CliInvocation::new(EXIT_ERROR, "mcp-serve", fields);
+    }
+
+    #[cfg(feature = "mcp")]
+    {
+        let mut config_path: Option<&str> = None;
+        let mut i = 0;
+        while i < rest.len() {
+            match rest[i].as_str() {
+                "--config" => match rest.get(i + 1) {
+                    Some(p) => {
+                        config_path = Some(p);
+                        i += 2;
+                    }
+                    None => {
+                        return usage_error(
+                            "mcp-serve",
+                            &crate::i18n::t(
+                                "cli-error-unknown-option",
+                                &[("option", "--config".to_string())],
+                            ),
+                        );
+                    }
+                },
+                other => {
+                    return usage_error(
+                        "mcp-serve",
+                        &crate::i18n::t(
+                            "cli-error-unknown-option",
+                            &[("option", other.to_string())],
+                        ),
+                    );
+                }
+            }
+        }
+
+        let Some(path) = config_path else {
+            return usage_error(
+                "mcp-serve",
+                &crate::i18n::t_simple("cli-error-missing-config-file"),
+            );
+        };
+        let mut fields = serde_json::Map::new();
+        fields.insert("config".to_string(), serde_json::json!(path));
+        if let Err(e) = load_config(path) {
+            fields.insert("ok".to_string(), serde_json::json!(false));
+            fields.insert("errors".to_string(), serde_json::json!([e]));
+            return CliInvocation::new(EXIT_ERROR, "mcp-serve", fields);
+        }
+        fields.insert("ok".to_string(), serde_json::json!(true));
+        fields.insert("ready".to_string(), serde_json::json!(true));
+        CliInvocation::new(EXIT_OK, "mcp-serve", fields)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -929,6 +1000,29 @@ mod tests {
                 .contains("total_requests")
         );
         assert!(inv.output["report"].is_object());
+    }
+
+    // mcp-serve
+
+    #[test]
+    fn test_mcp_serve_cli_contract() {
+        let inv = run(["mcp-serve"]);
+        #[cfg(feature = "mcp")]
+        {
+            // 缺 --config → exit 2
+            assert_eq!(inv.exit_code, EXIT_ERROR);
+            let (_dir, path) = write_temp_config(&valid_config_json(), "json");
+            let ready = run(["mcp-serve", "--config", path.to_str().unwrap()]);
+            assert_eq!(ready.exit_code, EXIT_OK, "{:?}", ready.output);
+            assert_eq!(ready.output["ready"], serde_json::json!(true));
+            let bad = run(["mcp-serve", "--config", "/nonexistent/cfg.json"]);
+            assert_eq!(bad.exit_code, EXIT_ERROR);
+        }
+        #[cfg(not(feature = "mcp"))]
+        {
+            assert_eq!(inv.exit_code, EXIT_ERROR);
+            assert_eq!(inv.output["ok"], serde_json::json!(false));
+        }
     }
 
     // 用法与退出码契约

@@ -4948,6 +4948,62 @@ mod governor_construction_tests {
     }
 
     #[cfg(feature = "decision-trace")]
+    #[cfg(feature = "audit-log")]
+    #[tokio::test]
+    async fn test_audit_config_change_event_fields() {
+        use crate::logging::audit::{AuditEvent, AuditLogConfig, AuditLogger};
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let p = path.to_str().unwrap().to_string();
+        let logger = Arc::new(
+            AuditLogger::new(AuditLogConfig::new().output_path(p.clone()).batch_size(1)).await,
+        );
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_audit_logger(logger.clone())
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let new_cfg = create_small_capacity_config();
+        let expected_new_version = new_cfg.version.clone();
+        governor
+            .apply_config_with_operator(new_cfg, Some("alice"))
+            .await
+            .expect("apply should succeed");
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        let entries = AuditLogger::read_and_verify(
+            &p,
+            &AuditLogConfig::new(),
+            &crate::logging::audit::AuditLogStats::default(),
+        )
+        .expect("audit entries readable");
+        let config_change = entries
+            .iter()
+            .find_map(|e| match &e.event {
+                AuditEvent::ConfigChange { .. } => Some(&e.event),
+                _ => None,
+            })
+            .expect("ConfigChange event present");
+        match config_change {
+            AuditEvent::ConfigChange {
+                new_version,
+                operator,
+                changes,
+                ..
+            } => {
+                assert_eq!(new_version, &expected_new_version);
+                assert_eq!(operator.as_deref(), Some("alice"));
+                assert!(changes.iter().any(|c| c.contains("rules=")));
+            }
+            _ => unreachable!(),
+        }
+    }
+
     #[tokio::test]
     async fn test_config_drift_detection() {
         let config = create_valid_test_config();

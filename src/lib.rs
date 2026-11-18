@@ -91,6 +91,8 @@ pub mod config;
 // 默认 feature 不编译（决策热路径零开销；`cli` feature 显式开启）。
 #[cfg(feature = "cli")]
 pub mod cli;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 
 #[cfg(any(feature = "postgres", feature = "sqlite", feature = "mysql"))]
 pub mod adapters;

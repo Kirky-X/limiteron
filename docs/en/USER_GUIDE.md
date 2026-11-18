@@ -890,6 +890,27 @@ Sample output (JSON):
 </details>
 
 <details>
+<summary><b>❓ How do I detect configuration drift between instances?</b></summary>
+
+**Solution**: The Admin API exposes `GET /api/v1/config/hash` (requires `admin-api`):
+
+```json
+{
+  "runtime_hash": "a1b2c3d4e5f6...",
+  "source_file_hash": "a1b2c3d4e5f6...",
+  "drift": false
+}
+```
+
+- `runtime_hash`: semantic hash of the currently applied `FlowControlConfig`.
+- `source_file_hash`: semantic hash of the config loaded from file at startup. `null` means the config was injected without a source file (e.g. container env), so no drift baseline exists — `drift` is always `false` in that case.
+- `drift`: `true` when the runtime config was hot-reloaded (`POST /api/v1/config`) and now differs from the startup source. A `warn!` (`config-drift-detected`) is emitted on mismatch.
+
+For multi-instance deployments, an external orchestrator polls this endpoint on each instance and compares `runtime_hash` values — no Pub/Sub broadcast is used. When `drift == true`, either restart the instance from the updated source file or re-apply the intended config through the Admin API so runtime and source converge.
+
+</details>
+
+<details>
 <summary><b>❓ How do I expose read-only tools to an AI agent?</b></summary>
 
 **Solution**: Enable the `mcp` feature and run `limiteron-cli mcp-serve --config <file>` (requires `cli` + `mcp`). The server speaks line-delimited JSON-RPC 2.0 over stdio and exposes three read-only tools:

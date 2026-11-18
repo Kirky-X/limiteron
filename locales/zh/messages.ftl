@@ -611,3 +611,6 @@ cli-dryrun-about = 对 baseline 与 candidate 配置回放流量 trace
 cli-mcp-serve-about = 经 stdio 提供只读 MCP 工具
 mcp-unauthorized = 调用方角色未授权访问该 MCP 工具
 mcp-feature-missing = mcp-serve 需要启用 mcp feature
+
+# ---- Config drift detection ----
+config-drift-detected = 检测到配置漂移：运行时哈希 { $runtime } 与源文件哈希 { $source } 不一致

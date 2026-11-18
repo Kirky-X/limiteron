@@ -615,3 +615,6 @@ cli-dryrun-about = Replay a traffic trace against baseline and candidate configs
 cli-mcp-serve-about = Serve read-only MCP tools over stdio
 mcp-unauthorized = Caller role is not authorized for this MCP tool
 mcp-feature-missing = mcp-serve requires the mcp feature to be enabled
+
+# ---- Config drift detection ----
+config-drift-detected = Config drift detected: runtime hash { $runtime } differs from source hash { $source }

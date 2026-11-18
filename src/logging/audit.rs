@@ -1661,6 +1661,38 @@ mod tests {
         assert_eq!(logger.stats().error_events(), 1);
     }
 
+    /// 收敛验收 R-config-audit-001：ConfigChange 落链计数 + 链可验证
+    #[tokio::test]
+    async fn test_log_config_change_writes_and_verifies_chain() {
+        let key = "test-key-32-bytes-long-secret!!";
+        let config = AuditLogConfig::new().batch_size(1).signing_key(key.into());
+        let logger = AuditLogger::new(config).await;
+
+        logger
+            .log_config_change(
+                "v1".into(),
+                "v2".into(),
+                vec!["rules: 1->2".into()],
+                Some("alice".into()),
+            )
+            .await;
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        assert_eq!(logger.stats().config_change_events(), 1);
+
+        // ConfigChange 变体经签名 entry 可被 verify_chain 验证（链完整性）
+        let event = AuditEvent::ConfigChange {
+            timestamp: Utc::now(),
+            old_version: "v1".into(),
+            new_version: "v2".into(),
+            changes: vec!["rules: 1->2".into()],
+            operator: Some("alice".into()),
+        };
+        let mut entry = AuditLogEntry::with_signature(event, key);
+        entry.chain_onto(key, AuditLogEntry::GENESIS);
+        assert!(AuditLogEntry::verify_chain(&[entry], key).unwrap());
+    }
+
     // AuditLogger — disabled mode
 
     #[tokio::test]

@@ -186,6 +186,9 @@ pub struct Governor {
     /// 配置历史记录
     config_history: Arc<RwLock<ConfigHistory>>,
 
+    /// 加载时源配置语义哈希（无源文件时为 None；用于漂移检测）
+    source_config_hash: Option<String>,
+
     /// 统计管理器
     stats: StatsManager,
 
@@ -433,6 +436,8 @@ pub struct GovernorBuilder {
     tracer: Option<Arc<Tracer>>,
     #[cfg(feature = "parallel-checker")]
     parallel_ban_checker: Option<Arc<crate::storage::ParallelBanChecker>>,
+    /// 加载时源配置语义哈希（漂移检测基线）
+    source_config_hash: Option<String>,
     /// 缓存配置
     l1_cache_config: Option<L1CacheConfig>,
     /// 是否启用 缓存
@@ -482,6 +487,7 @@ impl GovernorBuilder {
             tracer: None,
             #[cfg(feature = "parallel-checker")]
             parallel_ban_checker: None,
+            source_config_hash: None,
             l1_cache_config: None,
             l1_cache_enabled: true, // 默认启用 缓存（负缓存语义：仅缓存拒绝/封禁决策）
             #[cfg(feature = "decision-trace")]
@@ -637,6 +643,12 @@ impl GovernorBuilder {
     /// 设置 缓存配置
     pub fn with_l1_cache_config(mut self, config: L1CacheConfig) -> Self {
         self.l1_cache_config = Some(config);
+        self
+    }
+
+    /// 设置加载时源配置哈希（漂移检测基线；`--config` 加载路径调用）
+    pub fn with_source_config_hash(mut self, hash: Option<String>) -> Self {
+        self.source_config_hash = hash;
         self
     }
 
@@ -843,6 +855,7 @@ impl GovernorBuilder {
             #[cfg(feature = "audit-log")]
             audit_logger,
             config_history: Arc::new(tokio::sync::RwLock::new(ConfigHistory::new(100))),
+            source_config_hash: self.source_config_hash,
             stats: StatsManager::new(),
             l1_cache,
             l1_cache_enabled: std::sync::atomic::AtomicBool::new(l1_cache_enabled),
@@ -1001,6 +1014,7 @@ impl Governor {
             #[cfg(feature = "audit-log")]
             audit_logger: Arc::new(tokio::sync::RwLock::new(None)),
             config_history: Arc::new(tokio::sync::RwLock::new(ConfigHistory::new(100))),
+            source_config_hash: None,
             stats: StatsManager::new(),
             l1_cache: L1Cache::new().await.map_err(|e| {
                 LimiteronError::ConfigError(format!("Failed to create L1Cache: {}", e))
@@ -2404,6 +2418,41 @@ impl Governor {
                 "Unsupported identifier type".to_string(),
             ))
         }
+    }
+
+    /// 当前运行时配置语义哈希（只读）
+    pub async fn config_hash(&self) -> String {
+        self.config.read().await.compute_hash()
+    }
+
+    /// 加载时源配置哈希（无源文件时为 `None`）
+    pub fn source_config_hash(&self) -> Option<&str> {
+        self.source_config_hash.as_deref()
+    }
+
+    /// 配置漂移检测：比对运行时哈希与加载时源哈希
+    ///
+    /// 无源文件时 `source_hash = None`，判为无漂移；不一致时发 `warn!`
+    /// （i18n 键 `config-drift-detected`，参数为两哈希前 8 位）。
+    pub async fn check_drift(&self) -> crate::config::ConfigDrift {
+        let runtime = self.config_hash().await;
+        let source = self.source_config_hash.clone();
+        let drift = crate::config::ConfigDrift::new(runtime.clone(), source.clone());
+        if drift.is_drifted()
+            && let Some(source_hash) = source
+        {
+            log::warn!(
+                "{}",
+                t(
+                    "config-drift-detected",
+                    &[
+                        ("runtime", runtime.chars().take(8).collect::<String>()),
+                        ("source", source_hash.chars().take(8).collect::<String>()),
+                    ]
+                )
+            );
+        }
+        drift
     }
 
     /// 获取配置历史
@@ -4899,6 +4948,46 @@ mod governor_construction_tests {
     }
 
     #[cfg(feature = "decision-trace")]
+    #[tokio::test]
+    async fn test_config_drift_detection() {
+        let config = create_valid_test_config();
+        let source_hash = config.compute_hash();
+        let governor = Governor::builder()
+            .with_config(config.clone())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_source_config_hash(Some(source_hash.clone()))
+            .build()
+            .await
+            .expect("build should succeed");
+
+        // 加载基线一致：无漂移
+        assert_eq!(governor.config_hash().await, source_hash);
+        assert_eq!(governor.source_config_hash(), Some(source_hash.as_str()));
+        assert!(!governor.check_drift().await.is_drifted());
+
+        // 换装新配置后运行时哈希变化 → 漂移
+        governor
+            .apply_config(create_small_capacity_config())
+            .await
+            .expect("apply should succeed");
+        assert_ne!(governor.config_hash().await, source_hash);
+        let drift = governor.check_drift().await;
+        assert!(drift.is_drifted());
+        assert_eq!(drift.source_hash, Some(source_hash));
+
+        // 无源文件基线：无漂移
+        let plain = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+        assert!(plain.source_config_hash().is_none());
+        assert!(!plain.check_drift().await.is_drifted());
+    }
+
     #[cfg(feature = "audit-log")]
     #[tokio::test]
     async fn test_apply_config_with_operator_writes_audit_event() {

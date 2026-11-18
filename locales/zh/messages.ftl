@@ -582,3 +582,8 @@ cli-apply-about = 校验规则配置文件并产出 apply 计划（dry-run）
 
 # ---- 决策归因 trace（文档性日志标记；feature decision-trace） ----
 trace-attached = 决策归因 trace 已挂载到拒绝元数据
+
+# ---- 规则级故障策略（feature failure-policy） ----
+failure-policy-fail-closed = 规则 { $rule } 链执行出错，已 fail-closed 拒绝
+governor-rule-degraded-open = 规则 { $rule } 链执行出错，已 fail-open 放行
+governor-emit-degraded-mode-event-failed = 发射降级模式事件失败：{ $error }

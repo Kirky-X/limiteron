@@ -586,3 +586,8 @@ cli-apply-about = Validate a rule config file and emit an apply plan (dry-run)
 
 # ---- Decision trace (documentation-level log marker; feature decision-trace) ----
 trace-attached = Decision trace attached to rejection metadata
+
+# ---- Rule-level failure policy (feature failure-policy) ----
+failure-policy-fail-closed = Rule { $rule } failed closed after a chain error
+governor-rule-degraded-open = Rule { $rule } degraded open after a chain error
+governor-emit-degraded-mode-event-failed = Failed to emit degraded mode event: { $error }

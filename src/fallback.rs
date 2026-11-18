@@ -10,6 +10,12 @@
 //! - **组件级配置**: 为不同组件配置不同策略
 //! - **热更新**: 支持动态更新策略
 //! - **故障注入**: 支持模拟故障进行测试
+//!
+//! # 与规则级 FailurePolicy 的关系
+//!
+//! 本模块的 `FallbackStrategy` 是**组件级**降级（按 `ComponentType` 配置存储访问故障时的
+//! 兜底路径），与 `failure-policy` feature 的规则级 `FailurePolicy` **正交**：前者处理
+//! 存储组件降级，后者裁决单条规则决策链执行 `Err` 的语义。两者可叠加但互不改写语义。
 
 use crate::error::{LimiteronError, StorageError};
 use crate::i18n::t;

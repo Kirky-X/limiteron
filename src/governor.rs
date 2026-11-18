@@ -1371,6 +1371,19 @@ impl Governor {
         for rule in &matched_rules {
             if let Some(chain) = rule_chains.get(&rule.id) {
                 #[cfg(feature = "decision-trace")]
+                #[cfg(feature = "failure-policy")]
+                let (mut result, node_outcomes): (
+                    Result<Decision, LimiteronError>,
+                    Option<Vec<crate::decision_chain::trace::NodeOutcome>>,
+                ) = if trace_on {
+                    match chain.check_with_trace().await {
+                        Ok((d, o)) => (Ok(d), Some(o)),
+                        Err(e) => (Err(e), None),
+                    }
+                } else {
+                    (chain.check().await, None)
+                };
+                #[cfg(all(feature = "decision-trace", not(feature = "failure-policy")))]
                 let (result, node_outcomes): (
                     Result<Decision, LimiteronError>,
                     Option<Vec<crate::decision_chain::trace::NodeOutcome>>,
@@ -1382,7 +1395,9 @@ impl Governor {
                 } else {
                     (chain.check().await, None)
                 };
-                #[cfg(not(feature = "decision-trace"))]
+                #[cfg(all(not(feature = "decision-trace"), feature = "failure-policy"))]
+                let (mut result, _node_outcomes) = (chain.check().await, None::<Vec<()>>);
+                #[cfg(all(not(feature = "decision-trace"), not(feature = "failure-policy")))]
                 let (result, _node_outcomes) = (chain.check().await, None::<Vec<()>>);
 
                 // 链内裁决节点名：第一个被拒绝的节点（短路时即裁决点）
@@ -1393,6 +1408,41 @@ impl Governor {
                         .find(|o| !o.allowed)
                         .map(|o| o.node_name.clone())
                 });
+
+                // 规则级故障策略：链执行 Err 时按规则声明裁决。
+                // 与组件级 FallbackStrategy 正交（后者按 ComponentType 降级存储访问）。
+                #[cfg(feature = "failure-policy")]
+                if result.is_err() {
+                    match rule.failure_policy {
+                        crate::FailurePolicy::PropagateError => {
+                            // 现状：错误上抛，由调用方裁决
+                        }
+                        crate::FailurePolicy::FailClosed => {
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0);
+                            result = Ok(Decision::Rejected(crate::error::RejectionMetadata::new(
+                                t("failure-policy-fail-closed", &[("rule", rule.id.clone())]),
+                                1,
+                                0,
+                                now + 1,
+                            )));
+                        }
+                        crate::FailurePolicy::FailOpenWithAlert => {
+                            #[cfg(feature = "event-system")]
+                            if let Err(e) = &result {
+                                self.emit_degraded_mode_event(&rule.id, &e.to_string())
+                                    .await;
+                            }
+                            log::warn!(
+                                "{}",
+                                t("governor-rule-degraded-open", &[("rule", rule.id.clone())])
+                            );
+                            result = Ok(Decision::allowed_default());
+                        }
+                    }
+                }
 
                 // 规则维度结果（prometheus 指标与 telemetry span 共用一次判定；
                 // "error" 仅链执行失败产生，纯决策不含该形态）
@@ -1884,6 +1934,28 @@ impl Governor {
                     "{}",
                     t(
                         "governor-emit-rate-limit-event-failed",
+                        &[("error", e.to_string())]
+                    )
+                );
+            }
+        }
+    }
+
+    /// 发射规则降级模式事件（内部辅助方法）
+    ///
+    /// 规则级故障策略选择放行时的显性信号。
+    #[cfg(all(feature = "event-system", feature = "failure-policy"))]
+    async fn emit_degraded_mode_event(&self, rule_id: &str, error: &str) {
+        if let Some(ref emitter) = self.event_emitter {
+            let event = crate::events::Event::new(crate::events::EventType::DegradedMode {
+                rule_id: rule_id.to_string(),
+                error: error.to_string(),
+            });
+            if let Err(e) = emitter.emit(event).await {
+                error!(
+                    "{}",
+                    t(
+                        "governor-emit-degraded-mode-event-failed",
                         &[("error", e.to_string())]
                     )
                 );
@@ -4635,6 +4707,111 @@ mod governor_construction_tests {
                 assert_eq!(trace.matched_rules.len(), 2);
             }
             other => panic!("expected Rejected, got: {:?}", other),
+        }
+    }
+
+    #[cfg(feature = "failure-policy")]
+    mod failure_policy_tests {
+        use super::*;
+        use crate::limiters::Limiter;
+        use async_trait::async_trait;
+
+        struct ErrLimiter;
+        #[async_trait]
+        impl Limiter for ErrLimiter {
+            async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
+                Err(LimiteronError::LimitError("boom".to_string()))
+            }
+        }
+
+        fn policy_config(policy: crate::FailurePolicy) -> FlowControlConfig {
+            FlowControlConfig {
+                version: "0.1.0".to_string(),
+                global: crate::config::types::GlobalConfig::default(),
+                rules: vec![Rule {
+                    id: "err_rule".to_string(),
+                    name: "Err Rule".to_string(),
+                    priority: 100,
+                    matchers: vec![Matcher::User {
+                        user_ids: vec!["*".to_string()],
+                    }],
+                    limiters: vec![LimiterConfig::TokenBucket {
+                        capacity: 10,
+                        refill_rate: 1,
+                    }],
+                    action: ActionConfig {
+                        on_exceed: Action::Reject,
+                        ban: None,
+                    },
+                    failure_policy: policy,
+                }],
+            }
+        }
+
+        async fn governor_with_err_chain(policy: crate::FailurePolicy) -> Governor {
+            let governor = Governor::builder()
+                .with_config(policy_config(policy))
+                .with_storage(Arc::new(MemoryStorage::new()))
+                .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+                .with_l1_cache_enabled(false)
+                .build()
+                .await
+                .expect("build should succeed");
+
+            // 注入一条必然 Err 的链，覆盖规则 id。
+            let err_chain = crate::decision_chain::DecisionChain::with_dependencies(vec![
+                crate::decision_chain::DecisionNode::with_dependencies(
+                    "err-node".to_string(),
+                    "Err Node".to_string(),
+                    Arc::new(ErrLimiter),
+                    100,
+                ),
+            ]);
+            governor
+                .rule_chains
+                .write()
+                .await
+                .insert("err_rule".to_string(), err_chain);
+            governor
+        }
+
+        fn ctx() -> RequestContext {
+            let mut c = RequestContext::default();
+            c.client_ip = Some("10.0.0.123".to_string());
+            c
+        }
+
+        #[tokio::test]
+        async fn test_propagate_error_still_returns_err() {
+            let governor = governor_with_err_chain(crate::FailurePolicy::PropagateError).await;
+            assert!(governor.check(&ctx()).await.is_err());
+        }
+
+        #[tokio::test]
+        async fn test_fail_closed_synthesizes_rejection() {
+            let governor = governor_with_err_chain(crate::FailurePolicy::FailClosed).await;
+            match governor.check(&ctx()).await {
+                Ok(Decision::Rejected(meta)) => {
+                    assert!(
+                        !meta.reason.is_empty(),
+                        "reason should not be empty: {}",
+                        meta.reason
+                    );
+                }
+                other => panic!("expected Rejected, got {:?}", other),
+            }
+        }
+
+        #[cfg(feature = "event-system")]
+        #[tokio::test]
+        async fn test_fail_open_with_alert_allows_and_emits() {
+            let governor = governor_with_err_chain(crate::FailurePolicy::FailOpenWithAlert).await;
+            let result = governor.check(&ctx()).await;
+            assert!(
+                matches!(result, Ok(Decision::Allowed(_))),
+                "got {:?}",
+                result
+            );
         }
     }
 

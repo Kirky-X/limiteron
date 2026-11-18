@@ -606,3 +606,7 @@ governor-emit-degraded-mode-event-failed = 发射降级模式事件失败：{ $e
 
 # ---- 租户并发公平性（feature tenant-fairness） ----
 governor-tenant-pool-full = 租户 { $tenant } 并发池已满
+cli-dryrun-about = 对 baseline 与 candidate 配置回放流量 trace
+cli-mcp-serve-about = 经 stdio 提供只读 MCP 工具
+mcp-unauthorized = 调用方角色未授权访问该 MCP 工具
+mcp-feature-missing = mcp-serve 需要启用 mcp feature

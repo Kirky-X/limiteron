@@ -890,6 +890,31 @@ Sample output (JSON):
 </details>
 
 <details>
+<summary><b>❓ How do I expose read-only tools to an AI agent?</b></summary>
+
+**Solution**: Enable the `mcp` feature and run `limiteron-cli mcp-serve --config <file>` (requires `cli` + `mcp`). The server speaks line-delimited JSON-RPC 2.0 over stdio and exposes three read-only tools:
+
+| Tool | Purpose | Notes |
+| --- | --- | --- |
+| `limiteron_check` | Hypothetical rate-limit check | Uses `peek()` — never consumes quota or emits events |
+| `limiteron_ban_list` | Read-only ban list | Identifiers are redacted to fingerprints |
+| `limiteron_stats` | Per-rule decision stats | Optionally filtered by `rule_name` |
+
+Authorization is enforced inside each tool: the caller role must be listed in `McpConfig.authorized_roles`, otherwise the tool returns JSON-RPC error `-32001`. No write operations are exposed through MCP — ban/unban and config changes stay on the RBAC-protected Admin API.
+
+Example session (one JSON object per line):
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"limiteron_stats","arguments":{"rule_name":"api"}}}
+```
+
+`explain_check` requires no running admin endpoint — it reads in-process state only. Runtime introspection for deployed instances remains available at `/api/v1/introspect`.
+
+</details>
+
+<details>
 <summary><b>❓ How do I audit my deployment security posture?</b></summary>
 
 **Solution**: Use the `doctor --security` CLI subcommand (requires the `cli` feature). It checks the compile-time feature surface plus an optional rule config, and reports Pass / Warn / Fail per check:

@@ -177,7 +177,7 @@ pub fn replay(
     let body_owned = body.to_string();
     let baseline_owned = baseline.clone();
     let candidate_owned = candidate.clone();
-    let result = std::thread::spawn(move || {
+    std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime for replay");
         let base_gov = rt.block_on(build_replay_governor(&baseline_owned));
         let cand_gov = rt.block_on(build_replay_governor(&candidate_owned));
@@ -272,8 +272,7 @@ pub fn replay(
         }
     })
     .join()
-    .expect("replay worker thread must not panic");
-    result
+    .expect("replay worker thread must not panic")
 }
 
 #[cfg(test)]

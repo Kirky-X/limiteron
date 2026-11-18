@@ -610,3 +610,7 @@ governor-emit-degraded-mode-event-failed = Failed to emit degraded mode event: {
 
 # ---- Tenant fairness (feature tenant-fairness) ----
 governor-tenant-pool-full = Tenant { $tenant } concurrency pool is full
+cli-dryrun-about = Replay a traffic trace against baseline and candidate configs
+cli-mcp-serve-about = Serve read-only MCP tools over stdio
+mcp-unauthorized = Caller role is not authorized for this MCP tool
+mcp-feature-missing = mcp-serve requires the mcp feature to be enabled

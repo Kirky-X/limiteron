@@ -345,12 +345,16 @@ impl RuleBuilder {
                     }
                 };
 
+                // 规则级 cost 统一传播到本规则的全部限流器节点：
+                // 缺省 None 等价 1，存量配置逐位不变。
+                let node_cost = rule.cost.unwrap_or(1);
                 let node = DecisionNode::with_dependencies(
                     format!("{}_limiter_{}", rule.id, index),
                     format!("{} - {}", rule.name, type_name),
                     limiter,
                     100u16.saturating_sub(index as u16), // Priority: earlier limiters have higher priority
-                );
+                )
+                .with_cost(node_cost);
                 nodes.push(node);
             }
 
@@ -579,6 +583,65 @@ pub(crate) fn drive_lightweight<E>(fut: impl Future<Output = Result<bool, E>>) -
 mod tests {
     use super::*;
     use crate::config::{ActionConfig, Matcher, QuotaType, Rule};
+
+    #[tokio::test]
+    async fn test_build_chains_propagates_rule_cost() {
+        use crate::clock::SystemClock;
+        use crate::config::types::GlobalConfig;
+        use std::sync::Arc as StdArc;
+
+        let cfg = FlowControlConfig {
+            version: "1.0.0".to_string(),
+            global: GlobalConfig::default(),
+            rules: vec![
+                Rule {
+                    id: "weighted".to_string(),
+                    name: "Weighted".to_string(),
+                    priority: 100,
+                    matchers: vec![Matcher::User {
+                        user_ids: vec!["*".to_string()],
+                    }],
+                    limiters: vec![
+                        LimiterConfig::TokenBucket {
+                            capacity: 100,
+                            refill_rate: 10,
+                        },
+                        LimiterConfig::FixedWindow {
+                            window_size: "60s".to_string(),
+                            max_requests: 50,
+                        },
+                    ],
+                    action: ActionConfig::default(),
+                    failure_policy: crate::FailurePolicy::default(),
+                    cost: Some(5),
+                },
+                Rule {
+                    id: "default_cost".to_string(),
+                    name: "Default".to_string(),
+                    priority: 90,
+                    matchers: vec![Matcher::User {
+                        user_ids: vec!["*".to_string()],
+                    }],
+                    limiters: vec![LimiterConfig::TokenBucket {
+                        capacity: 10,
+                        refill_rate: 1,
+                    }],
+                    action: ActionConfig::default(),
+                    failure_policy: crate::FailurePolicy::default(),
+                    cost: None,
+                },
+            ],
+        };
+        let chains =
+            RuleBuilder::build_rule_chains_with_quota_storage(&cfg, None, StdArc::new(SystemClock))
+                .expect("chains build");
+
+        let weighted = chains.get("weighted").unwrap();
+        assert_eq!(weighted.nodes().len(), 2);
+        assert!(weighted.nodes().iter().all(|n| n.cost == 5));
+        let default_cost = chains.get("default_cost").unwrap();
+        assert!(default_cost.nodes().iter().all(|n| n.cost == 1));
+    }
 
     #[test]
     fn test_parse_duration_milliseconds() {

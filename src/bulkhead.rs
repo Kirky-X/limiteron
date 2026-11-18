@@ -29,6 +29,26 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! # Governor 内嵌用法（feature `tenant-fairness`）
+//!
+//! Governor 在 `tenant-fairness` + `multi-tenant` 同时启用时内嵌本注册中心，
+//! 按租户 ID 分池包裹决策检查（`TenantFairnessConfig` 声明每租户并发预算）。
+//! 池饱和时 `check()` 合成 `Rejected`（i18n 键 `governor-tenant-pool-full`），
+//! 且不写 L1 负缓存——瞬态拥塞不应被缓存放大：
+//!
+//! ```rust,ignore
+//! use limiteron::{Governor, TenantFairnessConfig};
+//!
+//! let governor = Governor::builder()
+//!     .with_tenant_fairness(TenantFairnessConfig {
+//!         default_max_concurrent: 16,
+//!         per_tenant_max_concurrent: Default::default(),
+//!     })
+//!     // ... with_tenant_resolver / with_config / with_storage ...
+//!     .build()
+//!     .await?;
+//! ```
 
 use crate::error::LimiteronError;
 use dashmap::DashMap;

@@ -591,3 +591,6 @@ trace-attached = Decision trace attached to rejection metadata
 failure-policy-fail-closed = Rule { $rule } failed closed after a chain error
 governor-rule-degraded-open = Rule { $rule } degraded open after a chain error
 governor-emit-degraded-mode-event-failed = Failed to emit degraded mode event: { $error }
+
+# ---- Tenant fairness (feature tenant-fairness) ----
+governor-tenant-pool-full = Tenant { $tenant } concurrency pool is full

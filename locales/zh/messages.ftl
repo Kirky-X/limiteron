@@ -587,3 +587,6 @@ trace-attached = 决策归因 trace 已挂载到拒绝元数据
 failure-policy-fail-closed = 规则 { $rule } 链执行出错，已 fail-closed 拒绝
 governor-rule-degraded-open = 规则 { $rule } 链执行出错，已 fail-open 放行
 governor-emit-degraded-mode-event-failed = 发射降级模式事件失败：{ $error }
+
+# ---- 租户并发公平性（feature tenant-fairness） ----
+governor-tenant-pool-full = 租户 { $tenant } 并发池已满

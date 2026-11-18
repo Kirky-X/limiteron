@@ -377,30 +377,27 @@ impl DecisionChain {
                         self.stats.increment_total();
                         self.stats.increment_rejected();
                         return Ok((
-                            Decision::Rejected(RejectionMetadata {
+                            Decision::Rejected(RejectionMetadata::new(
                                 // 拒绝原因经 FTL 目录（键 decision-rejected-by，
                                 // 节点名插值保留，en 回退）
-                                reason: crate::i18n::t(
+                                crate::i18n::t(
                                     "decision-rejected-by",
                                     &[("node", node.name.clone())],
                                 ),
                                 retry_after,
                                 limit,
                                 reset_at,
-                            }),
+                            )),
                             outcomes,
                         ));
                     }
                     // 非短路：记录拒绝但继续执行后续节点
-                    last_rejection = Some(RejectionMetadata {
-                        reason: crate::i18n::t(
-                            "decision-rejected-by",
-                            &[("node", node.name.clone())],
-                        ),
+                    last_rejection = Some(RejectionMetadata::new(
+                        crate::i18n::t("decision-rejected-by", &[("node", node.name.clone())]),
                         retry_after,
                         limit,
                         reset_at,
-                    });
+                    ));
                 }
                 Err(e) => {
                     // 节点错误 - 使用原子操作更新统计

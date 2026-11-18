@@ -247,13 +247,22 @@ impl std::fmt::Display for CircuitState {
 
 impl RejectionMetadata {
     /// 创建新的拒绝元数据
-    pub fn new(reason: String, retry_after: u64, limit: u64, reset_at: u64) -> Self {
+    pub fn new(reason: impl Into<String>, retry_after: u64, limit: u64, reset_at: u64) -> Self {
         Self {
-            reason,
+            reason: reason.into(),
             retry_after,
             limit,
             reset_at,
+            #[cfg(feature = "decision-trace")]
+            trace: None,
         }
+    }
+
+    /// 挂载结构化决策归因 trace
+    #[cfg(feature = "decision-trace")]
+    pub fn with_trace(mut self, trace: crate::decision_chain::trace::DecisionTrace) -> Self {
+        self.trace = Some(trace);
+        self
     }
 }
 

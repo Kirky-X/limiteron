@@ -150,12 +150,12 @@ impl CacheableDecision {
                 retry_after: meta.retry_after,
                 policy: self.reason.clone().unwrap_or_default(),
             }),
-            "rejected" => Decision::Rejected(RejectionMetadata {
-                reason: self.reason.clone().unwrap_or_default(),
-                retry_after: meta.retry_after.unwrap_or(0),
-                limit: meta.limit,
-                reset_at: meta.reset_at,
-            }),
+            "rejected" => Decision::Rejected(RejectionMetadata::new(
+                self.reason.clone().unwrap_or_default(),
+                meta.retry_after.unwrap_or(0),
+                meta.limit,
+                meta.reset_at,
+            )),
             "banned" => {
                 if let Some(info) = &self.ban_info {
                     Decision::Banned(BanInfo::new(
@@ -869,12 +869,12 @@ mod tests {
         // 头字段守恒回归：负缓存往返曾丢失 retry_after/limit/reset——
         // 缓存命中注入 Retry-After: 0（教客户端立即重试的错误语义）
         use crate::error::{Decision, RejectionMetadata};
-        let original = Decision::Rejected(RejectionMetadata {
-            reason: "rate limited".to_string(),
-            retry_after: 30,
-            limit: 100,
-            reset_at: 1_800_000_000,
-        });
+        let original = Decision::Rejected(RejectionMetadata::new(
+            "rate limited",
+            30,
+            100,
+            1_800_000_000,
+        ));
         let cached = CacheableDecision::from_decision(&original);
         match cached.to_decision() {
             Decision::Rejected(m) => {
@@ -1060,12 +1060,7 @@ mod tests {
 
     #[test]
     fn test_cacheable_decision_from_decision_rejected() {
-        let metadata = RejectionMetadata {
-            reason: "too many requests".to_string(),
-            retry_after: 30,
-            limit: 100,
-            reset_at: 1234567890,
-        };
+        let metadata = RejectionMetadata::new("too many requests", 30, 100, 1234567890);
         let decision = Decision::Rejected(metadata);
         let cacheable = CacheableDecision::from_decision(&decision);
         assert!(cacheable.is_rejected());

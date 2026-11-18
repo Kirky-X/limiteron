@@ -223,6 +223,7 @@ pub struct RateLimitMetadata {
 ///
 /// 包含请求被拒绝的详细信息。
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct RejectionMetadata {
     /// 拒绝原因
     pub reason: String,
@@ -232,6 +233,9 @@ pub struct RejectionMetadata {
     pub limit: u64,
     /// 重置时间戳（Unix 秒）
     pub reset_at: u64,
+    /// 决策归因 trace（仅 `decision-trace` feature 下可挂载）
+    #[cfg(feature = "decision-trace")]
+    pub trace: Option<crate::decision_chain::trace::DecisionTrace>,
 }
 
 /// 决策结果

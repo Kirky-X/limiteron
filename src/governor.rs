@@ -1624,18 +1624,18 @@ impl Governor {
                                 if counter.try_acquire(max_requests, window_secs, now_secs) {
                                     Decision::allowed_default()
                                 } else {
-                                    Decision::Rejected(RejectionMetadata {
-                                        reason: t(
+                                    Decision::Rejected(RejectionMetadata::new(
+                                        t(
                                             "governor-island-conservative-quota",
                                             &[
                                                 ("max", max_requests.to_string()),
                                                 ("window", window_secs.to_string()),
                                             ],
                                         ),
-                                        retry_after: window_secs.max(1),
-                                        limit: max_requests,
-                                        reset_at: now_secs + window_secs.max(1),
-                                    })
+                                        window_secs.max(1),
+                                        max_requests,
+                                        now_secs + window_secs.max(1),
+                                    ))
                                 };
                             drop(guard);
                             self.update_stats_for_decision(&Ok(decision.clone()));

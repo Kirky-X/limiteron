@@ -253,6 +253,33 @@ where
     }
 }
 
+/// 从 JSONL 文本流式回放（畸形行计入 skipped_lines，不收集全量记录）
+pub fn replay_lines(
+    baseline: &crate::config::FlowControlConfig,
+    candidate: &crate::config::FlowControlConfig,
+    body: &str,
+) -> DryRunReport {
+    let mut skipped = 0usize;
+    let records = body.lines().filter_map(|line| {
+        if line.trim().is_empty() {
+            return None;
+        }
+        match serde_json::from_str::<TrafficRecord>(line) {
+            Ok(r) => Some(r),
+            Err(_) => {
+                skipped += 1;
+                None
+            }
+        }
+    });
+    // 借用计数在 replay 消费迭代器后释放，再读取
+    let report = replay(baseline, candidate, records, 0);
+    DryRunReport {
+        skipped_lines: skipped,
+        ..report
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

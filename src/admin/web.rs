@@ -22,6 +22,16 @@
 //! `AdminApiConfig::effective_web_ui_access()` 强制返回 `WebUiAccess::strict()`
 //! （Host 白名单 + API key），覆盖本模块宽松默认；回环 + 兼容模式维持现状。
 //!
+//! 装配示例（调用方把 Admin 安全 profile 的生效访问控制传给 Web Ui）：
+//!
+//! ```rust,ignore
+//! use limiteron::admin::{AdminApiConfig, WebUiServer, WebUiConfig};
+//!
+//! let admin_cfg: AdminApiConfig = /* ... */;
+//! let web = WebUiServer::new(state, WebUiConfig::default())
+//!     .with_access(admin_cfg.effective_web_ui_access().unwrap_or_default());
+//! ```
+//!
 //! ## 绑定安全
 //!
 //! 默认绑定 `127.0.0.1`（仅本机访问）。**本 UI 默认无认证**——改为非回环
@@ -1223,6 +1233,39 @@ mod tests {
             rejected.status(),
             StatusCode::MISDIRECTED_REQUEST,
             "a request without any host information must be rejected in strict mode"
+        );
+    }
+
+    /// 收敛 T010：Strict profile 经 effective_web_ui_access() 装配后强制 Host 校验
+    #[tokio::test]
+    async fn strict_admin_profile_wired_into_web_ui_enforces_host_check() {
+        use crate::admin::config::{AdminApiConfig, AdminSecurityProfile};
+
+        let admin_cfg = AdminApiConfig {
+            host: "127.0.0.1".to_string(),
+            api_key: "a-very-long-secure-key-32chars".to_string(),
+            security_profile: AdminSecurityProfile::Strict,
+            ..Default::default()
+        };
+        // Strict + 未显式装配 → effective 值为 WebUiAccess::strict()
+        let access = admin_cfg
+            .effective_web_ui_access()
+            .expect("Strict must force strict web UI access");
+        assert_eq!(access.host_check, HostCheck::Strict);
+
+        let state = make_state().await;
+        let server = WebUiServer::new(state, WebUiConfig::default()).with_access(access);
+        let router = server.into_router();
+
+        // 无 Host 头且无 URI authority → 421（strict Host 校验生效）
+        let rejected = router
+            .oneshot(Request::get("/snapshot").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            rejected.status(),
+            StatusCode::MISDIRECTED_REQUEST,
+            "Strict-profile web UI must reject requests without a valid Host"
         );
     }
 

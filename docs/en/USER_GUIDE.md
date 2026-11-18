@@ -845,6 +845,51 @@ async fn handler() -> Result<(), limiteron::error::LimiteronError> {
 </details>
 
 <details>
+<summary><b>❓ How do I preview the impact of a config change before rollout?</b></summary>
+
+**Solution**: Use `limiteron-cli dry-run` (requires the `cli` feature). It replays a JSONL traffic trace against two isolated in-memory Governors — the baseline and the candidate config — and reports decision count deltas without any external side effects.
+
+```bash
+limiteron-cli dry-run \
+  --baseline /etc/limiteron/current.yaml \
+  --candidate /etc/limiteron/next.yaml \
+  --traffic /var/log/trace.jsonl \
+  --format json
+```
+
+Trace schema: one JSON object per line.
+
+```json
+{"ts_ms":1710000000123,"identifier":{"user_id":"u1","ip":"10.0.0.1","api_key":null,"device_id":null},"path":"/api/heavy","method":"POST","cost":10}
+```
+
+- `ts_ms`: record timestamp (ms). Replay executes records in file order; it does **not** advance a mock clock by `ts_ms`. Fixed/sliding window boundary results therefore reflect replay order, not original wall-clock timing.
+- `identifier`: any of `user_id` / `ip` / `api_key` / `device_id` (all optional).
+- `method` defaults to `GET`; `cost` defaults to `1`.
+- Malformed lines are skipped and reported in `skipped_lines` (never silently dropped).
+
+Sample output (JSON):
+
+```json
+{
+  "command": "dry-run",
+  "total_requests": 5000,
+  "skipped_lines": 3,
+  "attribution": "enabled",
+  "baseline": { "allowed": 4900, "rejected": 100, "banned": 0, "error": 0 },
+  "candidate": { "allowed": 4800, "rejected": 200, "banned": 0, "error": 0 },
+  "delta": { "allowed": -100, "rejected": 100, "banned": 0, "error": 0 },
+  "per_rule": [
+    { "rule_id": "api_rule", "baseline_rejections": 100, "candidate_rejections": 200 }
+  ]
+}
+```
+
+`per_rule` is populated only when the `decision-trace` feature is enabled; otherwise `attribution` is `disabled` and `per_rule` is empty.
+
+</details>
+
+<details>
 <summary><b>❓ How do I audit my deployment security posture?</b></summary>
 
 **Solution**: Use the `doctor --security` CLI subcommand (requires the `cli` feature). It checks the compile-time feature surface plus an optional rule config, and reports Pass / Warn / Fail per check:

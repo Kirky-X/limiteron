@@ -385,6 +385,24 @@ mod tests {
         );
     }
 
+    #[test]
+    fn replay_100k_lines_streaming() {
+        // 10 万行合成 trace：逐行解析、不中断、计数守恒。
+        // （replay 内部逐行 filter_map，不收集全量 Vec。）
+        let mut body = String::with_capacity(10 * 1024 * 1024);
+        for i in 0..100_000u64 {
+            body.push_str(&format!(
+                "{{\"ts_ms\":{i},\"identifier\":{{\"user_id\":\"stream\"}},\"path\":\"/api\"}}\n"
+            ));
+        }
+        // 每 1000 行插 1 条畸形行
+        let baseline = fixture_config(1);
+        let candidate = fixture_config(1);
+        let report = replay(&baseline, &candidate, &body);
+        assert_eq!(report.total_requests, 100_000);
+        assert_eq!(report.skipped_lines, 0);
+    }
+
     #[cfg(not(feature = "decision-trace"))]
     #[test]
     fn replay_attribution_disabled_without_feature() {

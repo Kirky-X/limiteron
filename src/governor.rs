@@ -195,6 +195,10 @@ pub struct Governor {
     /// 是否启用 缓存
     l1_cache_enabled: std::sync::atomic::AtomicBool,
 
+    /// 是否启用决策归因 trace（默认关闭；feature 门控）
+    #[cfg(feature = "decision-trace")]
+    trace_enabled: std::sync::atomic::AtomicBool,
+
     /// 降级管理器（可选，feature-gated）
     #[cfg(feature = "fallback")]
     fallback_manager: Option<Arc<FallbackManager>>,
@@ -322,6 +326,9 @@ pub struct GovernorBuilder {
     l1_cache_config: Option<L1CacheConfig>,
     /// 是否启用 缓存
     l1_cache_enabled: bool,
+    /// 是否启用决策归因 trace（默认关闭；feature 门控）
+    #[cfg(feature = "decision-trace")]
+    trace_enabled: bool,
     /// 降级管理器（可选，feature-gated）
     #[cfg(feature = "fallback")]
     fallback_manager: Option<Arc<FallbackManager>>,
@@ -363,6 +370,8 @@ impl GovernorBuilder {
             parallel_ban_checker: None,
             l1_cache_config: None,
             l1_cache_enabled: true, // 默认启用 缓存（负缓存语义：仅缓存拒绝/封禁决策）
+            #[cfg(feature = "decision-trace")]
+            trace_enabled: false, // 默认关闭 trace（热路径零额外分配）
             #[cfg(feature = "fallback")]
             fallback_manager: None,
             #[cfg(feature = "event-system")]
@@ -514,6 +523,13 @@ impl GovernorBuilder {
         self
     }
 
+    /// 启用或禁用决策归因 trace（默认关闭）
+    #[cfg(feature = "decision-trace")]
+    pub fn with_decision_trace(mut self, enabled: bool) -> Self {
+        self.trace_enabled = enabled;
+        self
+    }
+
     /// 设置降级管理器
     ///
     /// 当设置降级管理器后，Governor 会在存储层故障时自动触发孤岛模式，
@@ -634,6 +650,8 @@ impl GovernorBuilder {
             LimiteronError::DependencyError(format!("Failed to create L1Cache: {}", e))
         })?;
         let l1_cache_enabled = self.l1_cache_enabled;
+        #[cfg(feature = "decision-trace")]
+        let trace_enabled = self.trace_enabled;
 
         // 集成降级管理器 (feature-gated)
         #[cfg(feature = "fallback")]
@@ -688,6 +706,8 @@ impl GovernorBuilder {
             stats: StatsManager::new(),
             l1_cache,
             l1_cache_enabled: std::sync::atomic::AtomicBool::new(l1_cache_enabled),
+            #[cfg(feature = "decision-trace")]
+            trace_enabled: std::sync::atomic::AtomicBool::new(trace_enabled),
             #[cfg(feature = "fallback")]
             fallback_manager,
             #[cfg(feature = "event-system")]
@@ -843,6 +863,8 @@ impl Governor {
                 LimiteronError::ConfigError(format!("Failed to create L1Cache: {}", e))
             })?,
             l1_cache_enabled: std::sync::atomic::AtomicBool::new(true),
+            #[cfg(feature = "decision-trace")]
+            trace_enabled: std::sync::atomic::AtomicBool::new(false),
             #[cfg(feature = "fallback")]
             fallback_manager: None,
             #[cfg(feature = "event-system")]
@@ -1273,6 +1295,47 @@ impl Governor {
                         span.set_attribute("rule.outcome", decision_outcome(&decision));
                     }
                     self.update_stats_for_decision(&Result::Ok(decision.clone()));
+
+                    #[cfg(feature = "decision-trace")]
+                    let decision = if self
+                        .trace_enabled
+                        .load(std::sync::atomic::Ordering::Acquire)
+                    {
+                        use crate::decision_chain::trace::{
+                            CascadeEntry, CascadeOutcome, DecisionTrace,
+                        };
+                        // L1 负缓存命中未执行规则链：cascade 为空、rejecting_rule 不虚构，
+                        // 仅携带缓存条目已有的 rule_id 与 l1_cache_hit 标记。
+                        match decision {
+                            Decision::Rejected(meta) => Decision::Rejected(
+                                meta.with_trace(DecisionTrace {
+                                    matched_rules: matched_rules
+                                        .iter()
+                                        .map(|r| r.id.clone())
+                                        .collect(),
+                                    rejecting_rule: cached_decision.rule_id.clone(),
+                                    rejecting_node: None,
+                                    dimension: Some(identifier.key()),
+                                    cascade: cached_decision
+                                        .rule_id
+                                        .as_ref()
+                                        .map(|id| {
+                                            vec![CascadeEntry {
+                                                rule_id: id.clone(),
+                                                outcome: CascadeOutcome::Rejected,
+                                                rejecting_node: None,
+                                            }]
+                                        })
+                                        .unwrap_or_default(),
+                                    l1_cache_hit: true,
+                                }),
+                            ),
+                            other => other,
+                        }
+                    } else {
+                        decision
+                    };
+
                     return Ok(decision);
                 }
                 trace!(
@@ -1297,9 +1360,38 @@ impl Governor {
         // （沿用函数入口取得的 chains 读锁：与 matcher 同一快照）
         let rule_chains = &*chains_guard;
 
+        #[cfg(feature = "decision-trace")]
+        let trace_on = self
+            .trace_enabled
+            .load(std::sync::atomic::Ordering::Acquire);
+        #[cfg(feature = "decision-trace")]
+        let mut cascade: Vec<crate::decision_chain::trace::CascadeEntry> = Vec::new();
+
         for rule in &matched_rules {
             if let Some(chain) = rule_chains.get(&rule.id) {
-                let result = chain.check().await;
+                #[cfg(feature = "decision-trace")]
+                let (result, node_outcomes): (
+                    Result<Decision, LimiteronError>,
+                    Option<Vec<crate::decision_chain::trace::NodeOutcome>>,
+                ) = if trace_on {
+                    match chain.check_with_trace().await {
+                        Ok((d, o)) => (Ok(d), Some(o)),
+                        Err(e) => (Err(e), None),
+                    }
+                } else {
+                    (chain.check().await, None)
+                };
+                #[cfg(not(feature = "decision-trace"))]
+                let (result, _node_outcomes) = (chain.check().await, None::<Vec<()>>);
+
+                // 链内裁决节点名：第一个被拒绝的节点（短路时即裁决点）
+                #[cfg(feature = "decision-trace")]
+                let rejecting_node = node_outcomes.as_ref().and_then(|outcomes| {
+                    outcomes
+                        .iter()
+                        .find(|o| !o.allowed)
+                        .map(|o| o.node_name.clone())
+                });
 
                 // 规则维度结果（prometheus 指标与 telemetry span 共用一次判定；
                 // "error" 仅链执行失败产生，纯决策不含该形态）
@@ -1327,11 +1419,34 @@ impl Governor {
 
                 match result {
                     Ok(Decision::Allowed(_)) => {
+                        #[cfg(feature = "decision-trace")]
+                        if trace_on {
+                            cascade.push(crate::decision_chain::trace::CascadeEntry {
+                                rule_id: rule.id.clone(),
+                                outcome: crate::decision_chain::trace::CascadeOutcome::Allowed,
+                                rejecting_node: None,
+                            });
+                        }
                         // 当前规则允许，继续检查下一个规则
                         continue;
                     }
                     _ => {
                         // 拒绝、封禁或错误，直接返回
+                        #[cfg(feature = "decision-trace")]
+                        if trace_on {
+                            use crate::decision_chain::trace::CascadeOutcome;
+                            let outcome = match &result {
+                                Ok(Decision::Rejected(_)) => CascadeOutcome::Rejected,
+                                Ok(Decision::Banned(_)) => CascadeOutcome::Banned,
+                                Err(_) => CascadeOutcome::Error,
+                                _ => CascadeOutcome::Skipped,
+                            };
+                            cascade.push(crate::decision_chain::trace::CascadeEntry {
+                                rule_id: rule.id.clone(),
+                                outcome,
+                                rejecting_node: rejecting_node.clone(),
+                            });
+                        }
                         self.update_stats_for_decision(&result);
 
                         // 关键路径 span 属性：终态裁决规则与结果（拒绝/封禁/
@@ -1373,6 +1488,24 @@ impl Governor {
                             }
                         }
 
+                        #[cfg(feature = "decision-trace")]
+                        let result = if trace_on {
+                            Self::attach_cascade_trace(
+                                result,
+                                &matched_rules
+                                    .iter()
+                                    .map(|r| r.id.clone())
+                                    .collect::<Vec<_>>(),
+                                Some(&rule.id),
+                                rejecting_node,
+                                cascade,
+                                false,
+                                &identifier.key(),
+                            )
+                        } else {
+                            result
+                        };
+
                         return result;
                     }
                 }
@@ -1390,6 +1523,36 @@ impl Governor {
         }
 
         Ok(decision)
+    }
+
+    /// 把级联判定快照挂到拒绝结果的 `RejectionMetadata.trace` 上
+    ///
+    /// 仅消费 `Decision::Rejected`；封禁/错误形态无拒绝元数据，原样返回。
+    #[cfg(feature = "decision-trace")]
+    fn attach_cascade_trace(
+        decision: Result<Decision, LimiteronError>,
+        matched_rules: &[String],
+        rejecting_rule: Option<&String>,
+        rejecting_node: Option<String>,
+        cascade: Vec<crate::decision_chain::trace::CascadeEntry>,
+        l1_cache_hit: bool,
+        dimension: &str,
+    ) -> Result<Decision, LimiteronError> {
+        use crate::decision_chain::trace::DecisionTrace;
+
+        match decision {
+            Ok(Decision::Rejected(meta)) => {
+                Ok(Decision::Rejected(meta.with_trace(DecisionTrace {
+                    matched_rules: matched_rules.to_vec(),
+                    rejecting_rule: rejecting_rule.cloned(),
+                    rejecting_node,
+                    dimension: Some(dimension.to_string()),
+                    cascade,
+                    l1_cache_hit,
+                })))
+            }
+            other => other,
+        }
     }
 
     /// 将一条链的节点拒绝增量导出到监控面（监控 feature 门控）
@@ -2200,6 +2363,13 @@ impl Governor {
     /// 检查 缓存是否启用
     pub fn is_l1_cache_enabled(&self) -> bool {
         self.l1_cache_enabled
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// 检查决策归因 trace 是否启用
+    #[cfg(feature = "decision-trace")]
+    pub fn is_decision_trace_enabled(&self) -> bool {
+        self.trace_enabled
             .load(std::sync::atomic::Ordering::Acquire)
     }
 
@@ -4314,6 +4484,78 @@ mod governor_construction_tests {
                 other
             ),
         }
+    }
+
+    #[cfg(feature = "decision-trace")]
+    #[tokio::test]
+    async fn test_decision_trace_attached_on_rejection_when_enabled() {
+        // 关闭 L1 缓存避免负缓存命中路径，确保走级联循环装配 trace。
+        let governor = Governor::builder()
+            .with_config(create_small_capacity_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_l1_cache_enabled(false)
+            .with_decision_trace(true)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        assert!(governor.is_decision_trace_enabled());
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.77".to_string());
+
+        // 小容量桶耗尽后得到拒绝，携带 trace。
+        let mut rejected = None;
+        for _ in 0..20 {
+            if let Ok(Decision::Rejected(meta)) = governor.check(&ctx).await {
+                rejected = Some(meta);
+                break;
+            }
+        }
+        let meta = rejected.expect("expected a rejection after exhausting capacity");
+        let trace = meta
+            .trace
+            .as_ref()
+            .expect("trace must be attached when enabled");
+        assert_eq!(trace.rejecting_rule.as_deref(), Some("small_bucket"));
+        assert!(trace.rejecting_node.is_some());
+        assert!(
+            trace
+                .cascade
+                .iter()
+                .any(|c| c.outcome == crate::decision_chain::trace::CascadeOutcome::Rejected)
+        );
+        assert!(!trace.l1_cache_hit);
+        assert!(trace.dimension.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_decision_trace_default_disabled() {
+        let governor = Governor::builder()
+            .with_config(create_small_capacity_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_l1_cache_enabled(false)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        #[cfg(feature = "decision-trace")]
+        assert!(!governor.is_decision_trace_enabled());
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.88".to_string());
+        let mut rejected = None;
+        for _ in 0..20 {
+            if let Ok(Decision::Rejected(meta)) = governor.check(&ctx).await {
+                rejected = Some(meta);
+                break;
+            }
+        }
+        let meta = rejected.expect("expected a rejection after exhausting capacity");
+        #[cfg(feature = "decision-trace")]
+        assert!(meta.trace.is_none(), "trace must be None when disabled");
     }
 
     #[tokio::test]

@@ -534,6 +534,7 @@ config-rule-id-empty = Rule ID cannot be empty
 config-rule-name-empty = Rule name cannot be empty
 config-rule-matcher-required = Rule requires at least one matcher
 config-rule-limiter-required = Rule requires at least one limiter
+config-rule-cost-invalid = Rule cost must be at least 1
 config-matcher-validation-failed = Matcher[{ $index }]: { $error }
 config-limiter-validation-failed = Limiter[{ $index }]: { $error }
 config-rule-user-ids-empty = User ID list cannot be empty

@@ -530,6 +530,7 @@ config-rule-id-empty = 规则 ID 不能为空
 config-rule-name-empty = 规则名称不能为空
 config-rule-matcher-required = 规则至少需要一个匹配器
 config-rule-limiter-required = 规则至少需要一个限流器
+config-rule-cost-invalid = 规则 cost 必须至少为 1
 config-matcher-validation-failed = 匹配器[{ $index }]: { $error }
 config-limiter-validation-failed = 限流器[{ $index }]: { $error }
 config-rule-user-ids-empty = 用户 ID 列表不能为空

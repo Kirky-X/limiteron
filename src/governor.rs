@@ -4558,6 +4558,77 @@ mod governor_construction_tests {
         assert!(meta.trace.is_none(), "trace must be None when disabled");
     }
 
+    #[cfg(feature = "decision-trace")]
+    #[tokio::test]
+    async fn test_trace_two_rules_first_rejects_cascade_snapshot() {
+        // 两条规则均命中；第一条（高优先级、小容量）先耗尽并拒绝。
+        // trace 应只含第一条规则的 CascadeEntry，rejecting_rule 指向它。
+        let config = FlowControlConfig {
+            version: "0.1.0".to_string(),
+            global: crate::config::types::GlobalConfig::default(),
+            rules: vec![
+                Rule {
+                    id: "first_rule".to_string(),
+                    name: "First Rule".to_string(),
+                    priority: 200,
+                    matchers: vec![Matcher::User {
+                        user_ids: vec!["*".to_string()],
+                    }],
+                    limiters: vec![LimiterConfig::TokenBucket {
+                        capacity: 1,
+                        refill_rate: 1,
+                    }],
+                    action: ActionConfig {
+                        on_exceed: Action::Reject,
+                        ban: None,
+                    },
+                },
+                Rule {
+                    id: "second_rule".to_string(),
+                    name: "Second Rule".to_string(),
+                    priority: 100,
+                    matchers: vec![Matcher::User {
+                        user_ids: vec!["*".to_string()],
+                    }],
+                    limiters: vec![LimiterConfig::TokenBucket {
+                        capacity: 100,
+                        refill_rate: 10,
+                    }],
+                    action: ActionConfig {
+                        on_exceed: Action::Reject,
+                        ban: None,
+                    },
+                },
+            ],
+        };
+        let governor = Governor::builder()
+            .with_config(config)
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_l1_cache_enabled(false)
+            .with_decision_trace(true)
+            .build()
+            .await
+            .expect("Governor build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.99".to_string());
+
+        // 第一次请求耗尽第一条规则容量；第二次请求触发拒绝。
+        let _ = governor.check(&ctx).await;
+        let result = governor.check(&ctx).await;
+        match result {
+            Ok(Decision::Rejected(meta)) => {
+                let trace = meta.trace.as_ref().expect("trace attached");
+                assert_eq!(trace.rejecting_rule.as_deref(), Some("first_rule"));
+                assert_eq!(trace.cascade.len(), 1);
+                assert!(trace.cascade[0].rejecting_node.is_some());
+                assert_eq!(trace.matched_rules.len(), 2);
+            }
+            other => panic!("expected Rejected, got: {:?}", other),
+        }
+    }
+
     #[tokio::test]
     async fn test_l1_cache_clear_and_size() {
         let governor = Governor::builder()

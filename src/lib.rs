@@ -204,6 +204,8 @@ pub use config::{
     ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, ConfigMatcher,
     FlowControlConfig, LimiterConfig, Rule as ConfigRule,
 };
+#[cfg(feature = "decision-trace")]
+pub use decision_chain::trace::{CascadeEntry, CascadeOutcome, DecisionTrace, NodeOutcome};
 pub use decision_chain::{ChainStats, DecisionChain, DecisionChainBuilder, DecisionNode};
 // AtomicChainStats 改为 pub(crate)，不再公开导出
 pub use error::{

@@ -844,6 +844,36 @@ async fn handler() -> Result<(), limiteron::error::LimiteronError> {
 
 </details>
 
+<details>
+<summary><b>❓ How do I audit my deployment security posture?</b></summary>
+
+**Solution**: Use the `doctor --security` CLI subcommand (requires the `cli` feature). It checks the compile-time feature surface plus an optional rule config, and reports Pass / Warn / Fail per check:
+
+```bash
+# Static feature-surface audit only
+limiteron-cli doctor --security
+
+# Include runtime rule-config checks (failure_policy declarations, etc.)
+limiteron-cli doctor --security --config /etc/limiteron/config.yaml
+```
+
+Sample output (JSON, one object on stdout):
+
+```json
+{
+  "command": "doctor",
+  "checks": [
+    { "name": "input-validation", "status": "pass", "detail": "..." },
+    { "name": "audit-chain", "status": "warn", "detail": "..." }
+  ],
+  "summary": { "pass": 8, "warn": 2, "fail": 0 }
+}
+```
+
+Exit codes follow the CLI contract: `0` all pass, `1` warnings present, `2` a check failed (for example input validation disabled). For a fail-closed startup posture, configure `AdminApiConfig.security_profile = strict`: the admin server then refuses to start on a non-loopback bind without an API key.
+
+</details>
+
 **Need more help?** [Open an issue](https://github.com/Kirky-X/limiteron/issues) or consult the [FAQ](FAQ.md).
 
 ---

@@ -581,6 +581,20 @@ integration-token-bucket-check-failed = limiteron 令牌桶检查失败: { $erro
 cli-validate-about = 校验 limiteron 规则配置文件（YAML/TOML/JSON）
 cli-export-about = 解析规则配置文件并导出规范化 JSON
 cli-apply-about = 校验规则配置文件并产出 apply 计划（dry-run）
+cli-doctor-about = 审计本二进制与配置的安全姿态
+
+# ---- doctor --security 检查项（feature cli） ----
+doctor-input-validation = 输入消毒（validation feature）启用状态
+doctor-admin-bind-host = Admin API 绑定地址姿态（默认回环）
+doctor-admin-api-key = Admin API 凭证配置与强度
+doctor-admin-rbac = Admin RBAC 角色映射配置
+doctor-web-ui-access = Web UI 访问控制（strict/API key）姿态
+doctor-audit-chain = HMAC 审计链（audit-log feature）启用状态
+doctor-log-redaction = 日志脱敏（log-redaction feature）启用状态
+doctor-webhook-signing = Webhook 签名（webhook feature）启用状态
+doctor-failure-policy-missing = 部分规则未声明 failure_policy，降级放行告警受限
+doctor-failure-policy-ok = 全部规则已声明故障策略或未配置规则
+doctor-layered-control = 分层防护（封禁/配额/熔断）启用状态
 
 # ---- 决策归因 trace（文档性日志标记；feature decision-trace） ----
 trace-attached = 决策归因 trace 已挂载到拒绝元数据

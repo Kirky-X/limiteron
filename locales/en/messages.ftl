@@ -585,6 +585,20 @@ integration-token-bucket-check-failed = limiteron token bucket check failed: { $
 cli-validate-about = Validate a limiteron rule config file (YAML/TOML/JSON)
 cli-export-about = Parse a rule config file and export canonical JSON
 cli-apply-about = Validate a rule config file and emit an apply plan (dry-run)
+cli-doctor-about = Audit the security posture of this binary and config
+
+# ---- doctor --security checks (feature cli) ----
+doctor-input-validation = Input validation (validation feature) enabled/disabled
+doctor-admin-bind-host = Admin API bind host posture (loopback by default)
+doctor-admin-api-key = Admin API credential configured / strength
+doctor-admin-rbac = Admin RBAC role mapping configured
+doctor-web-ui-access = Web UI access control (strict/api key) posture
+doctor-audit-chain = HMAC audit chain (audit-log feature) enabled/disabled
+doctor-log-redaction = Log redaction (log-redaction feature) enabled/disabled
+doctor-webhook-signing = Webhook signing (webhook feature) enabled/disabled
+doctor-failure-policy-missing = Some rules do not declare failure_policy; degraded-open alerts are limited
+doctor-failure-policy-ok = All rules declare a failure policy or no rules configured
+doctor-layered-control = Layered controls (ban/quota/circuit-breaker) enabled
 
 # ---- Decision trace (documentation-level log marker; feature decision-trace) ----
 trace-attached = Decision trace attached to rejection metadata

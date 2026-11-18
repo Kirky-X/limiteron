@@ -33,6 +33,7 @@ use sdforge::inventory;
 const VALIDATE_ABOUT: &str = "Validate a limiteron rule config file (YAML/TOML/JSON)";
 const EXPORT_ABOUT: &str = "Parse a rule config file and export canonical JSON";
 const APPLY_ABOUT: &str = "Validate a rule config file and emit an apply plan (dry-run)";
+const DOCTOR_ABOUT: &str = "Audit the security posture of this binary and config";
 
 /// 构造带全量注册子命令的主 CLI `clap::Command`（薄壳入口专用）。
 pub fn build_cli() -> sdforge::clap::Command {
@@ -94,6 +95,25 @@ fn handle_apply_cmd(args: HandlerArgs, state: HandlerState) -> HandlerFuture {
     invoke_cli_command("apply", args, state)
 }
 
+/// doctor 的 `--security` 为唯一模式且缺省等价启用：handler 直接注入该 flag，
+/// 仅把可选的 `--config <file>` 透传给 [`crate::cli::run`]。
+fn handle_doctor_cmd(args: HandlerArgs, _state: HandlerState) -> HandlerFuture {
+    Box::pin(async move {
+        let mut argv: Vec<String> = vec!["doctor".to_string(), "--security".to_string()];
+        if let Some(file) = args.get("config") {
+            argv.push("--config".to_string());
+            argv.push(file.clone());
+        }
+        let invocation = crate::cli::run(argv);
+        serde_json::to_value(&invocation.output).map_err(|e| {
+            ApiError::internal_error(
+                crate::i18n::t("cli-error-serialize-output", &[("reason", e.to_string())]),
+                "limiteron.cli.serialize_output",
+            )
+        })
+    })
+}
+
 // —— inventory 注册面 ——
 
 // validate <config-file>
@@ -126,6 +146,16 @@ inventory::submit! {
         ])
 }
 inventory::submit! { CliHandlerRegistration { name: "apply", handler: handle_apply_cmd } }
+
+// doctor [--security] [--config <file>]（--security 缺省等价启用，handler 注入）
+inventory::submit! {
+    CliCommandRegistration::new("doctor", "1", DOCTOR_ABOUT, "handle_doctor_cmd")
+        .with_i18n_key(Some("cli-doctor-about"))
+        .with_args(&[
+            CliArgInfo::new("config", "Rule config file for runtime checks", CliArgType::Body, false, None),
+        ])
+}
+inventory::submit! { CliHandlerRegistration { name: "doctor", handler: handle_doctor_cmd } }
 
 /// 薄壳入口：i18n 初始化 → clap 解析 → dispatch → JSON 输出 → 退出码。
 ///
@@ -210,6 +240,15 @@ fn invocation_exit_code(output: &serde_json::Value) -> i32 {
     if has_warnings {
         return crate::cli::EXIT_WARNINGS;
     }
+    // doctor 的三态计数在 summary 内（不是 warnings/errors 数组）
+    if let Some(summary) = output.get("summary") {
+        if summary.get("fail").and_then(|v| v.as_u64()).unwrap_or(0) > 0 {
+            return crate::cli::EXIT_ERROR;
+        }
+        if summary.get("warn").and_then(|v| v.as_u64()).unwrap_or(0) > 0 {
+            return crate::cli::EXIT_WARNINGS;
+        }
+    }
     crate::cli::EXIT_OK
 }
 
@@ -249,11 +288,15 @@ mod tests {
         let names: Vec<&str> = sdforge::inventory::iter::<CliCommandRegistration>()
             .filter(|r| {
                 r.handler_fn_name.starts_with("handle_")
-                    && ["validate", "export", "apply"].contains(&r.name)
+                    && ["validate", "export", "apply", "doctor"].contains(&r.name)
             })
             .map(|r| r.name)
             .collect();
-        assert_eq!(names.len(), 3, "validate/export/apply must be registered");
+        assert_eq!(
+            names.len(),
+            4,
+            "validate/export/apply/doctor must be registered"
+        );
     }
 
     // 宿主注册是 i18n-host feature 的契约（cli 单开时查找走自持面，
@@ -284,6 +327,7 @@ mod tests {
         assert!(names.contains(&"validate"), "validate listed: {names:?}");
         assert!(names.contains(&"export"), "export listed: {names:?}");
         assert!(names.contains(&"apply"), "apply listed: {names:?}");
+        assert!(names.contains(&"doctor"), "doctor listed: {names:?}");
         // 主命令版本必须自报 limiteron 版本（覆盖 sdforge 注入的 sdforge 版本）。
         assert_eq!(cmd.get_version().unwrap(), env!("CARGO_PKG_VERSION"));
     }
@@ -415,6 +459,53 @@ mod tests {
         assert_eq!(name, "export");
         assert_eq!(value["command"], serde_json::json!("export"));
         assert_eq!(value["config"]["version"], serde_json::json!("1.0.0"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_end_to_end_doctor_subcommand() {
+        crate::i18n::init();
+        let (_dir, path) = write_temp_config(&valid_config_json(), "json");
+        let cmd = build_cli();
+        let matches = cmd
+            .try_get_matches_from([
+                "limiteron-cli",
+                "doctor",
+                "--config",
+                path.to_str().unwrap(),
+            ])
+            .expect("doctor argv must parse");
+        let (name, value) = sdforge::cli::dispatch::dispatch(&matches, None)
+            .await
+            .expect("dispatch must succeed for doctor");
+        assert_eq!(name, "doctor");
+        assert_eq!(value["command"], serde_json::json!("doctor"));
+        assert_eq!(value["checks"].as_array().unwrap().len(), 10);
+        assert!(value["summary"].is_object());
+        let expected =
+            crate::cli::run(["doctor", "--security", "--config", path.to_str().unwrap()]).output;
+        assert_eq!(value, expected, "doctor dispatch must equal core run()");
+    }
+
+    #[test]
+    fn doctor_exit_code_replayed_from_summary() {
+        assert_eq!(
+            invocation_exit_code(&serde_json::json!({
+                "ok": true, "summary": { "pass": 10, "warn": 0, "fail": 0 }
+            })),
+            crate::cli::EXIT_OK
+        );
+        assert_eq!(
+            invocation_exit_code(&serde_json::json!({
+                "ok": true, "summary": { "pass": 9, "warn": 1, "fail": 0 }
+            })),
+            crate::cli::EXIT_WARNINGS
+        );
+        assert_eq!(
+            invocation_exit_code(&serde_json::json!({
+                "ok": true, "summary": { "pass": 8, "warn": 1, "fail": 1 }
+            })),
+            crate::cli::EXIT_ERROR
+        );
     }
 
     #[test]

@@ -138,7 +138,7 @@ pub enum HostCheck {
 /// 默认值与既有行为逐位一致（宽松 Host、无鉴权）。两项控制独立启用：
 /// 严格 Host 校验收敛 DNS rebinding 面，API key 收敛"任何能访问该端口
 /// 的人都能读快照"的面。
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct WebUiAccess {
     /// 额外允许的 Host（不含端口，大小写不敏感）
     pub allowed_hosts: Vec<String>,

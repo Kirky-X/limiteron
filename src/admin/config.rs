@@ -145,6 +145,13 @@ pub struct AdminApiConfig {
     /// 安全 profile（默认 Compatible，Strict 为 fail-closed 聚合）
     #[serde(default)]
     pub security_profile: AdminSecurityProfile,
+    /// Web UI 访问控制（运行期装配，不序列化）
+    ///
+    /// Strict profile 下未显式给定时由 [`Self::effective_web_ui_access`] 强制取
+    /// `WebUiAccess::strict()`。仅在 `admin-ui` feature 下存在。
+    #[cfg(feature = "admin-ui")]
+    #[serde(skip)]
+    pub web_ui_access: Option<crate::admin::web::WebUiAccess>,
 }
 
 // 手动实现 Debug 并脱敏 api_key：派生的 Debug 会以明文打印
@@ -219,6 +226,8 @@ impl Default for AdminApiConfig {
             api_key_roles: HashMap::new(),
             rate_limits: default_rate_limits(),
             security_profile: AdminSecurityProfile::default(),
+            #[cfg(feature = "admin-ui")]
+            web_ui_access: None,
         }
     }
 }
@@ -234,6 +243,8 @@ impl AdminApiConfig {
             api_key_roles: HashMap::new(),
             rate_limits: default_rate_limits(),
             security_profile: AdminSecurityProfile::default(),
+            #[cfg(feature = "admin-ui")]
+            web_ui_access: None,
         }
     }
 
@@ -353,6 +364,28 @@ impl AdminApiConfig {
         format!("{}:{}", self.host, self.port)
     }
 
+    /// 设置 Web UI 访问控制（运行期装配，`admin-ui` feature）
+    #[cfg(feature = "admin-ui")]
+    pub fn with_web_ui_access(mut self, access: crate::admin::web::WebUiAccess) -> Self {
+        self.web_ui_access = Some(access);
+        self
+    }
+
+    /// 生效的 Web UI 访问控制
+    ///
+    /// Strict profile 且未显式装配时强制 `WebUiAccess::strict()`，
+    /// 覆盖宽松默认；其余情形返回已装配值（可能为 `None`）。
+    #[cfg(feature = "admin-ui")]
+    pub fn effective_web_ui_access(&self) -> Option<crate::admin::web::WebUiAccess> {
+        self.web_ui_access.clone().or_else(|| {
+            if self.security_profile == AdminSecurityProfile::Strict {
+                Some(crate::admin::web::WebUiAccess::strict())
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.enabled && self.api_key.is_empty() {
             return Err(ConfigError::ApiKeyRequired);
@@ -453,6 +486,27 @@ mod tests {
             ..Default::default()
         };
         assert!(cfg.validate_strict().is_ok());
+    }
+
+    #[cfg(feature = "admin-ui")]
+    #[test]
+    fn test_web_ui_access_builder_and_strict_default() {
+        let access = crate::admin::web::WebUiAccess::strict();
+        let cfg = AdminApiConfig::new("a-very-long-secure-key-32chars")
+            .with_web_ui_access(access.clone());
+        assert_eq!(cfg.web_ui_access, Some(access));
+
+        // Compatible + 未装配 → None
+        let cfg = AdminApiConfig::new("a-very-long-secure-key-32chars");
+        assert!(cfg.effective_web_ui_access().is_none());
+
+        // Strict + 未装配 → 强制 strict
+        let cfg = AdminApiConfig {
+            security_profile: AdminSecurityProfile::Strict,
+            ..AdminApiConfig::new("a-very-long-secure-key-32chars")
+        };
+        let effective = cfg.effective_web_ui_access().expect("strict default");
+        assert_eq!(effective.host_check, crate::admin::web::HostCheck::Strict);
     }
 
     #[test]

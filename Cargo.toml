@@ -13,7 +13,7 @@ homepage = "https://github.com/Kirky-X/limiteron"
 documentation = "https://docs.rs/limiteron"
 
 [workspace.dependencies]
-tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "time", "net", "signal", "sync", "io-util"] }
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "time", "net", "signal", "sync", "io-util", "io-std"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 async-trait = "0.1"
 serde = { version = "1.0", features = ["derive"] }

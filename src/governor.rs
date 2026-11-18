@@ -5181,6 +5181,56 @@ mod governor_construction_tests {
 
     #[cfg(feature = "mcp")]
     #[tokio::test]
+    async fn test_explain_check_reports_unsupported_peek() {
+        // MockLimiter 未覆写 peek（默认 Err not-supported）→ NodePeekStatus::Unsupported
+        struct NoPeekLimiter;
+        #[async_trait::async_trait]
+        impl crate::limiters::Limiter for NoPeekLimiter {
+            async fn allow(&self, _cost: u64) -> Result<bool, LimiteronError> {
+                Ok(true)
+            }
+        }
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_l1_cache_enabled(false)
+            .build()
+            .await
+            .expect("build should succeed");
+        let chain = crate::decision_chain::DecisionChain::with_dependencies(vec![
+            crate::decision_chain::DecisionNode::with_dependencies(
+                "nopeek".to_string(),
+                "No Peek".to_string(),
+                Arc::new(NoPeekLimiter),
+                100,
+            ),
+        ]);
+        governor
+            .rule_chains
+            .write()
+            .await
+            .insert("test_rule".to_string(), chain);
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.444".to_string());
+        let explanation = governor.explain_check(&ctx).await.expect("explain ok");
+        let nopeek = explanation
+            .rules
+            .iter()
+            .flat_map(|r| r.nodes.iter())
+            .find(|n| n.node_id == "nopeek")
+            .expect("nopeek node present");
+        assert_eq!(
+            nopeek.status,
+            crate::governor::NodePeekStatus::Unsupported,
+            "unsupported peek must be reported, not guessed: {:?}",
+            nopeek.status
+        );
+    }
+
+    #[cfg(feature = "mcp")]
+    #[tokio::test]
     async fn test_rule_stats_reflect_checks() {
         let governor = Governor::builder()
             .with_config(create_small_capacity_config())

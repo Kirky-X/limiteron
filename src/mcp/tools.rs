@@ -71,6 +71,11 @@ pub enum ToolResult {
 }
 
 /// 标识脱敏：仅保留哈希前缀，绝不回显明文 key
+/// 封禁列表 limit 钳制（≤1000）
+fn clamp_limit(requested: Option<u64>) -> u64 {
+    requested.unwrap_or(100).clamp(1, 1000)
+}
+
 fn redact(raw: &str) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -165,11 +170,7 @@ async fn tool_check(ctx: &ToolContext, args: &Value) -> ToolResult {
 async fn tool_ban_list(ctx: &ToolContext, args: &Value) -> ToolResult {
     #[cfg(feature = "ban-manager")]
     {
-        let limit = args
-            .get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(100)
-            .min(1000);
+        let limit = clamp_limit(args.get("limit").and_then(|v| v.as_u64()));
         let filter = crate::ban::types::BanFilter {
             target_type: args
                 .get("target_type")
@@ -249,6 +250,14 @@ mod tests {
         }
         assert!(authorize(&config, Some("mcp-admin")).is_ok());
         assert!(authorize(&config, Some("other")).is_err());
+    }
+
+    #[test]
+    fn ban_list_limit_is_clamped() {
+        assert_eq!(clamp_limit(Some(5000)), 1000);
+        assert_eq!(clamp_limit(Some(50)), 50);
+        assert_eq!(clamp_limit(None), 100);
+        assert_eq!(clamp_limit(Some(0)), 1);
     }
 
     #[test]

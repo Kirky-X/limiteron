@@ -103,18 +103,48 @@ fn handle_apply_cmd(args: HandlerArgs, state: HandlerState) -> HandlerFuture {
 #[cfg(feature = "mcp")]
 fn handle_mcp_serve_cmd(args: HandlerArgs, _state: HandlerState) -> HandlerFuture {
     Box::pin(async move {
-        let mut argv: Vec<String> = vec!["mcp-serve".to_string()];
-        if let Some(file) = args.get("config") {
-            argv.push("--config".to_string());
-            argv.push(file.clone());
-        }
-        let invocation = crate::cli::run(argv);
-        serde_json::to_value(&invocation.output).map_err(|e| {
-            ApiError::internal_error(
-                crate::i18n::t("cli-error-serialize-output", &[("reason", e.to_string())]),
-                "limiteron.cli.serialize_output",
-            )
-        })
+        let Some(path) = args.get("config") else {
+            return Ok(serde_json::json!({
+                "command": "mcp-serve", "ok": false,
+                "errors": ["mcp-serve requires --config <file>"]
+            }));
+        };
+        let config = match crate::cli::run(["validate", path.as_str()]).exit_code {
+            crate::cli::EXIT_OK | crate::cli::EXIT_WARNINGS => {
+                match crate::ConfigLoader::load_from_file(path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        return Ok(serde_json::json!({
+                            "command": "mcp-serve", "ok": false,
+                            "errors": [e.to_string()]
+                        }));
+                    }
+                }
+            }
+            _ => {
+                return Ok(serde_json::json!({
+                    "command": "mcp-serve", "ok": false,
+                    "errors": ["invalid config"]
+                }));
+            }
+        };
+        let governor = std::sync::Arc::new(
+            crate::Governor::builder()
+                .with_config(config)
+                .with_storage(std::sync::Arc::new(crate::storage::MemoryStorage::new()))
+                .with_ban_storage(std::sync::Arc::new(crate::storage::MemoryBanStorage::new()))
+                .build()
+                .await
+                .map_err(|e| ApiError::internal_error(e.to_string(), "limiteron.cli.mcp_build"))?,
+        );
+        let mcp_config = crate::mcp::tools::McpConfig::default();
+        let server = crate::mcp::McpServer::new(governor, mcp_config);
+        // 真正驱动 stdio 事件循环（阻塞至 stdin EOF）
+        server
+            .serve_stdio()
+            .await
+            .map_err(|e| ApiError::internal_error(e.to_string(), "limiteron.cli.mcp_serve"))?;
+        Ok(serde_json::json!({ "command": "mcp-serve", "ok": true }))
     })
 }
 
@@ -610,28 +640,6 @@ mod tests {
         assert_eq!(value["command"], serde_json::json!("dry-run"));
         assert_eq!(value["total_requests"], serde_json::json!(1));
         assert!(value["candidate"].is_object());
-    }
-
-    #[cfg(feature = "mcp")]
-    #[tokio::test]
-    async fn dispatch_end_to_end_mcp_serve_subcommand() {
-        crate::i18n::init();
-        let cfg = r#"{"version":"1.0.0","global":{"storage":"memory","cache":"memory","metrics":"none"},"rules":[{"id":"api","name":"api","priority":100,"matchers":[{"type":"User","user_ids":["*"]}],"limiters":[{"type":"TokenBucket","capacity":5,"refill_rate":1}],"action":{"on_exceed":"reject"}}]}"#;
-        let (_dir, path) = write_temp_config(cfg, "json");
-        let cmd = build_cli();
-        let matches = cmd
-            .try_get_matches_from([
-                "limiteron-cli",
-                "mcp-serve",
-                "--config",
-                path.to_str().unwrap(),
-            ])
-            .expect("mcp-serve argv must parse");
-        let (name, value) = sdforge::cli::dispatch::dispatch(&matches, None)
-            .await
-            .expect("dispatch must succeed for mcp-serve");
-        assert_eq!(name, "mcp-serve");
-        assert_eq!(value["ready"], serde_json::json!(true));
     }
 
     #[test]

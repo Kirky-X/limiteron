@@ -653,6 +653,7 @@ mod tests {
                         ban: None,
                     },
                     failure_policy: crate::FailurePolicy::default(),
+                    cost: None,
                 },
                 Rule {
                     id: "rule-unregistered".to_string(),
@@ -668,6 +669,7 @@ mod tests {
                         ban: None,
                     },
                     failure_policy: crate::FailurePolicy::default(),
+                    cost: None,
                 },
             ],
         };
@@ -729,6 +731,7 @@ mod tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         };
         let rules3 = RuleBuilder::build_rules_with_registry(&config2, &registry)
@@ -866,6 +869,7 @@ mod tests {
                 limiters: vec![quota_config.clone()],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -962,6 +966,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -987,6 +992,7 @@ mod tests {
                     }],
                     action: ActionConfig::default(),
                     failure_policy: crate::FailurePolicy::default(),
+                    cost: None,
                 },
                 Rule {
                     id: "rule2".to_string(),
@@ -1001,6 +1007,7 @@ mod tests {
                     }],
                     action: ActionConfig::default(),
                     failure_policy: crate::FailurePolicy::default(),
+                    cost: None,
                 },
             ],
             ..Default::default()
@@ -1039,6 +1046,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1068,6 +1076,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::FailClosed,
+                cost: None,
             }],
         };
         let rules = RuleBuilder::build_rules(&config).unwrap();
@@ -1091,6 +1100,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1115,6 +1125,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1137,6 +1148,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1161,6 +1173,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1185,6 +1198,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1210,6 +1224,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1239,6 +1254,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1261,6 +1277,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1285,6 +1302,7 @@ mod tests {
                     }],
                     action: ActionConfig::default(),
                     failure_policy: crate::FailurePolicy::default(),
+                    cost: None,
                 },
                 Rule {
                     id: "rule-b".into(),
@@ -1299,6 +1317,7 @@ mod tests {
                     }],
                     action: ActionConfig::default(),
                     failure_policy: crate::FailurePolicy::default(),
+                    cost: None,
                 },
             ],
             ..Default::default()
@@ -1329,6 +1348,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1352,6 +1372,7 @@ mod tests {
                 limiters: vec![LimiterConfig::Concurrency { max_concurrent: 50 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1381,6 +1402,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1411,6 +1433,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1443,6 +1466,7 @@ mod tests {
                 ],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1469,6 +1493,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1513,6 +1538,7 @@ mod tests {
                 ],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1543,6 +1569,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };
@@ -1569,6 +1596,7 @@ mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..Default::default()
         };

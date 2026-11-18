@@ -59,6 +59,7 @@ fn test_config() -> limiteron::config::FlowControlConfig {
                 ban: None,
             },
             failure_policy: limiteron::FailurePolicy::default(),
+            cost: None,
         }],
     }
 }

@@ -20,6 +20,11 @@ pub struct Rule {
     /// 规则级故障策略（缺省 `PropagateError`，等价现状）
     #[serde(default)]
     pub failure_policy: crate::FailurePolicy,
+    /// 规则级请求成本（每次请求消耗的令牌数）
+    ///
+    /// 缺省 `None` 等价成本 1，存量配置逐位兼容。
+    #[serde(default)]
+    pub cost: Option<u64>,
 }
 
 impl Rule {
@@ -159,10 +164,46 @@ mod tests {
             }],
             action: ActionConfig::default(),
             failure_policy: crate::FailurePolicy::default(),
+            cost: None,
         }
     }
 
     // Rule::validate
+
+    #[test]
+    fn test_cost_field_deserialization() {
+        // JSON 无 cost → None；cost:5 → Some(5)
+        let r: Rule = serde_json::from_str(
+            r#"{"id":"r","name":"R","priority":1,"matchers":[{"type":"User","user_ids":["*"]}],"limiters":[{"type":"TokenBucket","capacity":10,"refill_rate":1}],"action":{"on_exceed":"reject"}}"#,
+        )
+        .unwrap();
+        assert_eq!(r.cost, None);
+        let r: Rule = serde_json::from_str(
+            r#"{"id":"r","name":"R","priority":1,"matchers":[{"type":"User","user_ids":["*"]}],"limiters":[{"type":"TokenBucket","capacity":10,"refill_rate":1}],"action":{"on_exceed":"reject"},"cost":5}"#,
+        )
+        .unwrap();
+        assert_eq!(r.cost, Some(5));
+
+        // TOML 无 cost → None；cost=5 → Some(5)
+        let toml_base = r#"
+id = "r"
+name = "R"
+priority = 1
+[[matchers]]
+type = "User"
+user_ids = ["*"]
+[[limiters]]
+type = "TokenBucket"
+capacity = 10
+refill_rate = 1
+[action]
+on_exceed = "reject"
+"#;
+        let r: Rule = toml::from_str(toml_base).unwrap();
+        assert_eq!(r.cost, None);
+        let r: Rule = toml::from_str(&format!("cost = 5\n{toml_base}")).unwrap();
+        assert_eq!(r.cost, Some(5));
+    }
 
     #[test]
     fn test_rule_valid() {

@@ -337,6 +337,7 @@ mod tests {
                 ban: None,
             },
             failure_policy: crate::FailurePolicy::default(),
+            cost: None,
         });
         config
     }

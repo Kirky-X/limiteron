@@ -44,6 +44,7 @@ async fn create_governor() -> Arc<limiteron::Governor> {
                 ban: None,
             },
             failure_policy: limiteron::FailurePolicy::default(),
+            cost: None,
         }],
     };
 

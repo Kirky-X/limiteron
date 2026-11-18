@@ -601,6 +601,7 @@ mod tests {
                         ban: None,
                     },
                     failure_policy: crate::FailurePolicy::default(),
+                    cost: None,
                 },
                 Rule {
                     id: "dup".to_string(),
@@ -613,6 +614,7 @@ mod tests {
                         ban: None,
                     },
                     failure_policy: crate::FailurePolicy::default(),
+                    cost: None,
                 },
             ],
         };

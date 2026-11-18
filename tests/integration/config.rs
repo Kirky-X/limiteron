@@ -38,6 +38,7 @@ fn test_basic_config() {
                 ban: None,
             },
             failure_policy: limiteron::FailurePolicy::default(),
+            cost: None,
         }],
     };
 
@@ -74,6 +75,7 @@ fn test_multi_rule_config() {
                     ban: None,
                 },
                 failure_policy: limiteron::FailurePolicy::default(),
+                cost: None,
             },
             Rule {
                 id: "api_v2".to_string(),
@@ -91,6 +93,7 @@ fn test_multi_rule_config() {
                     ban: None,
                 },
                 failure_policy: limiteron::FailurePolicy::default(),
+                cost: None,
             },
         ],
     };
@@ -220,6 +223,7 @@ fn test_rule_priority() {
                 ban: None,
             },
             failure_policy: limiteron::FailurePolicy::default(),
+            cost: None,
         },
         Rule {
             id: "high_priority".to_string(),
@@ -237,6 +241,7 @@ fn test_rule_priority() {
                 ban: None,
             },
             failure_policy: limiteron::FailurePolicy::default(),
+            cost: None,
         },
     ];
 
@@ -310,6 +315,7 @@ fn test_config_serialization() {
                 ban: None,
             },
             failure_policy: limiteron::FailurePolicy::default(),
+            cost: None,
         }],
     };
 
@@ -392,6 +398,7 @@ fn test_complex_matcher_combination() {
             ban: None,
         },
         failure_policy: limiteron::FailurePolicy::default(),
+        cost: None,
     };
 
     assert_eq!(rule.matchers.len(), 3);
@@ -426,6 +433,7 @@ fn test_multiple_limiters() {
             ban: None,
         },
         failure_policy: limiteron::FailurePolicy::default(),
+        cost: None,
     };
 
     assert_eq!(rule.limiters.len(), 3);

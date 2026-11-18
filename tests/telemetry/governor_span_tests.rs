@@ -43,6 +43,7 @@ async fn build_governor_with_tracer(tracer: Arc<Tracer>) -> Governor {
                 ban: None,
             },
             failure_policy: limiteron::FailurePolicy::default(),
+            cost: None,
         }],
     };
     Governor::builder()
@@ -197,6 +198,7 @@ async fn test_governor_check_span_records_rejection_attributes() {
                 ban: None,
             },
             failure_policy: limiteron::FailurePolicy::default(),
+            cost: None,
         }],
     };
     let governor = Governor::builder()

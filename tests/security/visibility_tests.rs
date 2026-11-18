@@ -127,6 +127,7 @@ fn test_config_validation_logic_exists() {
             }],
             action: ActionConfig::default(),
             failure_policy: limiteron::FailurePolicy::default(),
+            cost: None,
         }],
     };
 

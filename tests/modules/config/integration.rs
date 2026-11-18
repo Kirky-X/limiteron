@@ -29,6 +29,7 @@ fn make_valid_rule(id: &str, name: &str) -> Rule {
             ban: None,
         },
         failure_policy: limiteron::FailurePolicy::default(),
+        cost: None,
     }
 }
 
@@ -725,6 +726,7 @@ async fn test_deep_clone_nested_structures() {
                 ban: None,
             },
             failure_policy: limiteron::FailurePolicy::default(),
+            cost: None,
         }],
     };
 
@@ -799,6 +801,7 @@ async fn test_serialization_roundtrip_json() {
                     ban: None,
                 },
                 failure_policy: limiteron::FailurePolicy::default(),
+                cost: None,
             },
         ],
     };
@@ -1013,6 +1016,7 @@ async fn test_rule_validation_various_invalid_cases() {
         }],
         action: ActionConfig::default(),
         failure_policy: limiteron::FailurePolicy::default(),
+        cost: None,
     };
     assert!(rule.validate().is_err());
 
@@ -1030,6 +1034,7 @@ async fn test_rule_validation_various_invalid_cases() {
         }],
         action: ActionConfig::default(),
         failure_policy: limiteron::FailurePolicy::default(),
+        cost: None,
     };
     assert!(rule.validate().is_err());
 
@@ -1045,6 +1050,7 @@ async fn test_rule_validation_various_invalid_cases() {
         }],
         action: ActionConfig::default(),
         failure_policy: limiteron::FailurePolicy::default(),
+        cost: None,
     };
     assert!(rule.validate().is_err());
 
@@ -1059,6 +1065,7 @@ async fn test_rule_validation_various_invalid_cases() {
         limiters: vec![],
         action: ActionConfig::default(),
         failure_policy: limiteron::FailurePolicy::default(),
+        cost: None,
     };
     assert!(rule.validate().is_err());
 }

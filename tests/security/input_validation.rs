@@ -327,6 +327,7 @@ fn test_config_validation_rejects_malicious_input() {
                 ban: None,
             },
         failure_policy: limiteron::FailurePolicy::default(),
+        cost: None,
         };
 
         // 验证应该通过或安全处理

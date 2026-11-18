@@ -949,6 +949,7 @@ impl Governor {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         };
 
@@ -3439,6 +3440,7 @@ mod governor_construction_tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         }
     }
@@ -4706,6 +4708,7 @@ mod governor_construction_tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         }
     }
@@ -4814,6 +4817,7 @@ mod governor_construction_tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         }
     }
@@ -5178,6 +5182,7 @@ mod governor_construction_tests {
                         ban: None,
                     },
                     failure_policy: crate::FailurePolicy::default(),
+                    cost: None,
                 },
                 Rule {
                     id: "second_rule".to_string(),
@@ -5195,6 +5200,7 @@ mod governor_construction_tests {
                         ban: None,
                     },
                     failure_policy: crate::FailurePolicy::default(),
+                    cost: None,
                 },
             ],
         };
@@ -5260,6 +5266,7 @@ mod governor_construction_tests {
                         ban: None,
                     },
                     failure_policy: policy,
+                    cost: None,
                 }],
             }
         }
@@ -6349,6 +6356,7 @@ mod governor_feature_gated_tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         }
     }
@@ -6491,6 +6499,7 @@ mod governor_feature_gated_tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         };
 
@@ -6587,6 +6596,7 @@ mod governor_feature_gated_tests {
                         ban: None,
                     },
                     failure_policy: crate::FailurePolicy::default(),
+                    cost: None,
                 }],
             })
             .with_storage(Arc::new(MemoryStorage::new()))
@@ -6692,6 +6702,7 @@ mod governor_feature_gated_tests {
                             ban: None,
                         },
                         failure_policy: crate::FailurePolicy::default(),
+                        cost: None,
                     }],
                 })
                 .with_storage(Arc::new(MemoryStorage::new()))
@@ -6798,6 +6809,7 @@ mod governor_feature_gated_tests {
                         ban: None,
                     },
                     failure_policy: crate::FailurePolicy::default(),
+                    cost: None,
                 }],
             })
             .with_storage(Arc::new(MemoryStorage::new()))
@@ -7003,6 +7015,7 @@ mod governor_feature_gated_tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         };
 
@@ -7323,6 +7336,7 @@ mod governor_feature_gated_tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         }
     }
@@ -7346,6 +7360,7 @@ mod governor_feature_gated_tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         }
     }
@@ -7954,6 +7969,7 @@ fn create_valid_test_config_for_tenant() -> crate::config::FlowControlConfig {
                 ban: None,
             },
             failure_policy: crate::FailurePolicy::default(),
+            cost: None,
         }],
     }
 }

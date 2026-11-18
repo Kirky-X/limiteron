@@ -371,6 +371,7 @@ impl RuleBuilder {
             limiters: self.limiters,
             action: self.action,
             failure_policy: crate::FailurePolicy::default(),
+            cost: None,
         })
     }
 }
@@ -422,6 +423,7 @@ mod tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         };
 
@@ -446,6 +448,7 @@ mod tests {
                 ban: None,
             },
             failure_policy: crate::FailurePolicy::default(),
+            cost: None,
         };
 
         let config = FlowControlConfig {
@@ -572,6 +575,7 @@ on_exceed = "reject"
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         };
         let result = config.validate();
@@ -657,6 +661,7 @@ on_exceed = "reject"
             }],
             action: ActionConfig::default(),
             failure_policy: crate::FailurePolicy::default(),
+            cost: None,
         };
         let result = rule.validate();
         assert!(result.is_err());
@@ -678,6 +683,7 @@ on_exceed = "reject"
             }],
             action: ActionConfig::default(),
             failure_policy: crate::FailurePolicy::default(),
+            cost: None,
         };
         let result = rule.validate();
         assert!(result.is_err());
@@ -697,6 +703,7 @@ on_exceed = "reject"
             }],
             action: ActionConfig::default(),
             failure_policy: crate::FailurePolicy::default(),
+            cost: None,
         };
         let result = rule.validate();
         assert!(result.is_err());
@@ -719,6 +726,7 @@ on_exceed = "reject"
             limiters: vec![],
             action: ActionConfig::default(),
             failure_policy: crate::FailurePolicy::default(),
+            cost: None,
         };
         let result = rule.validate();
         assert!(result.is_err());
@@ -1404,6 +1412,7 @@ on_exceed = "reject"
                 ban: None,
             },
             failure_policy: crate::FailurePolicy::default(),
+            cost: None,
         }
     }
 

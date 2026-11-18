@@ -1188,6 +1188,7 @@ mod cross_module {
                     ban: None,
                 },
                 failure_policy: limiteron::FailurePolicy::default(),
+                cost: None,
             }],
         };
 
@@ -1306,6 +1307,7 @@ mod t602_tenant_governor {
                     ban: None,
                 },
                 failure_policy: limiteron::FailurePolicy::default(),
+                cost: None,
             }],
         }
     }

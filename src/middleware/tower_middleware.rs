@@ -695,6 +695,7 @@ mod tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..FlowControlConfig::default()
         }
@@ -789,6 +790,7 @@ mod tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
             ..FlowControlConfig::default()
         };

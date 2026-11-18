@@ -100,6 +100,7 @@ mod tests {
                     ban: None,
                 },
                 failure_policy: limiteron::FailurePolicy::default(),
+                cost: None,
             }],
         };
         let governor = Arc::new(

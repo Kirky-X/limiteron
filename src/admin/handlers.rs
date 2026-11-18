@@ -584,6 +584,7 @@ pub(crate) mod tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         }
     }
@@ -1268,6 +1269,7 @@ pub(crate) mod tests {
                 }],
                 action: ActionConfig::default(),
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         }
     }
@@ -1292,6 +1294,7 @@ pub(crate) mod tests {
                     ban: None,
                 },
                 failure_policy: crate::FailurePolicy::default(),
+                cost: None,
             }],
         }
     }

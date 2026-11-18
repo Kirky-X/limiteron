@@ -38,6 +38,7 @@ async fn create_governor_with_limiters(limiters: Vec<LimiterConfig>) -> Arc<limi
                 ban: None,
             },
             failure_policy: limiteron::FailurePolicy::default(),
+            cost: None,
         }],
     };
 

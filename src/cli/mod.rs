@@ -37,6 +37,7 @@
 
 use crate::config::FlowControlConfig;
 
+pub mod doctor;
 pub mod forge;
 
 /// 退出码：成功

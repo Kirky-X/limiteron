@@ -110,6 +110,18 @@ The mechanisms below all have corresponding implementations in the sources and t
 
 ### Supply Chain and Dependency Security
 
+### Config change audit trail
+
+When the `audit-log` feature is enabled and an `AuditLogger` is configured, every successful hot config update (`POST /api/v1/config`) writes an `AuditEvent::ConfigChange` entry into the HMAC-signed audit chain. Event fields:
+
+| Field | Meaning |
+| --- | --- |
+| `old_version` / `new_version` | Config versions before and after the swap |
+| `changes` | Summary of rule-count changes |
+| `operator` | Authenticated operator resolved from the API key mapping (`api_key_operators`), or `null` for unmapped keys |
+
+A failed audit write is reported but does not roll back the applied config — the audit chain is an observability surface, not part of the admission decision. Verify chain integrity with `AuditLogger::verify_chain`.
+
 - CI includes **cargo-deny security auditing** (the Security Audit job in `.github/workflows/ci.yml`, aligned with the RustSec Advisory DB) and **CodeQL static analysis** (`.github/workflows/codeql.yml`).
 - Known-vulnerable dependencies get minimum-version pinning, such as `rustls-webpki` (CVE-2025-48369); dependencies are uniformly feature-gated (`optional = true`), and the default build (`default = []`) introduces no external storage/HTTP dependencies, minimizing the attack surface.
 

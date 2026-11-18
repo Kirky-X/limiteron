@@ -413,6 +413,7 @@ audit-logger-created = Audit logger created: enabled={ $enabled }, signing_enabl
 audit-logger-stopped = Audit logger stopped
 audit-send-ban-event-failed = Failed to send ban operation event: { $reason }
 audit-send-config-change-failed = Failed to send config change event: { $reason }
+audit-config-change-write-failed = Failed to record config change in audit chain: { $error }
 audit-send-decision-event-failed = Failed to send decision event: { $reason }
 audit-send-error-event-failed = Failed to send error event: { $reason }
 audit-send-system-event-failed = Failed to send system event: { $reason }

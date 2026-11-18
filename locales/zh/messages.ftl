@@ -410,6 +410,7 @@ audit-logger-created = 创建审计日志记录器: enabled={ $enabled }, signin
 audit-logger-stopped = 停止审计日志记录器
 audit-send-ban-event-failed = 发送封禁操作事件失败: { $reason }
 audit-send-config-change-failed = 发送配置变更事件失败: { $reason }
+audit-config-change-write-failed = 配置变更写入审计链失败：{ $error }
 audit-send-decision-event-failed = 发送决策事件失败: { $reason }
 audit-send-error-event-failed = 发送错误事件失败: { $reason }
 audit-send-system-event-failed = 发送系统事件失败: { $reason }

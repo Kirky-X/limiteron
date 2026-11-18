@@ -166,118 +166,114 @@ fn diff(a: u64, b: u64) -> i64 {
 ///
 /// `records` 为已解析记录迭代器；畸形行的跳过计数由调用方（解析层）累加后
 /// 经 `skipped_lines` 传入。
-pub fn replay<I>(
-    baseline: &crate::config::FlowControlConfig,
-    candidate: &crate::config::FlowControlConfig,
-    records: I,
-    skipped_lines: usize,
-) -> DryRunReport
-where
-    I: IntoIterator<Item = TrafficRecord>,
-{
-    let rt = tokio::runtime::Runtime::new().expect("tokio runtime for replay");
-    let base_gov = rt.block_on(build_replay_governor(baseline));
-    let cand_gov = rt.block_on(build_replay_governor(candidate));
-
-    let mut base_counts = DecisionCounts::default();
-    let mut cand_counts = DecisionCounts::default();
-    #[cfg(feature = "decision-trace")]
-    let mut base_rule: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
-    #[cfg(feature = "decision-trace")]
-    let mut cand_rule: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
-
-    let mut total = 0usize;
-    for rec in records {
-        total += 1;
-        let ctx = to_context(&rec);
-        let base = rt.block_on(base_gov.check(&ctx));
-        let cand = rt.block_on(cand_gov.check(&ctx));
-        match &base {
-            Ok(d) => {
-                count_decision(&mut base_counts, d);
-                #[cfg(feature = "decision-trace")]
-                if let crate::Decision::Rejected(m) = d
-                    && let Some(trace) = &m.trace
-                    && let Some(rule) = &trace.rejecting_rule
-                {
-                    *base_rule.entry(rule.clone()).or_default() += 1;
-                }
-            }
-            Err(_) => base_counts.error += 1,
-        }
-        match &cand {
-            Ok(d) => {
-                count_decision(&mut cand_counts, d);
-                #[cfg(feature = "decision-trace")]
-                if let crate::Decision::Rejected(m) = d
-                    && let Some(trace) = &m.trace
-                    && let Some(rule) = &trace.rejecting_rule
-                {
-                    *cand_rule.entry(rule.clone()).or_default() += 1;
-                }
-            }
-            Err(_) => cand_counts.error += 1,
-        }
-    }
-
-    #[cfg(feature = "decision-trace")]
-    let (attribution, per_rule) = {
-        let mut shifts = Vec::new();
-        let mut ids: std::collections::BTreeSet<String> = base_rule.keys().cloned().collect();
-        ids.extend(cand_rule.keys().cloned());
-        for id in ids {
-            shifts.push(RuleShift {
-                rule_id: id.clone(),
-                baseline_rejections: base_rule.get(&id).copied().unwrap_or(0),
-                candidate_rejections: cand_rule.get(&id).copied().unwrap_or(0),
-            });
-        }
-        (AttributionMode::Enabled, shifts)
-    };
-    #[cfg(not(feature = "decision-trace"))]
-    let (attribution, per_rule) = (AttributionMode::Disabled, Vec::new());
-
-    DryRunReport {
-        total_requests: total,
-        skipped_lines,
-        attribution,
-        baseline: base_counts,
-        candidate: cand_counts,
-        delta: CountDelta {
-            allowed: diff(base_counts.allowed, cand_counts.allowed),
-            rejected: diff(base_counts.rejected, cand_counts.rejected),
-            banned: diff(base_counts.banned, cand_counts.banned),
-            error: diff(base_counts.error, cand_counts.error),
-        },
-        per_rule,
-    }
-}
-
-/// 从 JSONL 文本流式回放（畸形行计入 skipped_lines，不收集全量记录）
-pub fn replay_lines(
+pub fn replay(
     baseline: &crate::config::FlowControlConfig,
     candidate: &crate::config::FlowControlConfig,
     body: &str,
 ) -> DryRunReport {
-    let mut skipped = 0usize;
-    let records = body.lines().filter_map(|line| {
-        if line.trim().is_empty() {
-            return None;
-        }
-        match serde_json::from_str::<TrafficRecord>(line) {
-            Ok(r) => Some(r),
-            Err(_) => {
-                skipped += 1;
-                None
+    // 在独立线程建 Runtime：本函数可能被异步 handler 调用（已处于 tokio
+    // runtime 内），嵌套 block_on 会 panic；独立线程彻底隔离运行时。
+    // JSONL 逐行惰性解析，畸形行 skipped +1，不收集全量 Vec<TrafficRecord>。
+    let body_owned = body.to_string();
+    let baseline_owned = baseline.clone();
+    let candidate_owned = candidate.clone();
+    let result = std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime for replay");
+        let base_gov = rt.block_on(build_replay_governor(&baseline_owned));
+        let cand_gov = rt.block_on(build_replay_governor(&candidate_owned));
+
+        let mut skipped_lines = 0usize;
+        let records = body_owned.lines().filter_map(|line| {
+            if line.trim().is_empty() {
+                return None;
+            }
+            match serde_json::from_str::<TrafficRecord>(line) {
+                Ok(r) => Some(r),
+                Err(_) => {
+                    skipped_lines += 1;
+                    None
+                }
+            }
+        });
+
+        let mut base_counts = DecisionCounts::default();
+        let mut cand_counts = DecisionCounts::default();
+        #[cfg(feature = "decision-trace")]
+        let mut base_rule: std::collections::BTreeMap<String, u64> =
+            std::collections::BTreeMap::new();
+        #[cfg(feature = "decision-trace")]
+        let mut cand_rule: std::collections::BTreeMap<String, u64> =
+            std::collections::BTreeMap::new();
+
+        let mut total = 0usize;
+        for rec in records {
+            total += 1;
+            let ctx = to_context(&rec);
+            let base = rt.block_on(base_gov.check(&ctx));
+            let cand = rt.block_on(cand_gov.check(&ctx));
+            match &base {
+                Ok(d) => {
+                    count_decision(&mut base_counts, d);
+                    #[cfg(feature = "decision-trace")]
+                    if let crate::Decision::Rejected(m) = d
+                        && let Some(trace) = &m.trace
+                        && let Some(rule) = &trace.rejecting_rule
+                    {
+                        *base_rule.entry(rule.clone()).or_default() += 1;
+                    }
+                }
+                Err(_) => base_counts.error += 1,
+            }
+            match &cand {
+                Ok(d) => {
+                    count_decision(&mut cand_counts, d);
+                    #[cfg(feature = "decision-trace")]
+                    if let crate::Decision::Rejected(m) = d
+                        && let Some(trace) = &m.trace
+                        && let Some(rule) = &trace.rejecting_rule
+                    {
+                        *cand_rule.entry(rule.clone()).or_default() += 1;
+                    }
+                }
+                Err(_) => cand_counts.error += 1,
             }
         }
-    });
-    // 借用计数在 replay 消费迭代器后释放，再读取
-    let report = replay(baseline, candidate, records, 0);
-    DryRunReport {
-        skipped_lines: skipped,
-        ..report
-    }
+
+        #[cfg(feature = "decision-trace")]
+        let (attribution, per_rule) = {
+            let mut shifts = Vec::new();
+            let mut ids: std::collections::BTreeSet<String> = base_rule.keys().cloned().collect();
+            ids.extend(cand_rule.keys().cloned());
+            for id in ids {
+                shifts.push(RuleShift {
+                    rule_id: id.clone(),
+                    baseline_rejections: base_rule.get(&id).copied().unwrap_or(0),
+                    candidate_rejections: cand_rule.get(&id).copied().unwrap_or(0),
+                });
+            }
+            (AttributionMode::Enabled, shifts)
+        };
+        #[cfg(not(feature = "decision-trace"))]
+        let (attribution, per_rule) = (AttributionMode::Disabled, Vec::new());
+
+        DryRunReport {
+            total_requests: total,
+            skipped_lines,
+            attribution,
+            baseline: base_counts,
+            candidate: cand_counts,
+            delta: CountDelta {
+                allowed: diff(base_counts.allowed, cand_counts.allowed),
+                rejected: diff(base_counts.rejected, cand_counts.rejected),
+                banned: diff(base_counts.banned, cand_counts.banned),
+                error: diff(base_counts.error, cand_counts.error),
+            },
+            per_rule,
+        }
+    })
+    .join()
+    .expect("replay worker thread must not panic");
+    result
 }
 
 #[cfg(test)]
@@ -339,19 +335,11 @@ mod tests {
         .expect("fixture config parses")
     }
 
-    fn fixture_records() -> Vec<TrafficRecord> {
+    fn fixture_trace() -> String {
         (1..=3)
-            .map(|i| TrafficRecord {
-                ts_ms: i,
-                identifier: TrafficIdentifier {
-                    user_id: Some(format!("u{i}")),
-                    ..Default::default()
-                },
-                path: "/api".to_string(),
-                method: "GET".to_string(),
-                cost: 1,
-            })
-            .collect()
+            .map(|i| format!(r#"{{"ts_ms":{i},"identifier":{{"user_id":"u{i}"}},"path":"/api"}}"#))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     #[test]
@@ -359,7 +347,7 @@ mod tests {
         // baseline 容量 1，candidate 容量 10：3 条 trace
         let baseline = fixture_config(1);
         let candidate = fixture_config(10);
-        let report = replay(&baseline, &candidate, fixture_records(), 0);
+        let report = replay(&baseline, &candidate, &fixture_trace());
         assert_eq!(report.total_requests, 3);
         assert_eq!(report.skipped_lines, 0);
         assert_eq!(
@@ -384,7 +372,7 @@ mod tests {
         // 故此处仅验证 attribution 模式由 feature 决定且 per_rule 结构合法。
         let baseline = fixture_config(1);
         let candidate = fixture_config(10);
-        let report = replay(&baseline, &candidate, fixture_records(), 0);
+        let report = replay(&baseline, &candidate, &fixture_trace());
         assert_eq!(report.attribution, AttributionMode::Enabled);
         // trace 开启后拒绝归因填充 per_rule（baseline 2 次拒绝 → api_rule）
         assert!(
@@ -402,7 +390,7 @@ mod tests {
     fn replay_attribution_disabled_without_feature() {
         let baseline = fixture_config(1);
         let candidate = fixture_config(10);
-        let report = replay(&baseline, &candidate, fixture_records(), 0);
+        let report = replay(&baseline, &candidate, &fixture_trace());
         assert_eq!(report.attribution, AttributionMode::Disabled);
         assert!(report.per_rule.is_empty());
     }

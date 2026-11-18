@@ -591,7 +591,7 @@ fn cmd_dry_run(rest: &[String]) -> CliInvocation {
         }
     };
 
-    let report = dryrun::replay_lines(&base_cfg, &cand_cfg, &body);
+    let report = dryrun::replay(&base_cfg, &cand_cfg, &body);
     fields.insert("ok".to_string(), serde_json::json!(true));
     if json_format {
         if let Ok(v) = serde_json::to_value(&report) {

@@ -34,6 +34,7 @@ const VALIDATE_ABOUT: &str = "Validate a limiteron rule config file (YAML/TOML/J
 const EXPORT_ABOUT: &str = "Parse a rule config file and export canonical JSON";
 const APPLY_ABOUT: &str = "Validate a rule config file and emit an apply plan (dry-run)";
 const DOCTOR_ABOUT: &str = "Audit the security posture of this binary and config";
+const DRYRUN_ABOUT: &str = "Replay a traffic trace against baseline and candidate configs";
 
 /// 构造带全量注册子命令的主 CLI `clap::Command`（薄壳入口专用）。
 pub fn build_cli() -> sdforge::clap::Command {
@@ -97,6 +98,29 @@ fn handle_apply_cmd(args: HandlerArgs, state: HandlerState) -> HandlerFuture {
 
 /// doctor 的 `--security` 为唯一模式且缺省等价启用：handler 直接注入该 flag，
 /// 仅把可选的 `--config <file>` 透传给 [`crate::cli::run`]。
+fn handle_dry_run_cmd(args: HandlerArgs, _state: HandlerState) -> HandlerFuture {
+    Box::pin(async move {
+        let mut argv: Vec<String> = vec!["dry-run".to_string()];
+        for flag in ["baseline", "candidate", "traffic"] {
+            if let Some(v) = args.get(flag) {
+                argv.push(format!("--{flag}"));
+                argv.push(v.clone());
+            }
+        }
+        if let Some(fmt) = args.get("format") {
+            argv.push("--format".to_string());
+            argv.push(fmt.clone());
+        }
+        let invocation = crate::cli::run(argv);
+        serde_json::to_value(&invocation.output).map_err(|e| {
+            ApiError::internal_error(
+                crate::i18n::t("cli-error-serialize-output", &[("reason", e.to_string())]),
+                "limiteron.cli.serialize_output",
+            )
+        })
+    })
+}
+
 fn handle_doctor_cmd(args: HandlerArgs, _state: HandlerState) -> HandlerFuture {
     Box::pin(async move {
         let mut argv: Vec<String> = vec!["doctor".to_string(), "--security".to_string()];
@@ -156,6 +180,19 @@ inventory::submit! {
         ])
 }
 inventory::submit! { CliHandlerRegistration { name: "doctor", handler: handle_doctor_cmd } }
+
+// dry-run --baseline <f> --candidate <f> --traffic <f> [--format json]
+inventory::submit! {
+    CliCommandRegistration::new("dry-run", "1", DRYRUN_ABOUT, "handle_dry_run_cmd")
+        .with_i18n_key(Some("cli-dryrun-about"))
+        .with_args(&[
+            CliArgInfo::new("baseline", "Baseline config file", CliArgType::Body, true, None),
+            CliArgInfo::new("candidate", "Candidate config file", CliArgType::Body, true, None),
+            CliArgInfo::new("traffic", "Traffic trace JSONL file", CliArgType::Body, true, None),
+            CliArgInfo::new("format", "Output format (json)", CliArgType::Body, false, None),
+        ])
+}
+inventory::submit! { CliHandlerRegistration { name: "dry-run", handler: handle_dry_run_cmd } }
 
 /// 薄壳入口：i18n 初始化 → clap 解析 → dispatch → JSON 输出 → 退出码。
 ///
@@ -288,14 +325,14 @@ mod tests {
         let names: Vec<&str> = sdforge::inventory::iter::<CliCommandRegistration>()
             .filter(|r| {
                 r.handler_fn_name.starts_with("handle_")
-                    && ["validate", "export", "apply", "doctor"].contains(&r.name)
+                    && ["validate", "export", "apply", "doctor", "dry-run"].contains(&r.name)
             })
             .map(|r| r.name)
             .collect();
         assert_eq!(
             names.len(),
-            4,
-            "validate/export/apply/doctor must be registered"
+            5,
+            "validate/export/apply/doctor/dry-run must be registered"
         );
     }
 
@@ -328,6 +365,7 @@ mod tests {
         assert!(names.contains(&"export"), "export listed: {names:?}");
         assert!(names.contains(&"apply"), "apply listed: {names:?}");
         assert!(names.contains(&"doctor"), "doctor listed: {names:?}");
+        assert!(names.contains(&"dry-run"), "dry-run listed: {names:?}");
         // 主命令版本必须自报 limiteron 版本（覆盖 sdforge 注入的 sdforge 版本）。
         assert_eq!(cmd.get_version().unwrap(), env!("CARGO_PKG_VERSION"));
     }
@@ -506,6 +544,38 @@ mod tests {
             })),
             crate::cli::EXIT_ERROR
         );
+    }
+
+    #[tokio::test]
+    async fn dispatch_end_to_end_dry_run_subcommand() {
+        crate::i18n::init();
+        let cfg = r#"{"version":"1.0.0","global":{"storage":"memory","cache":"memory","metrics":"none"},"rules":[{"id":"api","name":"api","priority":100,"matchers":[{"type":"User","user_ids":["*"]}],"limiters":[{"type":"TokenBucket","capacity":5,"refill_rate":1}],"action":{"on_exceed":"reject"}}]}"#;
+        let (_d1, b) = write_temp_config(cfg, "json");
+        let (_d2, c) = write_temp_config(cfg, "json");
+        let (_d3, t) =
+            write_temp_config("{\"ts_ms\":1,\"identifier\":{},\"path\":\"/api\"}", "jsonl");
+        let cmd = build_cli();
+        let matches = cmd
+            .try_get_matches_from([
+                "limiteron-cli",
+                "dry-run",
+                "--baseline",
+                b.to_str().unwrap(),
+                "--candidate",
+                c.to_str().unwrap(),
+                "--traffic",
+                t.to_str().unwrap(),
+                "--format",
+                "json",
+            ])
+            .expect("dry-run argv must parse");
+        let (name, value) = sdforge::cli::dispatch::dispatch(&matches, None)
+            .await
+            .expect("dispatch must succeed for dry-run");
+        assert_eq!(name, "dry-run");
+        assert_eq!(value["command"], serde_json::json!("dry-run"));
+        assert_eq!(value["total_requests"], serde_json::json!(1));
+        assert!(value["candidate"].is_object());
     }
 
     #[test]

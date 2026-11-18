@@ -5,3 +5,4 @@
 //! 受 RBAC 约束的 stdio JSON-RPC 工具集。
 
 pub mod protocol;
+pub mod tools;

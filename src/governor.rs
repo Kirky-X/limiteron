@@ -2644,6 +2644,18 @@ impl Governor {
         &self,
         new_config: FlowControlConfig,
     ) -> Result<ConfigApplyReport, LimiteronError> {
+        self.apply_config_with_operator(new_config, None).await
+    }
+
+    /// 热更新配置并携带操作者身份写入 HMAC 审计链
+    ///
+    /// 换装主体与 [`Self::apply_config`] 完全共用；`operator` 仅进入审计事件，
+    /// 不改变配置校验/原子换装/缓存失效语义。审计失败仅告警不阻断换装。
+    pub async fn apply_config_with_operator(
+        &self,
+        new_config: FlowControlConfig,
+        operator: Option<&str>,
+    ) -> Result<ConfigApplyReport, LimiteronError> {
         // 1. 校验（规则非空 / ID 唯一 / 匹配器与限流器合法等）
         new_config.validate().map_err(LimiteronError::ConfigError)?;
 
@@ -2700,6 +2712,22 @@ impl Governor {
                 source: crate::config::ChangeSource::Api,
                 changes: vec![format!("rules={rule_count} (hot-reload)")],
             });
+
+        // HMAC 审计链：配置变更落账（audit-log feature 且已配置 logger 时）。
+        // 失败仅告警，不回滚已完成的换装（审计是观测面，不参与裁决）。
+        #[cfg(feature = "audit-log")]
+        if let Some(logger) = self.audit_logger.read().await.as_ref() {
+            // log_config_change 内部已把发送失败计入 write_failures 并告警，
+            // 这里仅发起落链；审计失败不回滚换装。
+            logger
+                .log_config_change(
+                    old_version.clone(),
+                    new_version.clone(),
+                    vec![format!("rules={rule_count}")],
+                    operator.map(str::to_string),
+                )
+                .await;
+        }
 
         info!(
             "apply_config: hot-reloaded config {} → {} (rules={})",
@@ -4871,6 +4899,40 @@ mod governor_construction_tests {
     }
 
     #[cfg(feature = "decision-trace")]
+    #[cfg(feature = "audit-log")]
+    #[tokio::test]
+    async fn test_apply_config_with_operator_writes_audit_event() {
+        use crate::logging::audit::{AuditLogConfig, AuditLogger};
+
+        let logger = Arc::new(AuditLogger::new(AuditLogConfig::new().batch_size(1)).await);
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_audit_logger(logger.clone())
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let report = governor
+            .apply_config_with_operator(create_valid_test_config(), Some("alice"))
+            .await
+            .expect("apply should succeed");
+        assert!(report.applied);
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        assert_eq!(logger.stats().config_change_events(), 1);
+
+        // 未注入 logger 时换装仍成功（行为不变）
+        let plain = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .build()
+            .await
+            .expect("build should succeed");
+        assert!(plain.apply_config(create_valid_test_config()).await.is_ok());
+    }
+
     #[tokio::test]
     async fn test_decision_trace_attached_on_rejection_when_enabled() {
         // 关闭 L1 缓存避免负缓存命中路径，确保走级联循环装配 trace。

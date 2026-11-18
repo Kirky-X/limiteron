@@ -45,6 +45,10 @@ pub enum ConfigError {
     ApiKeyRequired,
     #[error("API key must be at least 16 characters, got {0}")]
     ApiKeyTooShort(usize),
+    #[error("Strict profile forbids a non-loopback binding without an API key")]
+    StrictHostNonLoopback,
+    #[error("Strict profile requires an API key")]
+    StrictKeyRequired,
 }
 
 impl crate::i18n::LocalizedMsg for ConfigError {
@@ -52,6 +56,8 @@ impl crate::i18n::LocalizedMsg for ConfigError {
         match self {
             ConfigError::ApiKeyRequired => "admin-config-api-key-required",
             ConfigError::ApiKeyTooShort(_) => "admin-config-api-key-too-short",
+            ConfigError::StrictHostNonLoopback => "admin-strict-host-nonloopback",
+            ConfigError::StrictKeyRequired => "admin-strict-key-required",
         }
     }
 
@@ -59,6 +65,7 @@ impl crate::i18n::LocalizedMsg for ConfigError {
         match self {
             ConfigError::ApiKeyRequired => vec![],
             ConfigError::ApiKeyTooShort(length) => vec![("length", length.to_string())],
+            ConfigError::StrictHostNonLoopback | ConfigError::StrictKeyRequired => vec![],
         }
     }
 }
@@ -355,6 +362,30 @@ impl AdminApiConfig {
         }
         Ok(())
     }
+
+    /// Strict profile 启动校验（fail-closed）
+    ///
+    /// 1. 非回环绑定且无凭证 → `StrictHostNonLoopback`；
+    /// 2. 无凭证（任意绑定）→ `StrictKeyRequired`；
+    /// 3. 凭证存在但强度不足 → 复用 `ApiKeyTooShort`。
+    ///
+    /// 域名 host 无法确认为回环，保守按非回环判定。
+    pub fn validate_strict(&self) -> Result<(), ConfigError> {
+        let loopback = match self.host.parse::<std::net::IpAddr>() {
+            Ok(ip) => ip.is_loopback(),
+            Err(_) => self.host == "localhost",
+        };
+        if !loopback && self.api_key.is_empty() {
+            return Err(ConfigError::StrictHostNonLoopback);
+        }
+        if self.api_key.is_empty() {
+            return Err(ConfigError::StrictKeyRequired);
+        }
+        if !self.primary_key_is_acceptable() {
+            return Err(ConfigError::ApiKeyTooShort(self.api_key.len()));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -378,6 +409,50 @@ mod tests {
         )
         .unwrap();
         assert_eq!(cfg.security_profile, AdminSecurityProfile::Strict);
+    }
+
+    #[test]
+    fn test_validate_strict_branches() {
+        use crate::i18n::LocalizedMsg;
+
+        // 分支1: 非回环 host + 空 api_key → host-nonloopback 错误
+        let cfg = AdminApiConfig {
+            host: "0.0.0.0".to_string(),
+            api_key: String::new(),
+            security_profile: AdminSecurityProfile::Strict,
+            ..Default::default()
+        };
+        let err = cfg.validate_strict().unwrap_err();
+        assert_eq!(err.message_key(), "admin-strict-host-nonloopback");
+
+        // 分支2: 回环 host + 空 api_key → key-required 错误
+        let cfg = AdminApiConfig {
+            host: "127.0.0.1".to_string(),
+            api_key: String::new(),
+            security_profile: AdminSecurityProfile::Strict,
+            ..Default::default()
+        };
+        let err = cfg.validate_strict().unwrap_err();
+        assert_eq!(err.message_key(), "admin-strict-key-required");
+
+        // 分支3: 弱 key（非空但过短）→ 复用 ApiKeyTooShort
+        let cfg = AdminApiConfig {
+            host: "127.0.0.1".to_string(),
+            api_key: "short".to_string(),
+            security_profile: AdminSecurityProfile::Strict,
+            ..Default::default()
+        };
+        let err = cfg.validate_strict().unwrap_err();
+        assert!(matches!(err, ConfigError::ApiKeyTooShort(_)));
+
+        // 通过分支: 回环 + 强 key
+        let cfg = AdminApiConfig {
+            host: "127.0.0.1".to_string(),
+            api_key: "a-very-long-secure-key-32chars".to_string(),
+            security_profile: AdminSecurityProfile::Strict,
+            ..Default::default()
+        };
+        assert!(cfg.validate_strict().is_ok());
     }
 
     #[test]

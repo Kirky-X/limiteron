@@ -306,6 +306,60 @@ impl ExportedRejections {
 ///     Ok(())
 /// }
 /// ```
+/// 假设性检查的节点快照状态（feature `mcp`）
+#[cfg(feature = "mcp")]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub enum NodePeekStatus {
+    /// 剩余额度快照（非消费）
+    Remaining(crate::limiters::RateLimitSnapshot),
+    /// 限流器不支持 peek
+    Unsupported,
+    /// 预检出错（脱敏消息）
+    Error(String),
+}
+
+/// 假设性检查的单节点结果（feature `mcp`）
+#[cfg(feature = "mcp")]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct NodePeek {
+    /// 节点 ID
+    pub node_id: String,
+    /// 节点名称
+    pub node_name: String,
+    /// 预检状态
+    pub status: NodePeekStatus,
+}
+
+/// 假设性检查的单规则结果（feature `mcp`）
+#[cfg(feature = "mcp")]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct RulePeek {
+    /// 规则 ID
+    pub rule_id: String,
+    /// 节点快照列表
+    pub nodes: Vec<NodePeek>,
+}
+
+/// 封禁命中摘要（feature `mcp`，只读）
+#[cfg(feature = "mcp")]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct BannedInfo {
+    /// 封禁原因
+    pub reason: String,
+}
+
+/// 假设性检查说明（feature `mcp`）
+#[cfg(feature = "mcp")]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct CheckExplanation {
+    /// 租户限定后的决策键
+    pub dimension: Option<String>,
+    /// 封禁命中摘要
+    pub banned: Option<BannedInfo>,
+    /// 逐规则节点快照
+    pub rules: Vec<RulePeek>,
+}
+
 /// 租户并发公平性配置（feature `tenant-fairness`）
 ///
 /// 按租户分池的并发预算；需与 `multi-tenant` feature 同时启用才生效。
@@ -1704,6 +1758,84 @@ impl Governor {
         }
 
         Ok(decision)
+    }
+
+    /// 假设性检查（feature `mcp`）：零消费、零事件、零负缓存
+    ///
+    /// 走标识符提取 → 租户限定 → 规则匹配 → 封禁只读预检，随后对每条匹配规则的
+    /// 每个启用节点调 `peek(cost)`。不调用 `allow`，不改变任何限流状态。
+    #[cfg(feature = "mcp")]
+    pub async fn explain_check(
+        &self,
+        context: &crate::matchers::traits::RequestContext,
+    ) -> Result<CheckExplanation, LimiteronError> {
+        let identifier = self.identifier_extractor.extract(context).ok_or_else(|| {
+            LimiteronError::ConfigError("Failed to extract identifier".to_string())
+        })?;
+        #[cfg(feature = "multi-tenant")]
+        let identifier = self.tenant_scoped_identifier(context, identifier);
+        let dimension = Some(identifier.key());
+
+        // 封禁只读预检（ban-manager feature 下才查询）
+        #[cfg(feature = "ban-manager")]
+        let banned = {
+            if let Some(target) = identifier.to_ban_target()
+                && let Ok(Some(record)) = self.ban_manager.is_banned(&target).await
+            {
+                Some(BannedInfo {
+                    reason: record.reason.clone(),
+                })
+            } else {
+                None
+            }
+        };
+        #[cfg(not(feature = "ban-manager"))]
+        let banned = None;
+
+        let matcher_guard = self.rule_matcher.read().await;
+        let chains_guard = self.rule_chains.read().await;
+        #[allow(clippy::disallowed_methods)]
+        let matched: Vec<_> = matcher_guard
+            .match_all(context)
+            .into_iter()
+            .cloned()
+            .collect();
+
+        let mut rules = Vec::with_capacity(matched.len());
+        for rule in &matched {
+            let Some(chain) = chains_guard.get(&rule.id) else {
+                continue;
+            };
+            let mut nodes = Vec::new();
+            for node in chain.nodes().iter().filter(|n| n.enabled) {
+                let status = match node.limiter.peek(node.cost).await {
+                    Ok(snapshot) => NodePeekStatus::Remaining(snapshot),
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if msg.contains("not supported") {
+                            NodePeekStatus::Unsupported
+                        } else {
+                            NodePeekStatus::Error(log_fingerprint(&msg).to_string())
+                        }
+                    }
+                };
+                nodes.push(NodePeek {
+                    node_id: node.id.clone(),
+                    node_name: node.name.clone(),
+                    status,
+                });
+            }
+            rules.push(RulePeek {
+                rule_id: rule.id.clone(),
+                nodes,
+            });
+        }
+
+        Ok(CheckExplanation {
+            dimension,
+            banned,
+            rules,
+        })
     }
 
     /// 把级联判定快照挂到拒绝结果的 `RejectionMetadata.trace` 上
@@ -5008,6 +5140,74 @@ mod governor_construction_tests {
                 "FailClosed rejection must be cached; chain should run only once"
             );
         }
+    }
+
+    #[cfg(feature = "mcp")]
+    #[tokio::test]
+    async fn test_explain_check_is_zero_consumption() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_l1_cache_enabled(false)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.111".to_string());
+
+        let first = governor.explain_check(&ctx).await.expect("explain ok");
+        let second = governor.explain_check(&ctx).await.expect("explain ok");
+        assert_eq!(
+            first, second,
+            "two explain_check calls must yield identical snapshots (zero consumption)"
+        );
+        assert!(!first.rules.is_empty(), "matched rules must be present");
+        // 节点应携带 Remaining（TokenBucket 支持 peek）
+        assert!(
+            first
+                .rules
+                .iter()
+                .any(|r| r.nodes.iter().any(|n| {
+                    matches!(n.status, crate::governor::NodePeekStatus::Remaining(_))
+                })),
+            "at least one node must expose a remaining snapshot"
+        );
+    }
+
+    #[cfg(all(feature = "mcp", feature = "ban-manager"))]
+    #[tokio::test]
+    async fn test_explain_check_reports_ban() {
+        let governor = Governor::builder()
+            .with_config(create_valid_test_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_l1_cache_enabled(false)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.222".to_string());
+        let identifier = crate::matchers::Identifier::Ip("10.0.0.222".to_string());
+        governor
+            .ban_identifier(
+                &identifier,
+                "mcp-test-ban",
+                Some(crate::ban::types::BanSource::Manual {
+                    operator: "test".to_string(),
+                }),
+            )
+            .await
+            .expect("ban should succeed");
+
+        let explanation = governor.explain_check(&ctx).await.expect("explain ok");
+        assert!(
+            explanation.banned.is_some(),
+            "banned field must be populated when target is banned"
+        );
+        assert_eq!(explanation.banned.unwrap().reason, "mcp-test-ban");
     }
 
     #[cfg(all(feature = "tenant-fairness", feature = "multi-tenant"))]

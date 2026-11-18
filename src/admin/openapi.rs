@@ -92,74 +92,77 @@ fn operation(summary: &str, tag: &str, mut path_item: serde_json::Value) -> serd
 pub fn openapi_document() -> serde_json::Value {
     let bearer = serde_json::json!([{ "BearerAuth": [] }]);
     let ok_json = |desc: &str, schema: &str| json_response(desc, schema);
+    // 英文规范串从目录取（canonical mirror）：产物 docs/openapi.json 保持英文，
+    // 目录 zh 侧承载同一批描述的本地化面。
+    let tr = |key: &str| crate::i18n::translate_en(key, &[]);
 
     serde_json::json!({
         "openapi": OPENAPI_VERSION,
         "info": {
             "title": TITLE,
             "version": API_VERSION,
-            "description": "Limiteron admin control plane: rate limit status, ban management, quota adjustment, circuit breaker status and rule hot reload. All endpoints except probes/metrics require a Bearer API key.",
+            "description": tr("openapi-info-description"),
         },
         "paths": {
-            "/healthz": operation("Liveness probe", "probes", serde_json::json!({
+            "/healthz": operation(&tr("openapi-healthz-summary"), "probes", serde_json::json!({
                 "get": {
                     "responses": {
-                        "200": { "description": "Process is alive", "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string" } } } } } }
+                        "200": { "description": tr("openapi-healthz-200-description"), "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string" } } } } } }
                     }
                 }
             })),
-            "/readyz": operation("Readiness probe (component-level aggregation)", "probes", serde_json::json!({
+            "/readyz": operation(&tr("openapi-readyz-summary"), "probes", serde_json::json!({
                 "get": {
                     "responses": {
-                        "200": { "description": "All components healthy" },
-                        "503": { "description": "One or more components unhealthy; response body contains details" }
+                        "200": { "description": tr("openapi-readyz-200-description") },
+                        "503": { "description": tr("openapi-readyz-503-description") }
                     }
                 }
             })),
-            "/metrics": operation("Prometheus text-format metrics", "probes", serde_json::json!({
+            "/metrics": operation(&tr("openapi-metrics-summary"), "probes", serde_json::json!({
                 "get": {
                     "responses": {
-                        "200": { "description": "text/plain; version=0.0.4 exposition" }
+                        "200": { "description": tr("openapi-metrics-200-description") }
                     }
                 }
             })),
-            "/api/v1/status": operation("Overall system status", "status", serde_json::json!({
+            "/api/v1/status": operation(&tr("openapi-status-summary"), "status", serde_json::json!({
                 "get": {
                     "security": bearer,
                     "responses": {
-                        "200": ok_json("System status", "#/components/schemas/SystemStatus"),
-                        "401": error_response("Authentication failed")
+                        "200": ok_json(&tr("openapi-status-200-description"), "#/components/schemas/SystemStatus"),
+                        "401": error_response(&tr("openapi-status-401-description"))
                     }
                 }
             })),
-            "/api/v1/status/circuit-breaker": operation("Circuit breaker status", "status", serde_json::json!({
+            "/api/v1/status/circuit-breaker": operation(&tr("openapi-circuit-breaker-summary"), "status", serde_json::json!({
                 "get": {
                     "security": bearer,
                     "responses": {
-                        "200": ok_json("Circuit breaker status", "#/components/schemas/CircuitBreakerStatus"),
-                        "503": error_response("circuit-breaker not configured")
+                        "200": ok_json(&tr("openapi-circuit-breaker-200-description"), "#/components/schemas/CircuitBreakerStatus"),
+                        "503": error_response(&tr("openapi-circuit-breaker-503-description"))
                     }
                 }
             })),
-            "/api/v1/introspect": operation("Runtime introspection snapshot (rules, decision chains, bans and circuit breakers aggregated)", "status", serde_json::json!({
+            "/api/v1/introspect": operation(&tr("openapi-introspect-summary"), "status", serde_json::json!({
                 "get": {
                     "security": bearer,
                     "responses": {
-                        "200": { "description": "Introspection snapshot JSON (structure extends with the feature combination)",
+                        "200": { "description": tr("openapi-introspect-200-description"),
                                  "content": { "application/json": { "schema": { "type": "object" } } } }
                     }
                 }
             })),
-            "/api/v1/config/hash": operation("Runtime config semantic hash and source drift status (for multi-instance comparison)", "config", serde_json::json!({
+            "/api/v1/config/hash": operation(&tr("openapi-config-hash-summary"), "config", serde_json::json!({
                 "get": {
                     "security": bearer,
                     "responses": {
-                        "200": { "description": "Config hash JSON (runtime_hash, source_file_hash, drift)",
+                        "200": { "description": tr("openapi-config-hash-200-description"),
                                  "content": { "application/json": { "schema": { "type": "object" } } } }
                     }
                 }
             })),
-            "/api/v1/config": operation("Rule hot reload (atomic config swap; previous config retained on failure)", "config", serde_json::json!({
+            "/api/v1/config": operation(&tr("openapi-config-summary"), "config", serde_json::json!({
                 "post": {
                     "security": bearer,
                     "requestBody": {
@@ -167,12 +170,12 @@ pub fn openapi_document() -> serde_json::Value {
                         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FlowControlConfig" } } }
                     },
                     "responses": {
-                        "200": { "description": "Application report", "content": { "application/json": { "schema": { "type": "object" } } } },
-                        "400": error_response("Validation failed; previous config retained")
+                        "200": { "description": tr("openapi-config-200-description"), "content": { "application/json": { "schema": { "type": "object" } } } },
+                        "400": error_response(&tr("openapi-config-400-description"))
                     }
                 }
             })),
-            "/api/v1/check/batch": operation("Batch check (N keys decided in one request)", "decision", serde_json::json!({
+            "/api/v1/check/batch": operation(&tr("openapi-check-batch-summary"), "decision", serde_json::json!({
                 "post": {
                     "security": bearer,
                     "requestBody": {
@@ -180,12 +183,12 @@ pub fn openapi_document() -> serde_json::Value {
                         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchCheckBody" } } }
                     },
                     "responses": {
-                        "200": { "description": "Per-item decision results", "content": { "application/json": { "schema": { "type": "object" } } } },
-                        "400": error_response("Empty batch or above the 1000-item limit")
+                        "200": { "description": tr("openapi-check-batch-200-description"), "content": { "application/json": { "schema": { "type": "object" } } } },
+                        "400": error_response(&tr("openapi-check-batch-400-description"))
                     }
                 }
             })),
-            "/api/v1/tokens/prefetch": operation("Batch token prefetch", "decision", serde_json::json!({
+            "/api/v1/tokens/prefetch": operation(&tr("openapi-tokens-prefetch-summary"), "decision", serde_json::json!({
                 "post": {
                     "security": bearer,
                     "requestBody": {
@@ -193,12 +196,12 @@ pub fn openapi_document() -> serde_json::Value {
                         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenPrefetchBody" } } }
                     },
                     "responses": {
-                        "200": { "description": "Per-item granted results and summary", "content": { "application/json": { "schema": { "type": "object" } } } },
-                        "400": error_response("Empty batch or above the 1000-item limit")
+                        "200": { "description": tr("openapi-tokens-prefetch-200-description"), "content": { "application/json": { "schema": { "type": "object" } } } },
+                        "400": error_response(&tr("openapi-tokens-prefetch-400-description"))
                     }
                 }
             })),
-            "/api/v1/ban": operation("Create ban (ip/user/mac/geo)", "ban", serde_json::json!({
+            "/api/v1/ban": operation(&tr("openapi-ban-summary"), "ban", serde_json::json!({
                 "post": {
                     "security": bearer,
                     "requestBody": {
@@ -206,15 +209,15 @@ pub fn openapi_document() -> serde_json::Value {
                         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateBanRequest" } } }
                     },
                     "responses": {
-                        "201": ok_json("Ban details", "#/components/schemas/BanResponse"),
-                        "400": error_response("Target or reason validation failed"),
-                        "403": error_response("Operator not authorized"),
-                        "500": error_response("Internal error"),
-                        "503": error_response("ban-manager not configured")
+                        "201": ok_json(&tr("openapi-ban-201-description"), "#/components/schemas/BanResponse"),
+                        "400": error_response(&tr("openapi-ban-400-description")),
+                        "403": error_response(&tr("openapi-ban-403-description")),
+                        "500": error_response(&tr("openapi-ban-500-description")),
+                        "503": error_response(&tr("openapi-ban-503-description"))
                     }
                 }
             })),
-            "/api/v1/ban/{target}": operation("Remove ban (?type=ip|user|mac|geo|cidr)", "ban", serde_json::json!({
+            "/api/v1/ban/{target}": operation(&tr("openapi-ban-delete-summary"), "ban", serde_json::json!({
                 "delete": {
                     "security": bearer,
                     "parameters": [
@@ -227,16 +230,16 @@ pub fn openapi_document() -> serde_json::Value {
                         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UnbanRequest" } } }
                     },
                     "responses": {
-                        "200": ok_json("Removal result", "#/components/schemas/Unit"),
-                        "400": error_response("Unsupported type or invalid target format"),
-                        "403": error_response("Operator not authorized"),
-                        "404": error_response("Ban not found"),
-                        "500": error_response("Internal error"),
-                        "503": error_response("ban-manager not configured")
+                        "200": ok_json(&tr("openapi-ban-delete-200-description"), "#/components/schemas/Unit"),
+                        "400": error_response(&tr("openapi-ban-delete-400-description")),
+                        "403": error_response(&tr("openapi-ban-403-description")),
+                        "404": error_response(&tr("openapi-ban-delete-404-description")),
+                        "500": error_response(&tr("openapi-ban-delete-500-description")),
+                        "503": error_response(&tr("openapi-ban-delete-503-description"))
                     }
                 }
             })),
-            "/api/v1/quota/{user_id}": operation("Reset a user's quota usage (new_limit=0); rejects per-tenant quota limit updates", "quota", serde_json::json!({
+            "/api/v1/quota/{user_id}": operation(&tr("openapi-quota-reset-summary"), "quota", serde_json::json!({
                 "put": {
                     "security": bearer,
                     "parameters": [
@@ -247,10 +250,10 @@ pub fn openapi_document() -> serde_json::Value {
                         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateQuotaRequest" } } }
                     },
                     "responses": {
-                        "200": ok_json("Operation result", "#/components/schemas/UpdateQuotaResponse"),
-                        "400": error_response("Unsupported operation; user_id/resource must not contain ':'"),
-                        "500": error_response("Internal error"),
-                        "503": error_response("quota-control not configured")
+                        "200": ok_json(&tr("openapi-quota-put-200-description"), "#/components/schemas/UpdateQuotaResponse"),
+                        "400": error_response(&tr("openapi-quota-put-400-description")),
+                        "500": error_response(&tr("openapi-quota-put-500-description")),
+                        "503": error_response(&tr("openapi-quota-put-503-description"))
                     }
                 }
             }))
@@ -269,8 +272,8 @@ pub fn openapi_document() -> serde_json::Value {
                         "total_requests": { "type": "integer", "format": "int64" },
                         "blocked_requests": { "type": "integer", "format": "int64" },
                         "success_rate": { "type": "number", "format": "double" },
-                        "active_bans": { "type": "integer", "description": "Present when the ban-manager feature is enabled" },
-                        "circuit_breaker": { "type": "string", "description": "Present when the circuit-breaker feature is enabled" }
+                        "active_bans": { "type": "integer", "description": tr("openapi-system-status-active-bans") },
+                        "circuit_breaker": { "type": "string", "description": tr("openapi-system-status-circuit-breaker") }
                     }
                 },
                 "CircuitBreakerStatus": {
@@ -290,7 +293,7 @@ pub fn openapi_document() -> serde_json::Value {
                         "global": { "type": "object" },
                         "rules": { "type": "array", "items": { "type": "object" } }
                     },
-                    "description": "Full FlowControlConfig (fields are defined in the config module; only the top-level skeleton is kept here)"
+                    "description": tr("openapi-flow-control-config-description")
                 },
                 "BatchCheckBody": {
                     "type": "object",
@@ -332,7 +335,7 @@ pub fn openapi_document() -> serde_json::Value {
                 "BanTarget": {
                     "type": "object",
                     "required": ["type", "value"],
-                    "description": "ip/user/mac use a string value; geo uses an object with a country_code field; cidr uses a string value",
+                    "description": tr("openapi-ban-target-description"),
                     "properties": {
                         "type": { "type": "string", "enum": ["ip", "user", "mac", "geo", "cidr"] },
                         "value": {}
@@ -344,7 +347,7 @@ pub fn openapi_document() -> serde_json::Value {
                     "properties": {
                         "target": { "$ref": "#/components/schemas/BanTarget" },
                         "reason": { "type": "string" },
-                        "operator": { "type": "string", "nullable": true, "description": "Deprecated: ignored by the server; identity is determined by the API key mapping" },
+                        "operator": { "type": "string", "nullable": true, "description": tr("openapi-create-ban-operator") },
                         "duration_secs": { "type": "integer", "format": "int64", "nullable": true }
                     }
                 },
@@ -362,7 +365,7 @@ pub fn openapi_document() -> serde_json::Value {
                     "type": "object",
                     "properties": {
                         "reason": { "type": "string", "nullable": true },
-                        "operator": { "type": "string", "nullable": true, "description": "Deprecated: ignored by the server" }
+                        "operator": { "type": "string", "nullable": true, "description": tr("openapi-unban-request-operator") }
                     }
                 },
                 "UpdateQuotaRequest": {
@@ -370,7 +373,7 @@ pub fn openapi_document() -> serde_json::Value {
                     "required": ["resource", "new_limit"],
                     "properties": {
                         "resource": { "type": "string" },
-                        "new_limit": { "type": "integer", "format": "int64", "description": "0 = reset signal" },
+                        "new_limit": { "type": "integer", "format": "int64", "description": tr("openapi-update-quota-new-limit") },
                         "duration_secs": { "type": "integer", "format": "int64", "nullable": true }
                     }
                 },

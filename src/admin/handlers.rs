@@ -32,9 +32,9 @@ pub(crate) fn service_error_status(e: &AdminServiceError) -> StatusCode {
 
 /// 服务错误 → HTTP 响应体消息（协议适配层的消息映射点）
 ///
-/// 双轨：`AdminServiceError` 的 Display 恒为英文规范串（见 `service.rs`），
-/// NotConfigured 的响应体本地化面经 FTL 键渲染；其余变体载荷本身已是英文
-/// 规范串，直出 Display。
+/// 双轨：`NotConfigured`/`Internal` 在本映射点经 FTL 键渲染；其余变体载荷
+/// 由 `service.rs` 构造点经 `t()` / `to_localized_string()` 取当前 locale 文案
+/// （en 与规范英文逐位一致），此处直出。
 ///
 /// `Internal` 例外：其载荷是内部错误原文（可能含存储驱动的表名/列名/
 /// 约束名/SQL 片段），不进响应体——原文只落服务端日志，对外固定文案。

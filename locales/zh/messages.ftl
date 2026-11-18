@@ -109,6 +109,7 @@ cli-error-missing-config-file = 缺少 <config-file> 参数
 cli-error-unknown-command = 未知子命令
 cli-error-config-serialization-failed = 配置序列化失败: { $reason }
 cli-error-serialize-output = limiteron-cli: 序列化输出失败: { $reason }
+cli-error-dispatch-failed = CLI 调用分发失败: { $reason }
 cli-error-out-requires-file = --out 需要一个文件参数
 cli-error-unknown-option = 未知选项 '{ $option }'
 cli-error-write-output-failed = 写入规范化配置到 '{ $path }' 失败: { $reason }
@@ -349,6 +350,27 @@ admin-ui-stat-banned-requests = 封禁请求
 admin-ui-stat-active-keys = 活跃限流键
 admin-ui-stat-config-version = 配置版本
 admin-ui-stat-shutdown = 已关闭
+admin-ui-label-api-key = API key
+admin-ui-placeholder-api-key = Bearer API key（密钥）
+admin-ui-button-save = 保存
+admin-ui-api-key-required-hint = 需要 API key（通过 Authorization: Bearer <key> 发送）
+admin-ui-error-api-key-required = 需要 API key
+admin-ui-health-storage = 存储
+admin-ui-health-ban-storage = 封禁存储
+admin-ui-health-cache = 缓存
+admin-ui-health-background-tasks = 后台任务
+admin-ui-cb-unavailable = 不可用
+admin-ui-label-fetch = 获取
+
+# ---- 管理服务错误消息（admin/service.rs 构造点经 t() 取用） ----
+admin-service-token-prefetch-empty = 令牌预取至少需要一项
+admin-service-token-prefetch-limit = 令牌预取每次调用最多 { $max } 项
+admin-service-config-rejected = 配置被拒绝: { $error }
+admin-service-batch-check-empty = 批量检查至少需要一条请求
+admin-service-batch-check-limit = 批量检查每次调用最多 { $max } 条请求
+admin-service-unsupported-target-type = 不支持的 target 类型: { $type }
+admin-service-ban-not-found = 封禁不存在
+admin-service-quota-per-tenant-unsupported = 不支持按租户更新配额上限；请改用全局 QuotaConfig update_config
 
 # ---- OpenAPI 文档（canonical mirror：构造点英文规范串，本目录提供本地化面） ----
 openapi-info-description = Limiteron 管理控制面：限流状态、封禁管理、配额调整、熔断器状态与规则热更新。除探针/指标端点外均需 Bearer API key。
@@ -387,11 +409,11 @@ openapi-ban-500-description = 内部错误
 openapi-ban-503-description = ban-manager 未配置
 openapi-ban-delete-summary = 解除封禁（?type=ip|user|mac|geo|cidr）
 openapi-ban-delete-200-description = 解除结果
-openapi-ban-delete-400-description = 不支持的 type
+openapi-ban-delete-400-description = 不支持的 type 或无效的 target 格式
 openapi-ban-delete-500-description = 内部错误
 openapi-ban-delete-503-description = ban-manager 未配置
 openapi-quota-put-200-description = 操作结果
-openapi-quota-put-400-description = 不支持的操作
+openapi-quota-put-400-description = 不支持的操作；user_id/resource 不得包含 ':'
 openapi-quota-put-500-description = 内部错误
 openapi-quota-put-503-description = quota-control 未配置
 openapi-system-status-circuit-breaker = circuit-breaker feature 下存在
@@ -399,6 +421,9 @@ openapi-flow-control-config-description = 完整 FlowControlConfig（字段见 c
 openapi-ban-target-description = ip/user/mac 为字符串 value；geo 为 country_code 对象；cidr 为字符串 value
 openapi-unban-request-operator = 已弃用：服务端忽略
 openapi-update-quota-new-limit = 0 = 重置信号
+openapi-config-hash-summary = 运行时配置语义哈希与源漂移状态（用于多实例比对）
+openapi-config-hash-200-description = 配置哈希 JSON（runtime_hash、source_file_hash、drift）
+openapi-metrics-200-description = text/plain；version=0.0.4 暴露格式
 
 # ---- 审计日志 ----
 audit-batch-task-panic = 审计日志批处理任务异常: { $reason }

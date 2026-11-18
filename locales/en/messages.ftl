@@ -110,6 +110,7 @@ cli-error-missing-config-file = missing <config-file> argument
 cli-error-unknown-command = unknown command
 cli-error-config-serialization-failed = config serialization failed: { $reason }
 cli-error-serialize-output = limiteron-cli: failed to serialize output: { $reason }
+cli-error-dispatch-failed = failed to dispatch CLI invocation: { $reason }
 cli-error-out-requires-file = --out requires a file argument
 cli-error-unknown-option = unknown option '{ $option }'
 cli-error-write-output-failed = failed to write normalized config to '{ $path }': { $reason }
@@ -350,6 +351,27 @@ admin-ui-stat-banned-requests = Banned requests
 admin-ui-stat-active-keys = Active limit keys
 admin-ui-stat-config-version = Config version
 admin-ui-stat-shutdown = Shutdown
+admin-ui-label-api-key = API key
+admin-ui-placeholder-api-key = Bearer API key
+admin-ui-button-save = Save
+admin-ui-api-key-required-hint = API key required (sent as Authorization: Bearer <key>)
+admin-ui-error-api-key-required = API key required
+admin-ui-health-storage = storage
+admin-ui-health-ban-storage = ban_storage
+admin-ui-health-cache = cache
+admin-ui-health-background-tasks = background_tasks
+admin-ui-cb-unavailable = unavailable
+admin-ui-label-fetch = fetch
+
+# ---- Admin service error messages (constructed via t() in admin/service.rs) ----
+admin-service-token-prefetch-empty = token prefetch requires at least one item
+admin-service-token-prefetch-limit = token prefetch limited to { $max } items per call
+admin-service-config-rejected = config rejected: { $error }
+admin-service-batch-check-empty = batch check requires at least one request
+admin-service-batch-check-limit = batch check limited to { $max } requests per call
+admin-service-unsupported-target-type = unsupported target type: { $type }
+admin-service-ban-not-found = Ban not found
+admin-service-quota-per-tenant-unsupported = Per-tenant quota limit update is not supported; use global QuotaConfig update_config instead
 
 # ---- OpenAPI document (canonical mirror) ----
 # openapi_document() builds the English canonical at the construction site;
@@ -390,11 +412,11 @@ openapi-ban-500-description = Internal error
 openapi-ban-503-description = ban-manager not configured
 openapi-ban-delete-summary = Remove ban (?type=ip|user|mac|geo|cidr)
 openapi-ban-delete-200-description = Removal result
-openapi-ban-delete-400-description = Unsupported type
+openapi-ban-delete-400-description = Unsupported type or invalid target format
 openapi-ban-delete-500-description = Internal error
 openapi-ban-delete-503-description = ban-manager not configured
 openapi-quota-put-200-description = Operation result
-openapi-quota-put-400-description = Unsupported operation
+openapi-quota-put-400-description = Unsupported operation; user_id/resource must not contain ':'
 openapi-quota-put-500-description = Internal error
 openapi-quota-put-503-description = quota-control not configured
 openapi-system-status-circuit-breaker = Present when the circuit-breaker feature is enabled
@@ -402,6 +424,9 @@ openapi-flow-control-config-description = Full FlowControlConfig (fields are def
 openapi-ban-target-description = ip/user/mac use a string value; geo uses an object with a country_code field; cidr uses a string value
 openapi-unban-request-operator = Deprecated: ignored by the server
 openapi-update-quota-new-limit = 0 = reset signal
+openapi-config-hash-summary = Runtime config semantic hash and source drift status (for multi-instance comparison)
+openapi-config-hash-200-description = Config hash JSON (runtime_hash, source_file_hash, drift)
+openapi-metrics-200-description = text/plain; version=0.0.4 exposition
 
 # ---- Audit log ----
 audit-batch-task-panic = Audit log batch task panicked: { $reason }

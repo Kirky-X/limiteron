@@ -25,6 +25,8 @@ use super::handlers::{BatchCheckBody, SystemStatus, TokenPrefetchBody};
 use super::handlers::{UpdateQuotaRequest, UpdateQuotaResponse};
 #[cfg(any(feature = "ban-manager", feature = "quota-control"))]
 use crate::error::LimiteronError;
+#[cfg(feature = "ban-manager")]
+use crate::i18n::I18nExt;
 
 /// 管理操作错误（类别即协议适配层的语义映射依据）
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,13 +167,14 @@ pub async fn prefetch_tokens_detached(
     use super::handlers::{BATCH_MAX_ITEMS, token_prefetcher};
 
     if body.items.is_empty() {
-        return Err(AdminServiceError::Invalid(
-            "token prefetch requires at least one item".to_string(),
-        ));
+        return Err(AdminServiceError::Invalid(crate::i18n::t_simple(
+            "admin-service-token-prefetch-empty",
+        )));
     }
     if body.items.len() > BATCH_MAX_ITEMS {
-        return Err(AdminServiceError::Invalid(format!(
-            "token prefetch limited to {BATCH_MAX_ITEMS} items per call"
+        return Err(AdminServiceError::Invalid(crate::i18n::t(
+            "admin-service-token-prefetch-limit",
+            &[("max", BATCH_MAX_ITEMS.to_string())],
         )));
     }
 
@@ -329,7 +332,10 @@ impl AdminService for GovernorAdminService {
             Ok(report) => {
                 Ok(serde_json::to_value(&report).unwrap_or_else(|_| serde_json::json!({})))
             }
-            Err(e) => Err(AdminServiceError::Invalid(format!("config rejected: {e}"))),
+            Err(e) => Err(AdminServiceError::Invalid(crate::i18n::t(
+                "admin-service-config-rejected",
+                &[("error", e.to_string())],
+            ))),
         }
     }
 
@@ -341,13 +347,14 @@ impl AdminService for GovernorAdminService {
         use super::handlers::BATCH_MAX_ITEMS;
 
         if body.requests.is_empty() {
-            return Err(AdminServiceError::Invalid(
-                "batch check requires at least one request".to_string(),
-            ));
+            return Err(AdminServiceError::Invalid(crate::i18n::t_simple(
+                "admin-service-batch-check-empty",
+            )));
         }
         if body.requests.len() > BATCH_MAX_ITEMS {
-            return Err(AdminServiceError::Invalid(format!(
-                "batch check limited to {BATCH_MAX_ITEMS} requests per call"
+            return Err(AdminServiceError::Invalid(crate::i18n::t(
+                "admin-service-batch-check-limit",
+                &[("max", BATCH_MAX_ITEMS.to_string())],
             )));
         }
 
@@ -434,11 +441,13 @@ impl AdminService for GovernorAdminService {
                 is_manual: detail.is_manual,
             }),
             Err(e) => Err(match &e {
-                LimiteronError::ValidationError(_) => AdminServiceError::Invalid(e.to_string()),
-                // 消息透传 LimiteronError 的 Display（旧 handlers 实现的
-                // 响应体契约 "Authorization error: {msg}"，逐位一致）
+                LimiteronError::ValidationError(_) => {
+                    AdminServiceError::Invalid(e.to_localized_string())
+                }
+                // 双轨：en 与 Display 的 "Authorization error: {msg}" 逐位一致，
+                // zh 经目录取同一键的本地化面。
                 LimiteronError::AuthorizationError(_) => {
-                    AdminServiceError::Forbidden(e.to_string())
+                    AdminServiceError::Forbidden(e.to_localized_string())
                 }
                 _ => AdminServiceError::Internal(e.to_string()),
             }),
@@ -467,8 +476,9 @@ impl AdminService for GovernorAdminService {
             },
             Some("cidr") => BanTarget::Cidr(target),
             Some(other) => {
-                return Err(AdminServiceError::Invalid(format!(
-                    "unsupported target type: {other}"
+                return Err(AdminServiceError::Invalid(crate::i18n::t(
+                    "admin-service-unsupported-target-type",
+                    &[("type", other.to_string())],
                 )));
             }
             None => {
@@ -482,15 +492,19 @@ impl AdminService for GovernorAdminService {
         };
         match ban_manager.delete_ban(&ban_target, operator).await {
             Ok(true) => Ok(req.reason.unwrap_or_else(|| "Ban removed".to_string())),
-            Ok(false) => Err(AdminServiceError::NotFound("Ban not found".to_string())),
+            Ok(false) => Err(AdminServiceError::NotFound(crate::i18n::t_simple(
+                "admin-service-ban-not-found",
+            ))),
             // 目标校验失败（validation feature）→ 400，与 create_ban 同口径；
             // 授权拒绝 → 403（与 create_ban 同口径）；
             // 其余为内部错误（原文只进服务端日志）
             Err(e) => Err(match &e {
-                LimiteronError::ValidationError(_) => AdminServiceError::Invalid(e.to_string()),
-                // 消息透传 LimiteronError 的 Display（与 create_ban 同一契约）
+                LimiteronError::ValidationError(_) => {
+                    AdminServiceError::Invalid(e.to_localized_string())
+                }
+                // 与 create_ban 同一双轨契约
                 LimiteronError::AuthorizationError(_) => {
-                    AdminServiceError::Forbidden(e.to_string())
+                    AdminServiceError::Forbidden(e.to_localized_string())
                 }
                 _ => AdminServiceError::Internal(format!("Failed to remove ban: {e}")),
             }),
@@ -530,10 +544,9 @@ impl AdminService for GovernorAdminService {
                 }),
             }
         } else {
-            Err(AdminServiceError::Invalid(
-                "Per-tenant quota limit update is not supported; use global QuotaConfig update_config instead"
-                    .to_string(),
-            ))
+            Err(AdminServiceError::Invalid(crate::i18n::t_simple(
+                "admin-service-quota-per-tenant-unsupported",
+            )))
         }
     }
 

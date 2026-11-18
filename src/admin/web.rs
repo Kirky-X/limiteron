@@ -74,10 +74,10 @@ use ahash::AHashMap;
 use axum::{
     Json, Router,
     body::Body,
-    extract::{ConnectInfo, Request},
+    extract::{ConnectInfo, Query, Request, State},
     http::{
-        StatusCode,
-        header::{AUTHORIZATION, HOST, RETRY_AFTER},
+        HeaderMap, StatusCode,
+        header::{ACCEPT_LANGUAGE, AUTHORIZATION, HOST, RETRY_AFTER},
     },
     middleware::Next,
     middleware::from_fn,
@@ -427,6 +427,24 @@ async fn enforce_access(
     next.run(req).await
 }
 
+/// 页面语言查询参数（`?lang=zh` / `?lang=en`，显式切换入口）
+#[derive(serde::Deserialize)]
+struct LangQuery {
+    lang: Option<String>,
+}
+
+/// 路由处理器：状态携带只读源与路径，语言参数由请求头/查询串收敛后下传
+///
+/// `Query`/`HeaderMap` 均为 `FromRequestParts`，不占用请求体，路由保持 GET-only。
+async fn route_handler(
+    State((source, path)): State<(Arc<dyn ReadOnlySnapshotSource>, &'static str)>,
+    Query(query): Query<LangQuery>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    let lang = requested_lang(query.lang.as_deref(), &headers);
+    serve_snapshot(&source, path, &lang).await
+}
+
 /// 构建 Web UI Router（全部 GET；数据源经类型窄化的只读投影）
 ///
 /// 注册完全由 [`ROUTE_TABLE`] 驱动：表是路径清单的唯一事实来源——多注册
@@ -446,10 +464,7 @@ pub fn create_router_with_access(
     let mut router = Router::new();
     for path in ROUTE_TABLE {
         let source = snapshot_source.clone();
-        router = router.route(
-            path,
-            get(move || async move { serve_snapshot(&source, path).await }),
-        );
+        router = router.route(path, get(route_handler).with_state((source, path)));
     }
     // 共享句柄：每请求只 clone Arc，不再逐请求复制 allowed_hosts 向量与
     // api_key 字符串（含密钥明文拷贝）
@@ -544,9 +559,10 @@ fn redact_json_strings(value: &mut serde_json::Value) {
 async fn serve_snapshot(
     source: &Arc<dyn ReadOnlySnapshotSource>,
     path: &str,
+    lang: &str,
 ) -> axum::response::Response {
     match path {
-        "/" => axum::response::IntoResponse::into_response(Html(INDEX_HTML)),
+        "/" => axum::response::IntoResponse::into_response(Html(render_index_html(lang))),
         "/snapshot" => {
             // 无鉴权面：封禁清单先降敏再输出（目标脱敏 + 原因剔除）
             let mut body = source.introspect().await;
@@ -586,6 +602,210 @@ async fn serve_snapshot(
             ),
         }))),
     }
+}
+
+/// 请求语言：`?lang=` 优先（显式切换），其次 `Accept-Language`，最后进程 locale
+///
+/// 只做 en/zh 收敛；其余语言经目录兜底链落到英文，与 `translate_for` 同口径。
+fn requested_lang(query_lang: Option<&str>, headers: &HeaderMap) -> String {
+    if let Some(value) = query_lang {
+        let tag = value.trim().to_ascii_lowercase();
+        if tag.starts_with("zh") {
+            return "zh".to_string();
+        }
+        if tag.starts_with("en") {
+            return "en".to_string();
+        }
+    }
+    if let Some(header) = headers
+        .get(ACCEPT_LANGUAGE)
+        .and_then(|value| value.to_str().ok())
+    {
+        for part in header.split(',') {
+            let tag = part
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase();
+            if tag.starts_with("zh") {
+                return "zh".to_string();
+            }
+            if tag.starts_with("en") {
+                return "en".to_string();
+            }
+        }
+    }
+    crate::i18n::current_locale().language.as_str().to_string()
+}
+
+/// 按 `lang` 渲染内嵌单页
+///
+/// `INDEX_HTML` 是英文规范模板（结构与交互逻辑的唯一来源）；本函数只把其中
+/// 的用户可见文案逐条换成目录译文，`lang=en` 时输出与模板逐字一致。交互逻辑
+/// （sessionStorage 取 key、Bearer 头、GET-only fetch）完全不动。
+fn render_index_html(lang: &str) -> String {
+    let tr = |key: &str| crate::i18n::translate_for(lang, key, &[]);
+    // JS 字符串字面量统一走 JSON 编码（自动转义引号/反斜杠，中文原样输出）
+    let js = |key: &str| serde_json::to_string(&tr(key)).unwrap_or_else(|_| "\"\"".to_string());
+
+    let mut html = INDEX_HTML.to_string();
+    let replacements: Vec<(String, String)> = vec![
+        // ---- JS 文案：长串在前，避免 "API key required" 误伤提示全文 ----
+        (
+            "'API key required (sent as Authorization: Bearer <key>)'".to_string(),
+            js("admin-ui-api-key-required-hint"),
+        ),
+        (
+            "'API key required'".to_string(),
+            js("admin-ui-error-api-key-required"),
+        ),
+        (
+            "'Total requests'".to_string(),
+            js("admin-ui-stat-total-requests"),
+        ),
+        (
+            "'Rejected requests'".to_string(),
+            js("admin-ui-stat-rejected-requests"),
+        ),
+        (
+            "'Banned requests'".to_string(),
+            js("admin-ui-stat-banned-requests"),
+        ),
+        (
+            "'Active limit keys'".to_string(),
+            js("admin-ui-stat-active-keys"),
+        ),
+        (
+            "'Config version'".to_string(),
+            js("admin-ui-stat-config-version"),
+        ),
+        ("'Shutdown'".to_string(), js("admin-ui-stat-shutdown")),
+        (
+            "'ban_storage'".to_string(),
+            js("admin-ui-health-ban-storage"),
+        ),
+        (
+            "'background_tasks'".to_string(),
+            js("admin-ui-health-background-tasks"),
+        ),
+        ("'storage'".to_string(), js("admin-ui-health-storage")),
+        ("'cache'".to_string(), js("admin-ui-health-cache")),
+        (
+            "'slow_call_rate'".to_string(),
+            js("admin-ui-header-slow-call-rate"),
+        ),
+        (
+            "'failure_rate'".to_string(),
+            js("admin-ui-header-failure-rate"),
+        ),
+        ("'unavailable'".to_string(), js("admin-ui-cb-unavailable")),
+        ("'state'".to_string(), js("admin-ui-header-state")),
+        ("'fetch'".to_string(), js("admin-ui-label-fetch")),
+        // ---- HTML 文案：带标签的完整片段，避免子串误替换（如 Rule/Rules） ----
+        (
+            "<html lang=\"en\">".to_string(),
+            format!("<html lang=\"{lang}\">"),
+        ),
+        (
+            "<title>Limiteron admin snapshot (read-only)</title>".to_string(),
+            format!("<title>{}</title>", tr("admin-ui-title")),
+        ),
+        (
+            "<h1>Limiteron admin snapshot (read-only)</h1>".to_string(),
+            format!("<h1>{}</h1>", tr("admin-ui-title")),
+        ),
+        (
+            "<p class=\"meta\">This page issues GET requests only; auto-refresh <span id=\"refresh\">5</span>s. Data sources: /snapshot, /circuit-breaker.</p>".to_string(),
+            format!("<p class=\"meta\">{}</p>", tr("admin-ui-meta")),
+        ),
+        (
+            "<label for=\"apikey\">API key</label>".to_string(),
+            format!(
+                "<label for=\"apikey\">{}</label>",
+                tr("admin-ui-label-api-key")
+            ),
+        ),
+        (
+            "placeholder=\"Bearer API key\"".to_string(),
+            format!("placeholder=\"{}\"", tr("admin-ui-placeholder-api-key")),
+        ),
+        (
+            "<button id=\"keysave\" type=\"button\">Save</button>".to_string(),
+            format!(
+                "<button id=\"keysave\" type=\"button\">{}</button>",
+                tr("admin-ui-button-save")
+            ),
+        ),
+        (
+            "<h2>Aggregate statistics</h2>".to_string(),
+            format!("<h2>{}</h2>", tr("admin-ui-heading-stats")),
+        ),
+        (
+            "<th>Metric</th>".to_string(),
+            format!("<th>{}</th>", tr("admin-ui-header-metric")),
+        ),
+        (
+            "<th>Value</th>".to_string(),
+            format!("<th>{}</th>", tr("admin-ui-header-value")),
+        ),
+        (
+            "<h2>Health</h2>".to_string(),
+            format!("<h2>{}</h2>", tr("admin-ui-heading-health")),
+        ),
+        (
+            "<th>Component</th>".to_string(),
+            format!("<th>{}</th>", tr("admin-ui-header-component")),
+        ),
+        (
+            "<th>Status</th>".to_string(),
+            format!("<th>{}</th>", tr("admin-ui-header-status")),
+        ),
+        (
+            "<h2>Rules and decision chains</h2>".to_string(),
+            format!("<h2>{}</h2>", tr("admin-ui-heading-rules")),
+        ),
+        (
+            "<th>Rule</th>".to_string(),
+            format!("<th>{}</th>", tr("admin-ui-header-rule")),
+        ),
+        (
+            "<th>Priority</th>".to_string(),
+            format!("<th>{}</th>", tr("admin-ui-header-priority")),
+        ),
+        (
+            "<th>Matcher</th>".to_string(),
+            format!("<th>{}</th>", tr("admin-ui-header-matcher")),
+        ),
+        (
+            "<th>Limiter</th>".to_string(),
+            format!("<th>{}</th>", tr("admin-ui-header-limiter")),
+        ),
+        (
+            "<th>Nodes</th>".to_string(),
+            format!("<th>{}</th>", tr("admin-ui-header-nodes")),
+        ),
+        (
+            "<h2>Circuit breaker</h2>".to_string(),
+            format!("<h2>{}</h2>", tr("admin-ui-heading-circuit-breaker")),
+        ),
+        (
+            "<th>State</th>".to_string(),
+            format!("<th>{}</th>", tr("admin-ui-header-state")),
+        ),
+        (
+            "<th>Failure rate</th>".to_string(),
+            format!("<th>{}</th>", tr("admin-ui-header-failure-rate")),
+        ),
+        (
+            "<th>Slow call rate</th>".to_string(),
+            format!("<th>{}</th>", tr("admin-ui-header-slow-call-rate")),
+        ),
+    ];
+    for (from, to) in replacements {
+        html = html.replace(&from, &to);
+    }
+    html
 }
 
 /// 内嵌单页（无构建链）：fetch `/snapshot` 与 `/circuit-breaker` 渲染

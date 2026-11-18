@@ -178,9 +178,12 @@ sync = []
 standard = ["ban-manager", "quota-control", "circuit-breaker"]
 
 # Full：除存储后端外的全部功能（后端按需叠加 sqlite/postgres/mysql）
-full = ["cache-redis", "ban-manager", "quota-control", "circuit-breaker", "fallback", "custom-limiter", "gcra", "parallel-checker", "geo-matching", "device-matching", "regex-matching", "telemetry", "prometheus", "audit-log", "macros", "config-watcher", "webhook", "cache-service", "tower-middleware", "event-system", "lua-script", "multi-tenant", "admin-api", "sync", "bulkhead", "validation", "i18n", "config-confers", "config-confers-reload", "kit", "adaptive-limiting", "priority-queue", "admission-control", "distributed", "ban-sync", "retry"]
+full = ["cache-redis", "ban-manager", "quota-control", "circuit-breaker", "fallback", "custom-limiter", "gcra", "parallel-checker", "geo-matching", "device-matching", "regex-matching", "telemetry", "prometheus", "audit-log", "macros", "config-watcher", "webhook", "cache-service", "tower-middleware", "event-system", "lua-script", "multi-tenant", "admin-api", "sync", "bulkhead", "validation", "i18n", "config-confers", "config-confers-reload", "kit", "adaptive-limiting", "priority-queue", "admission-control", "distributed", "ban-sync", "retry", "decision-trace"]
 
 default = []
+
+# 决策归因 trace：拒绝结果携带结构化 DecisionTrace（默认关，热路径零分配）
+decision-trace = []
 
 # adaptive-limiting 自 rc4 起为真实实现（AIMD 自适应并发限流器）
 adaptive-limiting = []

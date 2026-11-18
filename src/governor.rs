@@ -306,6 +306,24 @@ impl ExportedRejections {
 ///     Ok(())
 /// }
 /// ```
+/// 单规则统计快照（feature `mcp`）
+#[cfg(feature = "mcp")]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct RuleStatsSnapshot {
+    /// 规则 ID
+    pub rule_id: String,
+    /// 总检查次数
+    pub total: u64,
+    /// 允许次数
+    pub allowed: u64,
+    /// 拒绝次数
+    pub rejected: u64,
+    /// 错误次数
+    pub error: u64,
+    /// 节点级拒绝计数
+    pub node_rejections: Vec<(String, u64)>,
+}
+
 /// 假设性检查的节点快照状态（feature `mcp`）
 #[cfg(feature = "mcp")]
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -1758,6 +1776,25 @@ impl Governor {
         }
 
         Ok(decision)
+    }
+
+    /// 逐规则统计快照（feature `mcp`）
+    #[cfg(feature = "mcp")]
+    pub async fn rule_stats(&self) -> Vec<RuleStatsSnapshot> {
+        let guard = self.rule_chains.read().await;
+        let mut out = Vec::with_capacity(guard.len());
+        for entry in guard.iter() {
+            let stats = entry.value().stats_sync();
+            out.push(RuleStatsSnapshot {
+                rule_id: entry.key().clone(),
+                total: stats.total_checks,
+                allowed: stats.allowed_count,
+                rejected: stats.rejected_count,
+                error: stats.error_count,
+                node_rejections: stats.node_rejections,
+            });
+        }
+        out
     }
 
     /// 假设性检查（feature `mcp`）：零消费、零事件、零负缓存
@@ -5140,6 +5177,35 @@ mod governor_construction_tests {
                 "FailClosed rejection must be cached; chain should run only once"
             );
         }
+    }
+
+    #[cfg(feature = "mcp")]
+    #[tokio::test]
+    async fn test_rule_stats_reflect_checks() {
+        let governor = Governor::builder()
+            .with_config(create_small_capacity_config())
+            .with_storage(Arc::new(MemoryStorage::new()))
+            .with_ban_storage(Arc::new(MemoryBanStorage::new()))
+            .with_l1_cache_enabled(false)
+            .build()
+            .await
+            .expect("build should succeed");
+
+        let mut ctx = RequestContext::default();
+        ctx.client_ip = Some("10.0.0.333".to_string());
+        // 容量 3：前 3 次允许，第 4 次拒绝
+        for _ in 0..4 {
+            let _ = governor.check(&ctx).await;
+        }
+
+        let stats = governor.rule_stats().await;
+        let small = stats
+            .iter()
+            .find(|s| s.rule_id == "small_bucket")
+            .expect("small_bucket stats present");
+        assert_eq!(small.total, 4);
+        assert_eq!(small.allowed, 3);
+        assert_eq!(small.rejected, 1);
     }
 
     #[cfg(feature = "mcp")]

@@ -5,6 +5,7 @@
 //! 整合所有配置相关的子模块，提供统一的配置管理接口。
 
 // 子模块声明
+pub mod drift;
 pub(crate) mod loader;
 pub(crate) mod types;
 // config-watcher 模块尚未实现：BanFileLoader::start_watching 已提供文件级热重载能力，
@@ -13,6 +14,7 @@ pub(crate) mod types;
 // pub mod watcher;
 
 // Re-export all config types from types module
+pub use drift::ConfigDrift;
 pub use types::{
     Action, ActionConfig, BanConfig, BanScope, CacheBackend, ChangeSource, ConfigBuilder,
     ConfigChangeRecord, ConfigHistory, FailurePolicy, FlowControlConfig, GlobalConfig,

@@ -2654,7 +2654,7 @@ impl Governor {
     pub async fn apply_config_with_operator(
         &self,
         new_config: FlowControlConfig,
-        operator: Option<&str>,
+        #[cfg_attr(not(feature = "audit-log"), allow(unused_variables))] operator: Option<&str>,
     ) -> Result<ConfigApplyReport, LimiteronError> {
         // 1. 校验（规则非空 / ID 唯一 / 匹配器与限流器合法等）
         new_config.validate().map_err(LimiteronError::ConfigError)?;
@@ -4933,6 +4933,7 @@ mod governor_construction_tests {
         assert!(plain.apply_config(create_valid_test_config()).await.is_ok());
     }
 
+    #[cfg(feature = "decision-trace")]
     #[tokio::test]
     async fn test_decision_trace_attached_on_rejection_when_enabled() {
         // 关闭 L1 缓存避免负缓存命中路径，确保走级联循环装配 trace。

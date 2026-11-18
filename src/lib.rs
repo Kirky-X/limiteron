@@ -203,8 +203,8 @@ pub use sync::{CircuitCallError, RateLimitRejection, SyncCircuitBreaker, SyncFix
 pub use cache::{Cache, CacheKey, CacheService, MemoryCache};
 pub use config::ConfigLoader;
 pub use config::{
-    ActionConfig, ChangeSource, ConfigChangeRecord, ConfigHistory, ConfigMatcher, FailurePolicy,
-    FlowControlConfig, LimiterConfig, Rule as ConfigRule,
+    ActionConfig, ChangeSource, ConfigChangeRecord, ConfigDrift, ConfigHistory, ConfigMatcher,
+    FailurePolicy, FlowControlConfig, LimiterConfig, Rule as ConfigRule,
 };
 #[cfg(feature = "decision-trace")]
 pub use decision_chain::trace::{CascadeEntry, CascadeOutcome, DecisionTrace, NodeOutcome};

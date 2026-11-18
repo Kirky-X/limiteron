@@ -80,6 +80,7 @@ impl CliInvocation {
                 "validate": "validate <config-file>",
                 "export": "export <config-file>",
                 "apply": "apply <config-file> [--out <output-file>]",
+                "doctor": "doctor [--security] [--config <file>]",
             }),
         );
         Self::new(EXIT_OK, "help", fields)
@@ -123,6 +124,7 @@ where
             ),
         },
         "apply" => cmd_apply(&args[1..]),
+        "doctor" => cmd_doctor(&args[1..]),
         other => usage_error(other, &crate::i18n::t_simple("cli-error-unknown-command")),
     }
 }
@@ -379,6 +381,108 @@ fn cmd_apply(rest: &[String]) -> CliInvocation {
     CliInvocation::new(code, "apply", fields)
 }
 
+/// `doctor [--security] [--config <file>]` 安全姿态自审计
+///
+/// `--security` 为当前唯一模式，缺省等价启用。`--config` 给定则加载规则配置
+/// 参与检查；配置加载失败输出 Fail 项并以 `EXIT_ERROR` 退出。
+fn cmd_doctor(rest: &[String]) -> CliInvocation {
+    use doctor::{DoctorStatus, run_security_checks};
+
+    let mut config_path: Option<&str> = None;
+    let mut i = 0;
+    while i < rest.len() {
+        match rest[i].as_str() {
+            "--security" => i += 1,
+            "--config" => match rest.get(i + 1) {
+                Some(p) => {
+                    config_path = Some(p);
+                    i += 2;
+                }
+                None => {
+                    return usage_error(
+                        "doctor",
+                        &crate::i18n::t(
+                            "cli-error-unknown-option",
+                            &[("option", "--config".to_string())],
+                        ),
+                    );
+                }
+            },
+            other => {
+                return usage_error(
+                    "doctor",
+                    &crate::i18n::t("cli-error-unknown-option", &[("option", other.to_string())]),
+                );
+            }
+        }
+    }
+
+    let mut fields = serde_json::Map::new();
+    let loaded;
+    if let Some(path) = config_path {
+        match load_config(path) {
+            Ok(cfg) => {
+                loaded = cfg;
+                fields.insert("file".to_string(), serde_json::json!(path));
+            }
+            Err(e) => {
+                fields.insert("ok".to_string(), serde_json::json!(false));
+                fields.insert("checks".to_string(), serde_json::json!([]));
+                fields.insert(
+                    "errors".to_string(),
+                    serde_json::json!([serde_json::json!({
+                        "name": "config-load",
+                        "status": "fail",
+                        "detail": e,
+                    })]),
+                );
+                return CliInvocation::new(EXIT_ERROR, "doctor", fields);
+            }
+        }
+    } else {
+        // 无 --config：用空规则配置让检查项按编译期 feature 面判定
+        loaded = FlowControlConfig {
+            version: "0.0.0".to_string(),
+            global: Default::default(),
+            rules: vec![],
+        };
+    }
+
+    let report = run_security_checks(Some(&loaded));
+    let (pass, warn, fail) = report.counts();
+    let symbol = |s: DoctorStatus| match s {
+        DoctorStatus::Pass => "✓",
+        DoctorStatus::Warn => "!",
+        DoctorStatus::Fail => "✗",
+    };
+    let text = {
+        let mut lines = Vec::with_capacity(report.checks.len());
+        for c in &report.checks {
+            lines.push(format!("{} {}: {}", symbol(c.status), c.name, c.detail));
+        }
+        lines.join("\n")
+    };
+
+    fields.insert("ok".to_string(), serde_json::json!(true));
+    fields.insert(
+        "checks".to_string(),
+        serde_json::to_value(&report.checks).unwrap_or_default(),
+    );
+    fields.insert(
+        "summary".to_string(),
+        serde_json::json!({ "pass": pass, "warn": warn, "fail": fail }),
+    );
+    fields.insert("text".to_string(), serde_json::json!(text));
+    fields.insert("profile".to_string(), serde_json::json!(report.profile));
+
+    let code = match report.overall() {
+        DoctorStatus::Pass => EXIT_OK,
+        DoctorStatus::Warn => EXIT_WARNINGS,
+        DoctorStatus::Fail => EXIT_ERROR,
+    };
+    CliInvocation::new(code, "doctor", fields)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -598,6 +702,51 @@ mod tests {
     }
 
     // 用法与退出码契约
+
+    // doctor --security
+
+    #[test]
+    fn test_doctor_valid_config_warn_exit_1() {
+        let (_dir, path) = write_temp_config(&valid_config_json(), "json");
+        let inv = run(["doctor", "--security", "--config", path.to_str().unwrap()]);
+        assert_eq!(inv.output["command"], serde_json::json!("doctor"));
+        assert!(
+            inv.exit_code == EXIT_OK
+                || inv.exit_code == EXIT_WARNINGS
+                || inv.exit_code == EXIT_ERROR,
+            "exit code must honor 0/1/2 contract: {:?}",
+            inv.output
+        );
+        // 检查项与摘要齐备
+        assert_eq!(inv.output["checks"].as_array().unwrap().len(), 10);
+        assert!(inv.output["summary"].is_object());
+        assert!(inv.output["text"].as_str().unwrap().contains("audit-chain"));
+        // input-validation 缺失为 Fail（exit 2）；启用 validation 后其余告警为 exit 1
+        assert_eq!(
+            inv.exit_code,
+            if cfg!(feature = "validation") {
+                EXIT_WARNINGS
+            } else {
+                EXIT_ERROR
+            }
+        );
+    }
+
+    #[test]
+    fn test_doctor_bad_config_exit_2() {
+        let inv = run(["doctor", "--security", "--config", "/nonexistent/cfg.json"]);
+        assert_eq!(inv.exit_code, EXIT_ERROR);
+        assert_eq!(inv.output["checks"], serde_json::json!([]));
+        assert!(!inv.output["errors"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_doctor_default_flag_equivalent() {
+        let a = run(["doctor"]);
+        let b = run(["doctor", "--security"]);
+        assert_eq!(a.exit_code, b.exit_code);
+        assert_eq!(a.output["summary"], b.output["summary"]);
+    }
 
     #[test]
     fn test_t612_no_args_prints_usage_exit_0() {

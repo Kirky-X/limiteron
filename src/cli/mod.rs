@@ -82,6 +82,7 @@ impl CliInvocation {
                 "export": "export <config-file>",
                 "apply": "apply <config-file> [--out <output-file>]",
                 "doctor": "doctor [--security] [--config <file>]",
+                "dry-run": "dry-run --baseline <file> --candidate <file> --traffic <file> [--format json]",
             }),
         );
         Self::new(EXIT_OK, "help", fields)
@@ -126,6 +127,7 @@ where
         },
         "apply" => cmd_apply(&args[1..]),
         "doctor" => cmd_doctor(&args[1..]),
+        "dry-run" => cmd_dry_run(&args[1..]),
         other => usage_error(other, &crate::i18n::t_simple("cli-error-unknown-command")),
     }
 }
@@ -484,6 +486,145 @@ fn cmd_doctor(rest: &[String]) -> CliInvocation {
     CliInvocation::new(code, "doctor", fields)
 }
 
+/// `dry-run --baseline <f> --candidate <f> --traffic <f> [--format json]`
+///
+/// 逐行流式回放 JSONL trace；畸形行计入 `skipped_lines` 并显性输出，不静默丢弃。
+fn cmd_dry_run(rest: &[String]) -> CliInvocation {
+    let mut baseline: Option<&str> = None;
+    let mut candidate: Option<&str> = None;
+    let mut traffic: Option<&str> = None;
+    let mut json_format = false;
+    let mut i = 0;
+    while i < rest.len() {
+        match rest[i].as_str() {
+            "--baseline" | "--candidate" | "--traffic" => {
+                let flag = rest[i].as_str();
+                let Some(v) = rest.get(i + 1) else {
+                    return usage_error(
+                        "dry-run",
+                        &crate::i18n::t(
+                            "cli-error-unknown-option",
+                            &[("option", flag.to_string())],
+                        ),
+                    );
+                };
+                match flag {
+                    "--baseline" => baseline = Some(v),
+                    "--candidate" => candidate = Some(v),
+                    _ => traffic = Some(v),
+                }
+                i += 2;
+            }
+            "--format" => match rest.get(i + 1).map(|s| s.as_str()) {
+                Some("json") => {
+                    json_format = true;
+                    i += 2;
+                }
+                Some(other) => {
+                    return usage_error(
+                        "dry-run",
+                        &crate::i18n::t(
+                            "cli-error-unknown-option",
+                            &[("option", other.to_string())],
+                        ),
+                    );
+                }
+                None => {
+                    return usage_error(
+                        "dry-run",
+                        &crate::i18n::t_simple("cli-error-unknown-option"),
+                    );
+                }
+            },
+            other => {
+                return usage_error(
+                    "dry-run",
+                    &crate::i18n::t("cli-error-unknown-option", &[("option", other.to_string())]),
+                );
+            }
+        }
+    }
+
+    let (base_path, cand_path, trace_path) = match (baseline, candidate, traffic) {
+        (Some(b), Some(c), Some(t)) => (b, c, t),
+        _ => {
+            return usage_error(
+                "dry-run",
+                &crate::i18n::t_simple("cli-error-missing-config-file"),
+            );
+        }
+    };
+
+    let mut fields = serde_json::Map::new();
+    fields.insert("baseline".to_string(), serde_json::json!(base_path));
+    fields.insert("candidate".to_string(), serde_json::json!(cand_path));
+    fields.insert("traffic".to_string(), serde_json::json!(trace_path));
+
+    let base_cfg = match load_config(base_path) {
+        Ok(c) => c,
+        Err(e) => {
+            fields.insert("ok".to_string(), serde_json::json!(false));
+            fields.insert("errors".to_string(), serde_json::json!([e]));
+            return CliInvocation::new(EXIT_ERROR, "dry-run", fields);
+        }
+    };
+    let cand_cfg = match load_config(cand_path) {
+        Ok(c) => c,
+        Err(e) => {
+            fields.insert("ok".to_string(), serde_json::json!(false));
+            fields.insert("errors".to_string(), serde_json::json!([e]));
+            return CliInvocation::new(EXIT_ERROR, "dry-run", fields);
+        }
+    };
+    let body = match std::fs::read_to_string(trace_path) {
+        Ok(b) => b,
+        Err(e) => {
+            fields.insert("ok".to_string(), serde_json::json!(false));
+            fields.insert(
+                "errors".to_string(),
+                serde_json::json!([crate::i18n::t(
+                    "cli-error-write-output-failed",
+                    &[("path", trace_path.to_string()), ("reason", e.to_string())]
+                )]),
+            );
+            return CliInvocation::new(EXIT_ERROR, "dry-run", fields);
+        }
+    };
+
+    let report = dryrun::replay_lines(&base_cfg, &cand_cfg, &body);
+    fields.insert("ok".to_string(), serde_json::json!(true));
+    if json_format {
+        if let Ok(v) = serde_json::to_value(&report) {
+            fields.extend(serde_json::Map::<String, serde_json::Value>::from_iter(
+                v.as_object().unwrap().clone(),
+            ));
+        }
+    } else {
+        let text = format!(
+            "total_requests: {}
+skipped_lines: {}
+attribution: {:?}
+baseline: {:?}
+candidate: {:?}
+delta: {:?}
+per_rule: {:?}",
+            report.total_requests,
+            report.skipped_lines,
+            report.attribution,
+            report.baseline,
+            report.candidate,
+            report.delta,
+            report.per_rule,
+        );
+        fields.insert("text".to_string(), serde_json::json!(text));
+        fields.insert(
+            "report".to_string(),
+            serde_json::to_value(&report).unwrap_or_default(),
+        );
+    }
+    CliInvocation::new(EXIT_OK, "dry-run", fields)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -700,6 +841,94 @@ mod tests {
         ]);
         assert_eq!(inv.exit_code, EXIT_ERROR);
         assert_eq!(inv.output["applied"], serde_json::json!(false));
+    }
+
+    // dry-run
+
+    fn dryrun_config(capacity: u64) -> String {
+        format!(
+            r#"{{
+                "version": "1.0.0",
+                "global": {{ "storage": "memory", "cache": "memory", "metrics": "none" }},
+                "rules": [{{
+                    "id": "api", "name": "api", "priority": 100,
+                    "matchers": [{{ "type": "User", "user_ids": ["*"] }}],
+                    "limiters": [{{ "type": "TokenBucket", "capacity": {capacity}, "refill_rate": 1 }}],
+                    "action": {{ "on_exceed": "reject" }}
+                }}]
+            }}"#
+        )
+    }
+
+    #[test]
+    fn test_dry_run_json_output_exit_0() {
+        let (_d1, b) = write_temp_config(&dryrun_config(1), "json");
+        let (_d2, c) = write_temp_config(&dryrun_config(10), "json");
+        let (_d3, t) = write_temp_config(
+            "{\"ts_ms\":1,\"identifier\":{\"user_id\":\"u1\"},\"path\":\"/api\"}\nBAD_LINE\n{\"ts_ms\":2,\"identifier\":{\"user_id\":\"u2\"},\"path\":\"/api\"}",
+            "jsonl",
+        );
+        let inv = run([
+            "dry-run",
+            "--baseline",
+            b.to_str().unwrap(),
+            "--candidate",
+            c.to_str().unwrap(),
+            "--traffic",
+            t.to_str().unwrap(),
+            "--format",
+            "json",
+        ]);
+        assert_eq!(inv.exit_code, EXIT_OK, "{:?}", inv.output);
+        assert_eq!(inv.output["command"], serde_json::json!("dry-run"));
+        assert_eq!(inv.output["total_requests"], serde_json::json!(2));
+        assert_eq!(inv.output["skipped_lines"], serde_json::json!(1));
+        assert!(inv.output["baseline"].is_object());
+        assert!(inv.output["candidate"].is_object());
+        assert!(inv.output["delta"].is_object());
+        assert!(inv.output["per_rule"].is_array());
+    }
+
+    #[test]
+    fn test_dry_run_missing_traffic_exit_2() {
+        let (_d1, b) = write_temp_config(&dryrun_config(1), "json");
+        let (_d2, c) = write_temp_config(&dryrun_config(10), "json");
+        let inv = run([
+            "dry-run",
+            "--baseline",
+            b.to_str().unwrap(),
+            "--candidate",
+            c.to_str().unwrap(),
+            "--traffic",
+            "/nonexistent/trace.jsonl",
+        ]);
+        assert_eq!(inv.exit_code, EXIT_ERROR);
+        assert_eq!(inv.output["ok"], serde_json::json!(false));
+    }
+
+    #[test]
+    fn test_dry_run_human_text_output() {
+        let (_d1, b) = write_temp_config(&dryrun_config(1), "json");
+        let (_d2, c) = write_temp_config(&dryrun_config(10), "json");
+        let (_d3, t) =
+            write_temp_config("{\"ts_ms\":1,\"identifier\":{},\"path\":\"/api\"}", "jsonl");
+        let inv = run([
+            "dry-run",
+            "--baseline",
+            b.to_str().unwrap(),
+            "--candidate",
+            c.to_str().unwrap(),
+            "--traffic",
+            t.to_str().unwrap(),
+        ]);
+        assert_eq!(inv.exit_code, EXIT_OK, "{:?}", inv.output);
+        assert!(
+            inv.output["text"]
+                .as_str()
+                .unwrap()
+                .contains("total_requests")
+        );
+        assert!(inv.output["report"].is_object());
     }
 
     // 用法与退出码契约

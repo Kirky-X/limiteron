@@ -47,6 +47,8 @@ bulkhead-full = bulkhead '{ $name }' is full (max_concurrent exhausted)
 bulkhead-circuit-open = bulkhead '{ $name }' circuit breaker is open
 admin-config-api-key-required = API key is required when admin API is enabled
 admin-config-api-key-too-short = API key must be at least 16 characters, got { $length }
+admin-strict-host-nonloopback = Strict profile forbids a non-loopback binding without an API key
+admin-strict-key-required = Strict profile requires an API key
 
 # ---- Rate limit messaging (live keys) ----
 rate-limit-exceeded = Rate limit exceeded

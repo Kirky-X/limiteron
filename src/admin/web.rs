@@ -16,6 +16,12 @@
 //!
 //! 另有请求方法级守卫：对每个注册路径发 POST/PUT/DELETE 断言 405。
 //!
+//! ## Strict profile 强制聚合
+//!
+//! 当 Admin API 配置 `security_profile = Strict` 且未显式装配 `WebUiAccess` 时，
+//! `AdminApiConfig::effective_web_ui_access()` 强制返回 `WebUiAccess::strict()`
+//! （Host 白名单 + API key），覆盖本模块宽松默认；回环 + 兼容模式维持现状。
+//!
 //! ## 绑定安全
 //!
 //! 默认绑定 `127.0.0.1`（仅本机访问）。**本 UI 默认无认证**——改为非回环

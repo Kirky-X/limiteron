@@ -46,6 +46,8 @@ bulkhead-full = 舱壁 '{ $name }' 已满（max_concurrent 已耗尽）
 bulkhead-circuit-open = 舱壁 '{ $name }' 熔断器已打开
 admin-config-api-key-required = 启用 admin API 时必须提供 API key
 admin-config-api-key-too-short = API key 必须至少 16 个字符，当前 { $length }
+admin-strict-host-nonloopback = 严格模式禁止非回环绑定且无 API key
+admin-strict-key-required = 严格模式必须提供 API key
 
 # ---- 限流消息（活跃键） ----
 rate-limit-exceeded = 超出速率限制

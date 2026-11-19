@@ -485,10 +485,10 @@ mod tests {
         assert_eq!(doc["openapi"], OPENAPI_VERSION);
         assert_eq!(doc["info"]["version"], API_VERSION);
         let paths = doc["paths"].as_object().expect("paths object");
-        // 12 条路由与 routes::create_router 一一对应
+        // 13 条路由与 routes::create_router 一一对应
         assert_eq!(
             paths.len(),
-            12,
+            13,
             "route list must stay in sync with create_router: {paths:?}"
         );
         for key in [
